@@ -1880,12 +1880,12 @@ class PetWidget(QWidget):
                 self.t += 0.033
                 try:
                     if self._look:
-                        # 鼠标在窗口内：头部+眼球跟随光标
+                        # 鼠标在窗口内：头部+眼球跟随光标（满幅度）
                         nx, ny = self._look
-                        self.model.SetParameterValue('ParamEyeBallX', nx * 0.6)
-                        self.model.SetParameterValue('ParamEyeBallY', ny * 0.4)
-                        self.model.SetParameterValue('ParamAngleZ', nx * 10.0)
-                        self.model.SetParameterValue('ParamAngleX', ny * 8.0)
+                        self.model.SetParameterValue('ParamEyeBallX', nx * 1.0)
+                        self.model.SetParameterValue('ParamEyeBallY', ny * 0.8)
+                        self.model.SetParameterValue('ParamAngleZ', nx * 12.0)
+                        self.model.SetParameterValue('ParamAngleX', ny * 10.0)
                     else:
                         # 无鼠标：自动缓慢摆动
                         self.model.SetParameterValue('ParamEyeBallX', 0.0)
