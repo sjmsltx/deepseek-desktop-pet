@@ -90,6 +90,9 @@ UI_ZH = {
     'allow': '允许执行', 'deny': '拒绝', 'show_pet': '🏠 显示桌宠',
     'archive': '📦 存档并清空对话', 'mem_mgr': '🖥️ 管理窗口…', 'mem_add': '➕ 添加记忆', 'mem_delete': '🗑 删除选中', 'mem_all': '全部',
     'mem_search': '🔍 搜索记忆…', 'mem_imp': '重要度', 'mem_content': '内容', 'mem_role': '角色', 'mem_time': '时间', 'mem_edit': '编辑',
+    'reminder_menu': '⏰ 提醒管理', 'rem_left': '剩余', 'rem_type': '类型', 'rem_cancel': '🗑 取消选中',
+    'rem_clear': '🧹 清空全部', 'rem_none': '暂无提醒', 'rem_followup': '回访', 'rem_normal': '提醒',
+    'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -116,6 +119,9 @@ UI_EN = {
     'allow': 'Allow', 'deny': 'Deny', 'show_pet': '🏠 Show pet',
     'archive': '📦 Archive & Clear Chat', 'mem_mgr': '🖥️ Manager Window…', 'mem_add': '➕ Add Memory', 'mem_delete': '🗑 Delete Selected', 'mem_all': 'All',
     'mem_search': '🔍 Search memory…', 'mem_imp': 'Importance', 'mem_content': 'Content', 'mem_role': 'Role', 'mem_time': 'Time', 'mem_edit': 'Edit',
+    'reminder_menu': '⏰ Reminders', 'rem_left': 'Left', 'rem_type': 'Type', 'rem_cancel': '🗑 Cancel Selected',
+    'rem_clear': '🧹 Clear All', 'rem_none': 'No reminders', 'rem_followup': 'Follow-up', 'rem_normal': 'Reminder',
+    'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
 }
 
 # ============ 角色配置 ============
@@ -647,6 +653,7 @@ class PetWidget(QWidget):
     ai_status_signal = Signal(str)  # AI 处理状态（思考中/正在执行xx）
     wakeup_signal = Signal(str)    # 主动消息（心跳/回访触发）
     confirm_signal = Signal(object)  # 危险操作确认请求（跨线程回调）
+    weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
 
     def __init__(self):
         super().__init__()
@@ -849,6 +856,10 @@ class PetWidget(QWidget):
         self.blink_timer.timeout.connect(self._do_blink)
         self.blink_timer.start(random.randint(8000, 15000))
         self._blinking = False
+
+        # 输入感知（打盹/久坐/光标跟随）+ 早安日报
+        self._start_idle_system()
+        self._start_morning_report()
 
     # ---------- 窗口 ----------
     def _kill_shadow(self):
@@ -1982,6 +1993,260 @@ class PetWidget(QWidget):
         else:
             self.say_plain(f'好，{seconds} 秒后提醒你：{text}')
             self._append_chat('桌宠', f'已设置提醒（{seconds}秒后）：{text}')
+
+    # ---------- 提醒管理窗口（v6.22） ----------
+    def _open_reminder_manager(self):
+        """提醒管理：查看/取消已设提醒"""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+                                       QPushButton, QHeaderView)
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        T = self._t
+        dlg = QDialog(self)
+        dlg.setWindowTitle(T('reminder_menu'))
+        dlg.resize(480, 300)
+        lay = QVBoxLayout(dlg)
+
+        table = QTableWidget(0, 3)
+        table.setHorizontalHeaderLabels([T('rem_left'), T('mem_content'), T('rem_type')])
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 90)
+        table.setColumnWidth(2, 80)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        lay.addWidget(table, 1)
+
+        def fmt_left(t):
+            d = t - time.time()
+            if d <= 0:
+                return '0s'
+            h, m, s = int(d // 3600), int(d % 3600 // 60), int(d % 60)
+            if h:
+                return f'{h}h{m}m'
+            if m:
+                return f'{m}m{s}s'
+            return f'{s}s'
+
+        def refresh():
+            table.setRowCount(0)
+            if not self.reminders:
+                return
+            for r in sorted(self.reminders, key=lambda x: x['time']):
+                row = table.rowCount()
+                table.insertRow(row)
+                table.setItem(row, 0, QTableWidgetItem(fmt_left(r['time'])))
+                table.setItem(row, 1, QTableWidgetItem(r['text']))
+                table.setItem(row, 2, QTableWidgetItem(T('rem_followup') if r.get('type') == 'followup' else T('rem_normal')))
+
+        def cancel_selected():
+            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
+            if not rows:
+                return
+            rems = sorted(self.reminders, key=lambda x: x['time'])
+            for rr in rows:
+                if 0 <= rr < len(rems):
+                    r = rems[rr]
+                    if r in self.reminders:
+                        self.reminders.remove(r)
+            refresh()
+
+        def clear_all():
+            if self.reminders:
+                self.reminders.clear()
+                refresh()
+
+        bottom = QHBoxLayout()
+        b_cancel = QPushButton(T('rem_cancel'))
+        b_cancel.clicked.connect(cancel_selected)
+        b_clear = QPushButton(T('rem_clear'))
+        b_clear.clicked.connect(clear_all)
+        b_close = QPushButton('✕')
+        b_close.clicked.connect(dlg.close)
+        bottom.addWidget(b_cancel)
+        bottom.addWidget(b_clear)
+        bottom.addStretch(1)
+        bottom.addWidget(b_close)
+        lay.addLayout(bottom)
+        refresh()
+        dlg.exec()
+
+    # ---------- 久坐提醒 + 打盹 + 输入感知（v6.22，零依赖） ----------
+    def _start_idle_system(self):
+        """启动输入感知系统：打盹 / 久坐提醒 / 光标跟随 / 唤醒"""
+        self._last_input_tick = 0
+        self._idle_warned = False
+        self._dozing = False
+        self.idle_timer = QTimer(self)
+        self.idle_timer.timeout.connect(self._check_idle_state)
+        self.idle_timer.start(2000)
+        self.cursor_timer = QTimer(self)
+        self.cursor_timer.timeout.connect(self._cursor_follow)
+        self.cursor_timer.start(100)
+
+    def _get_idle_seconds(self):
+        """系统空闲秒数（GetLastInputInfo，零依赖）"""
+        try:
+            class LASTINPUTINFO(ctypes.Structure):
+                _fields_ = [('cbSize', ctypes.c_uint), ('dwTime', ctypes.c_uint)]
+            lii = LASTINPUTINFO()
+            lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+            if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+                return (ctypes.windll.kernel32.GetTickCount() - lii.dwTime) / 1000.0
+        except Exception:
+            pass
+        return 0
+
+    def _check_idle_state(self):
+        """每 2s：打盹切换 / 久坐提醒 / 输入唤醒"""
+        idle = self._get_idle_seconds()
+        if self._edge_side is not None or self._edge_popped or self.dragging:
+            return
+        # 久坐提醒（默认 50 分钟，可配置）
+        limit = getattr(self, 'sedentary_minutes', 50) * 60
+        if idle >= limit and not self._idle_warned:
+            self._idle_warned = True
+            is_en = getattr(self, 'language', 'zh') == 'en'
+            msg = (f'😴 你已经连续坐 {int(idle // 60)} 分钟了，起来活动一下、喝口水吧！' if not is_en
+                   else f'😴 You have been sitting for {int(idle // 60)} minutes. Time to stretch!')
+            self.say_plain(msg)
+            self._append_chat('桌宠', msg)
+        elif idle < 60 and self._idle_warned:
+            self._idle_warned = False
+        # 打盹：空闲 3 分钟 → 切换睡眠立绘；有输入 → 唤醒
+        if idle >= 180:
+            if not self._dozing and self.state == 'idle':
+                sleep_img = self.state_imgs.get('sleep')
+                if sleep_img is not None:
+                    self._dozing = True
+                    self._render_frame(sleep_img)
+        elif self._dozing:
+            self._dozing = False
+            if self.state == 'idle':
+                self._show_idle()
+
+    def _cursor_follow(self):
+        """光标跟随：立绘轻微侧倾（左右 ±4px），仅待机态"""
+        if self.state != 'idle' or self._edge_side is not None or self._edge_popped or getattr(self, '_dozing', False):
+            return
+        try:
+            center_x = self.geometry().center().x()
+            dx = (QCursor.pos().x() - center_x)
+            dx = max(-400, min(400, dx)) // 100  # -4 ~ 4
+            if dx != getattr(self, '_last_follow_dx', 99):
+                self._last_follow_dx = dx
+                if dx == 0:
+                    if self.state == 'idle':
+                        self._show_idle()
+                else:
+                    self._render_idle_offset(dx)
+        except Exception:
+            pass
+
+    def _render_idle_offset(self, dx):
+        """渲染待机图带水平偏移（光标跟随用）"""
+        src = self.full_idle
+        if src is None or src.isNull():
+            return
+        size = self.pet_size
+        canvas = QPixmap(size, size)
+        canvas.fill(Qt.transparent)
+        p = QPainter(canvas)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        scaled = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        p.drawPixmap(int((size - scaled.width()) / 2) + dx, int((size - scaled.height()) / 2), scaled)
+        p.end()
+        self.pet_label.setPixmap(canvas)
+
+    # ---------- 早安日报（v6.22） ----------
+    def _start_morning_report(self):
+        """每天 08:30 早安日报：问候 + 天气 + 提醒概况"""
+        self.morning_timer = QTimer(self)
+        self.morning_timer.timeout.connect(self._morning_report)
+        self._schedule_morning()
+
+    def _schedule_morning(self):
+        now = time.localtime()
+        target = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, 8, 30, 0, 0, 0, -1))
+        if target <= time.time():
+            target += 86400
+        self.morning_timer.start(int((target - time.time()) * 1000))
+
+    def _morning_report(self):
+        """生成早安日报（天气异步查询，不卡 UI）"""
+        self._schedule_morning()
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        import datetime as _dt
+        week = ['一', '二', '三', '四', '五', '六', '日'][_dt.datetime.now().weekday()]
+        n_rem = len(self.reminders)
+        if is_en:
+            base = (f'☀️ Good morning! Today is {_dt.datetime.now().strftime("%m/%d")}. '
+                    f'You have {n_rem} reminder(s) set.')
+        else:
+            base = (f'☀️ 早上好！今天是 {_dt.datetime.now().month}月{_dt.datetime.now().day}日 星期{week}。'
+                    f'当前设置了 {n_rem} 条提醒。')
+        self.say_plain(base)
+        self._append_chat('桌宠', base)
+        # 异步查天气（线程 → weather_signal 回主线程）
+        city = self.pet_city
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        def fetch():
+            try:
+                import urllib.request, urllib.parse
+                url = f'https://wttr.in/{urllib.parse.quote(city)}?format=3&lang=zh'
+                req = urllib.request.Request(url, headers={'User-Agent': 'curl/8.0'})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    return resp.read().decode('utf-8').strip()
+            except Exception:
+                return None
+        def done(result):
+            if result:
+                wmsg = f'🌤 天气：{city} {result}' if not is_en else f'🌤 Weather: {result}'
+                self.say_plain(wmsg)
+                self._append_chat('桌宠', wmsg)
+        self.weather_signal.connect(done)
+        import threading
+        def worker():
+            r = fetch()
+            if r:
+                self.weather_signal.emit(r)
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ---------- 记忆备份/导入（v6.22） ----------
+    def _export_memory_backup(self):
+        """导出全部记忆为 JSON 备份"""
+        import datetime as _dt
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        try:
+            path = os.path.join(BASE_DIR, f'记忆备份_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self.memory_facts, f, ensure_ascii=False, indent=2)
+            self._append_chat('桌宠', f'💾 记忆已备份：{path}' if not is_en else f'💾 Memory backed up: {path}')
+        except Exception as e:
+            self._append_chat('桌宠', f'备份失败：{e}' if not is_en else f'Backup failed: {e}')
+
+    def _import_memory_backup(self):
+        """导入记忆备份（JSON，按 id 去重合并）"""
+        from PySide6.QtWidgets import QFileDialog
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        path, _ = QFileDialog.getOpenFileName(self, '选择备份文件' if not is_en else 'Select backup file', BASE_DIR, 'JSON (*.json)')
+        if not path:
+            return
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                raise ValueError('bad format')
+            exist = {f.get('id') for f in self.memory_facts}
+            added = 0
+            for item in data:
+                if isinstance(item, dict) and item.get('id') and item.get('content') and item['id'] not in exist:
+                    item.setdefault('status', 'active')
+                    item.setdefault('importance', 3)
+                    self.memory_facts.append(item)
+                    added += 1
+            self._save_memory()
+            self._append_chat('桌宠', f'📥 已导入 {added} 条记忆' if not is_en else f'📥 Imported {added} memories')
+        except Exception as e:
+            self._append_chat('桌宠', f'导入失败：{e}' if not is_en else f'Import failed: {e}')
 
     # ---------- 立绘加载与显示 ----------
     def load_character(self, key):
@@ -3288,6 +3553,10 @@ class PetWidget(QWidget):
         mmmenu.addAction(T('view_memory')).triggered.connect(self._show_memory)
         mmmenu.addAction(T('delete_memory')).triggered.connect(self._delete_memory_dialog)
         mmmenu.addAction(T('clear_memory')).triggered.connect(self._clear_memory_confirm)
+        mmmenu.addSeparator()
+        mmmenu.addAction(T('mem_backup')).triggered.connect(self._export_memory_backup)
+        mmmenu.addAction(T('mem_import')).triggered.connect(self._import_memory_backup)
+        smenu.addAction(T('reminder_menu')).triggered.connect(self._open_reminder_manager)
         smenu.addSeparator()
         smenu.addAction(T('export_chat')).triggered.connect(self._export_chat)
         smenu.addSeparator()
