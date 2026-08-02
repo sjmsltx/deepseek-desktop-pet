@@ -57,6 +57,7 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OCR_PS1 = os.path.join(BASE_DIR, 'ocr_helper.ps1')
+LIVE2D_MODEL = os.path.join(BASE_DIR, 'assets', 'live2d', 'mao', 'Mao.model3.json')
 ASSETS = os.path.join(BASE_DIR, 'assets')
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
@@ -94,6 +95,7 @@ UI_ZH = {
     'reminder_menu': '⏰ 提醒管理', 'rem_left': '剩余', 'rem_type': '类型', 'rem_cancel': '🗑 取消选中',
     'rem_clear': '🧹 清空全部', 'rem_none': '暂无提醒', 'rem_followup': '回访', 'rem_normal': '提醒',
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
+    'l2d_preview': '🎬 Live2D 预览',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -123,6 +125,7 @@ UI_EN = {
     'reminder_menu': '⏰ Reminders', 'rem_left': 'Left', 'rem_type': 'Type', 'rem_cancel': '🗑 Cancel Selected',
     'rem_clear': '🧹 Clear All', 'rem_none': 'No reminders', 'rem_followup': 'Follow-up', 'rem_normal': 'Reminder',
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
+    'l2d_preview': '🎬 Live2D Preview',
 }
 
 # ============ 角色配置 ============
@@ -1814,6 +1817,77 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', f'📤 已导出：{path}')
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
+
+    def _open_live2d_preview(self):
+        """Live2D 预览窗口（Mao 模型：自动眨眼/呼吸/跟随光标），与静态立绘并行"""
+        if getattr(self, '_l2d_win', None) is not None:
+            try:
+                self._l2d_win.show()
+                self._l2d_win.raise_()
+                return
+            except Exception:
+                self._l2d_win = None
+        if not os.path.exists(LIVE2D_MODEL):
+            self._append_chat('桌宠', 'Live2D 模型不存在（assets/live2d/mao/），无法预览')
+            return
+        try:
+            import live2d.v3 as live2d
+            from PySide6.QtWidgets import QMainWindow
+            from PySide6.QtOpenGLWidgets import QOpenGLWidget
+        except Exception as e:
+            self._append_chat('桌宠', f'Live2D 依赖缺失：{e}（需要 pip install live2d-py）')
+            return
+        if not getattr(self, '_l2d_inited', False):
+            try:
+                live2d.init()
+                self._l2d_inited = True
+            except Exception as e:
+                self._append_chat('桌宠', f'Live2D 初始化失败：{e}')
+                return
+
+        class L2DWidget(QOpenGLWidget):
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.model = None
+
+            def initializeGL(self):
+                try:
+                    live2d.glInit()
+                    self.model = live2d.LAppModel()
+                    self.model.LoadModelJson(LIVE2D_MODEL)
+                    self.model.Resize(self.width(), self.height())
+                    self.model.SetAutoBlinkEnable(True)
+                    self.model.SetAutoBreathEnable(True)
+                    self.model.StartRandomMotion('Idle', 1)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+
+            def paintGL(self):
+                try:
+                    live2d.clearBuffer(0, 0, 0, 0)
+                    if self.model:
+                        self.model.Update()
+                        self.model.Draw()
+                except Exception:
+                    pass
+
+            def resizeGL(self, w, h):
+                if self.model:
+                    self.model.Resize(w, h)
+
+            def mouseMoveEvent(self, e):
+                if self.model:
+                    self.model.Drag(e.position().x() / max(1, self.width()),
+                                    e.position().y() / max(1, self.height()))
+
+        win = QMainWindow()
+        win.setWindowTitle('Live2D Preview' if getattr(self, 'language', 'zh') == 'en' else 'Live2D 预览')
+        win.resize(420, 520)
+        win.setCentralWidget(L2DWidget(win))
+        win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        win.show()
+        self._l2d_win = win
 
     def _archive_and_clear(self):
         """存档当前对话（带时间戳 txt）并清空，重新开始"""
@@ -3565,6 +3639,7 @@ class PetWidget(QWidget):
         imenu.addSeparator()
         imenu.addAction(T('toggle_chat')).triggered.connect(lambda: self.toggle_chat_panel())
         imenu.addSeparator()
+        imenu.addAction(T('l2d_preview')).triggered.connect(self._open_live2d_preview)
         imenu.addAction(T('archive')).triggered.connect(lambda: self._archive_and_clear())
         act_active = imenu.addAction(T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
         act_active.triggered.connect(lambda: self.toggle_active_chat())
