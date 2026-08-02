@@ -1851,6 +1851,7 @@ class PetWidget(QWidget):
                 self.model = None
                 self.t = 0
                 self.ids = []
+                self._look = None  # 视线跟随目标 (nx, ny)，None=无鼠标
                 self.setMouseTracking(True)  # 关键：不按鼠标也触发 mouseMoveEvent（视线跟随）
 
             def initializeGL(self):
@@ -1872,14 +1873,25 @@ class PetWidget(QWidget):
                     traceback.print_exc()
 
             def _drive(self):
-                """手动驱动参数：明显动画效果 + 每帧触发重绘"""
+                """每帧驱动：视线跟随（有鼠标）或自动摆动（无鼠标）+ 眨眼呼吸"""
                 if self.model is None:
                     return
                 import math
                 self.t += 0.033
                 try:
-                    self.model.SetParameterValue('ParamAngleZ', math.sin(self.t * 1.2) * 12.0)
-                    self.model.SetParameterValue('ParamAngleX', math.sin(self.t * 0.8) * 6.0)
+                    if self._look:
+                        # 鼠标在窗口内：头部+眼球跟随光标
+                        nx, ny = self._look
+                        self.model.SetParameterValue('ParamEyeBallX', nx * 0.6)
+                        self.model.SetParameterValue('ParamEyeBallY', ny * 0.4)
+                        self.model.SetParameterValue('ParamAngleZ', nx * 10.0)
+                        self.model.SetParameterValue('ParamAngleX', ny * 8.0)
+                    else:
+                        # 无鼠标：自动缓慢摆动
+                        self.model.SetParameterValue('ParamEyeBallX', 0.0)
+                        self.model.SetParameterValue('ParamEyeBallY', 0.0)
+                        self.model.SetParameterValue('ParamAngleZ', math.sin(self.t * 1.2) * 8.0)
+                        self.model.SetParameterValue('ParamAngleX', math.sin(self.t * 0.8) * 4.0)
                     self.model.SetParameterValue('ParamBodyAngleZ', math.sin(self.t * 0.6) * 4.0)
                     blink = max(0.0, math.sin(self.t * math.pi / 3.0))
                     self.model.SetParameterValue('ParamEyeLOpen', blink)
@@ -1904,9 +1916,15 @@ class PetWidget(QWidget):
 
             def mouseMoveEvent(self, e):
                 if self.model:
-                    self.model.Drag(e.position().x() / max(1, self.width()),
-                                    e.position().y() / max(1, self.height()))
+                    # 归一化到 -1~1（相对窗口中心），供参数驱动
+                    self._look = (
+                        (e.position().x() / max(1, self.width()) - 0.5) * 2,
+                        (e.position().y() / max(1, self.height()) - 0.5) * 2,
+                    )
                     self.update()
+
+            def leaveEvent(self, e):
+                self._look = None
 
             def mousePressEvent(self, e):
                 if self.model:
