@@ -88,6 +88,8 @@ UI_ZH = {
     'dlg_personality': '自定义性格', 'dlg_tokens': '回复长度',
     'dlg_delete_mem': '删除记忆', 'dlg_clear_mem': '清空记忆', 'dlg_confirm': '⚠️ 危险操作确认',
     'allow': '允许执行', 'deny': '拒绝', 'show_pet': '🏠 显示桌宠',
+    'archive': '📦 存档并清空对话', 'mem_mgr': '🖥️ 管理窗口…', 'mem_add': '➕ 添加记忆', 'mem_delete': '🗑 删除选中', 'mem_all': '全部',
+    'mem_search': '🔍 搜索记忆…', 'mem_imp': '重要度', 'mem_content': '内容', 'mem_role': '角色', 'mem_time': '时间', 'mem_edit': '编辑',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -112,6 +114,8 @@ UI_EN = {
     'dlg_personality': 'Custom Personality', 'dlg_tokens': 'Reply Length',
     'dlg_delete_mem': 'Delete Memory', 'dlg_clear_mem': 'Clear Memory', 'dlg_confirm': '⚠️ Confirm Dangerous Operation',
     'allow': 'Allow', 'deny': 'Deny', 'show_pet': '🏠 Show pet',
+    'archive': '📦 Archive & Clear Chat', 'mem_mgr': '🖥️ Manager Window…', 'mem_add': '➕ Add Memory', 'mem_delete': '🗑 Delete Selected', 'mem_all': 'All',
+    'mem_search': '🔍 Search memory…', 'mem_imp': 'Importance', 'mem_content': 'Content', 'mem_role': 'Role', 'mem_time': 'Time', 'mem_edit': 'Edit',
 }
 
 # ============ 角色配置 ============
@@ -1796,6 +1800,166 @@ class PetWidget(QWidget):
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
 
+    def _archive_and_clear(self):
+        """存档当前对话（带时间戳 txt）并清空，重新开始"""
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if not self.chat_history_msgs:
+            self._append_chat('桌宠', '没有可存档的对话' if not is_en else 'No conversation to archive')
+            return
+        try:
+            import datetime as _dt
+            import re as _rex
+            fname = f'聊天存档_{self.current}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+            path = os.path.join(BASE_DIR, fname)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(f'角色: {CHARACTERS[self.current]["name"]}  时间: {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+                f.write('=' * 40 + '\n')
+                for m in self.chat_history_msgs:
+                    who = '我' if m.get('role') == 'user' else '桌宠'
+                    c = (m.get('content') or '').strip()
+                    if c and not c.startswith('（'):
+                        c = _rex.sub(r'\[emotion[:=][a-z_]+\]?\s*', '', c)
+                        f.write(f'{who}: {c}\n')
+            # 清空对话
+            self.chat_history_msgs = []
+            self.chat_history.clear()
+            self._save_chat_memory()
+            self._append_chat('桌宠', f'📦 已存档并清空：{fname}' if not is_en else f'📦 Archived and cleared: {fname}')
+        except Exception as e:
+            self._append_chat('桌宠', f'存档失败：{e}' if not is_en else f'Archive failed: {e}')
+
+    def _open_memory_manager(self):
+        """记忆管理窗口：表格视图，支持筛选/搜索/编辑/删除/添加"""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+                                       QPushButton, QComboBox, QLineEdit, QHeaderView, QInputDialog, QMessageBox)
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        T = self._t
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(T('memory_menu'))
+        dlg.resize(600, 440)
+        lay = QVBoxLayout(dlg)
+
+        # 顶部：角色筛选 + 搜索
+        top = QHBoxLayout()
+        role_box = QComboBox()
+        role_box.addItem(T('mem_all'), '')
+        role_box.addItem('⚡ Flash', 'flash')
+        role_box.addItem('🐋 Pro', 'pro')
+        top.addWidget(role_box)
+        search_edit = QLineEdit()
+        search_edit.setPlaceholderText(T('mem_search'))
+        top.addWidget(search_edit, 1)
+        lay.addLayout(top)
+
+        # 表格
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels([T('mem_imp'), T('mem_content'), T('mem_role'), T('mem_time'), ''])
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 70)
+        table.setColumnWidth(2, 70)
+        table.setColumnWidth(3, 110)
+        table.setColumnWidth(4, 60)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        lay.addWidget(table, 1)
+
+        def refresh():
+            """刷新表格（按筛选+搜索）"""
+            rfilter = role_box.currentData()
+            kw = search_edit.text().strip().lower()
+            active = [f for f in self.memory_facts if f.get('status') == 'active']
+            if rfilter:
+                active = [f for f in active if f.get('roles', 'both') in (rfilter, 'both')]
+            if kw:
+                active = [f for f in active if kw in (f.get('content') or '').lower()]
+            active.sort(key=lambda x: -x.get('importance', 3))
+            self._mem_current_ids = [f.get('id') for f in active]
+            table.setRowCount(0)
+            for f in active:
+                r = table.rowCount()
+                table.insertRow(r)
+                table.setItem(r, 0, QTableWidgetItem('★' * f.get('importance', 3)))
+                table.setItem(r, 1, QTableWidgetItem(f.get('content', '')))
+                roles = f.get('roles', 'both')
+                table.setItem(r, 2, QTableWidgetItem({'flash': 'Flash', 'pro': 'Pro', 'both': 'Both'}.get(roles, 'Both')))
+                table.setItem(r, 3, QTableWidgetItem(f.get('created_at', '')[:16]))
+                del_btn = QPushButton(T('mem_edit'))
+                del_btn.setFixedWidth(52)
+                del_btn.clicked.connect(lambda checked, fid=f.get('id', ''): _edit_row(fid, table.currentRow()))
+                table.setCellWidget(r, 4, del_btn)
+
+        def _edit_row(fid, row):
+            """编辑单条记忆（内容+重要度）"""
+            f = next((x for x in self.memory_facts if x.get('id') == fid), None)
+            if not f:
+                return
+            new_text, ok1 = QInputDialog.getText(dlg, T('mem_edit'), T('mem_content'), text=f.get('content', ''))
+            if ok1 and new_text.strip():
+                imp, ok2 = QInputDialog.getInt(dlg, T('mem_edit'), T('mem_imp'), f.get('importance', 3), 1, 5)
+                if ok2:
+                    f['content'] = new_text.strip()
+                    f['importance'] = imp
+                    f['updated_at'] = __import__('datetime').datetime.now().isoformat(timespec='seconds')
+                    self._save_memory()
+                    refresh()
+
+        def on_double(row, col):
+            item = table.item(row, 1)
+            if item:
+                fid = self._memory_fid_by_row(row)
+                if fid:
+                    _edit_row(fid, row)
+
+        def add_memory():
+            text, ok = QInputDialog.getText(dlg, T('mem_add'), T('mem_content'))
+            if ok and text.strip():
+                imp, ok2 = QInputDialog.getInt(dlg, T('mem_add'), T('mem_imp'), 3, 1, 5)
+                if ok2:
+                    self._remember_fact('add', text.strip(), imp)
+                    refresh()
+
+        def delete_selected():
+            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
+            if not rows:
+                return
+            for r in rows:
+                fid = self._memory_fid_by_row(r)
+                if fid:
+                    self._remember_fact('delete', fid=fid)
+            refresh()
+
+        # 底部按钮
+        bottom = QHBoxLayout()
+        btn_add = QPushButton(T('mem_add'))
+        btn_add.clicked.connect(add_memory)
+        btn_del = QPushButton(T('mem_delete'))
+        btn_del.clicked.connect(delete_selected)
+        btn_clear = QPushButton(T('clear_memory'))
+        btn_clear.clicked.connect(self._clear_memory_confirm)
+        btn_close = QPushButton('✕')
+        btn_close.clicked.connect(dlg.close)
+        bottom.addWidget(btn_add)
+        bottom.addWidget(btn_del)
+        bottom.addWidget(btn_clear)
+        bottom.addStretch(1)
+        bottom.addWidget(btn_close)
+        lay.addLayout(bottom)
+
+        role_box.currentIndexChanged.connect(refresh)
+        search_edit.textChanged.connect(refresh)
+        table.cellDoubleClicked.connect(on_double)
+        self._mem_current_ids = []
+        refresh()
+        dlg.exec()
+
+    def _memory_fid_by_row(self, row):
+        """辅助：按表格行号取当前筛选列表中的记忆 id"""
+        ids = getattr(self, '_mem_current_ids', [])
+        if 0 <= row < len(ids):
+            return ids[row]
+        return None
+
     # ---------- 定时提醒 ----------
     def _check_reminders(self):
         """每秒检查提醒是否到期（普通提醒=气泡；回访=触发 AI 主动关心）"""
@@ -3072,6 +3236,8 @@ class PetWidget(QWidget):
         imenu.addAction(T('sleep')).triggered.connect(lambda: self.toggle_sleep())
         imenu.addSeparator()
         imenu.addAction(T('toggle_chat')).triggered.connect(lambda: self.toggle_chat_panel())
+        imenu.addSeparator()
+        imenu.addAction(T('archive')).triggered.connect(lambda: self._archive_and_clear())
         act_active = imenu.addAction(T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
         act_active.triggered.connect(lambda: self.toggle_active_chat())
 
@@ -3117,6 +3283,8 @@ class PetWidget(QWidget):
         smenu.addAction(T('custom_personality')).triggered.connect(self._set_personality_dialog)
         smenu.addSeparator()
         mmmenu = smenu.addMenu(T('memory_menu'))
+        mmmenu.addAction(T('mem_mgr')).triggered.connect(self._open_memory_manager)
+        mmmenu.addSeparator()
         mmmenu.addAction(T('view_memory')).triggered.connect(self._show_memory)
         mmmenu.addAction(T('delete_memory')).triggered.connect(self._delete_memory_dialog)
         mmmenu.addAction(T('clear_memory')).triggered.connect(self._clear_memory_confirm)
