@@ -1849,6 +1849,8 @@ class PetWidget(QWidget):
             def __init__(self, parent=None):
                 super().__init__(parent)
                 self.model = None
+                self.t = 0
+                self.ids = []
 
             def initializeGL(self):
                 try:
@@ -1856,12 +1858,34 @@ class PetWidget(QWidget):
                     self.model = live2d.LAppModel()
                     self.model.LoadModelJson(LIVE2D_MODEL)
                     self.model.Resize(self.width(), self.height())
+                    self.ids = self.model.GetParamIds()
                     self.model.SetAutoBlinkEnable(True)
                     self.model.SetAutoBreathEnable(True)
                     self.model.StartRandomMotion('Idle', 1)
+                    # 手动动画驱动 30fps：头部摆动/眨眼/呼吸，确保明显可见
+                    self.anim_timer = QTimer(self)
+                    self.anim_timer.timeout.connect(self._drive)
+                    self.anim_timer.start(33)
                 except Exception:
                     import traceback
                     traceback.print_exc()
+
+            def _drive(self):
+                """手动驱动参数：明显动画效果"""
+                if self.model is None:
+                    return
+                import math
+                self.t += 0.033
+                try:
+                    self.model.SetParameterValue('ParamAngleZ', math.sin(self.t * 1.2) * 12.0)
+                    self.model.SetParameterValue('ParamAngleX', math.sin(self.t * 0.8) * 6.0)
+                    self.model.SetParameterValue('ParamBodyAngleZ', math.sin(self.t * 0.6) * 4.0)
+                    blink = max(0.0, math.sin(self.t * math.pi / 3.0))
+                    self.model.SetParameterValue('ParamEyeLOpen', blink)
+                    self.model.SetParameterValue('ParamEyeROpen', blink)
+                    self.model.SetParameterValue('ParamBreath', math.sin(self.t * 1.5) * 0.5 + 0.5)
+                except Exception:
+                    pass
 
             def paintGL(self):
                 try:
@@ -1880,6 +1904,10 @@ class PetWidget(QWidget):
                 if self.model:
                     self.model.Drag(e.position().x() / max(1, self.width()),
                                     e.position().y() / max(1, self.height()))
+
+            def mousePressEvent(self, e):
+                if self.model:
+                    self.model.StartRandomMotion('TapBody', 2)
 
         win = QMainWindow()
         win.setWindowTitle('Live2D Preview' if getattr(self, 'language', 'zh') == 'en' else 'Live2D 预览')
