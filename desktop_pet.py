@@ -1851,6 +1851,7 @@ class PetWidget(QWidget):
                 self.model = None
                 self.t = 0
                 self.ids = []
+                self.setMouseTracking(True)  # 关键：不按鼠标也触发 mouseMoveEvent（视线跟随）
 
             def initializeGL(self):
                 try:
@@ -1905,6 +1906,7 @@ class PetWidget(QWidget):
                 if self.model:
                     self.model.Drag(e.position().x() / max(1, self.width()),
                                     e.position().y() / max(1, self.height()))
+                    self.update()
 
             def mousePressEvent(self, e):
                 if self.model:
