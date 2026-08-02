@@ -2,9 +2,15 @@
 
 一只住在你电脑里的 Q 版桌宠：会陪你聊天、帮你干活、还能主动关心你。
 
+![小蓝 - AI 对话演示](screenshots/demo-chat.png)
+
 > 基于 PySide6 + DeepSeek API 的桌面 AI 陪伴助手，支持双角色、长期记忆、工具调用、主动关心机制。
 
-![角色预览](assets/flash/flash_idle.jpg)
+## 📸 截图
+
+| AI 对话 | 性格互动 | 待机动画 |
+|---------|---------|---------|
+| ![AI 对话](screenshots/demo-chat.png) | ![性格互动](screenshots/demo-interaction.png) | ![待机动画](screenshots/demo-idle.png) |
 
 ## ✨ 特性
 
