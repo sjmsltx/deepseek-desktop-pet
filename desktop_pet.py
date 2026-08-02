@@ -64,6 +64,48 @@ TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
 def asset(role, state):
     return os.path.join(ASSETS, role, f'{role}_{state}.png')
 
+# ============ 国际化（v6.20，右键菜单/提示/AI 回复语言） ============
+UI_ZH = {
+    'menu_role': '🎭 角色', 'menu_chat': '🤖 和 AI 聊天', 'menu_interact': '💬 互动',
+    'say': '💬 说句话', 'think': '🤔 思考一下', 'random': '🎲 随机动作', 'sleep': '💤 睡觉/唤醒',
+    'toggle_chat': '💬 隐藏/显示聊天窗口', 'active_care': '💗 主动关心',
+    'edge_mode': '📌 贴边模式：', 'edge_hidden': '完全消失', 'edge_peek': '扒边',
+    'menu_actions': '🎬 动作', 'menu_personality': '🎭 性格切换', 'menu_settings': '⚙️ 设置',
+    'api_setting': '🔑 API 设置…', 'model_menu': '🎯 角色模型', 'current': '当前',
+    'style_menu': '💬 回复风格', 'token_menu': '📝 回复长度', 'custom': '🎯 自定义…',
+    'city': '🌆 默认城市…', 'custom_personality': '🎭 自定义性格…',
+    'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
+    'export_chat': '📤 导出聊天记录', 'frame_clean': '🪟 窗口边框清理',
+    'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
+    'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
+    'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
+    'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
+    'person_gentle': '温柔', 'person_tsundere': '傲娇', 'person_sarcastic': '吐槽', 'person_energetic': '元气', 'person_cold': '高冷',
+    'style_short': '极简', 'style_normal': '标准', 'style_detailed': '详细',
+    'tok_short': '短（500）', 'tok_normal': '标准（1000）', 'tok_long': '长（2000）', 'tok_xlong': '超长（4000）', 'tok_max': '极长（16000）',
+    'lang_hint': '请用中文回复。', 'lang_switched': '语言已切换为中文',
+}
+UI_EN = {
+    'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
+    'say': '💬 Say something', 'think': '🤔 Think', 'random': '🎲 Random action', 'sleep': '💤 Sleep/Wake',
+    'toggle_chat': '💬 Show/Hide chat', 'active_care': '💗 Proactive care',
+    'edge_mode': '📌 Edge mode: ', 'edge_hidden': 'Hidden', 'edge_peek': 'Peek',
+    'menu_actions': '🎬 Actions', 'menu_personality': '🎭 Personality', 'menu_settings': '⚙️ Settings',
+    'api_setting': '🔑 API Settings…', 'model_menu': '🎯 Models', 'current': 'Current',
+    'style_menu': '💬 Reply style', 'token_menu': '📝 Reply length', 'custom': '🎯 Custom…',
+    'city': '🌆 Default city…', 'custom_personality': '🎭 Custom personality…',
+    'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
+    'export_chat': '📤 Export chat', 'frame_clean': '🪟 Frame cleanup',
+    'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
+    'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
+    'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
+    'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
+    'person_gentle': 'Gentle', 'person_tsundere': 'Tsundere', 'person_sarcastic': 'Sarcastic', 'person_energetic': 'Energetic', 'person_cold': 'Cold',
+    'style_short': 'Minimal', 'style_normal': 'Normal', 'style_detailed': 'Detailed',
+    'tok_short': 'Short (500)', 'tok_normal': 'Normal (1000)', 'tok_long': 'Long (2000)', 'tok_xlong': 'Extra (4000)', 'tok_max': 'Max (16000)',
+    'lang_hint': 'Please reply in English.', 'lang_switched': 'Language switched to English',
+}
+
 # ============ 角色配置 ============
 CHARACTERS = {
     'flash': {
@@ -82,6 +124,17 @@ CHARACTERS = {
         ],
         'happy_lines': ['耶！你戳我！(*≧▽≦)', '嘻嘻，痒痒的～', '今天心情超好！'],
         'think_lines': ['嗯…这个问题让我想想。', '正在高速运转中…', '我的小脑瓜快冒烟啦！'],
+        'greetings_en': [
+            'Here! Need any help?',
+            'Flash mode, quick Q&A～',
+            'Another productive day!',
+            'Want to try V4 Pro? It thinks deeper.',
+            'No worries, I type fast!',
+            'You have been staring at me… I am blushing!',
+            'Nice weather today, good for coding!',
+        ],
+        'happy_lines_en': ['Yay! You poked me! (*≧▽≦)', 'Hee hee, that tickles～', 'Feeling great today!'],
+        'think_lines_en': ['Hmm… let me think about this.', 'Processing at full speed…', 'My little brain is smoking!'],
     },
     'pro': {
         'name': 'V4 Pro',
@@ -100,6 +153,19 @@ CHARACTERS = {
         'happy_lines': ['能被你信任是我的荣幸。', '分析完成，一切尽在掌握。'],
         'think_lines': ['让我先梳理一下逻辑链。', '推演中…排除所有可能干扰项。', '这个问题有三层因果关系。'],
         'scared_lines': ['啊！别戳了别戳了！', '饶命！我这就认真思考！', '冷静！我先梳理一下逻辑！'],
+        'greetings_en': [
+            'I am here. Anything that needs deep thought?',
+            'Already worked out three approaches for you.',
+            'V4 Pro mode, focused deep analysis.',
+            'No rush — I verify every detail before answering.',
+            'This needs breaking down; let me outline it first.',
+            'Hmm… this deserves deeper thought.',
+            'All data cross-checked, safe to use.',
+            'Want me to run an error analysis?',
+        ],
+        'happy_lines_en': ['Being trusted by you is my honor.', 'Analysis complete, all under control.'],
+        'think_lines_en': ['Let me sort out the logic chain first.', 'Reasoning… eliminating all possible interferences.', 'This problem has three layers of causality.'],
+        'scared_lines_en': ['Ah! Stop poking me!', 'Mercy! I will think seriously!', 'Calm down! Let me sort out the logic first!'],
     },
 }
 
@@ -715,7 +781,7 @@ class PetWidget(QWidget):
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
         self.chat_input = QTextEdit(self.chat_panel)
-        self.chat_input.setPlaceholderText('和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）')
+        self.chat_input.setPlaceholderText(self._t('chat_placeholder'))
         self.chat_input.setAcceptRichText(False)  # 粘贴/拖入自动转纯文本，避免富文本格式污染背景
         self.chat_input.setFixedHeight(34)
         self.chat_input.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -826,6 +892,11 @@ class PetWidget(QWidget):
         self.greet_timer.start(random.randint(*GREET_INTERVAL))
 
     # ---------- AI 对话 ----------
+    def _t(self, key):
+        """取当前语言的 UI 文本"""
+        d = UI_EN if getattr(self, 'language', 'zh') == 'en' else UI_ZH
+        return d.get(key, UI_ZH.get(key, key))
+
     def _load_ai_config(self):
         """从 config.json 读取 DeepSeek API 配置"""
         try:
@@ -842,6 +913,7 @@ class PetWidget(QWidget):
                 self.pet_city = cfg.get('city', '重庆')
                 self.personality = cfg.get('personality', '温柔')
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
+                self.language = cfg.get('language', 'zh')  # zh/en
                 self.max_tokens = max(256, min(int(cfg.get('max_tokens', 1000)), 64000))
         except Exception:
             pass
@@ -1262,25 +1334,25 @@ class PetWidget(QWidget):
     # ============ AI 状态预判（v6.19） ============
     @staticmethod
     def _guess_status(text):
-        """按用户消息关键词预判 AI 状态（猜测，工具确认后会覆盖）"""
+        """按用户消息关键词预判 AI 状态（猜测，工具确认后会覆盖）——返回 (状态文本, 语言) 交由调用方适配"""
         t = (text or '').lower()
         rules = [
-            (['天气', '温度', '下雨', '降雨', '气温', '雾霾', '空气质量', '湿度'], '正在查询天气'),
-            (['时间', '几点', '日期', '星期'], '正在获取时间'),
-            (['文件', '搜索', '查找', '找到', '哪个目录'], '正在搜索文件'),
-            (['进程', '卡顿', '内存', 'cpu', '占用', '后台'], '正在读取系统状态'),
-            (['打开', '启动', '运行', '启动程序', '开一下'], '正在打开程序'),
-            (['音量', '静音', '声音', '喇叭'], '正在调整音量'),
-            (['提醒', '闹钟', '待办', 'todo', '记得', '任务'], '正在安排提醒/待办'),
-            (['锁屏', '锁定'], '正在锁定屏幕'),
-            (['剪贴板', '复制', '粘贴'], '正在读取剪贴板'),
-            (['计算', '算一下', '等于'], '正在计算'),
-            (['吃什么', '美食', '景点', '推荐', '介绍', '历史', '攻略'], '正在组织回答'),
+            (['天气', '温度', '下雨', '降雨', '气温', '雾霾', '空气质量', '湿度'], ('正在查询天气', 'Checking weather')),
+            (['时间', '几点', '日期', '星期'], ('正在获取时间', 'Getting time')),
+            (['文件', '搜索', '查找', '找到', '哪个目录'], ('正在搜索文件', 'Searching files')),
+            (['进程', '卡顿', '内存', 'cpu', '占用', '后台'], ('正在读取系统状态', 'Reading system status')),
+            (['打开', '启动', '运行', '启动程序', '开一下'], ('正在打开程序', 'Opening app')),
+            (['音量', '静音', '声音', '喇叭'], ('正在调整音量', 'Adjusting volume')),
+            (['提醒', '闹钟', '待办', 'todo', '记得', '任务'], ('正在安排提醒/待办', 'Setting reminder/todo')),
+            (['锁屏', '锁定'], ('正在锁定屏幕', 'Locking screen')),
+            (['剪贴板', '复制', '粘贴'], ('正在读取剪贴板', 'Reading clipboard')),
+            (['计算', '算一下', '等于'], ('正在计算', 'Calculating')),
+            (['吃什么', '美食', '景点', '推荐', '介绍', '历史', '攻略'], ('正在组织回答', 'Preparing answer')),
         ]
         for keys, status in rules:
             if any(k in t for k in keys):
                 return status
-        return '正在思考'
+        return ('正在思考', 'Thinking')
 
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本"""
@@ -1396,7 +1468,8 @@ class PetWidget(QWidget):
             # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
             self._summarize_old()
             # 意图预判：秒出状态提示（猜测，工具确认后覆盖）
-            self.ai_status_signal.emit(self._guess_status(text))
+            gs = self._guess_status(text)
+            self.ai_status_signal.emit(gs[1] if getattr(self, 'language', 'zh') == 'en' else gs[0])
             # 上下文：最近 10 条 + 当前消息
             ctx = self.chat_history_msgs[-10:] + [{'role': 'user', 'content': text}]
             # 根据配置生成回复风格提示
@@ -1413,11 +1486,13 @@ class PetWidget(QWidget):
             todo_block = self._todo_block()
             todo_hint = f'\n\n【待办清单】\n{todo_block}' if todo_block else ''
             cur_model = self._current_model()
+            # 语言指示：AI 回复语言跟随配置
+            lang_hint = self._t('lang_hint')
             # 角色身份锚定：名字优先级 系统设定 > 记忆中的角色命名
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
             messages = [
-                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
+                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
 
             ] + ctx
 
@@ -1426,7 +1501,7 @@ class PetWidget(QWidget):
             empty_retries = 0
             for _ in range(5):
                 # 请求阶段：覆盖预判为确定状态
-                self.ai_status_signal.emit('正在思考…')
+                self.ai_status_signal.emit('正在思考…' if getattr(self, 'language', 'zh') != 'en' else 'Thinking…')
                 data = jsonlib.dumps({
                     'model': cur_model,
                     'messages': messages,
@@ -1475,16 +1550,18 @@ class PetWidget(QWidget):
                     fn = tc['function']
                     name = fn['name']
                     args = jsonlib.loads(fn.get('arguments') or '{}')
+                    is_en = getattr(self, 'language', 'zh') == 'en'
                     status_map = {
-                        'open_app': '正在打开应用', 'query_weather': '正在查询天气',
-                        'run_powershell': '正在执行命令', 'get_system_info': '正在读取系统信息',
-                        'list_processes': '正在读取进程列表', 'kill_process': '正在结束进程',
-                        'search_files': '正在搜索文件', 'calculate': '正在计算',
-                        'get_time': '正在获取时间', 'memorize': '正在记住',
-                        'set_reminder': '正在设置提醒', 'lock_screen': '正在锁定屏幕',
-                        'control_volume': '正在调整音量',
+                        'open_app': ('正在打开应用', 'Opening app'), 'query_weather': ('正在查询天气', 'Checking weather'),
+                        'run_powershell': ('正在执行命令', 'Running command'), 'get_system_info': ('正在读取系统信息', 'Reading system info'),
+                        'list_processes': ('正在读取进程列表', 'Listing processes'), 'kill_process': ('正在结束进程', 'Ending process'),
+                        'search_files': ('正在搜索文件', 'Searching files'), 'calculate': ('正在计算', 'Calculating'),
+                        'get_time': ('正在获取时间', 'Getting time'), 'memorize': ('正在记住', 'Remembering'),
+                        'set_reminder': ('正在设置提醒', 'Setting reminder'), 'lock_screen': ('正在锁定屏幕', 'Locking screen'),
+                        'control_volume': ('正在调整音量', 'Adjusting volume'),
                     }
-                    self.ai_status_signal.emit(status_map.get(name, f'正在执行 {name}') + '…')
+                    st = status_map.get(name, (f'正在执行 {name}', f'Running {name}'))
+                    self.ai_status_signal.emit((st[1] if is_en else st[0]) + '…')
                     result_text = self._execute_tool(name, args)
                     messages.append({
                         'role': 'tool',
@@ -1494,7 +1571,7 @@ class PetWidget(QWidget):
 
             if final_reply is None:
                 # 工具轮次耗尽但没生成文本回复：强制不带工具重试一次
-                self.ai_status_signal.emit('正在整理结果…')
+                self.ai_status_signal.emit('正在整理结果…' if getattr(self, 'language', 'zh') != 'en' else 'Preparing result…')
                 try:
                     data3 = jsonlib.dumps({
                         'model': cur_model,
@@ -1904,12 +1981,19 @@ class PetWidget(QWidget):
         self.bubble_hide_timer.start(ms)
 
     # ---------- 说话/思考 ----------
+    def _char_lines(self, key):
+        """按当前语言取角色台词（greetings/think_lines/happy_lines/scared_lines）"""
+        conf = CHARACTERS[self.current]
+        if getattr(self, 'language', 'zh') == 'en':
+            return conf.get(key + '_en') or conf.get(key) or []
+        return conf.get(key) or []
+
     def say_random(self):
         """随机说一句问候（气泡）"""
         if self.sleeping:
             return
-        conf = CHARACTERS[self.current]
-        self.say_plain(random.choice(conf['greetings']))
+        lines = self._char_lines('greetings')
+        self.say_plain(random.choice(lines) if lines else 'Hello!')
 
     def do_thinking(self):
         """思考状态（3 秒后恢复）"""
@@ -1917,8 +2001,8 @@ class PetWidget(QWidget):
             return
         self.state = 'thinking'
         self.phase = 0
-        conf = CHARACTERS[self.current]
-        self.say_plain(random.choice(conf['think_lines']))
+        lines = self._char_lines('think_lines')
+        self.say_plain(random.choice(lines) if lines else 'Hmm…')
         self._show_state_image('thinking')
         if self.thinking_timer is not None:
             self.thinking_timer.stop()
@@ -2602,16 +2686,17 @@ class PetWidget(QWidget):
             self._special_reaction()
 
     def _special_reaction(self):
-        conf = CHARACTERS[self.current]
         if self.current == 'pro':
             self._show_state_image('scared')
-            self.say_plain(random.choice(conf['scared_lines']))
+            lines = self._char_lines('scared_lines')
+            self.say_plain(random.choice(lines) if lines else 'Ah!')
             QTimer.singleShot(2500, self._render_frame)
         else:
             self.state = 'happy'
             self.phase = 0
             self._show_state_image('happy')
-            self.say_plain(random.choice(conf['happy_lines']))
+            lines = self._char_lines('happy_lines')
+            self.say_plain(random.choice(lines) if lines else 'Yay!')
             QTimer.singleShot(2500, lambda: self._end_state('happy'))
 
     def _end_state(self, st):
@@ -2911,8 +2996,9 @@ class PetWidget(QWidget):
             threading.Thread(target=self._wakeup_worker, daemon=True).start()
         else:
             # AI 不可用：随机台词兜底（原心跳）
-            conf = CHARACTERS[self.current]
-            lines = (conf.get('greetings') or []) + ['该喝水啦～', '要不要休息一下眼睛？', '坐久了记得站起来走走～', '今天也要加油鸭！']
+            lines = self._char_lines('greetings')
+            extra = ['该喝水啦～', '要不要休息一下眼睛？', '坐久了记得站起来走走～', '今天也要加油鸭！'] if getattr(self, 'language', 'zh') != 'en' else ['Time for some water～', 'Rest your eyes a bit?', 'Stand up and stretch!', 'Keep going today!']
+            lines = (lines or []) + extra
             self.say_plain(random.choice(lines))
             self._active_chat_next = now + random.uniform(480, 1200)
 
@@ -2943,87 +3029,99 @@ class PetWidget(QWidget):
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
             self._popup_from_dock()
             return
+        T = self._t
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { font-size: 13px; }")
         acts = {}
 
         # 1. 角色切换（子菜单）
-        cmenu = menu.addMenu('🎭 角色')
+        cmenu = menu.addMenu(T('menu_role'))
         act_flash = cmenu.addAction('⚡ V4 Flash')
         act_flash.triggered.connect(lambda: self.switch_char('flash'))
         act_pro = cmenu.addAction('🐋 V4 Pro')
         act_pro.triggered.connect(lambda: self.switch_char('pro'))
 
         # 2. 常用：和 AI 聊天（顶级）
-        acts['chat'] = menu.addAction('🤖 和 AI 聊天')
+        acts['chat'] = menu.addAction(T('menu_chat'))
 
-        # 3. 互动（子菜单：说句话/思考/随机动作/睡觉/聊天面板）
-        imenu = menu.addMenu('💬 互动')
-        imenu.addAction('💬 说句话').triggered.connect(lambda: self.say_random())
-        imenu.addAction('🤔 思考一下').triggered.connect(lambda: self.do_thinking())
-        imenu.addAction('🎲 随机动作').triggered.connect(lambda: self.random_action())
-        imenu.addAction('💤 睡觉/唤醒').triggered.connect(lambda: self.toggle_sleep())
+        # 3. 互动（子菜单）
+        imenu = menu.addMenu(T('menu_interact'))
+        imenu.addAction(T('say')).triggered.connect(lambda: self.say_random())
+        imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
+        imenu.addAction(T('random')).triggered.connect(lambda: self.random_action())
+        imenu.addAction(T('sleep')).triggered.connect(lambda: self.toggle_sleep())
         imenu.addSeparator()
-        imenu.addAction('💬 隐藏/显示聊天窗口').triggered.connect(lambda: self.toggle_chat_panel())
-        act_active = imenu.addAction('💗 主动关心' + ('（开）' if self.active_chat_enabled else '（关）'))
+        imenu.addAction(T('toggle_chat')).triggered.connect(lambda: self.toggle_chat_panel())
+        act_active = imenu.addAction(T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
         act_active.triggered.connect(lambda: self.toggle_active_chat())
 
         # 4. 贴边模式（顶级开关）
-        acts['edgemode'] = menu.addAction('📌 贴边模式：' + ('完全消失' if self._edge_mode == 'peek' else '扒边'))
+        acts['edgemode'] = menu.addAction(T('edge_mode') + (T('edge_hidden') if self._edge_mode == 'peek' else T('edge_peek')))
 
         # 5. 动作（子菜单）
-        amenu = menu.addMenu('🎬 动作')
+        amenu = menu.addMenu(T('menu_actions'))
         for sk, (label, _desc) in SCENE_ACTIONS.items():
             amenu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
 
         # 6. 性格切换（子菜单）
-        pmenu = menu.addMenu('🎭 性格切换')
-        for p in ['温柔', '傲娇', '吐槽', '元气', '高冷']:
-            pmenu.addAction(p).triggered.connect(lambda checked, pp=p: self._set_personality(pp))
+        pmenu = menu.addMenu(T('menu_personality'))
+        for pk, pl in [('温柔', 'person_gentle'), ('傲娇', 'person_tsundere'), ('吐槽', 'person_sarcastic'), ('元气', 'person_energetic'), ('高冷', 'person_cold')]:
+            pmenu.addAction(T(pl)).triggered.connect(lambda checked, pp=pk: self._set_personality(pp))
 
-        # 7. 设置（子菜单：API/模型/回复风格/城市/自定义性格/边框清理/开机自启）
-        smenu = menu.addMenu('⚙️ 设置')
-        smenu.addAction('🔑 API 设置…').triggered.connect(self._set_api_key_dialog)
-        mdlmenu = smenu.addMenu('🎯 角色模型')
+        # 7. 设置（子菜单）
+        smenu = menu.addMenu(T('menu_settings'))
+        smenu.addAction(T('api_setting')).triggered.connect(self._set_api_key_dialog)
+        mdlmenu = smenu.addMenu(T('model_menu'))
         mdlmenu.addAction('⚡ Flash 模型…').triggered.connect(lambda: self._set_model_dialog('flash'))
         mdlmenu.addAction('🐋 Pro 模型…').triggered.connect(lambda: self._set_model_dialog('pro'))
         mdlmenu.addSeparator()
-        mdlmenu.addAction(f'当前：{self._current_model()}（{CHARACTERS[self.current]["name"]}）').setEnabled(False)
+        mdlmenu.addAction(f'{T("current")}：{self._current_model()}（{CHARACTERS[self.current]["name"]}）').setEnabled(False)
         smenu.addSeparator()
-        rsmenu = smenu.addMenu('💬 回复风格')
-        for label, val in [('极简', 'short'), ('标准', 'normal'), ('详细', 'detailed')]:
-            ra = rsmenu.addAction(label)
+        rsmenu = smenu.addMenu(T('style_menu'))
+        for key, val in [('style_short', 'short'), ('style_normal', 'normal'), ('style_detailed', 'detailed')]:
+            ra = rsmenu.addAction(T(key))
             ra.setCheckable(True)
             ra.setChecked(getattr(self, 'reply_style', 'normal') == val)
-            ra.triggered.connect(lambda checked, v=val, l=label: self._set_reply_style(v, l))
-        tmmenu = smenu.addMenu('📝 回复长度')
+            ra.triggered.connect(lambda checked, v=val, k=key: self._set_reply_style(v, T(k)))
+        tmmenu = smenu.addMenu(T('token_menu'))
         cur_tok = getattr(self, 'max_tokens', 1000)
-        for label, val in [('短（500）', 500), ('标准（1000）', 1000), ('长（2000）', 2000), ('超长（4000）', 4000), ('极长（16000）', 16000)]:
-            ta = tmmenu.addAction(label)
+        for key, val in [('tok_short', 500), ('tok_normal', 1000), ('tok_long', 2000), ('tok_xlong', 4000), ('tok_max', 16000)]:
+            ta = tmmenu.addAction(T(key))
             ta.setCheckable(True)
             ta.setChecked(cur_tok == val)
-            ta.triggered.connect(lambda checked, v=val, l=label: self._set_max_tokens(v, l))
+            ta.triggered.connect(lambda checked, v=val, k=key: self._set_max_tokens(v, T(k)))
         tmmenu.addSeparator()
-        tmmenu.addAction('🎯 自定义…').triggered.connect(self._set_max_tokens_dialog)
+        tmmenu.addAction(T('custom')).triggered.connect(self._set_max_tokens_dialog)
         smenu.addSeparator()
-        smenu.addAction('🌆 默认城市…').triggered.connect(self._set_city_dialog)
-        smenu.addAction('🎭 自定义性格…').triggered.connect(self._set_personality_dialog)
+        smenu.addAction(T('city')).triggered.connect(self._set_city_dialog)
+        smenu.addAction(T('custom_personality')).triggered.connect(self._set_personality_dialog)
         smenu.addSeparator()
-        mmmenu = smenu.addMenu('🧠 记忆管理')
-        mmmenu.addAction('📋 查看记忆').triggered.connect(self._show_memory)
-        mmmenu.addAction('🗑 删除一条…').triggered.connect(self._delete_memory_dialog)
-        mmmenu.addAction('🧹 清空全部…').triggered.connect(self._clear_memory_confirm)
+        mmmenu = smenu.addMenu(T('memory_menu'))
+        mmmenu.addAction(T('view_memory')).triggered.connect(self._show_memory)
+        mmmenu.addAction(T('delete_memory')).triggered.connect(self._delete_memory_dialog)
+        mmmenu.addAction(T('clear_memory')).triggered.connect(self._clear_memory_confirm)
         smenu.addSeparator()
-        smenu.addAction('📤 导出聊天记录').triggered.connect(self._export_chat)
+        smenu.addAction(T('export_chat')).triggered.connect(self._export_chat)
         smenu.addSeparator()
-        frame_act = smenu.addAction('🪟 窗口边框清理')
+        frame_act = smenu.addAction(T('frame_clean'))
         frame_act.setCheckable(True)
         frame_act.setChecked(False)
         frame_act.triggered.connect(self._toggle_frame_clean)
-        autostart_act = smenu.addAction('🚀 开机自启' + ('（已开）' if self.is_autostart_enabled() else '（已关）'))
+        autostart_act = smenu.addAction(T('autostart') + (T('on') if self.is_autostart_enabled() else T('off')))
         autostart_act.setCheckable(True)
         autostart_act.setChecked(self.is_autostart_enabled())
         autostart_act.triggered.connect(self.toggle_autostart)
+        smenu.addSeparator()
+        # 语言切换
+        langmenu = smenu.addMenu(T('language_menu'))
+        act_zh = langmenu.addAction('中文')
+        act_zh.setCheckable(True)
+        act_zh.setChecked(getattr(self, 'language', 'zh') == 'zh')
+        act_zh.triggered.connect(lambda: self._set_language('zh'))
+        act_en = langmenu.addAction('English')
+        act_en.setCheckable(True)
+        act_en.setChecked(getattr(self, 'language', 'zh') == 'en')
+        act_en.triggered.connect(lambda: self._set_language('en'))
 
         menu.addSeparator()
         acts['hide'] = menu.addAction('🏠 最小化到托盘')
@@ -3039,6 +3137,17 @@ class PetWidget(QWidget):
             self.hide_to_tray()
         elif chosen == acts['exit']:
             self.quit_app()
+
+    def _set_language(self, lang):
+        """切换界面语言（zh/en），保存并热加载"""
+        if lang not in ('zh', 'en'):
+            return
+        if self._save_cfg_value('language', lang):
+            # 更新输入框 placeholder
+            self.chat_input.setPlaceholderText(self._t('chat_placeholder'))
+            msg = '语言已切换为中文' if lang == 'zh' else 'Language switched to English'
+            self._append_chat('桌宠', msg)
+            self.say_plain(msg, immediate=True)
 
     def _toggle_frame_clean(self, checked):
         """设置菜单：窗口边框清理开关"""
