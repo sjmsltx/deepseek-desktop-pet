@@ -84,6 +84,10 @@ UI_ZH = {
     'style_short': '极简', 'style_normal': '标准', 'style_detailed': '详细',
     'tok_short': '短（500）', 'tok_normal': '标准（1000）', 'tok_long': '长（2000）', 'tok_xlong': '超长（4000）', 'tok_max': '极长（16000）',
     'lang_hint': '请用中文回复。', 'lang_switched': '语言已切换为中文',
+    'dlg_api': '🔑 API 设置', 'dlg_model': '模型设置', 'dlg_city': '默认城市',
+    'dlg_personality': '自定义性格', 'dlg_tokens': '回复长度',
+    'dlg_delete_mem': '删除记忆', 'dlg_clear_mem': '清空记忆', 'dlg_confirm': '⚠️ 危险操作确认',
+    'allow': '允许执行', 'deny': '拒绝', 'show_pet': '🏠 显示桌宠',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -104,6 +108,10 @@ UI_EN = {
     'style_short': 'Minimal', 'style_normal': 'Normal', 'style_detailed': 'Detailed',
     'tok_short': 'Short (500)', 'tok_normal': 'Normal (1000)', 'tok_long': 'Long (2000)', 'tok_xlong': 'Extra (4000)', 'tok_max': 'Max (16000)',
     'lang_hint': 'Please reply in English.', 'lang_switched': 'Language switched to English',
+    'dlg_api': '🔑 API Settings', 'dlg_model': 'Model Settings', 'dlg_city': 'Default City',
+    'dlg_personality': 'Custom Personality', 'dlg_tokens': 'Reply Length',
+    'dlg_delete_mem': 'Delete Memory', 'dlg_clear_mem': 'Clear Memory', 'dlg_confirm': '⚠️ Confirm Dangerous Operation',
+    'allow': 'Allow', 'deny': 'Deny', 'show_pet': '🏠 Show pet',
 }
 
 # ============ 角色配置 ============
@@ -1193,14 +1201,15 @@ class PetWidget(QWidget):
         def ask():
             try:
                 from PySide6.QtWidgets import QMessageBox
+                is_en = getattr(self, 'language', 'zh') == 'en'
                 box = QMessageBox(self)
-                box.setWindowTitle('⚠️ 危险操作确认')
+                box.setWindowTitle(self._t('dlg_confirm'))
                 box.setIcon(QMessageBox.Warning)
                 box.setText(message)
                 box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
                 box.setDefaultButton(QMessageBox.No)
-                box.button(QMessageBox.Yes).setText('允许执行')
-                box.button(QMessageBox.No).setText('拒绝')
+                box.button(QMessageBox.Yes).setText(self._t('allow'))
+                box.button(QMessageBox.No).setText(self._t('deny'))
                 result['ok'] = (box.exec() == QMessageBox.Yes)
             except Exception:
                 result['ok'] = False
@@ -1242,22 +1251,23 @@ class PetWidget(QWidget):
         """确认后清空全部记忆"""
         active = [f for f in self.memory_facts if f.get('status') == 'active']
         if not active:
-            self._append_chat('桌宠', '🧠 没有需要清空的记忆')
+            self._append_chat('桌宠', '🧠 没有需要清空的记忆' if getattr(self, 'language', 'zh') != 'en' else '🧠 No memory to clear')
             return
         from PySide6.QtWidgets import QMessageBox
+        is_en = getattr(self, 'language', 'zh') == 'en'
         box = QMessageBox(self)
-        box.setWindowTitle('清空记忆')
+        box.setWindowTitle(self._t('dlg_clear_mem'))
         box.setIcon(QMessageBox.Warning)
-        box.setText(f'确定清空全部 {len(active)} 条长期记忆吗？\n清空后桌宠将不再记得这些信息')
+        box.setText(f'确定清空全部 {len(active)} 条长期记忆吗？\n清空后桌宠将不再记得这些信息' if not is_en else f'Clear all {len(active)} memories?\nThe pet will forget this information')
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         box.setDefaultButton(QMessageBox.No)
-        box.button(QMessageBox.Yes).setText('清空')
-        box.button(QMessageBox.No).setText('取消')
+        box.button(QMessageBox.Yes).setText('清空' if not is_en else 'Clear')
+        box.button(QMessageBox.No).setText('取消' if not is_en else 'Cancel')
         if box.exec() == QMessageBox.Yes:
             for f in active:
                 self._remember_fact('delete', fid=f.get('id', ''))
             self._save_memory()
-            self._append_chat('桌宠', '🧹 长期记忆已全部清空')
+            self._append_chat('桌宠', '🧹 长期记忆已全部清空' if not is_en else '🧹 All memories cleared')
 
     # ============ 全局快捷键（v6.12，Ctrl+Alt+P 呼出） ============
     def _on_global_hotkey(self):
@@ -2354,57 +2364,66 @@ class PetWidget(QWidget):
     def _set_max_tokens_dialog(self):
         """弹窗自定义 token 上限"""
         from PySide6.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self, '回复长度', '输入 token 上限（256-64000，越大回复越长）：', text=str(getattr(self, 'max_tokens', 1000)))
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        text, ok = QInputDialog.getText(self, self._t('dlg_tokens'),
+            '输入 token 上限（256-64000，越大回复越长）：' if not is_en else 'Enter token limit (256-64000, higher = longer replies):',
+            text=str(getattr(self, 'max_tokens', 1000)))
         if ok and text.strip().isdigit():
             val = max(256, min(int(text.strip()), 64000))
             if self._save_cfg_value('max_tokens', val):
-                self._append_chat('桌宠', f'回复长度上限：{val} token')
+                self._append_chat('桌宠', f'回复长度上限：{val} token' if not is_en else f'Reply length limit: {val} tokens')
 
     def _set_city_dialog(self):
         """弹窗设置默认城市"""
         from PySide6.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self, '默认城市', '输入默认天气城市：', text=self.pet_city)
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        text, ok = QInputDialog.getText(self, self._t('dlg_city'),
+            '输入默认天气城市：' if not is_en else 'Enter default weather city:', text=self.pet_city)
         if ok and text.strip():
             if self._save_cfg_value('city', text.strip()):
-                self._append_chat('桌宠', f'默认城市：{text.strip()}')
+                self._append_chat('桌宠', f'默认城市：{text.strip()}' if not is_en else f'Default city: {text.strip()}')
 
     def _set_api_key_dialog(self):
         """弹窗设置 DeepSeek API Key（保存后热加载生效）"""
         from PySide6.QtWidgets import QInputDialog, QLineEdit
+        is_en = getattr(self, 'language', 'zh') == 'en'
         cur = getattr(self, 'ai_key', '') or ''
         if len(cur) > 12:
             masked = cur[:6] + '…' + cur[-4:]
         elif cur:
             masked = cur
         else:
-            masked = '（未配置）'
-        text, ok = QInputDialog.getText(self, '🔑 API 设置',
-            f'输入 DeepSeek API Key（留空取消）：\n当前：{masked}',
+            masked = '（未配置）' if not is_en else '(not set)'
+        text, ok = QInputDialog.getText(self, self._t('dlg_api'),
+            (f'输入 DeepSeek API Key（留空取消）：\n当前：{masked}' if not is_en else f'Enter DeepSeek API key (leave empty to cancel):\nCurrent: {masked}'),
             QLineEdit.Password, cur)
         if ok and text.strip():
             if self._save_cfg_value('deepseek_api_key', text.strip()):
-                self._append_chat('桌宠', '✅ API Key 已更新，AI 立即生效')
+                self._append_chat('桌宠', '✅ API Key 已更新，AI 立即生效' if not is_en else '✅ API key updated, AI takes effect immediately')
 
     def _set_model_dialog(self, role):
         """弹窗设置指定角色的模型 ID"""
         from PySide6.QtWidgets import QInputDialog
+        is_en = getattr(self, 'language', 'zh') == 'en'
         key = 'model_flash' if role == 'flash' else 'model_pro'
         cur = getattr(self, key, 'deepseek-v4-flash' if role == 'flash' else 'deepseek-v4-pro')
         label = 'Flash' if role == 'flash' else 'Pro'
-        text, ok = QInputDialog.getText(self, f'{label} 模型设置',
-            f'输入 {label} 角色使用的模型 ID（如 deepseek-v4-{role}）：', text=cur)
+        text, ok = QInputDialog.getText(self, f'{label} {self._t("dlg_model")}',
+            (f'输入 {label} 角色使用的模型 ID（如 deepseek-v4-{role}）：' if not is_en else f'Enter model ID for {label} (e.g. deepseek-v4-{role}):'), text=cur)
         if ok and text.strip():
             if self._save_cfg_value(key, text.strip()):
                 self.ai_model = self._current_model()
-                self._append_chat('桌宠', f'{label} 角色模型：{text.strip()}（当前角色生效）')
+                self._append_chat('桌宠', f'{label} 角色模型：{text.strip()}（当前角色生效）' if not is_en else f'{label} model: {text.strip()} (active for current character)')
 
     def _set_personality_dialog(self):
         """弹窗自定义性格"""
         from PySide6.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self, '自定义性格', '输入性格描述（如：傲娇毒舌的学姐）：', text=self.personality)
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        text, ok = QInputDialog.getText(self, self._t('dlg_personality'),
+            '输入性格描述（如：傲娇毒舌的学姐）：' if not is_en else 'Enter personality description (e.g. sarcastic senior):', text=self.personality)
         if ok and text.strip():
             if self._save_cfg_value('personality', text.strip()):
-                self._append_chat('桌宠', f'性格设置为：{text.strip()}')
+                self._append_chat('桌宠', f'性格设置为：{text.strip()}' if not is_en else f'Personality set to: {text.strip()}')
 
     def _set_personality(self, p):
         """切换性格（预设，写入配置持久保存）"""
@@ -2753,9 +2772,10 @@ class PetWidget(QWidget):
         self.hide()
         self._ensure_tray()
         if self.tray:
+            msg = f'{CHARACTERS[self.current]["name"]} 已最小化到托盘，双击图标回来。' if getattr(self, 'language', 'zh') != 'en' else f'{CHARACTERS[self.current]["name"]} minimized to tray. Double-click the icon to return.'
             self.tray.showMessage(
                 'DeepSeek 桌宠',
-                f'{CHARACTERS[self.current]["name"]} 已最小化到托盘，双击图标回来。',
+                msg,
                 QSystemTrayIcon.Information, 2000
             )
 
@@ -2766,11 +2786,11 @@ class PetWidget(QWidget):
         self.tray = QSystemTrayIcon(icon, self)
         self.tray.setToolTip('DeepSeek 桌宠助手')
         tray_menu = QMenu()
-        show_act = tray_menu.addAction('🏠 显示桌宠')
+        show_act = tray_menu.addAction('🏠 显示桌宠' if getattr(self, 'language', 'zh') != 'en' else '🏠 Show pet')
         flash_act = tray_menu.addAction('⚡ Flash')
         pro_act = tray_menu.addAction('🐋 Pro')
         tray_menu.addSeparator()
-        quit_act = tray_menu.addAction('✕ 退出')
+        quit_act = tray_menu.addAction('✕ 退出' if getattr(self, 'language', 'zh') != 'en' else '✕ Exit')
         show_act.triggered.connect(self.show_pet)
         flash_act.triggered.connect(lambda: self.switch_char('flash'))
         pro_act.triggered.connect(lambda: self.switch_char('pro'))
@@ -3124,9 +3144,9 @@ class PetWidget(QWidget):
         act_en.triggered.connect(lambda: self._set_language('en'))
 
         menu.addSeparator()
-        acts['hide'] = menu.addAction('🏠 最小化到托盘')
+        acts['hide'] = menu.addAction(T('hide_tray'))
         menu.addSeparator()
-        acts['exit'] = menu.addAction('✕ 退出')
+        acts['exit'] = menu.addAction(T('exit'))
 
         chosen = menu.exec(event.globalPos())
         if chosen == acts['chat']:
