@@ -56,6 +56,7 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OCR_PS1 = os.path.join(BASE_DIR, 'ocr_helper.ps1')
 ASSETS = os.path.join(BASE_DIR, 'assets')
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
@@ -654,6 +655,7 @@ class PetWidget(QWidget):
     wakeup_signal = Signal(str)    # 主动消息（心跳/回访触发）
     confirm_signal = Signal(object)  # 危险操作确认请求（跨线程回调）
     weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
+    ocr_signal = Signal(str)       # OCR 识别结果（截图粘贴，跨线程安全）
 
     def __init__(self):
         super().__init__()
@@ -860,6 +862,8 @@ class PetWidget(QWidget):
         # 输入感知（打盹/久坐/光标跟随）+ 早安日报
         self._start_idle_system()
         self._start_morning_report()
+        self.weather_signal.connect(self._on_weather_result)
+        self.ocr_signal.connect(self._on_ocr_result)
 
     # ---------- 窗口 ----------
     def _kill_shadow(self):
@@ -2187,7 +2191,6 @@ class PetWidget(QWidget):
         self._append_chat('桌宠', base)
         # 异步查天气（线程 → weather_signal 回主线程）
         city = self.pet_city
-        is_en = getattr(self, 'language', 'zh') == 'en'
         def fetch():
             try:
                 import urllib.request, urllib.parse
@@ -2197,18 +2200,21 @@ class PetWidget(QWidget):
                     return resp.read().decode('utf-8').strip()
             except Exception:
                 return None
-        def done(result):
-            if result:
-                wmsg = f'🌤 天气：{city} {result}' if not is_en else f'🌤 Weather: {result}'
-                self.say_plain(wmsg)
-                self._append_chat('桌宠', wmsg)
-        self.weather_signal.connect(done)
         import threading
         def worker():
             r = fetch()
             if r:
                 self.weather_signal.emit(r)
         threading.Thread(target=worker, daemon=True).start()
+
+    def _on_weather_result(self, result):
+        """早安日报天气结果（主线程）"""
+        if not result:
+            return
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        wmsg = f'🌤 天气：{self.pet_city} {result}' if not is_en else f'🌤 Weather: {result}'
+        self.say_plain(wmsg)
+        self._append_chat('桌宠', wmsg)
 
     # ---------- 记忆备份/导入（v6.22） ----------
     def _export_memory_backup(self):
@@ -2676,14 +2682,71 @@ class PetWidget(QWidget):
             pass
 
     def eventFilter(self, obj, event):
-        """输入框事件：Enter 发送（Shift+Enter 换行）"""
+        """输入框事件：Enter 发送（Shift+Enter 换行）；Ctrl+V 粘贴截图自动 OCR"""
         from PySide6.QtCore import QEvent
         if obj is self.chat_input and event.type() == QEvent.Type.KeyPress:
+            # 截图粘贴：剪贴板有图片 → OCR 流程；无图 → 正常文本粘贴
+            if event.key() == Qt.Key_V and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                if self._handle_pasted_image():
+                    return True
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
                 if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                     self._on_chat_input()
                     return True
         return super().eventFilter(obj, event)
+
+    def _handle_pasted_image(self):
+        """检测剪贴板图片：保存临时文件 → 线程 OCR；无图返回 False 放行文本粘贴"""
+        try:
+            img = QApplication.clipboard().image()
+            if img.isNull():
+                return False
+        except Exception:
+            return False
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        path = os.path.join(BASE_DIR, '_pasted_ocr.png')
+        try:
+            img.save(path, 'PNG')
+        except Exception:
+            return False
+        self._append_chat('桌宠', '🔍 正在识别截图…' if not is_en else '🔍 Recognizing screenshot…')
+        import threading
+        def worker():
+            try:
+                self.ocr_signal.emit(self._ocr_image(path))
+            except Exception:
+                pass
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    def _ocr_image(self, path):
+        """Windows 自带 OCR（PowerShell WinRT，零依赖），返回识别文本"""
+        try:
+            r = _subprocess.run(
+                ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', OCR_PS1, path],
+                capture_output=True, timeout=60)
+            if r.returncode != 0:
+                return ''
+            return r.stdout.decode('utf-8', errors='ignore').strip()
+        except Exception:
+            return ''
+
+    def _on_ocr_result(self, text):
+        """OCR 完成：识别内容显示为消息并发送给 AI"""
+        p = os.path.join(BASE_DIR, '_pasted_ocr.png')
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if not text.strip():
+            self._append_chat('桌宠', '😕 没识别到文字（可能是纯图片或截图太糊）' if not is_en else '😕 No text recognized')
+            return
+        self._chat_type_finish()
+        self._append_chat('我', f'📷 [截图识别] {text}')
+        self.ask_ai((f'（用户粘贴了一张截图，OCR 识别内容如下，请根据内容回答或处理）\n{text}'
+                    if not is_en else f'(User pasted a screenshot. OCR result below; answer or act on it.)\n{text}'))
 
     def _on_chat_input(self):
         """处理聊天输入：本地指令 / AI 对话（用户消息里的 [emotion:xxx]/[emotion=xxx] 也会触发立绘）"""
@@ -2708,7 +2771,7 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', '聊天记录已清空')
             return
         if low == '/help':
-            self._append_chat('桌宠', '指令：/clear 清空 · /time 时间 · /calc 算式 · /weather 天气 · /person 性格 · /run 程序 · /remind 秒 内容 · /pomo 番茄钟 · /lock 锁屏 · /sound 音效 · /todo 待办清单；其他直接聊天')
+            self._append_chat('桌宠', '指令：/clear 清空 · /time 时间 · /calc 算式 · /weather 天气 · /person 性格 · /run 程序 · /remind 秒 内容 · /pomo 番茄钟 · /lock 锁屏 · /sound 音效 · /todo 待办清单；直接聊天即可，Ctrl+V 可粘贴截图识别')
             return
         if low == '/todo':
             self._append_chat('桌宠', self._manage_todo('list'))
