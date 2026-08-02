@@ -1871,7 +1871,7 @@ class PetWidget(QWidget):
                     traceback.print_exc()
 
             def _drive(self):
-                """手动驱动参数：明显动画效果"""
+                """手动驱动参数：明显动画效果 + 每帧触发重绘"""
                 if self.model is None:
                     return
                 import math
@@ -1884,6 +1884,7 @@ class PetWidget(QWidget):
                     self.model.SetParameterValue('ParamEyeLOpen', blink)
                     self.model.SetParameterValue('ParamEyeROpen', blink)
                     self.model.SetParameterValue('ParamBreath', math.sin(self.t * 1.5) * 0.5 + 0.5)
+                    self.update()  # 关键：每帧请求重绘，否则画面不刷新
                 except Exception:
                     pass
 
