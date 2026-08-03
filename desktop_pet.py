@@ -2894,7 +2894,7 @@ class PetWidget(QWidget):
         self.state_imgs = {}
         self.scene_imgs = {}
         self._scaled_cache = {}  # 缩放结果缓存（id(pixmap) → 已缩放小图）
-        self._show_idle()
+        self._restore_display_state()  # 睡觉时显示睡眠立绘，否则待机（切角色不丢睡眠状态）
 
     def _get_state_img(self, st):
         """懒加载状态立绘（sleep/happy/thinking 等，首次用到才读盘）"""
