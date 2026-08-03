@@ -12,6 +12,8 @@
 
 > 基于 PySide6 + DeepSeek API 的桌面 AI 陪伴助手，支持双角色、长期记忆、工具调用、主动关心机制。
 
+> ⚠️ 本项目为第三方开源项目，与 DeepSeek（深度求索）公司无任何关联，仅使用其公开 API。所有角色形象均为 AI 生成，不代表官方。
+
 **[English](README.en.md) | [中文](README.md)**
 
 ## 📸 截图

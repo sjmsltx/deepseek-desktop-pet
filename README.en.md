@@ -10,6 +10,8 @@ A Q-style desktop pet living in your computer: chats with you, helps with tasks,
 
 > A desktop AI companion built with PySide6 + DeepSeek API — dual characters, long-term memory, function calling, and a proactive care system.
 
+> ⚠️ This is an independent third-party open-source project, not affiliated with DeepSeek. It only uses their public API. All character artworks are AI-generated and do not represent the official brand.
+
 ![AI Chat Demo](screenshots/demo-chat.png)
 
 > **Note**: The UI and conversation are in Chinese by default. This project targets Chinese users, but the architecture is fully generalizable.
