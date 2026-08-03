@@ -1953,18 +1953,11 @@ class PetWidget(QWidget):
             self.display_mode = 'live2d'
             self.pet_stack.setCurrentWidget(self._l2d_widget)
             self.bubble.raise_()
-            # Live2D 模式窗口加高：模型区 260→460px（切回静态恢复）
-            self.pet_stack.setMinimumHeight(440)
-            if self.height() <= 600:
-                self.setFixedSize(440, 780)
             self._save_cfg_value('display_mode', 'live2d')
             self._append_chat('桌宠', '🎬 已切换到 Live2D 模式（右键可切回静态立绘）' if not is_en else '🎬 Switched to Live2D mode')
         else:
             self.display_mode = 'static'
             self.pet_stack.setCurrentWidget(self.pet_label)
-            self.pet_stack.setMinimumHeight(0)
-            if self.height() > 600:
-                self.setFixedSize(440, 560)
             self._save_cfg_value('display_mode', 'static')
             self._append_chat('桌宠', '🖼️ 已切换回静态立绘模式' if not is_en else '🖼️ Switched to static art mode')
 
@@ -2596,7 +2589,9 @@ class PetWidget(QWidget):
         self.pet_label.setPixmap(canvas)
 
     def _show_idle(self):
-        """待机显示（贴边未弹出 → 扒边立绘）"""
+        """待机显示（贴边未弹出 → 扒边立绘；Live2D 模式由模型代替）"""
+        if getattr(self, 'display_mode', 'static') == 'live2d':
+            return
         if self._edge_side is not None and not self._edge_popped:
             if self._edge_side in ('left', 'right') and self.peek_pixmap is not None:
                 self._show_peek()
@@ -2610,7 +2605,9 @@ class PetWidget(QWidget):
         self._render_frame(self.full_idle)
 
     def _show_peek(self):
-        """扒边立绘（四方向：左右竖条镜像对齐，上下横条）"""
+        """扒边立绘（四方向：左右竖条镜像对齐，上下横条；Live2D 模式由模型代替）"""
+        if getattr(self, 'display_mode', 'static') == 'live2d':
+            return
         size = self.pet_size
         side = self._edge_side
         if side in ('left', 'right'):
@@ -2654,7 +2651,9 @@ class PetWidget(QWidget):
             self.pet_label.setPixmap(canvas)
 
     def _show_state_image(self, st):
-        """显示状态立绘（sleep/happy/thinking/scared/...）"""
+        """显示状态立绘（sleep/happy/thinking/scared/...；Live2D 模式由模型代替）"""
+        if getattr(self, 'display_mode', 'static') == 'live2d':
+            return
         img = self._get_state_img(st)
         if img is None:
             self._show_idle()
