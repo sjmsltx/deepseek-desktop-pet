@@ -3248,6 +3248,21 @@ class PetWidget(QWidget):
         else:
             self.chat_panel.show()
             self.setFixedSize(440, 560)
+            # 修复：拖拽遗留的大尺寸可能让面板超出窗口/屏幕（输入框被吞、边缘拖不到）
+            # 显示时检查窗口是否超出屏幕工作区，超出则重置面板尺寸并移回屏幕内
+            try:
+                scr = self.screen() or QApplication.primaryScreen()
+                avail = scr.availableGeometry()
+                if (self.y() + self.height() > avail.bottom() or self.x() + self.width() > avail.right()
+                        or self.y() < avail.top() or self.x() < avail.left()):
+                    self.chat_panel.setFixedWidth(420)
+                    self.chat_panel.setFixedHeight(240)
+                    self.setFixedSize(440, 560)
+                    nx = max(avail.left(), min(self.x(), avail.right() - 440))
+                    ny = max(avail.top(), min(self.y(), avail.bottom() - 560))
+                    self.move(nx, ny)
+            except Exception:
+                pass
 
     def _chat_drag_press(self, event):
         """顶部把手按下：垂直拖拽（上拉扩大）"""
@@ -3270,12 +3285,20 @@ class PetWidget(QWidget):
         if self._chat_drag_mode == 'v':
             dy = event.globalPosition().y() - self._chat_drag_start_y
             old_h = self.chat_panel.height()
+            # 屏幕工作区上限（防止拖大后面板超出屏幕底部）
+            try:
+                scr = self.screen() or QApplication.primaryScreen()
+                avail = scr.availableGeometry()
+                max_win_h = max(240, avail.height() - 24)
+                max_panel_h = max(120, max_win_h - (self.height() - old_h))
+            except Exception:
+                max_panel_h = 900
             if self._chat_drag_from_bottom:
                 # 底部把手：下拉（dy>0）→ 扩大（标准）
-                new_h = int(max(120, min(self._chat_drag_start_h + dy, 900)))
+                new_h = int(max(120, min(self._chat_drag_start_h + dy, 900, max_panel_h)))
             else:
                 # 顶部把手：上拉（dy<0）→ 扩大
-                new_h = int(max(120, min(self._chat_drag_start_h - dy, 900)))
+                new_h = int(max(120, min(self._chat_drag_start_h - dy, 900, max_panel_h)))
             delta = new_h - old_h
             if delta:
                 self.chat_panel.setFixedHeight(new_h)
@@ -3303,8 +3326,16 @@ class PetWidget(QWidget):
         if self._chat_drag_mode == 'h':
             dx = event.globalPosition().x() - self._chat_drag_start_x
             old_w = self.chat_panel.width()
+            # 屏幕工作区上限（防止拖大后面板超出屏幕右缘）
+            try:
+                scr = self.screen() or QApplication.primaryScreen()
+                avail = scr.availableGeometry()
+                max_win_w = max(300, avail.width() - 24)
+                max_panel_w = max(300, max_win_w - (self.width() - old_w))
+            except Exception:
+                max_panel_w = 700
             # 1:1：鼠标移动多少总宽变多少（面板居中 → 两边对称各 dx/2）
-            new_w = int(max(300, min(self._chat_drag_start_w + dx, 700)))
+            new_w = int(max(300, min(self._chat_drag_start_w + dx, 700, max_panel_w)))
             delta = new_w - old_w
             if delta:
                 self.chat_panel.setFixedWidth(new_w)
