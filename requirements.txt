@@ -1,0 +1,8 @@
+# DeepSeek 桌宠助手 依赖清单
+# 核心依赖（必需）：
+#   PySide6   —— GUI 框架（Qt6 绑定）
+# 可选依赖（Live2D 模式）：
+#   live2d-py —— Live2D 模型渲染（import 名 live2d）
+#   pyopengl  —— OpenGL 绑定（live2d-py 的依赖）
+
+PySide6>=6.5

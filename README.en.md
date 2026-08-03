@@ -67,7 +67,8 @@ Each character has its own model, conversation history, and long-term memory.
 
 ```powershell
 # 1. Install dependencies
-python -m pip install PySide6
+python -m pip install -r requirements.txt
+# (Optional) Live2D mode: python -m pip install live2d-py pyopengl
 
 # 2. Prepare config (copy template and fill in your API key)
 copy config.example.json config.json
@@ -118,15 +119,41 @@ A detailed write-up of LLM statelessness, Function Calling, and the chained wake
 
 ```
 desktop-pet/
-├── desktop_pet.py          # Main program (single file)
-├── config.example.json     # Config template
-├── 启动桌宠.bat            # Windows one-click launcher
-├── assets/                 # Sprite assets (AI-generated + cutout)
-│   ├── flash/              # V4 Flash state sprites
-│   └── pro/                # V4 Pro state sprites
-├── screenshots/            # README screenshots
+├── desktop_pet.py              # Main program (single file ~4000 lines, sectioned)
+├── requirements.txt            # Dependencies (PySide6 + optional live2d)
+├── pyproject.toml              # Project metadata / ruff config
+├── config.example.json         # Config template
+├── 启动桌宠.bat                # Windows one-click launcher
+├── tests/
+│   └── smoke_test.py           # Smoke tests (import/construct/core functions)
+├── assets/                     # Assets
+│   ├── flash/                  # V4 Flash state sprites
+│   ├── pro/                    # V4 Pro state sprites
+│   └── live2d/                 # Live2D model library (drop-in custom models)
+├── docs/
+│   └── live2d_pipeline.md      # Full Live2D character pipeline (Seedream→PS→Cubism)
+├── screenshots/                # README screenshots
+├── 主动消息机制学习笔记.md       # AI proactive messaging notes (Chinese)
+├── CHANGELOG.md                # Version history
+├── CONTRIBUTING.md             # Contribution guide (with source map)
+├── SECURITY.md                 # Security policy
+├── CODE_OF_CONDUCT.md          # Code of conduct
+├── .github/                    # Issue / PR templates
 └── README.md
 ```
+
+### Source Map (where to start reading)
+
+| To learn about | Search in `desktop_pet.py` |
+|----------------|---------------------------|
+| Tool-calling system | `# ===== Tools` / `def _call_` |
+| AI status prediction | `# ===== AI status` |
+| Memory system | `# ===== Memory` / `def _save_memory` |
+| Proactive wake-up | `# ===== Proactive` / `def _chain_wake` |
+| Live2D rendering | `# ===== Live2D` / `def _create_l2d` |
+| Semantic app search | `# ===== Semantic` / `def _smart_find_app` |
+| i18n (bilingual) | `_TEXT_ZH` / `_TEXT_EN` dicts |
+| UI interactions | `def _build_menu` / `def _open_chat_panel` |
 
 ## 📦 Packaging as exe
 
@@ -140,6 +167,8 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 > ⚠️ PyInstaller must be ≥ 6.21 (Python 3.14 support); delete `icu*.dll` from `_internal` after packaging (interferes with Qt6Core; the spec already excludes them).
 
 ## 🤝 Contributing / Roadmap
+
+Want to learn from or contribute to this project? Start with [CONTRIBUTING.md](CONTRIBUTING.md) (includes a source-reading map).
 
 - [ ] Foreground window awareness (detect what user is doing)
 - [ ] More characters / Live2D skeletal animation

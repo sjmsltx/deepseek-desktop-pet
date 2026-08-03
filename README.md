@@ -66,7 +66,8 @@
 
 ```powershell
 # 1. 安装依赖
-python -m pip install PySide6
+python -m pip install -r requirements.txt
+# （可选）Live2D 模式：python -m pip install live2d-py pyopengl
 
 # 2. 准备配置（复制模板并填入你的 API Key）
 copy config.example.json config.json
@@ -119,15 +120,41 @@ python desktop_pet.py
 
 ```
 desktop-pet/
-├── desktop_pet.py          # 主程序（单文件）
-├── config.example.json     # 配置模板
-├── 启动桌宠.bat            # Windows 一键启动
-├── assets/                 # 立绘素材（AI 生成 + 抠图）
-│   ├── flash/              # V4 Flash 状态立绘
-│   └── pro/                # V4 Pro 状态立绘
-├── 主动消息机制学习笔记.md   # AI 主动机制学习文档
+├── desktop_pet.py              # 主程序（单文件 ~4000 行，章节注释分区）
+├── requirements.txt            # 依赖清单（PySide6 + 可选 live2d）
+├── pyproject.toml              # 项目元数据 / ruff 配置
+├── config.example.json         # 配置模板
+├── 启动桌宠.bat                # Windows 一键启动
+├── tests/
+│   └── smoke_test.py           # 冒烟测试（导入/构造/核心函数）
+├── assets/                     # 素材目录
+│   ├── flash/                  # V4 Flash 状态立绘
+│   ├── pro/                    # V4 Pro 状态立绘
+│   └── live2d/                 # Live2D 模型库（扫描选用，自输入模型放这里）
+├── docs/
+│   └── live2d_pipeline.md      # Live2D 自生成人物完整流程（Seedream→PS→Cubism）
+├── screenshots/                # README 展示截图
+├── 主动消息机制学习笔记.md       # AI 主动机制学习文档
+├── CHANGELOG.md                # 版本变更记录
+├── CONTRIBUTING.md             # 贡献指南
+├── SECURITY.md                 # 安全策略
+├── CODE_OF_CONDUCT.md          # 行为准则
+├── .github/                    # Issue / PR 模板
 └── README.md
 ```
+
+### 源码地图（想学习从哪看起）
+
+| 想了解 | 搜索 `desktop_pet.py` 中的章节标记 |
+|--------|----------------------------------|
+| 工具调用体系 | `# ===== 工具` / `def _call_` |
+| AI 状态预判 | `# ===== AI 状态预判` |
+| 记忆系统 | `# ===== 记忆` / `def _save_memory` |
+| 主动关心/唤醒 | `# ===== 主动` / `def _chain_wake` |
+| Live2D 渲染 | `# ===== Live2D` / `def _create_l2d` |
+| 语义搜索 | `# ===== 语义` / `def _smart_find_app` |
+| 双语国际化 | `_TEXT_ZH` / `_TEXT_EN` 字典 |
+| 界面交互 | `def _build_menu` / `def _open_chat_panel` |
 
 ## 📦 打包为 exe
 
@@ -141,6 +168,8 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 > ⚠️ PyInstaller 必须 ≥ 6.21（支持 Python 3.14）；打包后删除 `_internal` 里的 `icu*.dll`（会干扰 Qt6Core，spec 已内置排除规则）。
 
 ## 🤝 贡献 / 扩展方向
+
+想学习或贡献？先看 [CONTRIBUTING.md](CONTRIBUTING.md)（含源码阅读路线图）。
 
 - [ ] 前台窗口感知（判断用户在忙什么）
 - [ ] 更多角色 / Live2D 骨骼动画

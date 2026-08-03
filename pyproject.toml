@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepseek-desktop-pet"
+version = "1.0.0"
+description = "一只住在你电脑里的 Q 版桌宠：陪你聊天、帮你干活、主动关心你。"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["desktop-pet", "ai", "deepseek", "pyside6", "live2d"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Desktop Environment",
+]
+dependencies = [
+    "PySide6>=6.5",
+]
+
+[project.optional-dependencies]
+live2d = ["live2d-py", "pyopengl"]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools]
+py-modules = ["desktop_pet"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
