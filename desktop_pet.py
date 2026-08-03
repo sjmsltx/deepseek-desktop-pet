@@ -2885,6 +2885,11 @@ class PetWidget(QWidget):
         self.peek_top_pixmap = QPixmap(peek_t) if os.path.exists(peek_t) else None
         peek_b = asset(key, 'peek_bottom')
         self.peek_bottom_pixmap = QPixmap(peek_b) if os.path.exists(peek_b) else None
+        # 闭眼贴边图（睡觉贴边专用；不存在则用完整睡姿兜底）
+        ps = asset(key, 'peek_sleep')
+        self.peek_sleep_pixmap = QPixmap(ps) if os.path.exists(ps) else None
+        pbs = asset(key, 'peek_bottom_sleep')
+        self.peek_bottom_sleep_pixmap = QPixmap(pbs) if os.path.exists(pbs) else None
         # 状态/场景立绘：懒加载（首次用到才读盘，加速启动）
         self.state_imgs = {}
         self.scene_imgs = {}
@@ -2958,7 +2963,21 @@ class PetWidget(QWidget):
         side = self._edge_side
         if side in ('left', 'right'):
             if self.sleeping:
-                # 睡觉贴边：完整睡姿立绘（不裁切），左贴边靠左缘，右贴边水平翻转靠右缘
+                # 睡觉贴边：优先用专业闭眼贴边图；无则完整睡姿（左靠左缘，右翻转靠右缘）
+                if self.peek_sleep_pixmap is not None and not self.peek_sleep_pixmap.isNull():
+                    src = self.peek_sleep_pixmap
+                    if side == 'right':
+                        src = src.transformed(QTransform().scale(-1, 1))
+                    canvas = QPixmap(size, size)
+                    canvas.fill(Qt.transparent)
+                    p = QPainter(canvas)
+                    p.setRenderHint(QPainter.SmoothPixmapTransform)
+                    scaled = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    draw_x = 0 if side == 'left' else size - scaled.width()
+                    p.drawPixmap(draw_x, int((size - scaled.height()) / 2), scaled)
+                    p.end()
+                    self.pet_label.setPixmap(canvas)
+                    return
                 img = self._get_state_img('sleep')
                 if img is None or img.isNull():
                     return
@@ -2992,10 +3011,11 @@ class PetWidget(QWidget):
         else:
             # 上下：横构图立绘
             if self.sleeping:
-                # 睡觉贴底边：完整睡姿底部对齐（不裁切）
-                img = self._get_state_img('sleep')
-                if img is None or img.isNull():
-                    return
+                # 睡觉贴边：优先用专业闭眼贴边图；无则完整睡姿底部对齐
+                if self.peek_bottom_sleep_pixmap is not None and not self.peek_bottom_sleep_pixmap.isNull():
+                    img = self.peek_bottom_sleep_pixmap
+                else:
+                    img = self._get_state_img('sleep')
             elif side == 'top':
                 img = self.peek_top_pixmap
             else:
