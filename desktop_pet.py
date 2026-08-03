@@ -2878,13 +2878,18 @@ class PetWidget(QWidget):
             p.drawPixmap(off[0], off[1], b)
             p.end()
             self.blink_aligned = canvas
-        # 扒边立绘（左/右竖条 + 上/下横条）
+        # 扒边立绘（左/右竖条 + 上/下横条）+ 闭眼贴边版（睡觉时用）
         peek_p = asset(key, 'peek')
         self.peek_pixmap = QPixmap(peek_p) if os.path.exists(peek_p) else None
         peek_t = asset(key, 'peek_top')
         self.peek_top_pixmap = QPixmap(peek_t) if os.path.exists(peek_t) else None
         peek_b = asset(key, 'peek_bottom')
         self.peek_bottom_pixmap = QPixmap(peek_b) if os.path.exists(peek_b) else None
+        # 闭眼贴边图（睡觉时贴边显示；无则回退普通贴边图）
+        ps = asset(key, 'peek_sleep')
+        self.peek_sleep_pixmap = QPixmap(ps) if os.path.exists(ps) else None
+        pbs = asset(key, 'peek_bottom_sleep')
+        self.peek_bottom_sleep_pixmap = QPixmap(pbs) if os.path.exists(pbs) else None
         # 状态/场景立绘：懒加载（首次用到才读盘，加速启动）
         self.state_imgs = {}
         self.scene_imgs = {}
@@ -2943,6 +2948,13 @@ class PetWidget(QWidget):
             self.pet_label.setFixedSize(self.pet_size, self.pet_size)
         self._render_frame(self.full_idle)
 
+    def _restore_display_state(self):
+        """恢复显示状态：睡眠→睡眠立绘，否则→待机（贴边拖出/弹出后用）"""
+        if self.sleeping:
+            self._show_state_image('sleep')
+        else:
+            self._show_idle()
+
     def _show_peek(self):
         """扒边立绘（四方向：左右竖条镜像对齐，上下横条；Live2D 模式由模型代替）"""
         if getattr(self, 'display_mode', 'static') == 'live2d':
@@ -2950,9 +2962,14 @@ class PetWidget(QWidget):
         size = self.pet_size
         side = self._edge_side
         if side in ('left', 'right'):
-            if self.peek_pixmap is None or self.peek_pixmap.isNull():
+            # 睡觉时优先用闭眼贴边图
+            src = None
+            if self.sleeping and self.peek_sleep_pixmap is not None and not self.peek_sleep_pixmap.isNull():
+                src = self.peek_sleep_pixmap
+            elif self.peek_pixmap is None or self.peek_pixmap.isNull():
                 return
-            src = self.peek_pixmap
+            else:
+                src = self.peek_pixmap
             if side == 'right':
                 src = src.transformed(QTransform().scale(-1, 1))
             canvas = QPixmap(size, size)
@@ -2965,8 +2982,14 @@ class PetWidget(QWidget):
             p.end()
             self.pet_label.setPixmap(canvas)
         else:
-            # 上下：横构图立绘
-            img = self.peek_top_pixmap if side == 'top' else self.peek_bottom_pixmap
+            # 上下：横构图立绘（睡觉时优先用闭眼版）
+            img = None
+            if self.sleeping and self.peek_bottom_sleep_pixmap is not None and not self.peek_bottom_sleep_pixmap.isNull():
+                img = self.peek_bottom_sleep_pixmap
+            elif side == 'top':
+                img = self.peek_top_pixmap
+            else:
+                img = self.peek_bottom_pixmap
             if img is None or img.isNull():
                 return
             # 上下贴边时 pet_label 放大为窗口尺寸
@@ -3681,7 +3704,7 @@ class PetWidget(QWidget):
             self._chat_hidden_for_dock = False
         self.setFixedSize(440, 560)
         self.pet_label.setFixedSize(self.pet_size, self.pet_size)
-        self._show_idle()
+        self._restore_display_state()
 
     def _popup_from_dock(self):
         """从贴边弹出完整窗口（双击/右键用）"""
@@ -3702,7 +3725,7 @@ class PetWidget(QWidget):
             pop_y = 0 if side == 'top' else geo.bottom() - 560
             self.move(self._popup_x, pop_y)
         self._edge_popped = True
-        self._show_idle()
+        self._restore_display_state()
 
     def _enter_dock(self, side, y):
         """进入贴边（立即收缩）"""
