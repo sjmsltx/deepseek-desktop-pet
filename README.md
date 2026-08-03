@@ -1,5 +1,11 @@
 # DeepSeek 桌宠助手 🐋⚡
 
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![PySide6](https://img.shields.io/badge/PySide6-6.x-green)
+![Stars](https://img.shields.io/github/stars/sjmsltx/deepseek-desktop-pet)
+![Last Commit](https://img.shields.io/github/last-commit/sjmsltx/deepseek-desktop-pet)
+
 一只住在你电脑里的 Q 版桌宠：会陪你聊天、帮你干活、还能主动关心你。
 
 ![小蓝 - AI 对话演示](screenshots/demo-chat.png)

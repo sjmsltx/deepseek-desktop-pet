@@ -1,5 +1,11 @@
 # DeepSeek Desktop Pet 🐋⚡
 
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![PySide6](https://img.shields.io/badge/PySide6-6.x-green)
+![Stars](https://img.shields.io/github/stars/sjmsltx/deepseek-desktop-pet)
+![Last Commit](https://img.shields.io/github/last-commit/sjmsltx/deepseek-desktop-pet)
+
 A Q-style desktop pet living in your computer: chats with you, helps with tasks, and proactively cares about you.
 
 > A desktop AI companion built with PySide6 + DeepSeek API — dual characters, long-term memory, function calling, and a proactive care system.
