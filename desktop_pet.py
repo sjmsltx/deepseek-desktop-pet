@@ -27,29 +27,10 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon, QTextBrowser, QTextEdit, QLineEdit, QInputDialog, QScrollArea
 )
 
-# Windows DWM 常量
+# Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
 DWMWA_NCRENDERING_POLICY = 2
 DWMNCRP_DISABLED = 1
-GWL_EXSTYLE = -20
-WS_EX_LAYERED = 0x80000
 WS_EX_TOOLWINDOW = 0x80
-
-def disable_window_shadow(hwnd):
-    try:
-        user32 = ctypes.windll.user32
-        dwmapi = ctypes.windll.dwmapi
-        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TOOLWINDOW)
-        policy = ctypes.c_int(DWMNCRP_DISABLED)
-        dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_NCRENDERING_POLICY, ctypes.byref(policy), ctypes.sizeof(policy))
-        # 注意：不要调用 DwmExtendFrameIntoClientArea(-1,-1,-1,-1)！
-        # 它在 Win10/11 上会把整个窗口变成 DWM 玻璃区，渲染成白色不透明填充，
-        # 覆盖 Qt 的 WA_TranslucentBackground，导致桌宠出现白色背景框（反复出现的老问题）。
-        return True
-    except Exception as e:
-        print(f'关闭阴影失败: {e}')
-        return False
-
 
 if getattr(sys, 'frozen', False):
     # PyInstaller 打包：资源在 exe 同目录（用户放 assets/config.json 在旁边）
@@ -77,8 +58,7 @@ UI_ZH = {
     'style_menu': '💬 回复风格', 'token_menu': '📝 回复长度', 'custom': '🎯 自定义…',
     'city': '🌆 默认城市…', 'custom_personality': '🎭 自定义性格…',
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
-    'export_chat': '📤 导出聊天记录', 'frame_clean': '🪟 窗口边框清理',
-    'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
+    'export_chat': '📤 导出聊天记录', 'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
     'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
     'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
@@ -111,8 +91,7 @@ UI_EN = {
     'style_menu': '💬 Reply style', 'token_menu': '📝 Reply length', 'custom': '🎯 Custom…',
     'city': '🌆 Default city…', 'custom_personality': '🎭 Custom personality…',
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
-    'export_chat': '📤 Export chat', 'frame_clean': '🪟 Frame cleanup',
-    'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
+    'export_chat': '📤 Export chat', 'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
     'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
     'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
@@ -751,10 +730,7 @@ class PetWidget(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(440, 560)
-        # 注意：不再自动调用 _kill_shadow！
-        # 它的 SetWindowLongW(WS_EX_LAYERED) 会重置 Qt 的每像素 alpha 分层，
-        # 导致窗口退回普通窗口（palette 白底 + DWM 灰色边框）——灰框老问题根因。
-        # 需要时可在右键菜单手动触发。
+        # 窗口透明由 DPI awareness + WA_TranslucentBackground 保证（不再需要手工清边框）
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -893,12 +869,6 @@ class PetWidget(QWidget):
                 self.display_mode = 'static'
 
     # ---------- 窗口 ----------
-    def _kill_shadow(self):
-        try:
-            disable_window_shadow(int(self.winId()))
-        except Exception as e:
-            print(f'kill shadow err: {e}')
-
     def _restore_position(self):
         try:
             if os.path.exists(CONFIG_PATH):
@@ -4329,10 +4299,6 @@ class PetWidget(QWidget):
         smenu.addSeparator()
         smenu.addAction(T('export_chat')).triggered.connect(self._export_chat)
         smenu.addSeparator()
-        frame_act = smenu.addAction(T('frame_clean'))
-        frame_act.setCheckable(True)
-        frame_act.setChecked(False)
-        frame_act.triggered.connect(self._toggle_frame_clean)
         autostart_act = smenu.addAction(T('autostart') + (T('on') if self.is_autostart_enabled() else T('off')))
         autostart_act.setCheckable(True)
         autostart_act.setChecked(self.is_autostart_enabled())
@@ -4374,16 +4340,6 @@ class PetWidget(QWidget):
             msg = '语言已切换为中文' if lang == 'zh' else 'Language switched to English'
             self._append_chat('桌宠', msg)
             self.say_plain(msg, immediate=True)
-
-    def _toggle_frame_clean(self, checked):
-        """设置菜单：窗口边框清理开关"""
-        if checked:
-            self._kill_shadow()
-            self._append_chat('桌宠', '已启用边框清理（若出现边框/白底，取消勾选并重启）')
-            self.say_plain('已启用边框清理', immediate=True)
-        else:
-            self._append_chat('桌宠', '已取消边框清理；完全恢复请重启桌宠')
-            self.say_plain('已取消边框清理', immediate=True)
 
 
 def main():
