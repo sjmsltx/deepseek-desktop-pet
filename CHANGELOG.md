@@ -5,6 +5,19 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-08-03
+
+工程化与文档完善（无功能变更）：
+
+### 新增
+- `requirements.txt` / `pyproject.toml`：依赖声明与项目元数据
+- `tests/smoke_test.py`：冒烟测试（导入/构造/核心函数，6 项通过）
+- `CONTRIBUTING.md`：贡献指南（含源码阅读地图）
+- `SECURITY.md` / `CODE_OF_CONDUCT.md` / `.editorconfig`
+- `.github/`：Issue 模板（Bug/Feature）+ PR 模板
+- README 中英文新增「源码地图」章节，更新项目结构树
+- 第三方免责声明（README 中英文）
+
 ## [1.0.0] - 2026-08-03
 
 首个正式发布版。从 v6.19 开发至今的功能汇总：
