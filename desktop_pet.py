@@ -987,6 +987,186 @@ class PetWidget(QWidget):
         self._ai_busy = True
         threading.Thread(target=self._ai_worker, args=(text,), daemon=True).start()
 
+    # ---------- 智能本地应用检索（v6.36） ----------
+    COMMON_ALIASES = {
+        '微信': 'wechat', 'weixin': 'wechat', 'vx': 'wechat',
+        'qq': 'qq', '扣扣': 'qq', '企鹅': 'qq',
+        '浏览器': 'edge', '谷歌': 'chrome', '谷歌浏览器': 'chrome', 'chrome': 'chrome',
+        '火狐': 'firefox', 'b站': 'bilibili', '哔哩哔哩': 'bilibili',
+        'word': 'word', 'excel': 'excel', 'ppt': 'powerpoint', 'wps': 'wps',
+        'ps': 'photoshop', 'photoshop': 'photoshop', 'blender': 'blender',
+        'steam': 'steam', '网易云': 'cloudmusic', '音乐': 'cloudmusic', '酷狗': 'kugou',
+        'vscode': 'code', '代码编辑器': 'code', 'pycharm': 'pycharm',
+        'python': 'python', '计算器': 'calculator', 'calc': 'calculator',
+        '记事本': 'notepad', '终端': 'terminal', '命令行': 'terminal',
+        '任务管理器': 'taskmgr', '控制面板': 'control', '设置': 'settings',
+        '资源管理器': 'explorer', '文件管理器': 'explorer', '我的电脑': 'explorer',
+        '画图': 'paint', '远程桌面': 'mstsc', '截图': 'snipping',
+        'matlab': 'matlab', 'unity': 'unity', 'godot': 'godot',
+        'geosim': 'geosim', '桌宠': 'desktop_pet', '夸克': 'quark', '百度网盘': 'baidunetdisk',
+        '联想浏览器': 'lenovo', '腾讯会议': 'wemeet', '钉钉': 'dingtalk', '企业微信': 'wecom',
+    }
+
+    def _build_app_index(self):
+        """扫描本地应用索引：开始菜单快捷方式 + 注册表已安装应用"""
+        import subprocess as _sp
+        apps = []  # [{name, path, exe}]
+        # 1. 开始菜单 .lnk（一个 PowerShell 进程批量解析）
+        ps_code = (
+            '$ws = New-Object -ComObject WScript.Shell; '
+            '$paths = @("$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs", '
+            '"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs"); '
+            'foreach ($p in $paths) { if (Test-Path $p) { Get-ChildItem $p -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | '
+            'ForEach-Object { $sc = $ws.CreateShortcut($_.FullName); '
+            'Write-Output ($_.BaseName + "`t" + $sc.TargetPath) } } }'
+        )
+        try:
+            r = _sp.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_code],
+                        capture_output=True, timeout=40)
+            for line in r.stdout.decode('utf-8', errors='ignore').splitlines():
+                if '\t' not in line and chr(9) not in line:
+                    continue
+                parts = line.split(chr(9))
+                if len(parts) >= 2 and parts[1].strip():
+                    apps.append({'name': parts[0].strip(), 'path': parts[1].strip(),
+                                 'exe': os.path.basename(parts[1].strip()).lower()})
+        except Exception:
+            pass
+        # 2. 注册表已安装应用
+        try:
+            import winreg
+            seen = set()
+            for hive, subkey in [
+                (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),
+                (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),
+                (winreg.HKEY_CURRENT_USER, r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),
+            ]:
+                try:
+                    key = winreg.OpenKey(hive, subkey)
+                    for i in range(winreg.QueryInfoKey(key)[0]):
+                        try:
+                            sk = winreg.EnumKey(key, i)
+                            skh = winreg.OpenKey(key, sk)
+                            try:
+                                name, _ = winreg.QueryValueEx(skh, 'DisplayName')
+                                icon, _ = winreg.QueryValueEx(skh, 'DisplayIcon')
+                            except Exception:
+                                continue
+                            exe = ''
+                            if icon:
+                                exe = os.path.basename(icon.split(',')[0]).lower()
+                            if name and (name, exe) not in seen:
+                                seen.add((name, exe))
+                                apps.append({'name': str(name).strip(), 'path': icon.split(',')[0] if icon else '',
+                                             'exe': exe})
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return apps
+
+    def _load_app_index(self):
+        """加载/构建应用索引（缓存 24h）"""
+        idx_path = os.path.join(BASE_DIR, 'app_index.json')
+        try:
+            if os.path.exists(idx_path):
+                with open(idx_path, encoding='utf-8') as f:
+                    data = json.load(f)
+                if time.time() - data.get('built_at', 0) < 86400:
+                    return data.get('apps', [])
+        except Exception:
+            pass
+        apps = self._build_app_index()
+        try:
+            with open(idx_path, 'w', encoding='utf-8') as f:
+                json.dump({'built_at': time.time(), 'apps': apps}, f, ensure_ascii=False)
+        except Exception:
+            pass
+        return apps
+
+    def _smart_find_app(self, query):
+        """智能匹配本地应用：别名→精确→子串→拼音首字母→模糊，返回 (path, name) 或 None"""
+        import difflib
+        q = query.strip().lower().replace('.exe', '').replace('打开', '').replace('启动', '').replace('运行', '').strip()
+        if not q:
+            return None
+        apps = self._load_app_index()
+        if not apps:
+            return None
+
+        # 系统自带应用直映射（无快捷方式，直接给 system32 路径）
+        sysapps = {
+            'notepad': (r'C:\Windows\System32\notepad.exe', '记事本'),
+            'calc': (r'C:\Windows\System32\calc.exe', '计算器'),
+            'calculator': (r'C:\Windows\System32\calc.exe', '计算器'),
+            'paint': (r'C:\Windows\System32\mspaint.exe', '画图'),
+            'taskmgr': (r'C:\Windows\System32\Taskmgr.exe', '任务管理器'),
+            'control': (r'C:\Windows\System32\control.exe', '控制面板'),
+            'mstsc': (r'C:\Windows\System32\mstsc.exe', '远程桌面'),
+            'explorer': (r'C:\Windows\explorer.exe', '资源管理器'),
+        }
+        for at in self.COMMON_ALIASES.values():
+            pass
+        if q in self.COMMON_ALIASES and self.COMMON_ALIASES[q] in sysapps:
+            p2, n2 = sysapps[self.COMMON_ALIASES[q]]
+            if os.path.exists(p2):
+                return (p2, n2)
+        if q in sysapps:
+            p2, n2 = sysapps[q]
+            if os.path.exists(p2):
+                return (p2, n2)
+
+        # 别名展开（如 微信→wechat, 浏览器→edge）
+        alias_targets = []
+        if q in self.COMMON_ALIASES:
+            alias_targets.append(self.COMMON_ALIASES[q])
+        # 拼音首字母（wx→微信, qq→QQ, wps）
+        pinyin_letters = ''.join([c for c in q if c.isascii() and c.isalpha()]).lower()
+
+        def score(app):
+            name = (app.get('name') or '').lower()
+            exe = app.get('exe') or ''
+            p = (app.get('path') or '').lower()
+            # 别名目标精确命中 exe（最强证据）
+            for at in alias_targets:
+                if at == exe or at + '.exe' == exe:
+                    return 100
+            # 名称/路径精确
+            if q == name or q == exe or q == name.replace(' ', ''):
+                return 100
+            # 别名出现在 exe/路径
+            for at in alias_targets:
+                if at in exe or at in p:
+                    return 95
+            # 别名出现在名称
+            for at in alias_targets:
+                if at in name:
+                    return 85
+            if q in exe:
+                return 80
+            if q in name or name in q:
+                return 65
+            if pinyin_letters and len(pinyin_letters) >= 2:
+                if pinyin_letters == ''.join([c for c in name if c.isascii()]).lower()[:len(pinyin_letters)]:
+                    return 75
+            return 0
+
+        scored = [(score(a), a) for a in apps]
+        scored.sort(key=lambda x: -x[0])
+        best_score, best = scored[0] if scored else (0, None)
+        if best_score >= 75:
+            return (best.get('path') or best.get('name'), best.get('name'))
+        # 模糊匹配兜底（difflib）
+        names = [a.get('name', '') for a in apps]
+        close = difflib.get_close_matches(q, [n.lower() for n in names], n=1, cutoff=0.5)
+        if close:
+            for a in apps:
+                if (a.get('name') or '').lower() == close[0]:
+                    return (a.get('path') or a.get('name'), a.get('name'))
+        return None
+
     def _load_aliases(self):
         """从 config.json 加载自定义应用快捷指令别名表"""
         try:
@@ -1003,6 +1183,36 @@ class PetWidget(QWidget):
         app = app.strip()
         if not app:
             return '没有指定要打开的内容'
+
+        # 0.5 智能本地应用检索（v6.36）：先找电脑上装没装，再谈浏览器
+        found = self._smart_find_app(app)
+        if found:
+            target, display = found
+            try:
+                target = (target or '').strip()
+                if target and target.lower().endswith(('.exe', '.lnk', '.bat', '.cmd')):
+                    os.startfile(target)
+                elif target and os.path.isdir(target):
+                    os.startfile(target)
+                elif target and os.path.exists(target):
+                    # 非可执行文件（如 .ico/.url）：同目录找 exe 兜底
+                    import glob as _glob
+                    exe_found = None
+                    for pat in ('*.exe', '*.lnk'):
+                        cands = _glob.glob(os.path.join(os.path.dirname(target), pat))
+                        if cands:
+                            exe_found = cands[0]
+                            break
+                    if exe_found:
+                        os.startfile(exe_found)
+                    else:
+                        os.system(f'start "" "{display}" 2>nul')
+                else:
+                    # 只有名字没有路径（如 UWP）：尝试 start
+                    os.system(f'start "" "{display}" 2>nul')
+                return f'已打开 {display}'
+            except Exception as e:
+                return f'打开 {display} 失败：{e}'
 
         # 0. 用户自定义别名表（config.json 的 app_aliases，优先级最高）
         alias_key = app.lower().strip()
