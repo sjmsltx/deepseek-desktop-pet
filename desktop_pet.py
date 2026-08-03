@@ -96,6 +96,7 @@ UI_ZH = {
     'rem_clear': '🧹 清空全部', 'rem_none': '暂无提醒', 'rem_followup': '回访', 'rem_normal': '提醒',
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
     'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
+    'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -126,6 +127,7 @@ UI_EN = {
     'rem_clear': '🧹 Clear All', 'rem_none': 'No reminders', 'rem_followup': 'Follow-up', 'rem_normal': 'Reminder',
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
     'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
+    'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
 }
 
 # ============ 角色配置 ============
@@ -687,6 +689,7 @@ class PetWidget(QWidget):
         self.bubble_hide_timer.timeout.connect(self._hide_bubble)
         self.ai_enabled = False
         self.display_mode = 'static'  # static/live2d（_load_ai_config 会覆盖）
+        self.live2d_model = 'mao'
         self._load_ai_config()
         self.app_aliases = self._load_aliases()
         # AI 回复信号（类级定义，connect 跨线程槽）
@@ -961,6 +964,7 @@ class PetWidget(QWidget):
                 self.language = cfg.get('language', 'zh')  # zh/en
                 self.max_tokens = max(256, min(int(cfg.get('max_tokens', 1000)), 64000))
                 self.display_mode = cfg.get('display_mode', 'static')  # static/live2d
+                self.live2d_model = cfg.get('live2d_model', 'mao')  # Live2D 模型目录名
         except Exception:
             pass
 
@@ -1834,9 +1838,35 @@ class PetWidget(QWidget):
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
 
+    def _scan_live2d_models(self):
+        """扫描 assets/live2d/ 下所有含 model3.json 的模型目录，返回 {目录名: 路径}"""
+        result = {}
+        root = os.path.join(BASE_DIR, 'assets', 'live2d')
+        if os.path.isdir(root):
+            for d in os.listdir(root):
+                sub = os.path.join(root, d)
+                if os.path.isdir(sub):
+                    for f in os.listdir(sub):
+                        if f.endswith('.model3.json'):
+                            result[d] = os.path.join(sub, f)
+                            break
+        return result
+
+    def _live2d_model_path(self):
+        """当前配置的 Live2D 模型路径（不存在则回退第一个可用）"""
+        models = self._scan_live2d_models()
+        name = getattr(self, 'live2d_model', 'mao')
+        if name in models:
+            return models[name]
+        if models:
+            self.live2d_model = next(iter(models))
+            return models[self.live2d_model]
+        return None
+
     def _create_l2d_embedded(self):
         """创建内嵌 Live2D 显示部件（透明 GL，替代静态立绘区域）"""
-        if not os.path.exists(LIVE2D_MODEL):
+        model_path = self._live2d_model_path()
+        if model_path is None or not os.path.exists(model_path):
             return None
         try:
             import live2d.v3 as live2d
@@ -1864,7 +1894,7 @@ class PetWidget(QWidget):
                 try:
                     live2d.glInit()
                     self.model = live2d.LAppModel()
-                    self.model.LoadModelJson(LIVE2D_MODEL)
+                    self.model.LoadModelJson(model_path)
                     self.model.Resize(max(1, self.width()), max(1, self.height()))
                     self.model.SetAutoBlinkEnable(True)
                     self.model.SetAutoBreathEnable(True)
@@ -1936,6 +1966,30 @@ class PetWidget(QWidget):
         w = L2DPet(self)
         w.setMinimumSize(200, 300)
         return w
+
+    def _set_live2d_model(self, name):
+        """切换 Live2D 模型（重建显示部件）"""
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        models = self._scan_live2d_models()
+        if name not in models:
+            self._append_chat('桌宠', '模型不存在' if not is_en else 'Model not found')
+            return
+        self.live2d_model = name
+        self._save_cfg_value('live2d_model', name)
+        if getattr(self, 'display_mode', 'static') == 'live2d':
+            # 销毁旧部件重建
+            old = getattr(self, '_l2d_widget', None)
+            if old is not None:
+                self.pet_stack.removeWidget(old)
+                old.deleteLater()
+                self._l2d_widget = None
+            w = self._create_l2d_embedded()
+            if w is not None:
+                self.pet_stack.addWidget(w)
+                self._l2d_widget = w
+                self.pet_stack.setCurrentWidget(w)
+                self.bubble.raise_()
+        self._append_chat('桌宠', f'🤖 已切换 Live2D 模型：{name}' if not is_en else f'🤖 Switched Live2D model: {name}')
 
     def _set_display_mode(self, mode):
         """切换显示模式：static 静态立绘 / live2d 模型"""
@@ -3903,6 +3957,18 @@ class PetWidget(QWidget):
         ma_l2d.setCheckable(True)
         ma_l2d.setChecked(getattr(self, 'display_mode', 'static') == 'live2d')
         ma_l2d.triggered.connect(lambda: self._set_display_mode('live2d'))
+        # Live2D 模型库：扫描 assets/live2d/，用户放入 model3.json 文件夹即可选用
+        l2dmm = modemenu.addMenu(T('l2d_model_menu'))
+        l2d_models = self._scan_live2d_models()
+        if l2d_models:
+            cur_model = getattr(self, 'live2d_model', 'mao')
+            for mname in sorted(l2d_models):
+                ma = l2dmm.addAction(mname)
+                ma.setCheckable(True)
+                ma.setChecked(mname == cur_model)
+                ma.triggered.connect(lambda checked, n=mname: self._set_live2d_model(n))
+        else:
+            l2dmm.addAction(T('l2d_no_model')).setEnabled(False)
         smenu.addSeparator()
         smenu.addAction(T('city')).triggered.connect(self._set_city_dialog)
         smenu.addAction(T('custom_personality')).triggered.connect(self._set_personality_dialog)
