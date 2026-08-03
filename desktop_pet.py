@@ -1953,11 +1953,18 @@ class PetWidget(QWidget):
             self.display_mode = 'live2d'
             self.pet_stack.setCurrentWidget(self._l2d_widget)
             self.bubble.raise_()
+            # Live2D 模式窗口加高：模型区 260→460px（切回静态恢复）
+            self.pet_stack.setMinimumHeight(440)
+            if self.height() <= 600:
+                self.setFixedSize(440, 780)
             self._save_cfg_value('display_mode', 'live2d')
             self._append_chat('桌宠', '🎬 已切换到 Live2D 模式（右键可切回静态立绘）' if not is_en else '🎬 Switched to Live2D mode')
         else:
             self.display_mode = 'static'
             self.pet_stack.setCurrentWidget(self.pet_label)
+            self.pet_stack.setMinimumHeight(0)
+            if self.height() > 600:
+                self.setFixedSize(440, 560)
             self._save_cfg_value('display_mode', 'static')
             self._append_chat('桌宠', '🖼️ 已切换回静态立绘模式' if not is_en else '🖼️ Switched to static art mode')
 

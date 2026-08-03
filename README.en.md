@@ -24,6 +24,11 @@ A Q-style desktop pet living in your computer: chats with you, helps with tasks,
 
 ## ✨ Features
 
+### 🎭 Dual Display Modes (v6.31)
+- **Static Art Mode** (default): single Q-style illustration with breath/blink animations, lightweight
+- **Live2D Mode**: official Mao model (Cubism 4), 30fps continuous animation — head sway / blinking / breathing / gaze tracking / click reactions. Switch anytime via right-click menu, persisted in config
+- Transparent OpenGL embedded rendering; all interactions (drag, edge-dock, chat) work in both modes
+
 ### 🎭 Dual Characters
 | Character | Model | Traits |
 |-----------|-------|--------|
