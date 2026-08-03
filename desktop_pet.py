@@ -95,7 +95,7 @@ UI_ZH = {
     'reminder_menu': '⏰ 提醒管理', 'rem_left': '剩余', 'rem_type': '类型', 'rem_cancel': '🗑 取消选中',
     'rem_clear': '🧹 清空全部', 'rem_none': '暂无提醒', 'rem_followup': '回访', 'rem_normal': '提醒',
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
-    'l2d_preview': '🎬 Live2D 预览',
+    'l2d_preview': '🎬 Live2D 预览', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -125,7 +125,7 @@ UI_EN = {
     'reminder_menu': '⏰ Reminders', 'rem_left': 'Left', 'rem_type': 'Type', 'rem_cancel': '🗑 Cancel Selected',
     'rem_clear': '🧹 Clear All', 'rem_none': 'No reminders', 'rem_followup': 'Follow-up', 'rem_normal': 'Reminder',
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
-    'l2d_preview': '🎬 Live2D Preview',
+    'l2d_preview': '🎬 Live2D Preview', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
 }
 
 # ============ 角色配置 ============
@@ -686,6 +686,7 @@ class PetWidget(QWidget):
         self.bubble_hide_timer.setSingleShot(True)
         self.bubble_hide_timer.timeout.connect(self._hide_bubble)
         self.ai_enabled = False
+        self.display_mode = 'static'  # static/live2d（_load_ai_config 会覆盖）
         self._load_ai_config()
         self.app_aliases = self._load_aliases()
         # AI 回复信号（类级定义，connect 跨线程槽）
@@ -769,7 +770,11 @@ class PetWidget(QWidget):
         self.pet_label = QLabel(self)
         self.pet_label.setAlignment(Qt.AlignCenter)
         self.pet_label.setFixedSize(self.pet_size, self.pet_size)
-        self.layout.addWidget(self.pet_label, 0, Qt.AlignHCenter)
+        # 显示模式容器：静态立绘 / Live2D 可切换
+        from PySide6.QtWidgets import QStackedWidget
+        self.pet_stack = QStackedWidget(self)
+        self.pet_stack.addWidget(self.pet_label)
+        self.layout.addWidget(self.pet_stack, 0, Qt.AlignHCenter)
 
         # 聊天窗口（替代原功能按钮栏）
         self.chat_panel = QFrame(self)
@@ -867,6 +872,16 @@ class PetWidget(QWidget):
         self._start_morning_report()
         self.weather_signal.connect(self._on_weather_result)
         self.ocr_signal.connect(self._on_ocr_result)
+        # 应用显示模式（config 为 live2d 时直接启用，不弹提示）
+        if getattr(self, 'display_mode', 'static') == 'live2d':
+            w = self._create_l2d_embedded()
+            if w is not None:
+                self.pet_stack.addWidget(w)
+                self._l2d_widget = w
+                self.pet_stack.setCurrentWidget(w)
+                self.bubble.raise_()
+            else:
+                self.display_mode = 'static'
 
     # ---------- 窗口 ----------
     def _kill_shadow(self):
@@ -945,6 +960,7 @@ class PetWidget(QWidget):
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
                 self.language = cfg.get('language', 'zh')  # zh/en
                 self.max_tokens = max(256, min(int(cfg.get('max_tokens', 1000)), 64000))
+                self.display_mode = cfg.get('display_mode', 'static')  # static/live2d
         except Exception:
             pass
 
@@ -1818,6 +1834,133 @@ class PetWidget(QWidget):
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
 
+    def _create_l2d_embedded(self):
+        """创建内嵌 Live2D 显示部件（透明 GL，替代静态立绘区域）"""
+        if not os.path.exists(LIVE2D_MODEL):
+            return None
+        try:
+            import live2d.v3 as live2d
+            from PySide6.QtOpenGLWidgets import QOpenGLWidget
+        except Exception:
+            return None
+        if not getattr(self, '_l2d_inited', False):
+            try:
+                live2d.init()
+                self._l2d_inited = True
+            except Exception:
+                return None
+
+        class L2DPet(QOpenGLWidget):
+            def __init__(self, pet, parent=None):
+                super().__init__(parent)
+                self.pet = pet
+                self.model = None
+                self.t = 0
+                self._look = None
+                self._gl_ready = False
+                self.setMouseTracking(True)
+
+            def initializeGL(self):
+                try:
+                    live2d.glInit()
+                    self.model = live2d.LAppModel()
+                    self.model.LoadModelJson(LIVE2D_MODEL)
+                    self.model.Resize(max(1, self.width()), max(1, self.height()))
+                    self.model.SetAutoBlinkEnable(True)
+                    self.model.SetAutoBreathEnable(True)
+                    self.model.StartRandomMotion('Idle', 1)
+                    self._gl_ready = True
+                    # 动画驱动 30fps
+                    from PySide6.QtCore import QTimer as _QT
+                    self.drive_timer = _QT(self)
+                    self.drive_timer.timeout.connect(self._drive)
+                    self.drive_timer.start(33)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+
+            def _drive(self):
+                if self.model is None or not self._gl_ready:
+                    return
+                import math
+                self.t += 0.033
+                try:
+                    if self._look:
+                        nx, ny = self._look
+                        self.model.SetParameterValue('ParamEyeBallX', nx * 1.0)
+                        self.model.SetParameterValue('ParamEyeBallY', ny * 0.8)
+                        self.model.SetParameterValue('ParamAngleZ', nx * 12.0)
+                        self.model.SetParameterValue('ParamAngleX', ny * 10.0)
+                    else:
+                        self.model.SetParameterValue('ParamAngleZ', math.sin(self.t * 1.2) * 8.0)
+                        self.model.SetParameterValue('ParamAngleX', math.sin(self.t * 0.8) * 4.0)
+                    self.model.SetParameterValue('ParamBodyAngleZ', math.sin(self.t * 0.6) * 4.0)
+                    blink = max(0.0, math.sin(self.t * math.pi / 3.0))
+                    self.model.SetParameterValue('ParamEyeLOpen', blink)
+                    self.model.SetParameterValue('ParamEyeROpen', blink)
+                    self.model.SetParameterValue('ParamBreath', math.sin(self.t * 1.5) * 0.5 + 0.5)
+                    self.update()
+                except Exception:
+                    pass
+
+            def paintGL(self):
+                live2d.clearBuffer(0, 0, 0, 0)
+                if self.model and self._gl_ready:
+                    self.model.Update()
+                    self.model.Draw()
+
+            def resizeGL(self, w, h):
+                if self.model:
+                    self.model.Resize(max(1, w), max(1, h))
+
+            def mousePressEvent(self, e):
+                self.pet.mousePressEvent(e)
+
+            def mouseReleaseEvent(self, e):
+                self.pet.mouseReleaseEvent(e)
+                if self.model and not self.pet.dragging:
+                    self.model.StartRandomMotion('TapBody', 2)
+
+            def mouseDoubleClickEvent(self, e):
+                self.pet.mouseDoubleClickEvent(e)
+
+            def mouseMoveEvent(self, e):
+                self._look = ((e.position().x() / max(1, self.width()) - 0.5) * 2,
+                              (e.position().y() / max(1, self.height()) - 0.5) * 2)
+                if self.pet.dragging and (e.buttons() & Qt.LeftButton):
+                    self.pet.move(e.globalPosition().toPoint() - self.pet.drag_offset)
+
+            def leaveEvent(self, e):
+                self._look = None
+
+        w = L2DPet(self)
+        w.setMinimumSize(200, 300)
+        return w
+
+    def _set_display_mode(self, mode):
+        """切换显示模式：static 静态立绘 / live2d 模型"""
+        if mode not in ('static', 'live2d'):
+            return
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if mode == 'live2d':
+            if not hasattr(self, '_l2d_widget') or self._l2d_widget is None:
+                w = self._create_l2d_embedded()
+                if w is None:
+                    self._append_chat('桌宠', 'Live2D 不可用（缺少 live2d-py 或模型文件）' if not is_en else 'Live2D unavailable (missing live2d-py or model)')
+                    return
+                self.pet_stack.addWidget(w)
+                self._l2d_widget = w
+            self.display_mode = 'live2d'
+            self.pet_stack.setCurrentWidget(self._l2d_widget)
+            self.bubble.raise_()
+            self._save_cfg_value('display_mode', 'live2d')
+            self._append_chat('桌宠', '🎬 已切换到 Live2D 模式（右键可切回静态立绘）' if not is_en else '🎬 Switched to Live2D mode')
+        else:
+            self.display_mode = 'static'
+            self.pet_stack.setCurrentWidget(self.pet_label)
+            self._save_cfg_value('display_mode', 'static')
+            self._append_chat('桌宠', '🖼️ 已切换回静态立绘模式' if not is_en else '🖼️ Switched to static art mode')
+
     def _open_live2d_preview(self):
         """Live2D 预览窗口（Mao 模型：自动眨眼/呼吸/跟随光标），与静态立绘并行"""
         if getattr(self, '_l2d_win', None) is not None:
@@ -2238,7 +2381,9 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', msg)
         elif idle < 60 and self._idle_warned:
             self._idle_warned = False
-        # 打盹：空闲 3 分钟 → 切换睡眠立绘；有输入 → 唤醒
+        # 打盹：空闲 3 分钟 → 切换睡眠立绘；有输入 → 唤醒（Live2D 模式跳过，模型自带动画）
+        if getattr(self, 'display_mode', 'static') == 'live2d':
+            return
         if idle >= 180:
             if not self._dozing and self.state == 'idle':
                 sleep_img = self._get_state_img('sleep')
@@ -3741,6 +3886,17 @@ class PetWidget(QWidget):
             ta.triggered.connect(lambda checked, v=val, k=key: self._set_max_tokens(v, T(k)))
         tmmenu.addSeparator()
         tmmenu.addAction(T('custom')).triggered.connect(self._set_max_tokens_dialog)
+        smenu.addSeparator()
+        # 显示模式：静态立绘 / Live2D
+        modemenu = smenu.addMenu(T('mode_menu'))
+        ma_static = modemenu.addAction(T('mode_static'))
+        ma_static.setCheckable(True)
+        ma_static.setChecked(getattr(self, 'display_mode', 'static') != 'live2d')
+        ma_static.triggered.connect(lambda: self._set_display_mode('static'))
+        ma_l2d = modemenu.addAction(T('mode_live2d'))
+        ma_l2d.setCheckable(True)
+        ma_l2d.setChecked(getattr(self, 'display_mode', 'static') == 'live2d')
+        ma_l2d.triggered.connect(lambda: self._set_display_mode('live2d'))
         smenu.addSeparator()
         smenu.addAction(T('city')).triggered.connect(self._set_city_dialog)
         smenu.addAction(T('custom_personality')).triggered.connect(self._set_personality_dialog)
