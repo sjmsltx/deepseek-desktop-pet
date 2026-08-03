@@ -97,6 +97,9 @@ UI_ZH = {
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
     'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
     'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
+    'todo_menu': '📋 待办管理', 'todo_status': '状态', 'todo_time': '时间', 'todo_add': '➕ 添加',
+    'todo_done': '✅ 完成选中', 'todo_del': '🗑 删除选中', 'todo_clear_done': '🧹 清空已完成',
+    'todo_placeholder': '输入待办事项，回车添加…', 'todo_empty': '暂无待办',
 }
 UI_EN = {
     'menu_role': '🎭 Characters', 'menu_chat': '🤖 Chat with AI', 'menu_interact': '💬 Interact',
@@ -128,6 +131,9 @@ UI_EN = {
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
     'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
     'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
+    'todo_menu': '📋 Todo Manager', 'todo_status': 'Status', 'todo_time': 'Time', 'todo_add': '➕ Add',
+    'todo_done': '✅ Done', 'todo_del': '🗑 Delete', 'todo_clear_done': '🧹 Clear Done',
+    'todo_placeholder': 'Enter todo, press Enter to add…', 'todo_empty': 'No todos',
 }
 
 # ============ 角色配置 ============
@@ -1592,6 +1598,101 @@ class PetWidget(QWidget):
                     return f'已删除待办：{t.get("text", "")}'
             return '未找到对应待办'
         return '未知操作（add/list/done/remove）'
+
+    def _open_todo_manager(self):
+        """待办管理窗口：添加/勾选完成/删除/清空已完成"""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+                                       QPushButton, QHeaderView, QLineEdit)
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        T = self._t
+        dlg = QDialog(self)
+        dlg.setWindowTitle(T('todo_menu'))
+        dlg.resize(540, 420)
+        lay = QVBoxLayout(dlg)
+
+        table = QTableWidget(0, 3)
+        table.setHorizontalHeaderLabels([T('todo_status'), T('mem_content'), T('todo_time')])
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 70)
+        table.setColumnWidth(2, 110)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        lay.addWidget(table, 1)
+
+        def refresh():
+            table.setRowCount(0)
+            for t in self.todos:
+                r = table.rowCount()
+                table.insertRow(r)
+                table.setItem(r, 0, QTableWidgetItem('✅' if t.get('done') else '⬜'))
+                table.setItem(r, 1, QTableWidgetItem(t.get('text', '')))
+                table.setItem(r, 2, QTableWidgetItem(t.get('created', '')))
+
+        def toggle_done(row, col):
+            if row < len(self.todos):
+                self.todos[row]['done'] = not self.todos[row].get('done', False)
+                self._save_todos()
+                refresh()
+
+        def add_todo():
+            txt = inp.text().strip()
+            if txt:
+                self._manage_todo('add', txt)
+                inp.clear()
+                refresh()
+
+        def done_selected():
+            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
+            for r in rows:
+                if 0 <= r < len(self.todos):
+                    self.todos[r]['done'] = True
+            self._save_todos()
+            refresh()
+
+        def del_selected():
+            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
+            for r in rows:
+                if 0 <= r < len(self.todos):
+                    self.todos.pop(r)
+            self._save_todos()
+            refresh()
+
+        def clear_done():
+            self.todos = [t for t in self.todos if not t.get('done')]
+            self._save_todos()
+            refresh()
+
+        # 输入行
+        top = QHBoxLayout()
+        inp = QLineEdit()
+        inp.setPlaceholderText(T('todo_placeholder'))
+        inp.returnPressed.connect(add_todo)
+        b_add = QPushButton(T('todo_add'))
+        b_add.clicked.connect(add_todo)
+        top.addWidget(inp, 1)
+        top.addWidget(b_add)
+        lay.addLayout(top)
+
+        # 操作行
+        bottom = QHBoxLayout()
+        b_done = QPushButton(T('todo_done'))
+        b_done.clicked.connect(done_selected)
+        b_del = QPushButton(T('todo_del'))
+        b_del.clicked.connect(del_selected)
+        b_clear = QPushButton(T('todo_clear_done'))
+        b_clear.clicked.connect(clear_done)
+        b_close = QPushButton('✕')
+        b_close.clicked.connect(dlg.close)
+        bottom.addWidget(b_done)
+        bottom.addWidget(b_del)
+        bottom.addWidget(b_clear)
+        bottom.addStretch(1)
+        bottom.addWidget(b_close)
+        lay.addLayout(bottom)
+
+        table.cellDoubleClicked.connect(toggle_done)
+        refresh()
+        dlg.exec()
 
     # ============ AI 状态预判（v6.19） ============
     @staticmethod
@@ -4193,6 +4294,7 @@ class PetWidget(QWidget):
         mmmenu.addAction(T('mem_backup')).triggered.connect(self._export_memory_backup)
         mmmenu.addAction(T('mem_import')).triggered.connect(self._import_memory_backup)
         smenu.addAction(T('reminder_menu')).triggered.connect(self._open_reminder_manager)
+        smenu.addAction(T('todo_menu')).triggered.connect(self._open_todo_manager)
         smenu.addSeparator()
         smenu.addAction(T('export_chat')).triggered.connect(self._export_chat)
         smenu.addSeparator()
