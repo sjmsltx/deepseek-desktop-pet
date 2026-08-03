@@ -2702,6 +2702,8 @@ class PetWidget(QWidget):
 
     def _check_idle_state(self):
         """每 2s：打盹切换 / 久坐提醒 / 输入唤醒"""
+        if self.sleeping:
+            return
         idle = self._get_idle_seconds()
         if self._edge_side is not None or self._edge_popped or self.dragging:
             return
@@ -2732,7 +2734,7 @@ class PetWidget(QWidget):
 
     def _cursor_follow(self):
         """光标跟随：立绘轻微侧倾（左右 ±4px），仅待机态"""
-        if self.state != 'idle' or self._edge_side is not None or self._edge_popped or getattr(self, '_dozing', False):
+        if self.sleeping or self.state != 'idle' or self._edge_side is not None or self._edge_popped or getattr(self, '_dozing', False):
             return
         try:
             center_x = self.geometry().center().x()
@@ -2925,6 +2927,8 @@ class PetWidget(QWidget):
 
     def _show_idle(self):
         """待机显示（贴边未弹出 → 扒边立绘；Live2D 模式由模型代替）"""
+        if self.sleeping:
+            return  # 睡眠时不切回待机（防光标跟随/眨眼等 timer 覆盖睡眠立绘）
         if getattr(self, 'display_mode', 'static') == 'live2d':
             return
         if self._edge_side is not None and not self._edge_popped:
@@ -2998,6 +3002,7 @@ class PetWidget(QWidget):
     # ---------- 气泡（预设短台词 ≤20 字，不挡脸） ----------
     def _place_bubble(self):
         """气泡悬浮在窗口顶部（pet_label 上方区域）"""
+        self.bubble.raise_()  # 置顶：防止被 pet_label（后创建，z-order 更高）遮挡
         bw = min(max(self.bubble.sizeHint().width(), 40), 380)
         bh = self.bubble.sizeHint().height()
         bx = max(0, (self.width() - bw) // 2)
@@ -3054,11 +3059,13 @@ class PetWidget(QWidget):
         return conf.get(key) or []
 
     def say_random(self):
-        """随机说一句问候（气泡）"""
+        """随机说一句问候（气泡 + 聊天记录）"""
         if self.sleeping:
             return
         lines = self._char_lines('greetings')
-        self.say_plain(random.choice(lines) if lines else 'Hello!')
+        text = random.choice(lines) if lines else 'Hello!'
+        self.say_plain(text)
+        self._append_chat('桌宠', text)
 
     def do_thinking(self):
         """思考状态（3 秒后恢复）"""
@@ -3067,7 +3074,9 @@ class PetWidget(QWidget):
         self.state = 'thinking'
         self.phase = 0
         lines = self._char_lines('think_lines')
-        self.say_plain(random.choice(lines) if lines else 'Hmm…')
+        text = random.choice(lines) if lines else 'Hmm…'
+        self.say_plain(text)
+        self._append_chat('桌宠', text)
         self._show_state_image('thinking')
         if self.thinking_timer is not None:
             self.thinking_timer.stop()
@@ -3093,13 +3102,21 @@ class PetWidget(QWidget):
         if self.sleeping:
             return
         img = self._get_scene_img(key)
-        if img is None:
+        if img is None or img.isNull():
             self.say_plain('这个动作还没准备好~')
             return
+        self.state = 'scene'  # 关键：锁定状态，防止 blink/光标跟随在播放期间切回待机
+        self.phase = 0
         self._render_frame(img)
         desc = SCENE_ACTIONS[key][1]
         self.say_plain(desc[:10])
-        QTimer.singleShot(6000, self._show_idle)
+        QTimer.singleShot(6000, self._end_scene)
+
+    def _end_scene(self):
+        """场景动作结束：恢复待机"""
+        if not self.sleeping:
+            self.state = 'idle'
+            self._show_idle()
 
     # ---------- 眨眼 ----------
     def _do_blink(self):
@@ -4182,10 +4199,20 @@ class PetWidget(QWidget):
         self.chat_input.setFocus()
 
     def random_action(self):
-        """随机做一个动作（说话/思考/场景动作）"""
+        """随机做一个动作（说话/思考/场景动作），保证与上次不重复"""
         import random as rnd
-        actions = [self.say_random, self.do_thinking] + [lambda: self.play_scene(k) for k in SCENE_ACTIONS]
-        rnd.choice(actions)()
+        candidates = ['say', 'think'] + list(SCENE_ACTIONS.keys())
+        last = getattr(self, '_last_random', None)
+        if last in candidates and len(candidates) > 1:
+            candidates.remove(last)
+        pick = rnd.choice(candidates)
+        self._last_random = pick
+        if pick == 'say':
+            self.say_random()
+        elif pick == 'think':
+            self.do_thinking()
+        else:
+            self.play_scene(pick)
 
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
