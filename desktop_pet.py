@@ -2241,7 +2241,7 @@ class PetWidget(QWidget):
         # 打盹：空闲 3 分钟 → 切换睡眠立绘；有输入 → 唤醒
         if idle >= 180:
             if not self._dozing and self.state == 'idle':
-                sleep_img = self.state_imgs.get('sleep')
+                sleep_img = self._get_state_img('sleep')
                 if sleep_img is not None:
                     self._dozing = True
                     self._render_frame(sleep_img)
@@ -2403,31 +2403,42 @@ class PetWidget(QWidget):
         self.peek_top_pixmap = QPixmap(peek_t) if os.path.exists(peek_t) else None
         peek_b = asset(key, 'peek_bottom')
         self.peek_bottom_pixmap = QPixmap(peek_b) if os.path.exists(peek_b) else None
-        # 状态立绘
+        # 状态/场景立绘：懒加载（首次用到才读盘，加速启动）
         self.state_imgs = {}
-        for st in ['sleep', 'happy', 'thinking', 'scared', 'shy', 'angry', 'sad', 'excited', 'calm', 'waving']:
-            pth = asset(key, st)
-            if os.path.exists(pth):
-                self.state_imgs[st] = QPixmap(pth)
-        # 场景立绘
         self.scene_imgs = {}
-        for k in SCENE_ACTIONS:
-            pth = asset(key, k)
-            if os.path.exists(pth):
-                self.scene_imgs[k] = QPixmap(pth)
+        self._scaled_cache = {}  # 缩放结果缓存（id(pixmap) → 已缩放小图）
         self._show_idle()
 
+    def _get_state_img(self, st):
+        """懒加载状态立绘（sleep/happy/thinking 等，首次用到才读盘）"""
+        if st not in self.state_imgs:
+            pth = asset(self.current, st)
+            if os.path.exists(pth):
+                self.state_imgs[st] = QPixmap(pth)
+        return self.state_imgs.get(st)
+
+    def _get_scene_img(self, key):
+        """懒加载场景立绘（吃饭/阅读/音乐等，首次用到才读盘）"""
+        if key not in self.scene_imgs:
+            pth = asset(self.current, key)
+            if os.path.exists(pth):
+                self.scene_imgs[key] = QPixmap(pth)
+        return self.scene_imgs.get(key)
+
     def _render_frame(self, pixmap=None):
-        """渲染一帧到 pet_label（默认待机图，等比缩放居中）"""
+        """渲染一帧到 pet_label（默认待机图，等比缩放居中；缩放结果缓存复用）"""
         src = pixmap if pixmap is not None else self.full_idle
         if src is None or src.isNull():
             return
         size = self.pet_size
+        key = id(src)
+        if key not in self._scaled_cache:
+            self._scaled_cache[key] = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = self._scaled_cache[key]
         canvas = QPixmap(size, size)
         canvas.fill(Qt.transparent)
         p = QPainter(canvas)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        scaled = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         p.drawPixmap(int((size - scaled.width()) / 2), int((size - scaled.height()) / 2), scaled)
         p.end()
         self.pet_label.setPixmap(canvas)
@@ -2492,7 +2503,7 @@ class PetWidget(QWidget):
 
     def _show_state_image(self, st):
         """显示状态立绘（sleep/happy/thinking/scared/...）"""
-        img = self.state_imgs.get(st)
+        img = self._get_state_img(st)
         if img is None:
             self._show_idle()
             return
@@ -2595,7 +2606,7 @@ class PetWidget(QWidget):
         """播放场景动作立绘（6 秒后恢复待机）"""
         if self.sleeping:
             return
-        img = self.scene_imgs.get(key)
+        img = self._get_scene_img(key)
         if img is None:
             self.say_plain('这个动作还没准备好~')
             return
