@@ -707,7 +707,7 @@ class _DropChatEdit(QTextEdit):
         self.viewport().setAcceptDrops(True)  # 关键：拖放事件实际到达 viewport
 
     def viewportEvent(self, e):
-        """viewport 级拖放处理（QTextEdit 的 dragEnterEvent 对 uri-list 会拒绝，这里拦截）"""
+        """viewport 级拖放：接受文件拖入，drop 后把路径插入输入框"""
         from PySide6.QtCore import QEvent as _QE
         t = e.type()
         if t in (_QE.Type.DragEnter, _QE.Type.DragMove):
@@ -784,7 +784,8 @@ class PetWidget(QWidget):
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
         self.display_msgs = []
-        self._pending_image = None   # 粘贴暂存图片（输入需求后 Enter 一起发）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
+        self._pending_image = None   # 粘贴暂存图片（输入需求后 Enter 一起发）
+        self._pending_files = None   # 粘贴暂存文件（输入需求后 Enter 一起发）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
         self.memory_summaries = []  # 会话摘要
@@ -893,7 +894,8 @@ class PetWidget(QWidget):
         chat_layout.addWidget(self.chat_history, 1)
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
-        self.chat_input = _DropChatEdit(self._handle_dropped_files, self.chat_panel)
+        self.chat_input = _DropChatEdit(self._insert_dropped_paths, self.chat_panel)
+        self.setAcceptDrops(True)  # 主窗口级拖放兜底（文件路径插入输入框）
         self.chat_input.setPlaceholderText(self._t('chat_placeholder'))
         self.chat_input.setAcceptRichText(False)  # 粘贴/拖入自动转纯文本，避免富文本格式污染背景
         self.chat_input.setFixedHeight(34)
@@ -907,8 +909,11 @@ class PetWidget(QWidget):
         self.chat_attach_btn.setToolTip(self._t('attach_tip') if hasattr(self, '_t') else '附加文件')
         self.chat_attach_btn.setCursor(Qt.PointingHandCursor)
         self.chat_attach_btn.clicked.connect(self._pick_attach_files)
-        chat_layout.addWidget(self.chat_input)
-        chat_layout.addWidget(self.chat_attach_btn)
+        input_row = QHBoxLayout()
+        input_row.setSpacing(4)
+        input_row.addWidget(self.chat_input, 1)
+        input_row.addWidget(self.chat_attach_btn)
+        chat_layout.addLayout(input_row)
 
         # 底部拖拽把手（标准：下拉=扩大）
         self.chat_drag_bar_bottom = QFrame(self.chat_panel)
@@ -3875,13 +3880,18 @@ class PetWidget(QWidget):
 
     def _handle_pasted_image(self):
         """检测剪贴板内容：①文件（粘贴文件→附件卡片）②图片（暂存待发送）；都没有放行文本"""
-        # ① 剪贴板是文件（从资源管理器复制的文件）→ 附件流程
+        # ① 剪贴板是文件（从资源管理器复制的文件）→ 暂存待发送（卡片 + 可输需求）
         try:
             md = QApplication.clipboard().mimeData()
             if md and md.hasUrls():
                 urls = [u for u in md.urls() if u.isLocalFile()]
                 if urls:
-                    self._handle_dropped_files(urls)
+                    self._pending_files = [u.toLocalFile() for u in urls]
+                    is_en = getattr(self, 'language', 'zh') == 'en'
+                    names = '、'.join(os.path.basename(f) for f in self._pending_files[:3])
+                    if len(self._pending_files) > 3:
+                        names += f' 等{len(self._pending_files)}个'
+                    self._append_chat('我', f'📎 [{names}]' + ('（可输入要求后按 Enter 发送）' if not is_en else ' (type request then Enter)'))
                     return True
         except Exception:
             pass
@@ -3917,6 +3927,36 @@ class PetWidget(QWidget):
             return ''
 
     # ---------- 文件附件（拖放进聊天框） ----------
+    def _insert_dropped_paths(self, urls):
+        """拖放文件 → 路径插入输入框（用户可继续输入需求）"""
+        from PySide6.QtCore import QUrl
+        paths = []
+        for u in urls:
+            try:
+                p = u.toLocalFile() if isinstance(u, QUrl) else str(u)
+            except Exception:
+                p = str(u)
+            if p:
+                paths.append(p)
+        if not paths:
+            return
+        cur = self.chat_input.toPlainText()
+        sep = ' ' if cur and not cur.endswith(' ') else ''
+        self.chat_input.setPlainText(cur + sep + ' '.join(paths))
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+        else:
+            super().dragEnterEvent(e)
+
+    def dropEvent(self, e):
+        if e.mimeData().hasUrls():
+            self._insert_dropped_paths(e.mimeData().urls())
+            e.accept()
+        else:
+            super().dropEvent(e)
+
     def _pick_attach_files(self):
         """📎 附加文件：打开文件选择器，多选后逐个处理"""
         from PySide6.QtWidgets import QFileDialog
@@ -4038,6 +4078,35 @@ class PetWidget(QWidget):
                 except Exception:
                     pass
             threading.Thread(target=ocr_then_ask, daemon=True).start()
+            return
+        if getattr(self, '_pending_files', None):
+            files = self._pending_files
+            self._pending_files = None
+            text = self.chat_input.toPlainText().strip()
+            is_en = getattr(self, 'language', 'zh') == 'en'
+            self.chat_input.clear()
+            self._append_chat('我', '📎 文件' + (f'：{text}' if text else ''))
+
+            def files_ask():
+                try:
+                    parts = []
+                    for f in files:
+                        ext = os.path.splitext(f)[1].lower()
+                        if ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
+                            try:
+                                with open(f, encoding='utf-8', errors='ignore') as fp:
+                                    parts.append(f'【{os.path.basename(f)}】\n{fp.read(2000)}')
+                            except Exception:
+                                parts.append(f'【{os.path.basename(f)}】（读取失败）')
+                        else:
+                            parts.append(f'【{os.path.basename(f)}】路径：{f}')
+                    body = '\n\n'.join(parts)
+                    req = text or '请查看这些文件并简要说明内容'
+                    self.ask_ai(f'（用户放入 {len(files)} 个文件，内容如下）\n{body}\n\n用户要求：{req}')
+                except Exception:
+                    pass
+            import threading
+            threading.Thread(target=files_ask, daemon=True).start()
             return
         raw = self.chat_input.toPlainText().strip()
         if not raw:
