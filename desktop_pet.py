@@ -1808,6 +1808,25 @@ class PetWidget(QWidget):
         """后台线程：调用 DeepSeek API（支持 function calling 循环）"""
         import urllib.request
         import json as jsonlib
+
+        def _post(data, status_zh, status_en):
+            """API 请求：503/429/500/502 服务繁忙自动重试（等 5 秒，最多 2 次）"""
+            req = urllib.request.Request(
+                'https://api.deepseek.com/chat/completions',
+                data=data,
+                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
+            )
+            for attempt in range(3):
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        return jsonlib.loads(resp.read().decode())
+                except urllib.error.HTTPError as e:
+                    if e.code in (429, 500, 502, 503) and attempt < 2:
+                        is_en = getattr(self, 'language', 'zh') == 'en'
+                        self.ai_status_signal.emit((status_en if is_en else status_zh) + '（服务繁忙，重试中…）')
+                        time.sleep(5)
+                        continue
+                    raise
         try:
             # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
             self._summarize_old()
@@ -1852,13 +1871,7 @@ class PetWidget(QWidget):
                     'tools': AI_TOOLS,
                     'max_tokens': getattr(self, 'max_tokens', 1000),
                 }).encode()
-                req = urllib.request.Request(
-                    'https://api.deepseek.com/chat/completions',
-                    data=data,
-                    headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
-                )
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    result = jsonlib.loads(resp.read().decode())
+                result = _post(data, '正在思考…', 'Thinking…')
                 msg = result['choices'][0]['message']
                 messages.append(msg)
 
@@ -1877,13 +1890,7 @@ class PetWidget(QWidget):
                             'messages': messages[:-1] + [{'role': 'user', 'content': '请用简短中文回复上一条消息（不要调用工具）'}],
                             'max_tokens': 500,
                         }).encode()
-                        req2 = urllib.request.Request(
-                            'https://api.deepseek.com/chat/completions',
-                            data=data2,
-                            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
-                        )
-                        with urllib.request.urlopen(req2, timeout=30) as resp2:
-                            result2 = jsonlib.loads(resp2.read().decode())
+                        result2 = _post(data2, '正在思考…', 'Thinking…')
                         final_reply = (result2['choices'][0]['message'].get('content') or '').strip() or '（我刚才卡壳了，换个说法再问我一次？）'
                         break
                     final_reply = '（我刚才卡壳了，换个说法再问我一次？）'
@@ -1922,13 +1929,7 @@ class PetWidget(QWidget):
                         'messages': messages + [{'role': 'user', 'content': '请用简短中文总结一下刚才的处理结果（不要调用工具）'}],
                         'max_tokens': 300,
                     }).encode()
-                    req3 = urllib.request.Request(
-                        'https://api.deepseek.com/chat/completions',
-                        data=data3,
-                        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
-                    )
-                    with urllib.request.urlopen(req3, timeout=30) as resp3:
-                        result3 = jsonlib.loads(resp3.read().decode())
+                    result3 = _post(data3, '正在整理结果…', 'Preparing result…')
                     final_reply = (result3['choices'][0]['message'].get('content') or '').strip()
                 except Exception:
                     final_reply = None
