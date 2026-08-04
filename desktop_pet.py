@@ -2076,10 +2076,16 @@ class PetWidget(QWidget):
         raw_blocks = self._split_md_blocks(text)
         self.chat_type_blocks = [self._md_to_html(b) for b in raw_blocks]
         self.chat_type_index = 0
+        # 记录显示历史（AI 回复全文，与面板显示同步——打字机只是动画，历史立即入栈）
+        import datetime as _dt
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+        self.display_msgs.append({'who': '桌宠', 'text': str(text), 'ts': ts})
+        if len(self.display_msgs) > 300:
+            self.display_msgs = self.display_msgs[-300:]
         # 回复到达：清除残留状态行（⏳/思考中），避免提示词留在面板里
         self._remove_status_line()
         # 追加前缀行
-        self.chat_history.append(f'<b style="color:#7fb2ff">桌宠:</b> ')
+        self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">桌宠:</b> ')
         sb = self.chat_history.verticalScrollBar()
         sb.setValue(sb.maximum())
         if not self.chat_type_blocks:
@@ -2234,12 +2240,22 @@ class PetWidget(QWidget):
 
         bottom = QHBoxLayout()
         label = QTableWidgetItem if False else None
-        b_ok = QPushButton(T('mem_export') + f' ({len(msgs)})')
+        b_ok = QPushButton(T('mem_export'))
         b_cancel = QPushButton('✕')
         bottom.addStretch(1)
         bottom.addWidget(b_ok)
         bottom.addWidget(b_cancel)
         lay.addLayout(bottom)
+
+        def update_count():
+            """按钮显示选中条数；0 条时禁用"""
+            sel = sum(1 for c in checks if c.isChecked())
+            b_ok.setText(T('mem_export') + f' ({sel})')
+            b_ok.setEnabled(sel > 0)
+
+        for c in checks:
+            c.toggled.connect(update_count)
+        update_count()
 
         result = {'selected': None}
 
