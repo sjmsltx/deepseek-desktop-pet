@@ -3990,19 +3990,59 @@ class PetWidget(QWidget):
         except Exception as e:
             return f'（PDF 解析失败：{e}）'
 
+    def _read_xlsx_text(self, path):
+        """xlsx 文本提取：zip + sharedStrings（纯标准库）"""
+        import zipfile
+        import re as _re
+        try:
+            with zipfile.ZipFile(path) as z:
+                names = z.namelist()
+                parts = []
+                if 'xl/sharedStrings.xml' in names:
+                    xml = z.read('xl/sharedStrings.xml').decode('utf-8', errors='ignore')
+                    parts.append('\n'.join(_re.findall(r'<t[^>]*>(.*?)</t>', xml, _re.S)))
+                return '\n'.join(p for p in parts if p).strip() or '（空表格）'
+        except Exception as e:
+            return f'（xlsx 解析失败：{e}）'
+
+    def _read_pptx_text(self, path):
+        """pptx 文本提取：zip + 各 slide 的 <a:t>（纯标准库）"""
+        import zipfile
+        import re as _re
+        try:
+            with zipfile.ZipFile(path) as z:
+                slides = sorted(n for n in z.namelist()
+                                if n.startswith('ppt/slides/slide') and n.endswith('.xml'))
+                parts = []
+                for s in slides:
+                    xml = z.read(s).decode('utf-8', errors='ignore')
+                    texts = _re.findall(r'<a:t[^>]*>(.*?)</a:t>', xml, _re.S)
+                    if texts:
+                        parts.append(''.join(texts))
+                return '\n'.join(parts).strip() or '（空演示文稿）'
+        except Exception as e:
+            return f'（pptx 解析失败：{e}）'
+
     def _add_attachment(self, path):
         """加入待发附件（统一暂存，显示卡片）"""
         if not path or not os.path.isfile(path):
             return
         ext = os.path.splitext(path)[1].lower()
-        if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.webp'):
+        TEXT_EXTS = ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg',
+                     '.yml', '.yaml', '.xml', '.svg', '.html', '.htm', '.css', '.js', '.ts', '.java',
+                     '.c', '.cpp', '.h', '.go', '.rs', '.sh', '.sql', '.toml', '.properties')
+        if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.gif'):
             kind, icon = 'image', '🖼'
-        elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
+        elif ext in TEXT_EXTS:
             kind, icon = 'text', '📄'
         elif ext in ('.docx', '.doc'):
             kind, icon = 'docx', '📘'
         elif ext == '.pdf':
             kind, icon = 'pdf', '📕'
+        elif ext in ('.xlsx', '.xls'):
+            kind, icon = 'xlsx', '📗'
+        elif ext in ('.pptx', '.ppt'):
+            kind, icon = 'pptx', '📙'
         else:
             kind, icon = 'other', '📎'
         try:
@@ -4195,6 +4235,18 @@ class PetWidget(QWidget):
                                 parts.append(f'【{a["name"]}】\n{content}')
                         elif a['kind'] == 'pdf':
                             content = self._read_pdf_text(a['path'])
+                            if len(content) > 8000:
+                                parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
+                            else:
+                                parts.append(f'【{a["name"]}】\n{content}')
+                        elif a['kind'] == 'xlsx':
+                            content = self._read_xlsx_text(a['path'])
+                            if len(content) > 8000:
+                                parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
+                            else:
+                                parts.append(f'【{a["name"]}】\n{content}')
+                        elif a['kind'] == 'pptx':
+                            content = self._read_pptx_text(a['path'])
                             if len(content) > 8000:
                                 parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
                             else:
