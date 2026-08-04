@@ -752,7 +752,7 @@ class PetWidget(QWidget):
                 if ctypes.windll.user32.RegisterHotKey(None, 1, 0x0002 | 0x0001, 0x50):  # MOD_CONTROL|MOD_ALT, 'P'
                     self._hotkey_installed = True
                 try:
-                    ctypes.windll.user32.RegisterHotKey(None, 2, 0x0002 | 0x0001, 0x4F)  # Ctrl+Alt+O 截图 OCR
+                    ctypes.windll.user32.RegisterHotKey(None, 2, 0x0002 | 0x0001, 0x44)  # Ctrl+Alt+D 截图 OCR
                 except Exception:
                     pass
         except Exception:
