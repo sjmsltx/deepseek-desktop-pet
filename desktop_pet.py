@@ -223,6 +223,21 @@ AI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "write_file",
+            "description": "生成文件并写入内容（报告/笔记/代码/表格等）。文件统一保存到桌宠目录的 输出/ 子目录（自动创建），文件名自动防路径穿越。当用户要求'生成/保存/输出一份文件'时使用，生成后告知用户完整路径。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "文件名（如 调研报告.md / 数据.csv / 脚本.py）"},
+                    "content": {"type": "string", "description": "要写入的完整内容"}
+                },
+                "required": ["filename", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "edit_own_code",
             "description": "直接修改桌宠自己的源代码（desktop_pet.py）——用于修复 bug、加小功能、改 UI 文字。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘）。修改后提示用户重启生效。只改 desktop_pet.py，其他文件用其他方式。",
             "parameters": {
@@ -1901,6 +1916,19 @@ class PetWidget(QWidget):
             return f'✅ 已修改 {key}={value}'
         return '（写入失败）'
 
+    def _write_file_tool(self, filename, content):
+        """AI 生成文件：统一写入 BASE_DIR/输出/（防穿越，自动建目录）"""
+        out_dir = os.path.join(BASE_DIR, '输出')
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+            safe = os.path.basename((filename or 'output.txt').strip() or 'output.txt')
+            path = os.path.join(out_dir, safe)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content or '')
+            return f'✅ 已生成文件：{path}（共 {len(content or "")} 字符）'
+        except Exception as e:
+            return f'（写入失败：{e}）'
+
     def _edit_own_code(self, old_text, new_text):
         """阶段3：AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘"""
         path = os.path.join(BASE_DIR, 'desktop_pet.py')
@@ -1961,6 +1989,8 @@ class PetWidget(QWidget):
                 return self._read_own_file(args.get('path', ''))
             elif name == 'edit_own_code':
                 return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''))
+            elif name == 'write_file':
+                return self._write_file_tool(args.get('filename', ''), args.get('content', ''))
             elif name == 'write_config':
                 return self._write_config_tool(args.get('key', ''), args.get('value', ''))
             elif name == 'calculate':
