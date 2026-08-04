@@ -698,6 +698,33 @@ def _hotkey_filter_factory(callbacks):
     return _HotkeyFilter()
 
 
+class _DropChatEdit(QTextEdit):
+    """支持文件拖放的聊天输入框（QTextEdit 默认不接受 uri-list 拖放，需子类化）"""
+    def __init__(self, on_files, parent=None):
+        super().__init__(parent)
+        self._on_files = on_files
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+        else:
+            super().dragEnterEvent(e)
+
+    def dragMoveEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+        else:
+            super().dragMoveEvent(e)
+
+    def dropEvent(self, e):
+        if e.mimeData().hasUrls():
+            self._on_files(e.mimeData().urls())
+            e.accept()
+        else:
+            super().dropEvent(e)
+
+
 class PetWidget(QWidget):
     # 类级信号：AI 回复（跨线程安全）
     ai_reply_signal = Signal(str)
@@ -759,7 +786,8 @@ class PetWidget(QWidget):
             self._hotkey_installed = False
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
-        self.display_msgs = []      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
+        self.display_msgs = []
+        self._pending_image = None   # 粘贴暂存图片（输入需求后 Enter 一起发）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
         self.memory_summaries = []  # 会话摘要
@@ -868,7 +896,7 @@ class PetWidget(QWidget):
         chat_layout.addWidget(self.chat_history, 1)
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
-        self.chat_input = QTextEdit(self.chat_panel)
+        self.chat_input = _DropChatEdit(self._handle_dropped_files, self.chat_panel)
         self.chat_input.setPlaceholderText(self._t('chat_placeholder'))
         self.chat_input.setAcceptRichText(False)  # 粘贴/拖入自动转纯文本，避免富文本格式污染背景
         self.chat_input.setFixedHeight(34)
@@ -3831,15 +3859,6 @@ class PetWidget(QWidget):
     def eventFilter(self, obj, event):
         """输入框事件：Enter 发送（Shift+Enter 换行）；Ctrl+V 粘贴截图自动 OCR"""
         from PySide6.QtCore import QEvent
-        if obj is self.chat_input:
-            # 拖放文件进聊天框（图片→OCR / 文本→直接读 / 其他→路径）
-            if event.type() == QEvent.Type.DragEnter:
-                if event.mimeData().hasUrls():
-                    event.acceptProposedAction()
-                    return True
-            elif event.type() == QEvent.Type.Drop:
-                self._handle_dropped_files(event.mimeData().urls())
-                return True
         if obj is self.chat_input and event.type() == QEvent.Type.KeyPress:
             # 截图粘贴：剪贴板有图片 → OCR 流程；无图 → 正常文本粘贴
             if event.key() == Qt.Key_V and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
@@ -3852,7 +3871,7 @@ class PetWidget(QWidget):
         return super().eventFilter(obj, event)
 
     def _handle_pasted_image(self):
-        """检测剪贴板图片：保存临时文件 → 线程 OCR；无图返回 False 放行文本粘贴"""
+        """检测剪贴板图片：保存 → 卡片暂存（可继续输入需求，Enter 一起发）；无图放行文本粘贴"""
         try:
             img = QApplication.clipboard().image()
             if img.isNull():
@@ -3865,14 +3884,10 @@ class PetWidget(QWidget):
             img.save(path, 'PNG')
         except Exception:
             return False
-        self._append_chat('桌宠', '🔍 正在识别截图…' if not is_en else '🔍 Recognizing screenshot…')
-        import threading
-        def worker():
-            try:
-                self.ocr_signal.emit(self._ocr_image(path))
-            except Exception:
-                pass
-        threading.Thread(target=worker, daemon=True).start()
+        # 暂存：显示卡片，等用户输入需求后 Enter 一起发送
+        self._pending_image = path
+        self._append_chat('我', '🖼 [已粘贴图片]' + ('（可输入要求后按 Enter 发送）' if not is_en else ' (type a request then Enter)'))
+        return True
         return True
 
     def _ocr_image(self, path):
@@ -3976,7 +3991,29 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', f'截图失败：{e}' if not is_en else f'Capture failed: {e}')
 
     def _on_chat_input(self):
-        """处理聊天输入：本地指令 / AI 对话（用户消息里的 [emotion:xxx]/[emotion=xxx] 也会触发立绘）"""
+        """处理聊天输入：本地指令 / AI 对话（含暂存图片：OCR 后连同文字要求一起发）"""
+        if getattr(self, '_pending_image', None):
+            img_path = self._pending_image
+            self._pending_image = None
+            text = self.chat_input.toPlainText().strip()
+            is_en = getattr(self, 'language', 'zh') == 'en'
+            if text:
+                self._append_chat('我', f'🖼 图片：{text}')
+            self.chat_input.clear()
+            self._append_chat('桌宠', '🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing image text…')
+            import threading
+
+            def ocr_then_ask():
+                try:
+                    ocr_text = self._ocr_image(img_path)
+                    if text:
+                        self.ask_ai(f'（用户粘贴了一张图片，OCR 识别内容：\n{ocr_text}\n\n用户要求：{text}）')
+                    else:
+                        self.ask_ai(f'（用户粘贴了一张图片，OCR 识别内容如下，请根据内容回答或处理）\n{ocr_text}')
+                except Exception:
+                    pass
+            threading.Thread(target=ocr_then_ask, daemon=True).start()
+            return
         raw = self.chat_input.toPlainText().strip()
         if not raw:
             self.chat_input.clear()
