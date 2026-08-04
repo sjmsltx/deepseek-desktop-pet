@@ -1959,6 +1959,8 @@ class PetWidget(QWidget):
 
     def _apply_emotion(self, emotion):
         """应用情绪：切立绘 + emoji 气泡 + 定时恢复（10 秒，可重启不叠加）"""
+        if self.sleeping:
+            return  # 睡觉时不切情绪立绘（AI 回复照常显示，但立绘保持睡眠图）
         target_state = self.EMOTION_STATE_MAP.get(emotion)
         if not target_state:
             return
@@ -3247,7 +3249,7 @@ class PetWidget(QWidget):
     def _append_chat(self, who, text):
         """追加一条聊天记录（自动滚动到底部，带时间戳）"""
         import datetime as _dt
-        ts = _dt.datetime.now().strftime('%H:%M')
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
@@ -3259,7 +3261,7 @@ class PetWidget(QWidget):
     def _append_chat_md(self, who, text):
         """追加一条聊天记录（AI 回复用，支持轻量 Markdown 渲染，带时间戳）"""
         import datetime as _dt
-        ts = _dt.datetime.now().strftime('%H:%M')
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
