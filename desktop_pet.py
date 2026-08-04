@@ -3831,6 +3831,15 @@ class PetWidget(QWidget):
     def eventFilter(self, obj, event):
         """输入框事件：Enter 发送（Shift+Enter 换行）；Ctrl+V 粘贴截图自动 OCR"""
         from PySide6.QtCore import QEvent
+        if obj is self.chat_input:
+            # 拖放文件进聊天框（图片→OCR / 文本→直接读 / 其他→路径）
+            if event.type() == QEvent.Type.DragEnter:
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    return True
+            elif event.type() == QEvent.Type.Drop:
+                self._handle_dropped_files(event.mimeData().urls())
+                return True
         if obj is self.chat_input and event.type() == QEvent.Type.KeyPress:
             # 截图粘贴：剪贴板有图片 → OCR 流程；无图 → 正常文本粘贴
             if event.key() == Qt.Key_V and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
@@ -3878,22 +3887,74 @@ class PetWidget(QWidget):
         except Exception:
             return ''
 
+    # ---------- 文件附件（拖放进聊天框） ----------
+    def _handle_dropped_files(self, urls):
+        """处理拖入的文件列表"""
+        from PySide6.QtCore import QUrl
+        paths = []
+        for u in urls:
+            try:
+                p = u.toLocalFile() if isinstance(u, QUrl) else str(u)
+            except Exception:
+                p = str(u)
+            if p and os.path.isfile(p):
+                paths.append(p)
+        if paths:
+            for p in paths[:5]:
+                self._attach_file(p)
+            if len(paths) > 5:
+                self._append_chat('桌宠', '一次最多处理 5 个文件，已忽略其余')
+
+    def _attach_file(self, path):
+        """按类型处理拖入文件：图片→OCR，文本→读内容发AI，其他→路径"""
+        ext = os.path.splitext(path)[1].lower()
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        base = os.path.basename(path)
+        try:
+            size = os.path.getsize(path)
+        except Exception:
+            size = 0
+        size_txt = f'{size / 1024:.0f}KB' if size < 1024 * 1024 else f'{size / 1024 / 1024:.1f}MB'
+        if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.webp'):
+            self._append_chat('我', f'🖼 [{base}]（{size_txt}·图片）')
+            dst = os.path.join(BASE_DIR, '_dropped_img.png')
+            try:
+                from PIL import Image
+                Image.open(path).convert('RGB').save(dst, 'PNG')
+                self._append_chat('桌宠', '🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing text…')
+                import threading
+                threading.Thread(target=lambda: self.ocr_signal.emit(self._ocr_image(dst)), daemon=True).start()
+            except Exception as e:
+                self._append_chat('桌宠', f'图片处理失败：{e}' if not is_en else f'Image error: {e}')
+        elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
+            try:
+                with open(path, encoding='utf-8', errors='ignore') as f:
+                    content = f.read(2500)
+                self._append_chat('我', f'📄 [{base}]（{size_txt}·文本 {len(content)} 字）')
+                self.ask_ai(f'（用户放入文件：{base}，内容如下，请分析/回答）\n{content}')
+            except Exception as e:
+                self._append_chat('桌宠', f'文件读取失败：{e}' if not is_en else f'Read error: {e}')
+        else:
+            self._append_chat('我', f'📎 [{base}]（{size_txt}·{ext[1:] or "未知"}）')
+            self.ask_ai(f'（用户放入文件：{path}。若需要读取内容请提示用户配合，或根据文件名/路径回应）')
+
     def _on_ocr_result(self, text):
         """OCR 完成：识别内容显示为消息并发送给 AI"""
-        p = os.path.join(BASE_DIR, '_pasted_ocr.png')
-        if os.path.exists(p):
-            try:
-                os.remove(p)
-            except Exception:
-                pass
+        for tmp in ('_pasted_ocr.png', '_dropped_img.png'):
+            p = os.path.join(BASE_DIR, tmp)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
         is_en = getattr(self, 'language', 'zh') == 'en'
         if not text.strip():
             self._append_chat('桌宠', '😕 没识别到文字（可能是纯图片或截图太糊）' if not is_en else '😕 No text recognized')
             return
         self._chat_type_finish()
-        self._append_chat('我', f'📷 [截图识别] {text}')
-        self.ask_ai((f'（用户粘贴了一张截图，OCR 识别内容如下，请根据内容回答或处理）\n{text}'
-                    if not is_en else f'(User pasted a screenshot. OCR result below; answer or act on it.)\n{text}'))
+        self._append_chat('我', f'📷 截图识别（{len(text)} 字）→ 已发送分析')
+        self.ask_ai((f'（用户发来一张截图，OCR 识别内容如下，请根据内容回答或处理）\n{text}'
+                    if not is_en else f'(User sent a screenshot. OCR result below; answer or act on it.)\n{text}'))
 
     def _on_screenshot_hotkey(self):
         """全局快捷键 Ctrl+Alt+S：截全屏 → OCR → 发给 AI 分析"""
