@@ -223,6 +223,21 @@ AI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "edit_own_code",
+            "description": "直接修改桌宠自己的源代码（desktop_pet.py）——用于修复 bug、加小功能、改 UI 文字。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘）。修改后提示用户重启生效。只改 desktop_pet.py，其他文件用其他方式。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "old_text": {"type": "string", "description": "要替换的原文（必须精确匹配，可从 read_file 读取）"},
+                    "new_text": {"type": "string", "description": "替换后的新代码"}
+                },
+                "required": ["old_text", "new_text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_file",
             "description": "读取桌宠自己的文件（源代码/配置/README，限项目目录内）。用于自查代码、确认配置、分析问题。",
             "parameters": {
@@ -1836,6 +1851,51 @@ class PetWidget(QWidget):
             return f'✅ 已修改 {key}={value}'
         return '（写入失败）'
 
+    def _edit_own_code(self, old_text, new_text):
+        """阶段3：AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘"""
+        path = os.path.join(BASE_DIR, 'desktop_pet.py')
+        old_text = old_text or ''
+        new_text = new_text or ''
+        if not old_text.strip():
+            return '（old_text 不能为空）'
+        try:
+            # 0. 确认 git 仓库（桌宠项目必须是 git 仓库才能安全自改）
+            r = _subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=BASE_DIR,
+                                capture_output=True, timeout=15)
+            if r.returncode != 0:
+                return '（不是 git 仓库，拒绝自改——需要版本保护）'
+            # 1. 提交基线（确保可回滚）
+            _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
+            _subprocess.run(['git', 'commit', '-m', 'AI self-edit: 修改前基线'], cwd=BASE_DIR,
+                            capture_output=True, timeout=30)
+            # 2. 读代码 + 替换
+            with open(path, encoding='utf-8', newline='') as f:
+                src = f.read()
+            if old_text not in src:
+                return '（未找到要修改的代码段，请先用 read_file 确认精确文本）'
+            if src.count(old_text) > 1:
+                return '（找到多处匹配，请提供更长的唯一上下文）'
+            new_src = src.replace(old_text, new_text, 1)
+            # 3. 语法验证（写临时文件检查，通过才落盘）
+            tmp = path + '.ai_tmp'
+            with open(tmp, 'w', encoding='utf-8', newline='') as f:
+                f.write(new_src)
+            r = _subprocess.run(
+                [sys.executable, '-c',
+                 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', tmp],
+                capture_output=True, timeout=30)
+            if r.returncode != 0:
+                os.remove(tmp)
+                return f'（语法验证失败，未修改：{(r.stderr or b"").decode(errors="replace")[-200:]}）'
+            os.replace(tmp, path)
+            # 4. 提交修改（可回滚）
+            _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
+            _subprocess.run(['git', 'commit', '-m', f'AI self-edit: {old_text.strip()[:40]}'],
+                            cwd=BASE_DIR, capture_output=True, timeout=30)
+            return '✅ 已修改并提交（git 可回滚）。请重启桌宠生效（回复说"重启桌宠"即可）；如果重启后异常，对我说"回滚桌宠修改"我会用 git 恢复。'
+        except Exception as e:
+            return f'（修改失败：{e}）'
+
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本"""
         try:
@@ -1849,6 +1909,8 @@ class PetWidget(QWidget):
                 return self._web_search(args.get('query', ''))
             elif name == 'read_file':
                 return self._read_own_file(args.get('path', ''))
+            elif name == 'edit_own_code':
+                return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''))
             elif name == 'write_config':
                 return self._write_config_tool(args.get('key', ''), args.get('value', ''))
             elif name == 'calculate':
