@@ -784,8 +784,7 @@ class PetWidget(QWidget):
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
         self.display_msgs = []
-        self._pending_image = None   # 粘贴暂存图片（输入需求后 Enter 一起发）
-        self._pending_files = None   # 粘贴暂存文件（输入需求后 Enter 一起发）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
+        self._pending_attachments = []  # 统一附件暂存（除 Ctrl+Alt+D 全局截图外，文件/图片先暂存）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
         self.memory_summaries = []  # 会话摘要
@@ -909,6 +908,15 @@ class PetWidget(QWidget):
         self.chat_attach_btn.setToolTip(self._t('attach_tip') if hasattr(self, '_t') else '附加文件')
         self.chat_attach_btn.setCursor(Qt.PointingHandCursor)
         self.chat_attach_btn.clicked.connect(self._pick_attach_files)
+        # 附件暂存栏（输入框上方，卡片形式）
+        self.attach_bar = QWidget(self.chat_panel)
+        self.attach_bar_layout = QHBoxLayout(self.attach_bar)
+        self.attach_bar_layout.setContentsMargins(0, 2, 0, 2)
+        self.attach_bar_layout.setSpacing(6)
+        self.attach_bar_layout.addStretch(1)
+        self.attach_bar.hide()
+        chat_layout.addWidget(self.attach_bar)
+
         input_row = QHBoxLayout()
         input_row.setSpacing(4)
         input_row.addWidget(self.chat_input, 1)
@@ -3880,37 +3888,30 @@ class PetWidget(QWidget):
 
     def _handle_pasted_image(self):
         """检测剪贴板内容：①文件（粘贴文件→附件卡片）②图片（暂存待发送）；都没有放行文本"""
-        # ① 剪贴板是文件（从资源管理器复制的文件）→ 暂存待发送（卡片 + 可输需求）
+        # ① 剪贴板是文件 → 统一暂存（附件卡片）
         try:
             md = QApplication.clipboard().mimeData()
             if md and md.hasUrls():
                 urls = [u for u in md.urls() if u.isLocalFile()]
                 if urls:
-                    self._pending_files = [u.toLocalFile() for u in urls]
-                    is_en = getattr(self, 'language', 'zh') == 'en'
-                    names = '、'.join(os.path.basename(f) for f in self._pending_files[:3])
-                    if len(self._pending_files) > 3:
-                        names += f' 等{len(self._pending_files)}个'
-                    self._append_chat('我', f'📎 [{names}]' + ('（可输入要求后按 Enter 发送）' if not is_en else ' (type request then Enter)'))
+                    for u in urls:
+                        self._add_attachment(u.toLocalFile())
                     return True
         except Exception:
             pass
-        # ② 剪贴板是图片
+        # ② 剪贴板是图片 → 统一暂存（附件卡片）
         try:
             img = QApplication.clipboard().image()
             if img.isNull():
                 return False
         except Exception:
             return False
-        is_en = getattr(self, 'language', 'zh') == 'en'
         path = os.path.join(BASE_DIR, '_pasted_ocr.png')
         try:
             img.save(path, 'PNG')
         except Exception:
             return False
-        # 暂存：显示卡片，等用户输入需求后 Enter 一起发送
-        self._pending_image = path
-        self._append_chat('我', '🖼 [已粘贴图片]' + ('（可输入要求后按 Enter 发送）' if not is_en else ' (type a request then Enter)'))
+        self._add_attachment(path)
         return True
         return True
 
@@ -3957,6 +3958,69 @@ class PetWidget(QWidget):
         else:
             super().dropEvent(e)
 
+    def _add_attachment(self, path):
+        """加入待发附件（统一暂存，显示卡片）"""
+        if not path or not os.path.isfile(path):
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.webp'):
+            kind, icon = 'image', '🖼'
+        elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
+            kind, icon = 'text', '📄'
+        else:
+            kind, icon = 'other', '📎'
+        try:
+            size = os.path.getsize(path)
+            size_txt = f'{size / 1024:.0f}KB' if size < 1024 * 1024 else f'{size / 1024 / 1024:.1f}MB'
+        except Exception:
+            size_txt = '?'
+        att = {'path': path, 'kind': kind, 'icon': icon, 'name': os.path.basename(path), 'size': size_txt}
+        if att not in self._pending_attachments:
+            self._pending_attachments.append(att)
+        self._refresh_attach_bar()
+
+    def _remove_attachment(self, att):
+        if att in self._pending_attachments:
+            self._pending_attachments.remove(att)
+        self._refresh_attach_bar()
+
+    def _refresh_attach_bar(self):
+        """重建附件卡片栏"""
+        lay = self.attach_bar_layout
+        while lay.count() > 1:  # 保留末尾 stretch
+            item = lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for att in self._pending_attachments:
+            lay.insertWidget(lay.count() - 1, self._make_attach_card(att))
+        self.attach_bar.setVisible(bool(self._pending_attachments))
+
+    def _make_attach_card(self, att):
+        """附件卡片：图标 + 文件名 + 大小 + ✕"""
+        card = QFrame(self.attach_bar)
+        card.setStyleSheet('QFrame{background:#2b3245;border:1px solid #3a4158;border-radius:6px;}')
+        hl = QHBoxLayout(card)
+        hl.setContentsMargins(8, 3, 6, 3)
+        hl.setSpacing(5)
+        icon = QLabel(att['icon'], card)
+        icon.setStyleSheet('background:transparent;border:none;font-size:13px;')
+        hl.addWidget(icon)
+        nm = QLabel(att['name'], card)
+        nm.setStyleSheet('background:transparent;border:none;color:#cfd6e6;font-size:11px;')
+        nm.setMaximumWidth(130)
+        nm.setToolTip(att['path'])
+        hl.addWidget(nm)
+        sz = QLabel(att['size'], card)
+        sz.setStyleSheet('background:transparent;border:none;color:#7a8299;font-size:10px;')
+        hl.addWidget(sz)
+        xb = QPushButton('✕', card)
+        xb.setFixedSize(16, 16)
+        xb.setStyleSheet('QPushButton{background:transparent;border:none;color:#9aa2b8;font-size:10px;}'
+                         'QPushButton:hover{color:#ff6b6b;}')
+        xb.clicked.connect(lambda: self._remove_attachment(att))
+        hl.addWidget(xb)
+        return card
+
     def _pick_attach_files(self):
         """📎 附加文件：打开文件选择器，多选后逐个处理"""
         from PySide6.QtWidgets import QFileDialog
@@ -3964,7 +4028,7 @@ class PetWidget(QWidget):
             self, self._t('attach_tip') if hasattr(self, '_t') else '附加文件',
             '', '所有文件 (*.*)')
         for f in files[:5]:
-            self._attach_file(f)
+            self._add_attachment(f)
         if len(files) > 5:
             self._append_chat('桌宠', '一次最多处理 5 个文件，已忽略其余')
 
@@ -4057,56 +4121,47 @@ class PetWidget(QWidget):
 
     def _on_chat_input(self):
         """处理聊天输入：本地指令 / AI 对话（含暂存图片：OCR 后连同文字要求一起发）"""
-        if getattr(self, '_pending_image', None):
-            img_path = self._pending_image
-            self._pending_image = None
+        if self._pending_attachments:
+            atts = list(self._pending_attachments)
+            self._pending_attachments = []
+            self._refresh_attach_bar()
             text = self.chat_input.toPlainText().strip()
             is_en = getattr(self, 'language', 'zh') == 'en'
-            if text:
-                self._append_chat('我', f'🖼 图片：{text}')
             self.chat_input.clear()
-            self._append_chat('桌宠', '🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing image text…')
+            names = '、'.join(a['name'] for a in atts[:3])
+            if len(atts) > 3:
+                names += f' 等{len(atts)}个'
+            self._append_chat('我', f'{atts[0]["icon"]} [{names}]' + (f'：{text}' if text else ''))
             import threading
 
-            def ocr_then_ask():
-                try:
-                    ocr_text = self._ocr_image(img_path)
-                    if text:
-                        self.ask_ai(f'（用户粘贴了一张图片，OCR 识别内容：\n{ocr_text}\n\n用户要求：{text}）')
-                    else:
-                        self.ask_ai(f'（用户粘贴了一张图片，OCR 识别内容如下，请根据内容回答或处理）\n{ocr_text}')
-                except Exception:
-                    pass
-            threading.Thread(target=ocr_then_ask, daemon=True).start()
-            return
-        if getattr(self, '_pending_files', None):
-            files = self._pending_files
-            self._pending_files = None
-            text = self.chat_input.toPlainText().strip()
-            is_en = getattr(self, 'language', 'zh') == 'en'
-            self.chat_input.clear()
-            self._append_chat('我', '📎 文件' + (f'：{text}' if text else ''))
-
-            def files_ask():
+            def atts_ask():
                 try:
                     parts = []
-                    for f in files:
-                        ext = os.path.splitext(f)[1].lower()
-                        if ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
+                    images = [a for a in atts if a['kind'] == 'image']
+                    for a in atts:
+                        if a['kind'] == 'image':
+                            continue
+                        if a['kind'] == 'text':
                             try:
-                                with open(f, encoding='utf-8', errors='ignore') as fp:
-                                    parts.append(f'【{os.path.basename(f)}】\n{fp.read(2000)}')
+                                with open(a['path'], encoding='utf-8', errors='ignore') as fp:
+                                    parts.append(f'【{a["name"]}】\n{fp.read(2000)}')
                             except Exception:
-                                parts.append(f'【{os.path.basename(f)}】（读取失败）')
+                                parts.append(f'【{a["name"]}】（读取失败）')
                         else:
-                            parts.append(f'【{os.path.basename(f)}】路径：{f}')
-                    body = '\n\n'.join(parts)
+                            parts.append(f'【{a["name"]}】路径：{a["path"]}')
+                    if images:
+                        for a in images:
+                            try:
+                                ocr_text = self._ocr_image(a['path'])
+                                parts.append(f'【图片 {a["name"]} OCR】\n{ocr_text}')
+                            except Exception:
+                                parts.append(f'【图片 {a["name"]}】（OCR 失败）')
+                    body = '\n\n'.join(parts) if parts else '（无内容）'
                     req = text or '请查看这些文件并简要说明内容'
-                    self.ask_ai(f'（用户放入 {len(files)} 个文件，内容如下）\n{body}\n\n用户要求：{req}')
+                    self.ask_ai(f'（用户放入 {len(atts)} 个附件，内容如下）\n{body}\n\n用户要求：{req}')
                 except Exception:
                     pass
-            import threading
-            threading.Thread(target=files_ask, daemon=True).start()
+            threading.Thread(target=atts_ask, daemon=True).start()
             return
         raw = self.chat_input.toPlainText().strip()
         if not raw:
