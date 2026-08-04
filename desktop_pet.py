@@ -58,7 +58,7 @@ UI_ZH = {
     'style_menu': '💬 回复风格', 'token_menu': '📝 回复长度', 'custom': '🎯 自定义…',
     'city': '🌆 默认城市…', 'custom_personality': '🎭 自定义性格…',
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
-    'export_chat': '📤 导出聊天记录', 'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
+    'export_chat': '📤 导出聊天记录', 'mem_time': '时间', 'mem_who': '谁', 'mem_select_all': '全选', 'mem_select_none': '全不选', 'mem_select_me': '只选我', 'mem_select_pet': '只选桌宠', 'mem_export': '导出', 'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
     'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
     'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
@@ -91,7 +91,7 @@ UI_EN = {
     'style_menu': '💬 Reply style', 'token_menu': '📝 Reply length', 'custom': '🎯 Custom…',
     'city': '🌆 Default city…', 'custom_personality': '🎭 Custom personality…',
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
-    'export_chat': '📤 Export chat', 'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
+    'export_chat': '📤 Export chat', 'mem_time': 'Time', 'mem_who': 'Who', 'mem_select_all': 'All', 'mem_select_none': 'None', 'mem_select_me': 'Me only', 'mem_select_pet': 'Pet only', 'mem_export': 'Export', 'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
     'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
     'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
@@ -2121,11 +2121,101 @@ class PetWidget(QWidget):
         self.chat_history.clear()
         self._update_more_button()
 
+    def _select_msgs_dialog(self):
+        """导出前选择要导出的聊天消息（可视化勾选）——返回选中的 display_msgs 子集；取消返回 None"""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+                                       QPushButton, QHeaderView, QCheckBox, QWidget, QAbstractItemView)
+        msgs = self.display_msgs
+        if not msgs:
+            self._append_chat('桌宠', '没有可导出的聊天记录')
+            return None
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        T = self._t
+        dlg = QDialog(self)
+        dlg.setWindowTitle(T('export_chat'))
+        dlg.resize(640, 460)
+        lay = QVBoxLayout(dlg)
+
+        table = QTableWidget(len(msgs), 4)
+        table.setHorizontalHeaderLabels(['✓', T('mem_time'), T('mem_who'), T('mem_content')])
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 40)
+        table.setColumnWidth(1, 100)
+        table.setColumnWidth(2, 60)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        checks = []
+        for i, m in enumerate(msgs):
+            cb = QCheckBox()
+            cb.setChecked(True)
+            w = QWidget()
+            from PySide6.QtWidgets import QHBoxLayout as _HL
+            hl = _HL(w)
+            hl.addWidget(cb)
+            hl.setAlignment(Qt.AlignCenter)
+            hl.setContentsMargins(0, 0, 0, 0)
+            table.setCellWidget(i, 0, w)
+            checks.append(cb)
+            table.setItem(i, 1, QTableWidgetItem(m.get('ts', '')))
+            table.setItem(i, 2, QTableWidgetItem(m.get('who', '桌宠')))
+            text = str(m.get('text', '')).replace('\n', ' ')
+            table.setItem(i, 3, QTableWidgetItem(text[:60] + ('…' if len(text) > 60 else '')))
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        lay.addWidget(table, 1)
+
+        def set_all(v):
+            for c in checks:
+                c.setChecked(v)
+
+        def set_who(who):
+            for i, m in enumerate(msgs):
+                checks[i].setChecked(m.get('who') == who)
+
+        top = QHBoxLayout()
+        b_all = QPushButton(T('mem_select_all'))
+        b_all.clicked.connect(lambda: set_all(True))
+        b_none = QPushButton(T('mem_select_none'))
+        b_none.clicked.connect(lambda: set_all(False))
+        b_me = QPushButton(T('mem_select_me'))
+        b_me.clicked.connect(lambda: set_who('我'))
+        b_pet = QPushButton(T('mem_select_pet'))
+        b_pet.clicked.connect(lambda: set_who('桌宠'))
+        for b in (b_all, b_none, b_me, b_pet):
+            top.addWidget(b)
+        top.addStretch(1)
+        lay.addLayout(top)
+
+        bottom = QHBoxLayout()
+        label = QTableWidgetItem if False else None
+        b_ok = QPushButton(T('mem_export') + f' ({len(msgs)})')
+        b_cancel = QPushButton('✕')
+        bottom.addStretch(1)
+        bottom.addWidget(b_ok)
+        bottom.addWidget(b_cancel)
+        lay.addLayout(bottom)
+
+        result = {'selected': None}
+
+        def on_ok():
+            result['selected'] = [m for m, c in zip(msgs, checks) if c.isChecked()]
+            dlg.accept()
+
+        b_ok.clicked.connect(on_ok)
+        b_cancel.clicked.connect(dlg.reject)
+        dlg.exec()
+        return result['selected']
+
     def _export_chat(self):
-        """导出聊天记录到 txt——基于真实显示历史；默认导出到 聊天记录/ 文件夹，可自选位置"""
+        """导出聊天记录——先可视化勾选要导出的消息，再选保存位置（默认 聊天记录/ 文件夹）"""
         try:
             import datetime as _dt
             from PySide6.QtWidgets import QFileDialog
+            msgs = self._select_msgs_dialog()
+            if msgs is None:
+                return  # 用户取消选择
+            if not msgs:
+                self._append_chat('桌宠', '未选择任何消息')
+                return
             # 默认导出目录：BASE_DIR/聊天记录/（不存在则创建）
             export_dir = os.path.join(BASE_DIR, '聊天记录')
             os.makedirs(export_dir, exist_ok=True)
@@ -2134,13 +2224,10 @@ class PetWidget(QWidget):
             path, _ = QFileDialog.getSaveFileName(
                 self, '导出聊天记录', default_path, '文本文件 (*.txt)')
             if not path:
-                return  # 用户取消
-            msgs = self.display_msgs if self.display_msgs else []
+                return  # 用户取消保存
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(f'DeepSeek 桌宠聊天记录（导出时间 {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}，共 {len(msgs)} 条）\n')
                 f.write('=' * 40 + '\n')
-                if not msgs:
-                    f.write('（暂无聊天记录）\n')
                 for m in msgs:
                     who = m.get('who', '桌宠')
                     c = (m.get('text') or '').strip()
@@ -2149,7 +2236,7 @@ class PetWidget(QWidget):
                         import re as _rex
                         c = _rex.sub(r'\[emotion:[a-z_]+\]?\s*', '', c)
                         f.write(f'[{ts}] {who}: {c}\n')
-            self._append_chat('桌宠', f'📤 已导出：{path}')
+            self._append_chat('桌宠', f'📤 已导出 {len(msgs)} 条：{path}')
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
 
