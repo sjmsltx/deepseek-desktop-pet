@@ -54,7 +54,7 @@ UI_ZH = {
     'toggle_chat': '💬 隐藏/显示聊天窗口', 'active_care': '💗 主动关心',
     'edge_mode': '📌 贴边模式：', 'edge_hidden': '完全消失', 'edge_peek': '扒边',
     'menu_actions': '🎬 动作', 'menu_personality': '🎭 性格切换', 'menu_settings': '⚙️ 设置',
-    'api_setting': '🔑 API 设置…', 'model_menu': '🎯 角色模型', 'current': '当前',
+    'api_setting': '🔑 API 设置…', 'search_setting': '🌐 联网搜索', 'dlg_search': '联网搜索设置', 'model_menu': '🎯 角色模型', 'current': '当前',
     'style_menu': '💬 回复风格', 'token_menu': '📝 回复长度', 'custom': '🎯 自定义…',
     'city': '🌆 默认城市…', 'custom_personality': '🎭 自定义性格…',
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
@@ -87,7 +87,7 @@ UI_EN = {
     'toggle_chat': '💬 Show/Hide chat', 'active_care': '💗 Proactive care',
     'edge_mode': '📌 Edge mode: ', 'edge_hidden': 'Hidden', 'edge_peek': 'Peek',
     'menu_actions': '🎬 Actions', 'menu_personality': '🎭 Personality', 'menu_settings': '⚙️ Settings',
-    'api_setting': '🔑 API Settings…', 'model_menu': '🎯 Models', 'current': 'Current',
+    'api_setting': '🔑 API Settings…', 'search_setting': '🌐 Web Search', 'dlg_search': 'Web Search Settings', 'model_menu': '🎯 Models', 'current': 'Current',
     'style_menu': '💬 Reply style', 'token_menu': '📝 Reply length', 'custom': '🎯 Custom…',
     'city': '🌆 Default city…', 'custom_personality': '🎭 Custom personality…',
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
@@ -218,6 +218,20 @@ AI_TOOLS = [
             "name": "get_time",
             "description": "获取当前日期和时间",
             "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "联网搜索最新信息（新闻、行情、时事、事实核查、2024年之后的事件等）。当用户的问题需要当前/最新知识，或你的训练知识可能过时（知识截止 2024 年 8 月）时，使用此工具获取实时信息。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索关键词，尽量具体（如：美国当前通胀率 2025）"}
+                },
+                "required": ["query"]
+            }
         }
     },
     {
@@ -945,6 +959,7 @@ class PetWidget(QWidget):
                     self.model_pro = cfg.get('model_pro', 'deepseek-v4-pro')
                     self.ai_model = self._current_model()
                     self.ai_enabled = True
+                self.search_api_key = cfg.get('search_api_key', '')  # Tavily 联网搜索 key（可选）
                 self.pet_city = cfg.get('city', '重庆')
                 self.personality = cfg.get('personality', '温柔')
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
@@ -1698,6 +1713,35 @@ class PetWidget(QWidget):
                 return status
         return ('正在思考', 'Thinking')
 
+    def _web_search(self, query):
+        """Tavily 联网搜索：返回格式化结果给 LLM；未配置 key 时返回提示"""
+        if not getattr(self, 'search_api_key', ''):
+            return '（未配置搜索 API key：请在 设置 → 联网搜索 中填写 Tavily API key 后重试）'
+        try:
+            import urllib.request as _ur
+            payload = json.dumps({
+                'api_key': self.search_api_key,
+                'query': query,
+                'max_results': 5,
+                'search_depth': 'basic',
+            }).encode()
+            req = _ur.Request('https://api.tavily.com/search', data=payload,
+                              headers={'Content-Type': 'application/json'})
+            with _ur.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode())
+            results = data.get('results', [])
+            if not results:
+                return '（搜索无结果）'
+            lines = []
+            for r in results[:5]:
+                title = r.get('title', '')
+                url = r.get('url', '')
+                content = (r.get('content') or '')[:200]
+                lines.append(f'- {title} | {url}\n  {content}')
+            return '\n'.join(lines)
+        except Exception as e:
+            return f'（搜索失败：{e}）'
+
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本"""
         try:
@@ -1707,6 +1751,8 @@ class PetWidget(QWidget):
             elif name == 'get_time':
                 import datetime
                 return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            elif name == 'web_search':
+                return self._web_search(args.get('query', ''))
             elif name == 'calculate':
                 expr = args.get('expr', '').replace(' ', '')
                 if all(ch in '0123456789+-*/().%' for ch in expr):
@@ -1855,7 +1901,7 @@ class PetWidget(QWidget):
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
             messages = [
-                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
+                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
 
             ] + ctx
 
@@ -3812,6 +3858,26 @@ class PetWidget(QWidget):
             if self._save_cfg_value('deepseek_api_key', text.strip()):
                 self._append_chat('桌宠', '✅ API Key 已更新，AI 立即生效' if not is_en else '✅ API key updated, AI takes effect immediately')
 
+    def _set_search_key_dialog(self):
+        """弹窗设置 Tavily 联网搜索 API Key（可选，配置后 AI 可联网查最新信息）"""
+        from PySide6.QtWidgets import QInputDialog, QLineEdit
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        cur = getattr(self, 'search_api_key', '') or ''
+        if len(cur) > 12:
+            masked = cur[:6] + '…' + cur[-4:]
+        elif cur:
+            masked = cur
+        else:
+            masked = '（未配置）' if not is_en else '(not set)'
+        text, ok = QInputDialog.getText(self, self._t('dlg_search'),
+            (f'输入 Tavily 联网搜索 API Key（留空取消；https://tavily.com 免费注册，每月 1000 次）：\n当前：{masked}'
+             if not is_en else f'Enter Tavily search API key (leave empty to cancel; free 1000/mo at tavily.com):\nCurrent: {masked}'),
+            QLineEdit.Password, cur)
+        if ok and text.strip():
+            if self._save_cfg_value('search_api_key', text.strip()):
+                self.search_api_key = text.strip()
+                self._append_chat('桌宠', '✅ 联网搜索已配置，AI 可查询最新信息' if not is_en else '✅ Search configured, AI can browse for latest info')
+
     def _set_model_dialog(self, role):
         """弹窗设置指定角色的模型 ID"""
         from PySide6.QtWidgets import QInputDialog
@@ -4538,6 +4604,7 @@ class PetWidget(QWidget):
         # 7. 设置（子菜单）
         smenu = menu.addMenu(T('menu_settings'))
         smenu.addAction(T('api_setting')).triggered.connect(self._set_api_key_dialog)
+        smenu.addAction(T('search_setting')).triggered.connect(self._set_search_key_dialog)
         mdlmenu = smenu.addMenu(T('model_menu'))
         mdlmenu.addAction('⚡ Flash 模型…').triggered.connect(lambda: self._set_model_dialog('flash'))
         mdlmenu.addAction('🐋 Pro 模型…').triggered.connect(lambda: self._set_model_dialog('pro'))

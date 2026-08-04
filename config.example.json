@@ -6,5 +6,6 @@
   "model_flash": "deepseek-v4-flash",
   "model_pro": "deepseek-v4-pro",
   "active_chat": false,
-  "app_aliases": {}
+  "app_aliases": {},
+  "search_api_key": ""
 }
