@@ -28,3 +28,4 @@ Thumbs.db
 .vscode/
 .idea/
 app_index.json
+reminders.json
