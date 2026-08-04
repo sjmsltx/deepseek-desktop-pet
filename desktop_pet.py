@@ -4144,7 +4144,11 @@ class PetWidget(QWidget):
                         if a['kind'] == 'text':
                             try:
                                 with open(a['path'], encoding='utf-8', errors='ignore') as fp:
-                                    parts.append(f'【{a["name"]}】\n{fp.read(2000)}')
+                                    content = fp.read()
+                                if len(content) > 8000:
+                                    parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符，如需完整内容请让用户分段提供）\n{content[:8000]}')
+                                else:
+                                    parts.append(f'【{a["name"]}】\n{content}')
                             except Exception:
                                 parts.append(f'【{a["name"]}】（读取失败）')
                         else:
