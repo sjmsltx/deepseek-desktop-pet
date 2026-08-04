@@ -3958,6 +3958,38 @@ class PetWidget(QWidget):
         else:
             super().dropEvent(e)
 
+    def _read_docx_text(self, path):
+        """docx 文本提取：zip + XML，纯标准库（docx 本质是 zip 包）"""
+        import zipfile
+        import re as _re
+        try:
+            with zipfile.ZipFile(path) as z:
+                xml = z.read('word/document.xml').decode('utf-8', errors='ignore')
+            # 按段落拆（</w:p>），逐段提取 <w:t> 文本，段落间换行
+            paras = []
+            for seg in xml.split('</w:p>'):
+                ts = _re.findall(r'<w:t[^>]*>(.*?)</w:t>', seg, _re.S)
+                if ts:
+                    paras.append(''.join(ts))
+            return '\n'.join(paras).strip()
+        except Exception as e:
+            return f'（docx 解析失败：{e}）'
+
+    def _read_pdf_text(self, path):
+        """pdf 文本提取（需 pypdf：pip install pypdf）"""
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            return '（PDF 解析需要 pypdf：pip install pypdf，安装后重启桌宠即可读取）'
+        try:
+            reader = PdfReader(path)
+            pages = []
+            for i, page in enumerate(reader.pages[:15]):
+                pages.append(page.extract_text() or '')
+            return '\n'.join(pages).strip()
+        except Exception as e:
+            return f'（PDF 解析失败：{e}）'
+
     def _add_attachment(self, path):
         """加入待发附件（统一暂存，显示卡片）"""
         if not path or not os.path.isfile(path):
@@ -3967,6 +3999,10 @@ class PetWidget(QWidget):
             kind, icon = 'image', '🖼'
         elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
             kind, icon = 'text', '📄'
+        elif ext in ('.docx', '.doc'):
+            kind, icon = 'docx', '📘'
+        elif ext == '.pdf':
+            kind, icon = 'pdf', '📕'
         else:
             kind, icon = 'other', '📎'
         try:
@@ -4151,6 +4187,18 @@ class PetWidget(QWidget):
                                     parts.append(f'【{a["name"]}】\n{content}')
                             except Exception:
                                 parts.append(f'【{a["name"]}】（读取失败）')
+                        elif a['kind'] == 'docx':
+                            content = self._read_docx_text(a['path'])
+                            if len(content) > 8000:
+                                parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
+                            else:
+                                parts.append(f'【{a["name"]}】\n{content}')
+                        elif a['kind'] == 'pdf':
+                            content = self._read_pdf_text(a['path'])
+                            if len(content) > 8000:
+                                parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
+                            else:
+                                parts.append(f'【{a["name"]}】\n{content}')
                         else:
                             parts.append(f'【{a["name"]}】路径：{a["path"]}')
                     if images:
