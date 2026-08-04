@@ -54,7 +54,7 @@ UI_ZH = {
     'toggle_chat': '💬 隐藏/显示聊天窗口', 'active_care': '💗 主动关心',
     'edge_mode': '📌 贴边模式：', 'edge_hidden': '完全消失', 'edge_peek': '扒边',
     'menu_actions': '🎬 动作', 'menu_personality': '🎭 性格切换', 'menu_settings': '⚙️ 设置',
-    'api_setting': '🔑 API 设置…', 'search_setting': '🌐 联网搜索', 'dlg_search': '联网搜索设置', 'model_menu': '🎯 角色模型', 'current': '当前',
+    'api_setting': '🔑 API 设置…', 'search_setting': '🌐 联网搜索', 'dlg_search': '联网搜索设置', 'attach_tip': '附加文件', 'model_menu': '🎯 角色模型', 'current': '当前',
     'style_menu': '💬 回复风格', 'token_menu': '📝 回复长度', 'custom': '🎯 自定义…',
     'city': '🌆 默认城市…', 'custom_personality': '🎭 自定义性格…',
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
@@ -87,7 +87,7 @@ UI_EN = {
     'toggle_chat': '💬 Show/Hide chat', 'active_care': '💗 Proactive care',
     'edge_mode': '📌 Edge mode: ', 'edge_hidden': 'Hidden', 'edge_peek': 'Peek',
     'menu_actions': '🎬 Actions', 'menu_personality': '🎭 Personality', 'menu_settings': '⚙️ Settings',
-    'api_setting': '🔑 API Settings…', 'search_setting': '🌐 Web Search', 'dlg_search': 'Web Search Settings', 'model_menu': '🎯 Models', 'current': 'Current',
+    'api_setting': '🔑 API Settings…', 'search_setting': '🌐 Web Search', 'dlg_search': 'Web Search Settings', 'attach_tip': 'Attach files', 'model_menu': '🎯 Models', 'current': 'Current',
     'style_menu': '💬 Reply style', 'token_menu': '📝 Reply length', 'custom': '🎯 Custom…',
     'city': '🌆 Default city…', 'custom_personality': '🎭 Custom personality…',
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
@@ -704,25 +704,22 @@ class _DropChatEdit(QTextEdit):
         super().__init__(parent)
         self._on_files = on_files
         self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)  # 关键：拖放事件实际到达 viewport
 
-    def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls():
-            e.acceptProposedAction()
-        else:
-            super().dragEnterEvent(e)
-
-    def dragMoveEvent(self, e):
-        if e.mimeData().hasUrls():
-            e.acceptProposedAction()
-        else:
-            super().dragMoveEvent(e)
-
-    def dropEvent(self, e):
-        if e.mimeData().hasUrls():
-            self._on_files(e.mimeData().urls())
-            e.accept()
-        else:
-            super().dropEvent(e)
+    def viewportEvent(self, e):
+        """viewport 级拖放处理（QTextEdit 的 dragEnterEvent 对 uri-list 会拒绝，这里拦截）"""
+        from PySide6.QtCore import QEvent as _QE
+        t = e.type()
+        if t in (_QE.Type.DragEnter, _QE.Type.DragMove):
+            if e.mimeData().hasUrls():
+                e.acceptProposedAction()
+                return True
+        elif t == _QE.Type.Drop:
+            if e.mimeData().hasUrls():
+                self._on_files(e.mimeData().urls())
+                e.accept()
+                return True
+        return super().viewportEvent(e)
 
 
 class PetWidget(QWidget):
@@ -905,7 +902,13 @@ class PetWidget(QWidget):
         self.chat_input.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self.chat_input.document().contentsChanged.connect(self._auto_resize_input)
         self.chat_input.installEventFilter(self)
+        self.chat_attach_btn = QPushButton('📎', self.chat_panel)
+        self.chat_attach_btn.setFixedSize(30, 34)
+        self.chat_attach_btn.setToolTip(self._t('attach_tip') if hasattr(self, '_t') else '附加文件')
+        self.chat_attach_btn.setCursor(Qt.PointingHandCursor)
+        self.chat_attach_btn.clicked.connect(self._pick_attach_files)
         chat_layout.addWidget(self.chat_input)
+        chat_layout.addWidget(self.chat_attach_btn)
 
         # 底部拖拽把手（标准：下拉=扩大）
         self.chat_drag_bar_bottom = QFrame(self.chat_panel)
@@ -3871,7 +3874,18 @@ class PetWidget(QWidget):
         return super().eventFilter(obj, event)
 
     def _handle_pasted_image(self):
-        """检测剪贴板图片：保存 → 卡片暂存（可继续输入需求，Enter 一起发）；无图放行文本粘贴"""
+        """检测剪贴板内容：①文件（粘贴文件→附件卡片）②图片（暂存待发送）；都没有放行文本"""
+        # ① 剪贴板是文件（从资源管理器复制的文件）→ 附件流程
+        try:
+            md = QApplication.clipboard().mimeData()
+            if md and md.hasUrls():
+                urls = [u for u in md.urls() if u.isLocalFile()]
+                if urls:
+                    self._handle_dropped_files(urls)
+                    return True
+        except Exception:
+            pass
+        # ② 剪贴板是图片
         try:
             img = QApplication.clipboard().image()
             if img.isNull():
@@ -3903,6 +3917,17 @@ class PetWidget(QWidget):
             return ''
 
     # ---------- 文件附件（拖放进聊天框） ----------
+    def _pick_attach_files(self):
+        """📎 附加文件：打开文件选择器，多选后逐个处理"""
+        from PySide6.QtWidgets import QFileDialog
+        files, _ = QFileDialog.getOpenFileNames(
+            self, self._t('attach_tip') if hasattr(self, '_t') else '附加文件',
+            '', '所有文件 (*.*)')
+        for f in files[:5]:
+            self._attach_file(f)
+        if len(files) > 5:
+            self._append_chat('桌宠', '一次最多处理 5 个文件，已忽略其余')
+
     def _handle_dropped_files(self, urls):
         """处理拖入的文件列表"""
         from PySide6.QtCore import QUrl
