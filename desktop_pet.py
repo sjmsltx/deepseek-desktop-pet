@@ -695,6 +695,7 @@ class PetWidget(QWidget):
             self._hotkey_installed = False
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
+        self.display_msgs = []      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
         self.memory_summaries = []  # 会话摘要
@@ -703,6 +704,7 @@ class PetWidget(QWidget):
         self._load_todos()
         self._load_chat_memory()
         self.reminders = []
+        self._load_reminders()      # 加载持久化提醒（含关机期间错过的补发）
         self.reminder_timer = QTimer(self)
         self.reminder_timer.timeout.connect(self._check_reminders)
         self.reminder_timer.start(1000)
@@ -2067,54 +2069,58 @@ class PetWidget(QWidget):
         return os.path.join(BASE_DIR, f'chat_memory_{self.current}.json')
 
     def _load_chat_memory(self):
-        """从文件加载当前角色的历史对话"""
+        """从文件加载当前角色的历史对话（LLM 上下文 + 显示历史分离）"""
         mem_path = self._chat_memory_path()
         try:
             if os.path.exists(mem_path):
                 with open(mem_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 self.chat_history_msgs = data.get('messages', [])
-                # 恢复显示（只显示最近 20 条）
-                for m in self.chat_history_msgs[-20:]:
-                    who = '我' if m['role'] == 'user' else '桌宠'
-                    self._append_chat(who, m['content'])
+                # 显示历史（上次的真实面板内容，含系统提示/提醒/唤醒）
+                self.display_msgs = data.get('display', [])[-300:]
+                # 回显最近 30 条到面板
+                for m in self.display_msgs[-30:]:
+                    self._append_chat(m.get('who', '桌宠'), m.get('text', ''))
         except Exception:
             pass
 
     def _save_chat_memory(self):
-        """保存当前角色的对话历史到文件"""
+        """保存当前角色的对话历史到文件（LLM 上下文 + 显示历史）"""
         mem_path = self._chat_memory_path()
         try:
-            # 只保留最近 50 条
+            # 只保留最近 50 条 LLM 上下文 + 最近 300 条显示历史
             msgs = self.chat_history_msgs[-50:]
             with open(mem_path, 'w', encoding='utf-8') as f:
-                json.dump({'messages': msgs}, f, ensure_ascii=False, indent=2)
+                json.dump({'messages': msgs, 'display': self.display_msgs[-300:]}, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
     def _clear_chat_memory(self):
         self.chat_history_msgs = []
+        self.display_msgs = []
         self._save_chat_memory()
         self.chat_history.clear()
 
     def _export_chat(self):
-        """导出聊天记录到 txt（含时间戳）"""
+        """导出聊天记录到 txt——基于真实显示历史（含时间戳/系统提示/提醒），非 LLM 上下文"""
         try:
             import datetime as _dt
             fname = f'聊天记录_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
             path = os.path.join(BASE_DIR, fname)
+            msgs = self.display_msgs if self.display_msgs else []
             with open(path, 'w', encoding='utf-8') as f:
-                f.write(f'DeepSeek 桌宠聊天记录（导出时间 {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}）\n')
+                f.write(f'DeepSeek 桌宠聊天记录（导出时间 {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}，共 {len(msgs)} 条）\n')
                 f.write('=' * 40 + '\n')
-                for m in self.chat_history_msgs:
-                    who = '我' if m.get('role') == 'user' else '桌宠'
-                    c = (m.get('content') or '').strip()
-                    if c and not c.startswith('（'):
+                if not msgs:
+                    f.write('（暂无聊天记录）\n')
+                for m in msgs:
+                    who = m.get('who', '桌宠')
+                    c = (m.get('text') or '').strip()
+                    ts = m.get('ts', '')
+                    if c:
                         import re as _rex
                         c = _rex.sub(r'\[emotion:[a-z_]+\]?\s*', '', c)
-                        f.write(f'{who}: {c}\n')
-                if len(self.chat_history_msgs) == 0:
-                    f.write('（暂无聊天记录）\n')
+                        f.write(f'[{ts}] {who}: {c}\n')
             self._append_chat('桌宠', f'📤 已导出：{path}')
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
@@ -2577,12 +2583,52 @@ class PetWidget(QWidget):
         return None
 
     # ---------- 定时提醒 ----------
+    def _reminders_path(self):
+        """提醒持久化文件（关机后重启不丢失）"""
+        return os.path.join(BASE_DIR, 'reminders.json')
+
+    def _save_reminders(self):
+        try:
+            with open(self._reminders_path(), 'w', encoding='utf-8') as f:
+                json.dump(self.reminders, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_reminders(self):
+        """加载持久化提醒：关机期间已到期的 → 补发到聊天面板（用户能看到）；未到期 → 继续计时"""
+        try:
+            if os.path.exists(self._reminders_path()):
+                with open(self._reminders_path(), 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                now = time.time()
+                missed = [r for r in data if now >= r.get('time', 0)]
+                pending = [r for r in data if now < r.get('time', 0)]
+                self.reminders = pending
+                for r in missed:
+                    self._deliver_missed_reminder(r)
+        except Exception:
+            pass
+
+    def _deliver_missed_reminder(self, r):
+        """补发关机期间错过的提醒到聊天面板"""
+        import datetime as _dt
+        due = _dt.datetime.fromtimestamp(r.get('time', 0)).strftime('%m-%d %H:%M')
+        text = r.get('text', '')
+        if r.get('type') == 'followup':
+            self._append_chat('桌宠', f'💗 补发回访（原定 {due}，昨晚你提到的事）：{text}——今天还好吗？')
+            self.say_plain('昨晚你说的那件事，今天还好吗？', immediate=True)
+        else:
+            self._append_chat('桌宠', f'⏰ 补发提醒（原定 {due}，关机期间错过）：{text}')
+            self.say_plain(f'⏰ 补发提醒：{text}', immediate=True)
+            self._play_sound('remind')
+
     def _check_reminders(self):
         """每秒检查提醒是否到期（普通提醒=气泡；回访=触发 AI 主动关心）"""
         now = time.time()
         due = [r for r in self.reminders if now >= r['time']]
         if due:
             self.reminders = [r for r in self.reminders if now < r['time']]
+            self._save_reminders()
             for r in due:
                 if r.get('type') == 'followup':
                     self._ai_followup(r['text'])
@@ -2593,6 +2639,7 @@ class PetWidget(QWidget):
 
     def _add_reminder(self, seconds, text, rtype='normal'):
         self.reminders.append({'time': time.time() + seconds, 'text': text, 'type': rtype})
+        self._save_reminders()
         if rtype == 'followup':
             self._append_chat('桌宠', f'好，{seconds} 秒后我再来关心你：{text}')
         else:
@@ -2652,11 +2699,13 @@ class PetWidget(QWidget):
                     r = rems[rr]
                     if r in self.reminders:
                         self.reminders.remove(r)
+            self._save_reminders()
             refresh()
 
         def clear_all():
             if self.reminders:
                 self.reminders.clear()
+                self._save_reminders()
                 refresh()
 
         bottom = QHBoxLayout()
@@ -3199,6 +3248,9 @@ class PetWidget(QWidget):
         """追加一条聊天记录（自动滚动到底部，带时间戳）"""
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%H:%M')
+        self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
+        if len(self.display_msgs) > 300:
+            self.display_msgs = self.display_msgs[-300:]
         safe = str(text).replace('<', '&lt;').replace('>', '&gt;')
         self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}')
         sb = self.chat_history.verticalScrollBar()
@@ -3208,6 +3260,9 @@ class PetWidget(QWidget):
         """追加一条聊天记录（AI 回复用，支持轻量 Markdown 渲染，带时间戳）"""
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%H:%M')
+        self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
+        if len(self.display_msgs) > 300:
+            self.display_msgs = self.display_msgs[-300:]
         self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {self._md_to_html(text)}')
         sb = self.chat_history.verticalScrollBar()
         sb.setValue(sb.maximum())
