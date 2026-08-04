@@ -64,7 +64,7 @@ UI_ZH = {
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
     'person_gentle': '温柔', 'person_tsundere': '傲娇', 'person_sarcastic': '吐槽', 'person_energetic': '元气', 'person_cold': '高冷',
     'style_short': '极简', 'style_normal': '标准', 'style_detailed': '详细',
-    'tok_short': '短（500）', 'tok_normal': '标准（1000）', 'tok_long': '长（2000）', 'tok_xlong': '超长（4000）', 'tok_max': '极长（16000）',
+    'tok_short': '短（500）', 'tok_normal': '标准（1000）', 'tok_long': '长（2000）', 'tok_xlong': '超长（4000）', 'tok_max': '极长（16000）', 'tok_big': '超长2（32000）', 'tok_huge': '超长3（64000）', 'tok_xhuge': '极限（128000）',
     'lang_hint': '请用中文回复。', 'lang_switched': '语言已切换为中文',
     'dlg_api': '🔑 API 设置', 'dlg_model': '模型设置', 'dlg_city': '默认城市',
     'dlg_personality': '自定义性格', 'dlg_tokens': '回复长度',
@@ -97,7 +97,7 @@ UI_EN = {
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
     'person_gentle': 'Gentle', 'person_tsundere': 'Tsundere', 'person_sarcastic': 'Sarcastic', 'person_energetic': 'Energetic', 'person_cold': 'Cold',
     'style_short': 'Minimal', 'style_normal': 'Normal', 'style_detailed': 'Detailed',
-    'tok_short': 'Short (500)', 'tok_normal': 'Normal (1000)', 'tok_long': 'Long (2000)', 'tok_xlong': 'Extra (4000)', 'tok_max': 'Max (16000)',
+    'tok_short': 'Short (500)', 'tok_normal': 'Normal (1000)', 'tok_long': 'Long (2000)', 'tok_xlong': 'Extra (4000)', 'tok_max': 'Very long (16000)', 'tok_big': 'XXLong (32000)', 'tok_huge': 'XXXLong (64000)', 'tok_xhuge': 'Max (128000)',
     'lang_hint': 'Please reply in English.', 'lang_switched': 'Language switched to English',
     'dlg_api': '🔑 API Settings', 'dlg_model': 'Model Settings', 'dlg_city': 'Default City',
     'dlg_personality': 'Custom Personality', 'dlg_tokens': 'Reply Length',
@@ -218,6 +218,35 @@ AI_TOOLS = [
             "name": "get_time",
             "description": "获取当前日期和时间",
             "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取桌宠自己的文件（源代码/配置/README，限项目目录内）。用于自查代码、确认配置、分析问题。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "相对项目目录的文件路径，如 desktop_pet.py / config.json / README.md"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_config",
+            "description": "修改桌宠配置（白名单字段，立即生效）。可改：personality(性格)/reply_style(回复风格:short,normal,detailed)/max_tokens(回复长度)/city(城市)/language(zh,en)/active_chat(主动关心true,false)/display_mode(static,live2d)/live2d_model(模型名)/sedentary_minutes(久坐分钟)。改 UI 外观、立绘切换、性格等用户要求时使用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "配置字段名"},
+                    "value": {"type": "string", "description": "配置值"}
+                },
+                "required": ["key", "value"]
+            }
         }
     },
     {
@@ -1742,6 +1771,71 @@ class PetWidget(QWidget):
         except Exception as e:
             return f'（搜索失败：{e}）'
 
+    # ---------- AI 自我管理（阶段1+2：改配置/读自己代码） ----------
+    CONFIG_WHITELIST = ('personality', 'reply_style', 'max_tokens', 'city', 'language',
+                        'active_chat', 'display_mode', 'live2d_model', 'sedentary_minutes')
+
+    def _read_own_file(self, rel_path):
+        """AI 读自己的文件（限项目目录内，防穿越）"""
+        try:
+            full = os.path.normpath(os.path.join(BASE_DIR, rel_path or ''))
+            if not full.startswith(os.path.normpath(BASE_DIR)):
+                return '（路径越界，拒绝读取）'
+            if not os.path.isfile(full):
+                return f'（文件不存在：{rel_path}）'
+            if full.lower().endswith(('.py', '.md', '.txt', '.json', '.bat', '.ps1', '.html')):
+                with open(full, encoding='utf-8', errors='ignore') as f:
+                    return f.read(8000)
+            return f'（不支持读取该类型文件：{rel_path}）'
+        except Exception as e:
+            return f'（读取失败：{e}）'
+
+    def _write_config_tool(self, key, value):
+        """AI 修改白名单配置（敏感字段禁止，改完热加载）"""
+        key = (key or '').strip()
+        value = (value or '').strip()
+        if key not in self.CONFIG_WHITELIST:
+            return f'（字段 {key} 不在可修改白名单：{"/".join(self.CONFIG_WHITELIST)}）'
+        # 值类型校验
+        if key in ('max_tokens', 'sedentary_minutes'):
+            try:
+                value = str(max(256, min(int(value), 128000)) if key == 'max_tokens' else max(5, min(int(value), 240)))
+            except ValueError:
+                return '（需要数字）'
+        if key == 'reply_style' and value not in ('short', 'normal', 'detailed'):
+            return '（reply_style 需为 short/normal/detailed）'
+        if key == 'language' and value not in ('zh', 'en'):
+            return '（language 需为 zh/en）'
+        if key == 'display_mode' and value not in ('static', 'live2d'):
+            return '（display_mode 需为 static/live2d）'
+        if key == 'active_chat':
+            value = 'true' if value.lower() in ('true', '1', '开', 'on', 'yes') else 'false'
+        if self._save_cfg_value(key, value):
+            # 热加载
+            try:
+                if key == 'personality':
+                    self.personality = value
+                elif key == 'reply_style':
+                    self.reply_style = value
+                elif key == 'max_tokens':
+                    self.max_tokens = int(value)
+                elif key == 'city':
+                    self.pet_city = value
+                elif key == 'language':
+                    self._set_language(value)
+                elif key == 'active_chat':
+                    self.active_chat_enabled = value == 'true'
+                elif key == 'display_mode':
+                    self._set_display_mode(value)
+                elif key == 'live2d_model':
+                    self._set_live2d_model(value)
+                elif key == 'sedentary_minutes':
+                    self.sedentary_minutes = int(value)
+            except Exception:
+                pass
+            return f'✅ 已修改 {key}={value}'
+        return '（写入失败）'
+
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本"""
         try:
@@ -1753,6 +1847,10 @@ class PetWidget(QWidget):
                 return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             elif name == 'web_search':
                 return self._web_search(args.get('query', ''))
+            elif name == 'read_file':
+                return self._read_own_file(args.get('path', ''))
+            elif name == 'write_config':
+                return self._write_config_tool(args.get('key', ''), args.get('value', ''))
             elif name == 'calculate':
                 expr = args.get('expr', '').replace(' ', '')
                 if all(ch in '0123456789+-*/().%' for ch in expr):
@@ -3835,14 +3933,14 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', f'回复长度上限：{label}')
 
     def _set_max_tokens_dialog(self):
-        """弹窗自定义 token 上限"""
+        """弹窗自定义 token 上限（对齐 DeepSeek API：输出上限 384K，给到 128K 足够日常）"""
         from PySide6.QtWidgets import QInputDialog
         is_en = getattr(self, 'language', 'zh') == 'en'
         text, ok = QInputDialog.getText(self, self._t('dlg_tokens'),
-            '输入 token 上限（256-64000，越大回复越长）：' if not is_en else 'Enter token limit (256-64000, higher = longer replies):',
+            '输入 token 上限（256-128000，越大回复越长）：' if not is_en else 'Enter token limit (256-128000, higher = longer replies):',
             text=str(getattr(self, 'max_tokens', 1000)))
         if ok and text.strip().isdigit():
-            val = max(256, min(int(text.strip()), 64000))
+            val = max(256, min(int(text.strip()), 128000))
             if self._save_cfg_value('max_tokens', val):
                 self._append_chat('桌宠', f'回复长度上限：{val} token' if not is_en else f'Reply length limit: {val} tokens')
 
@@ -4635,7 +4733,8 @@ class PetWidget(QWidget):
             ra.triggered.connect(lambda checked, v=val, k=key: self._set_reply_style(v, T(k)))
         tmmenu = smenu.addMenu(T('token_menu'))
         cur_tok = getattr(self, 'max_tokens', 1000)
-        for key, val in [('tok_short', 500), ('tok_normal', 1000), ('tok_long', 2000), ('tok_xlong', 4000), ('tok_max', 16000)]:
+        for key, val in [('tok_short', 500), ('tok_normal', 1000), ('tok_long', 2000), ('tok_xlong', 4000),
+                         ('tok_max', 16000), ('tok_big', 32000), ('tok_huge', 64000), ('tok_xhuge', 128000)]:
             ta = tmmenu.addAction(T(key))
             ta.setCheckable(True)
             ta.setChecked(cur_tok == val)
