@@ -703,6 +703,7 @@ class PetWidget(QWidget):
         self.todos = []             # 待办清单
         self._load_todos()
         self._load_chat_memory()
+        self._display_offset = 0   # 显示历史已加载起点（显示更多用）
         self.reminders = []
         self._load_reminders()      # 加载持久化提醒（含关机期间错过的补发）
         self.reminder_timer = QTimer(self)
@@ -790,6 +791,13 @@ class PetWidget(QWidget):
         chat_layout.addWidget(self.chat_drag_bar)
 
         # 聊天历史（只读）
+        self.chat_more_btn = QLabel('📜 显示更多历史', self.chat_panel)
+        self.chat_more_btn.setStyleSheet("color:#7fb2ff; font-size:11px; padding:2px; cursor:pointer;")
+        self.chat_more_btn.setAlignment(Qt.AlignCenter)
+        self.chat_more_btn.setCursor(Qt.PointingHandCursor)
+        self.chat_more_btn.mousePressEvent = lambda e: self._load_more_history()
+        self.chat_more_btn.hide()
+        chat_layout.addWidget(self.chat_more_btn)
         self.chat_history = QTextBrowser(self.chat_panel)
         self.chat_history.setOpenExternalLinks(False)
         self.chat_history.setPlaceholderText('')
@@ -857,6 +865,7 @@ class PetWidget(QWidget):
         # 输入感知（打盹/久坐/光标跟随）+ 早安日报
         self._start_idle_system()
         self._start_morning_report()
+        self._echo_display_history()  # 面板已就绪，回显上次会话历史
         self.weather_signal.connect(self._on_weather_result)
         self.ocr_signal.connect(self._on_ocr_result)
         # 应用显示模式（config 为 live2d 时直接启用，不弹提示）
@@ -2071,20 +2080,27 @@ class PetWidget(QWidget):
         return os.path.join(BASE_DIR, f'chat_memory_{self.current}.json')
 
     def _load_chat_memory(self):
-        """从文件加载当前角色的历史对话（LLM 上下文 + 显示历史分离）"""
+        """从文件加载当前角色的历史对话（LLM 上下文 + 显示历史分离）——只加载数据，回显由 _echo_display_history 在面板创建后执行"""
         mem_path = self._chat_memory_path()
         try:
             if os.path.exists(mem_path):
                 with open(mem_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 self.chat_history_msgs = data.get('messages', [])
-                # 显示历史（上次的真实面板内容，含系统提示/提醒/唤醒）
                 self.display_msgs = data.get('display', [])[-300:]
-                # 回显最近 30 条到面板
-                for m in self.display_msgs[-30:]:
-                    self._append_chat(m.get('who', '桌宠'), m.get('text', ''))
         except Exception:
             pass
+
+    def _echo_display_history(self):
+        """回显最近 30 条显示历史到面板（在 chat_history 创建后调用）"""
+        shown = self.display_msgs[-30:]
+        for m in shown:
+            ts = m.get('ts', '')
+            who = m.get('who', '桌宠')
+            safe = str(m.get('text', '')).replace('<', '&lt;').replace('>', '&gt;')
+            self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}')
+        self._display_offset = max(0, len(self.display_msgs) - len(shown))
+        self._update_more_button()
 
     def _save_chat_memory(self):
         """保存当前角色的对话历史到文件（LLM 上下文 + 显示历史）"""
@@ -2100,15 +2116,25 @@ class PetWidget(QWidget):
     def _clear_chat_memory(self):
         self.chat_history_msgs = []
         self.display_msgs = []
+        self._display_offset = 0
         self._save_chat_memory()
         self.chat_history.clear()
+        self._update_more_button()
 
     def _export_chat(self):
-        """导出聊天记录到 txt——基于真实显示历史（含时间戳/系统提示/提醒），非 LLM 上下文"""
+        """导出聊天记录到 txt——基于真实显示历史；默认导出到 聊天记录/ 文件夹，可自选位置"""
         try:
             import datetime as _dt
-            fname = f'聊天记录_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
-            path = os.path.join(BASE_DIR, fname)
+            from PySide6.QtWidgets import QFileDialog
+            # 默认导出目录：BASE_DIR/聊天记录/（不存在则创建）
+            export_dir = os.path.join(BASE_DIR, '聊天记录')
+            os.makedirs(export_dir, exist_ok=True)
+            default_name = f'聊天记录_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+            default_path = os.path.join(export_dir, default_name)
+            path, _ = QFileDialog.getSaveFileName(
+                self, '导出聊天记录', default_path, '文本文件 (*.txt)')
+            if not path:
+                return  # 用户取消
             msgs = self.display_msgs if self.display_msgs else []
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(f'DeepSeek 桌宠聊天记录（导出时间 {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}，共 {len(msgs)} 条）\n')
@@ -3246,6 +3272,33 @@ class PetWidget(QWidget):
             self._show_idle()
 
     # ---------- 聊天窗口 ----------
+    def _update_more_button(self):
+        """有更早历史时显示'显示更多'按钮"""
+        if hasattr(self, 'chat_more_btn'):
+            self.chat_more_btn.setVisible(self._display_offset > 0)
+
+    def _load_more_history(self):
+        """加载更早的显示历史（每次 50 条，插入到面板顶部）"""
+        if self._display_offset <= 0:
+            self._update_more_button()
+            return
+        start = max(0, self._display_offset - 50)
+        chunk = self.display_msgs[start:self._display_offset]
+        self._display_offset = start
+        html = ''
+        for m in chunk:
+            ts = m.get('ts', '')
+            who = m.get('who', '桌宠')
+            safe = str(m.get('text', '')).replace('<', '&lt;').replace('>', '&gt;')
+            html += f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}<br>'
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        cursor.insertHtml(html + '<br>')
+        self._update_more_button()
+        # 保持滚动位置（插入在顶部，滚动条值偏移 chunk 高度）
+        sb = self.chat_history.verticalScrollBar()
+        sb.setValue(sb.value() + chunk.__len__() * 18)
+
     def _append_chat(self, who, text):
         """追加一条聊天记录（自动滚动到底部，带时间戳）"""
         import datetime as _dt
