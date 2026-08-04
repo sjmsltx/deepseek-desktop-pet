@@ -8,7 +8,7 @@
 
 一只住在你电脑里的 Q 版桌宠：会陪你聊天、帮你干活、还能主动关心你。
 
-![小蓝 - AI 对话演示](screenshots/demo-chat.png)
+![V4 Flash & V4 Pro 双角色](screenshots/hero.png)
 
 > 基于 PySide6 + DeepSeek API 的桌面 AI 陪伴助手，支持双角色、长期记忆、工具调用、主动关心机制。
 
@@ -18,9 +18,9 @@
 
 ## 📸 截图
 
-| AI 对话 | 性格互动 | 待机动画 |
+| 双角色立绘 | 表情与动作 | 运行实拍 |
 |---------|---------|---------|
-| ![AI 对话](screenshots/demo-chat.png) | ![性格互动](screenshots/demo-interaction.png) | ![待机动画](screenshots/demo-idle.png) |
+| ![双角色](screenshots/hero.png) | ![表情](screenshots/emotions.png) | ![运行截图](screenshots/screenshot.png) |
 
 ## ✨ 特性
 
