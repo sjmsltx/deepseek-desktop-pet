@@ -4067,16 +4067,43 @@ class PetWidget(QWidget):
         return f'"{python}" "{script}"'
 
     def _autostart_startup_path(self):
-        """启动文件夹中的自启文件路径（文件系统方案，比注册表可靠）"""
+        """启动文件夹中的自启快捷方式路径（.lnk 指向启动文件，用户可见可改）"""
         appdata = os.environ.get('APPDATA', os.path.expanduser(r'~\AppData\Roaming'))
-        return os.path.join(appdata, r'Microsoft\Windows\Start Menu\Programs\Startup', 'DeepSeekPet.bat')
+        return os.path.join(appdata, r'Microsoft\Windows\Start Menu\Programs\Startup', 'DeepSeekPet.lnk')
+
+    def _create_autostart_lnk(self, path):
+        """创建启动快捷方式：开发版指向 启动桌宠.bat，打包版指向 exe 本身"""
+        try:
+            if getattr(sys, 'frozen', False):
+                target = sys.executable
+                workdir = os.path.dirname(sys.executable)
+            else:
+                bat = os.path.join(BASE_DIR, '启动桌宠.bat')
+                target = bat if os.path.exists(bat) else self._autostart_command()
+                workdir = BASE_DIR
+            ps = (
+                f"$ws = New-Object -ComObject WScript.Shell; "
+                f"$s = $ws.CreateShortcut('{path}'); "
+                f"$s.TargetPath = '{target}'; "
+                f"$s.WorkingDirectory = '{workdir}'; "
+                f"$s.Description = 'DeepSeek Pet'; "
+                f"$s.Save()"
+            )
+            # -EncodedCommand：Base64 UTF-16LE，彻底规避引号/中文路径/分号转义问题
+            import base64 as _b64
+            enc = _b64.b64encode(ps.encode('utf-16-le')).decode('ascii')
+            r = _subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
+                                capture_output=True, timeout=20)
+            return os.path.exists(path)
+        except Exception:
+            return False
 
     def is_autostart_enabled(self):
         """检查启动文件夹中是否有自启文件"""
         return os.path.exists(self._autostart_startup_path())
 
     def toggle_autostart(self):
-        """开关开机自启（启动文件夹方案）"""
+        """开关开机自启（启动文件夹快捷方式方案，指向启动文件）"""
         try:
             path = self._autostart_startup_path()
             if os.path.exists(path):
@@ -4084,12 +4111,8 @@ class PetWidget(QWidget):
                 self._append_chat('桌宠', '❌ 开机自启已关闭（下次开机需手动启动桌宠）')
                 self.say_plain('已关闭开机自启', immediate=True)
             else:
-                cmd = self._autostart_command()
-                content = f'@echo off\r\nstart "" {cmd}\r\n'
-                # GBK 编码：cmd 默认代码页 936，含中文的路径必须 GBK 才能正确解析
-                with open(path, 'w', encoding='gbk', newline='') as f:
-                    f.write(content)
-                if os.path.exists(path):
+                ok = self._create_autostart_lnk(path)
+                if ok:
                     # 清理旧注册表条目（若存在，避免重复启动）
                     try:
                         import winreg as _wr
@@ -4101,7 +4124,7 @@ class PetWidget(QWidget):
                         _wr.CloseKey(rk)
                     except Exception:
                         pass
-                    self._append_chat('桌宠', '✅ 开机自启已开启（启动文件夹）')
+                    self._append_chat('桌宠', '✅ 开机自启已开启（启动文件夹快捷方式）')
                     self.say_plain('已开启开机自启', immediate=True)
                 else:
                     self._append_chat('桌宠', '❌ 自启写入失败')
