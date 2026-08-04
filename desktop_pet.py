@@ -676,8 +676,8 @@ BLINK_OFFSETS = {
 }
 
 
-def _hotkey_filter_factory(callback):
-    """创建全局热键过滤器（WM_HOTKEY）"""
+def _hotkey_filter_factory(callbacks):
+    """创建全局热键过滤器（WM_HOTKEY）。callbacks: {hotkey_id: callback}"""
     import ctypes.wintypes  # 必须显式导入（Python 3.14 中 ctypes.wintypes 不随 ctypes 自动加载）
     from PySide6.QtCore import QAbstractNativeEventFilter
     class _HotkeyFilter(QAbstractNativeEventFilter):
@@ -687,9 +687,11 @@ def _hotkey_filter_factory(callback):
                 et = bytes(eventType) if hasattr(eventType, '__bytes__') else str(eventType).encode('utf-8', 'ignore')
                 if b'windows_generic_MSG' in et:
                     msg = ctypes.wintypes.MSG.from_address(int(message))
-                    if msg.message == 0x0312 and msg.wParam == 1:  # WM_HOTKEY, id=1
-                        callback()
-                        return True, 0
+                    if msg.message == 0x0312:  # WM_HOTKEY
+                        cb = callbacks.get(msg.wParam)
+                        if cb:
+                            cb()
+                            return True, 0
             except Exception:
                 pass
             return False, 0
@@ -740,15 +742,19 @@ class PetWidget(QWidget):
         self.ai_status_signal.connect(self._update_ai_status)
         self.wakeup_signal.connect(self._display_wakeup)
         self.confirm_signal.connect(lambda fn: fn())  # 确认回调在主线程执行
-        # 全局快捷键 Ctrl+Alt+P 呼出
+        # 全局快捷键 Ctrl+Alt+P 呼出 / Ctrl+Alt+S 截图 OCR
         self._hotkey_installed = False
         try:
             app = QApplication.instance()
             if app is not None:
-                self._hotkey_filter = _hotkey_filter_factory(self._on_global_hotkey)
+                self._hotkey_filter = _hotkey_filter_factory({1: self._on_global_hotkey, 2: self._on_screenshot_hotkey})
                 app.installNativeEventFilter(self._hotkey_filter)
                 if ctypes.windll.user32.RegisterHotKey(None, 1, 0x0002 | 0x0001, 0x50):  # MOD_CONTROL|MOD_ALT, 'P'
                     self._hotkey_installed = True
+                try:
+                    ctypes.windll.user32.RegisterHotKey(None, 2, 0x0002 | 0x0001, 0x4F)  # Ctrl+Alt+O 截图 OCR
+                except Exception:
+                    pass
         except Exception:
             self._hotkey_installed = False
         # 对话记忆 + 定时提醒 + 贴边
@@ -3888,6 +3894,25 @@ class PetWidget(QWidget):
         self._append_chat('我', f'📷 [截图识别] {text}')
         self.ask_ai((f'（用户粘贴了一张截图，OCR 识别内容如下，请根据内容回答或处理）\n{text}'
                     if not is_en else f'(User pasted a screenshot. OCR result below; answer or act on it.)\n{text}'))
+
+    def _on_screenshot_hotkey(self):
+        """全局快捷键 Ctrl+Alt+S：截全屏 → OCR → 发给 AI 分析"""
+        try:
+            from PIL import ImageGrab
+            is_en = getattr(self, 'language', 'zh') == 'en'
+            self._append_chat('桌宠', '📸 截屏中…' if not is_en else '📸 Capturing…')
+            img = ImageGrab.grab()
+            path = os.path.join(BASE_DIR, '_screenshot_ocr.png')
+            img.save(path, 'PNG')
+            import threading
+            def worker():
+                try:
+                    self.ocr_signal.emit(self._ocr_image(path))
+                except Exception:
+                    pass
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception as e:
+            self._append_chat('桌宠', f'截图失败：{e}' if not is_en else f'Capture failed: {e}')
 
     def _on_chat_input(self):
         """处理聊天输入：本地指令 / AI 对话（用户消息里的 [emotion:xxx]/[emotion=xxx] 也会触发立绘）"""
