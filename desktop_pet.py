@@ -20,7 +20,7 @@ import time
 import ctypes
 import winsound
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
-from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
+from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QPen, QPolygon, QTransform, QCursor
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QMenu, QGraphicsOpacityEffect,
     QVBoxLayout, QHBoxLayout, QPushButton, QFrame, QSizePolicy,
