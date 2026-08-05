@@ -2113,6 +2113,14 @@ class PetWidget(QWidget):
                         time.sleep(5)
                         continue
                     raise
+                except (urllib.error.URLError, OSError, TimeoutError) as e:
+                    # 网络类错误（10061 连接拒绝/超时/DNS）：也自动重试，网络恢复后自动成功
+                    if attempt < 2:
+                        is_en = getattr(self, 'language', 'zh') == 'en'
+                        self.ai_status_signal.emit((status_en if is_en else status_zh) + '（网络波动，重试中…）')
+                        time.sleep(5)
+                        continue
+                    raise
         try:
             # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
             self._summarize_old()
