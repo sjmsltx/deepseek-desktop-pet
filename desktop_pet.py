@@ -748,7 +748,7 @@ class _VkeyPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(440, 800)
+        self.setFixedSize(440, 560)
         self.role = 'flash'
         self._imgs = {}
         self.action = 'hover'
@@ -799,7 +799,9 @@ class _VkeyPanel(QWidget):
         p.fillRect(self.rect(), QColor(0, 0, 0, 0))
         sp = self.scene_pixmap()
         if sp and not sp.isNull():
-            p.drawPixmap(0, 0, self.width(), self.height(), sp)
+            # 保持宽高比缩放（不拉伸变形），水平居中
+            scaled = sp.scaled(self.width(), self.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            p.drawPixmap((self.width() - scaled.width()) // 2, 0, scaled)
         p.end()
 
 
@@ -2785,7 +2787,7 @@ class PetWidget(QWidget):
         elif mode == 'input':
             self.display_mode = 'input'
             self.pet_stack.setCurrentWidget(self._vkey_panel)
-            self.setFixedSize(440, 800)
+            self.setFixedSize(440, 560)  # 与其他模式同尺寸，避免 resize 位置偏移
             self._save_cfg_value('display_mode', 'input')
             self._append_chat('桌宠', '🎹 已切换到输入感知模式（键盘输入时立绘伸手摸键）' if not is_en else '🎹 Switched to input-aware mode')
         else:
