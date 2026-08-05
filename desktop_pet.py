@@ -781,24 +781,26 @@ class _VkeyPanel(QWidget):
         return self._imgs.get(f'{self.role}_{self.action}')
 
     def trigger_key(self):
-        """键盘输入：切到 key（打字）图，短暂停留后回 hover"""
-        self.action = 'key'
-        self._action_timer = 1200
+        """键盘输入：键盘区域高亮闪烁 0.6s（场景图已有手，不叠贴图）"""
+        self.action = 'hover'
+        self.hl_zone = 'key'
+        self._action_timer = 600
         self.update()
 
     def trigger_mouse(self, action):
-        """鼠标动作：mouse（左/右键）/ scroll"""
+        """鼠标动作：鼠标区域高亮闪烁 0.6s"""
         if action in ('mouse', 'scroll'):
-            self.action = action
-            self._action_timer = 1000
+            self.action = 'hover'
+            self.hl_zone = 'mouse'
+            self._action_timer = 600
             self.update()
 
     def step(self, dt_ms):
-        """动作计时：到时回 hover"""
+        """动作计时：到时清高亮"""
         if self._action_timer > 0:
             self._action_timer -= dt_ms
             if self._action_timer <= 0:
-                self.action = 'hover'
+                self.hl_zone = None
                 self.update()
 
     def paintEvent(self, e):
