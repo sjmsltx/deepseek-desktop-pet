@@ -4578,6 +4578,13 @@ class PetWidget(QWidget):
         if self._chat_hidden_for_dock:
             self.chat_panel.show()
             self._chat_hidden_for_dock = False
+            # 防御：贴边期间面板可能被压缩，恢复时重置尺寸防输入框被吞
+            try:
+                self.chat_panel.setMinimumSize(440, 260)
+                self.chat_input.setFixedHeight(34)
+                self.chat_input.setMinimumHeight(34)
+            except Exception:
+                pass
         self.setFixedSize(440, 560)
         self.pet_label.setFixedSize(self.pet_size, self.pet_size)
         self._restore_display_state()
@@ -4593,6 +4600,12 @@ class PetWidget(QWidget):
         if self._chat_hidden_for_dock and not self.chat_panel.isVisible():
             self.chat_panel.show()
             self._chat_hidden_for_dock = False
+            try:
+                self.chat_panel.setMinimumSize(440, 260)
+                self.chat_input.setFixedHeight(34)
+                self.chat_input.setMinimumHeight(34)
+            except Exception:
+                pass
         self.setFixedSize(440, 560)
         if side in ('left', 'right'):
             pop_x = 0 if side == 'left' else geo.right() - 440
