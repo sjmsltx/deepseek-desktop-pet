@@ -741,19 +741,22 @@ class _VkeyPanel(QWidget):
     """输入感知模式（方案B）：桌面场景图 + 角色手部图（hover/左键/右键/滚轮）"""
     HAND_ACTIONS = ('hover', 'click_l', 'click_r', 'scroll')
 
+    # 布局常量：立绘区在上，桌面区在下
+    DESK_RECT = (80, 520, 280, 240)   # 桌面场景绘制区域 (x, y, w, h)
+    HAND_MIN = (120, 560)
+    HAND_MAX = (320, 720)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(260, 210)
+        self.setFixedSize(440, 800)
         self.role = 'flash'
         self._imgs = {}
         self._load_imgs()
-        # 手：跟随鼠标位置（默认），键盘输入时快速移到键盘区域随机点
-        self.hand = [130.0, 160.0]
+        self.hand = [220.0, 640.0]
         self.hand_target = None
         self.action = 'hover'
         self.press_left = 0
-        self.key_flash = None   # 键盘高亮矩形
-        self._load_t = 0
+        self.key_flash = None
 
     def set_role(self, role):
         if role in ('flash', 'pro'):
@@ -771,6 +774,15 @@ class _VkeyPanel(QWidget):
                 if force or key not in self._imgs:
                     fp = os.path.join(base, f'{key}.png')
                     self._imgs[key] = QPixmap(fp) if os.path.exists(fp) else None
+        # 角色立绘图（flash_idle.png / pro_idle.png）
+        for role in ('flash', 'pro'):
+            key = f'{role}_idle'
+            if force or key not in self._imgs:
+                fp = os.path.join(BASE_DIR, 'assets', role, f'{role}_idle.png')
+                self._imgs[key] = QPixmap(fp) if os.path.exists(fp) else None
+                if (self._imgs[key] is None or self._imgs[key].isNull()) and role == 'pro':
+                    fp2 = os.path.join(BASE_DIR, 'assets', 'pro', 'pro_idle.jpg')
+                    self._imgs[key] = QPixmap(fp2) if os.path.exists(fp2) else None
 
     def hand_pixmap(self):
         return self._imgs.get(f'{self.role}_{self.action}')
@@ -779,17 +791,19 @@ class _VkeyPanel(QWidget):
         """键盘输入：hover 手快速移到键盘区域随机点 + 键盘高亮"""
         import random as _r
         self.action = 'hover'
-        # 键盘区域（桌面图左侧 60% 区域随机点）
-        tx = _r.randint(40, 150)
-        ty = _r.randint(90, 175)
+        dx, dy, dw, dh = self.DESK_RECT
+        tx = _r.randint(dx + 30, dx + dw - 40)
+        ty = _r.randint(dy + 60, dy + dh - 40)
         self.hand_target = [float(tx), float(ty)]
-        self.key_flash = (40, 80, 160, 130)
+        self.key_flash = (dx + 20, dy + 30, 180, 130)
         self.press_left = 350
         self.update()
 
     def set_mouse(self, x, y):
-        # 手跟随鼠标（映射到面板范围）
-        self.hand = [max(20, min(self.width() - 20, float(x))), max(40, min(self.height() - 20, float(y)))]
+        # 手跟随鼠标（映射到桌面区域）
+        x = max(self.HAND_MIN[0], min(self.HAND_MAX[0], float(x)))
+        y = max(self.HAND_MIN[1], min(self.HAND_MAX[1], float(y)))
+        self.hand = [x, y]
         if self.hand_target is None:
             self.update()
 
@@ -821,17 +835,23 @@ class _VkeyPanel(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        # 桌面场景图
+        # 背景透明（窗口本身透明）
+        p.fillRect(self.rect(), QColor(0, 0, 0, 0))
+        # 1. 角色立绘（顶部居中，宽 300）
+        idle = self._imgs.get(f'{self.role}_idle')
+        if idle and not idle.isNull():
+            scaled = idle.scaled(300, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            p.drawPixmap((self.width() - scaled.width()) // 2, 30, scaled)
+        # 2. 桌面场景图（底部居中，缩放到 DESK_RECT）
         desk = self._imgs.get('desk')
         if desk and not desk.isNull():
-            p.drawPixmap(0, 0, self.width(), self.height(), desk)
-        else:
-            p.fillRect(self.rect(), QColor(38, 44, 62))
-        # 键盘高亮（按下时桌面图上闪一下）
+            dx, dy, dw, dh = self.DESK_RECT
+            p.drawPixmap(dx, dy, dw, dh, desk)
+        # 3. 键盘高亮（按下时桌面图上闪一下）
         if self.key_flash is not None and self.press_left > 0:
             x, y, w, h = self.key_flash
             p.fillRect(x, y, w, h, QColor(255, 210, 80, 120))
-        # 手部图（当前动作）
+        # 4. 手部图（当前动作，桌面区域）
         hp = self.hand_pixmap()
         if hp and not hp.isNull():
             hx, hy = int(self.hand[0]), int(self.hand[1])
