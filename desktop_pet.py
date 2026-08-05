@@ -3033,8 +3033,8 @@ class PetWidget(QWidget):
         due = _dt.datetime.fromtimestamp(r.get('time', 0)).strftime('%m-%d %H:%M')
         text = r.get('text', '')
         if r.get('type') == 'followup':
-            self._append_chat('桌宠', f'💗 补发回访（原定 {due}，昨晚你提到的事）：{text}——今天还好吗？')
-            self.say_plain('昨晚你说的那件事，今天还好吗？', immediate=True)
+            self._append_chat('桌宠', '💗 早安回访：昨晚休息得怎么样？补上早上的问候——记得吃早餐哦 ☀️')
+            self.say_plain('早安呀，昨晚休息得怎么样？记得吃早餐哦', immediate=True)
         else:
             self._append_chat('桌宠', f'⏰ 补发提醒（原定 {due}，关机期间错过）：{text}')
             self.say_plain(f'⏰ 补发提醒：{text}', immediate=True)
@@ -4954,9 +4954,28 @@ class PetWidget(QWidget):
             path = self._autostart_startup_path()
             if os.path.exists(path):
                 os.remove(path)
+            # 一并清理旧版 .bat/.cmd 启动项
+            startup_dir = os.path.dirname(path)
+            for old in ('DeepSeekPet.bat', 'DeepSeekPet.cmd'):
+                oldp = os.path.join(startup_dir, old)
+                if os.path.exists(oldp):
+                    try:
+                        os.remove(oldp)
+                    except Exception:
+                        pass
+            if True:
                 self._append_chat('桌宠', '❌ 开机自启已关闭（下次开机需手动启动桌宠）')
                 self.say_plain('已关闭开机自启', immediate=True)
             else:
+                # 清理旧版启动项（.bat 残留），防止开机双启动
+                startup_dir = os.path.dirname(path)
+                for old in ('DeepSeekPet.bat', 'DeepSeekPet.cmd'):
+                    oldp = os.path.join(startup_dir, old)
+                    if os.path.exists(oldp):
+                        try:
+                            os.remove(oldp)
+                        except Exception:
+                            pass
                 ok = self._create_autostart_lnk(path)
                 if ok:
                     # 清理旧注册表条目（若存在，避免重复启动）
