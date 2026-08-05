@@ -3696,7 +3696,11 @@ class PetWidget(QWidget):
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
-        safe = str(text).replace('<', '&lt;').replace('>', '&gt;')
+        safe = str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        if '\n' in safe:
+            safe = ('<pre style="margin:2px 0;white-space:pre-wrap;font-family:Consolas,monospace;'
+                    'font-size:12px;background:rgba(255,255,255,0.05);border-radius:4px;padding:4px 6px;">'
+                    + safe + '</pre>')
         self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}')
         sb = self.chat_history.verticalScrollBar()
         sb.setValue(sb.maximum())
