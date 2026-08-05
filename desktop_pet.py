@@ -800,7 +800,7 @@ class _VkeyPanel(QWidget):
         sp = self.scene_pixmap()
         if sp and not sp.isNull():
             # 保持宽高比缩放到窗口 72% 高度（补偿生成图人物偏大），水平居中
-            scaled = sp.scaled(self.width(), int(self.height() * 0.72), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = sp.scaled(int(self.width() * 0.62), int(self.height() * 0.58), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             p.drawPixmap((self.width() - scaled.width()) // 2, 0, scaled)
         p.end()
 
