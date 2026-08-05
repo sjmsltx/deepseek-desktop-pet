@@ -775,14 +775,14 @@ class _VkeyPanel(QWidget):
     def trigger_key(self):
         """键盘输入：切到 key（打字）图，短暂停留后回 hover"""
         self.action = 'key'
-        self._action_timer = 350
+        self._action_timer = 1200
         self.update()
 
     def trigger_mouse(self, action):
         """鼠标动作：mouse（左/右键）/ scroll"""
         if action in ('mouse', 'scroll'):
             self.action = action
-            self._action_timer = 300
+            self._action_timer = 1000
             self.update()
 
     def step(self, dt_ms):
