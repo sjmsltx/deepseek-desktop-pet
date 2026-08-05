@@ -1029,6 +1029,15 @@ class PetWidget(QWidget):
             self.move(avail.right() - self.width() - 40, avail.bottom() - self.height() - 60)
             self.base_x, self.base_y = self.x(), self.y()
 
+    @staticmethod
+    def _atomic_write_json(path, data, pretty=True):
+        """原子写 JSON：先写临时文件再 os.replace 替换。
+        防止程序崩溃/断电时直接损坏原文件（JSON 直接 open('w') 会截断原内容）。"""
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2 if pretty else None)
+        os.replace(tmp, path)
+
     def _save_position(self):
         """保存位置，同时保留已有配置（api key 等不被覆盖）"""
         try:
@@ -1041,8 +1050,7 @@ class PetWidget(QWidget):
                         cfg = {}
             cfg['x'] = self.x()
             cfg['y'] = self.y()
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(CONFIG_PATH, cfg)
         except Exception:
             pass
 
@@ -1191,8 +1199,7 @@ class PetWidget(QWidget):
             pass
         apps = self._build_app_index()
         try:
-            with open(idx_path, 'w', encoding='utf-8') as f:
-                json.dump({'built_at': time.time(), 'apps': apps}, f, ensure_ascii=False)
+            self._atomic_write_json(idx_path, {'built_at': time.time(), 'apps': apps}, pretty=False)
         except Exception:
             pass
         return apps
@@ -1435,10 +1442,8 @@ class PetWidget(QWidget):
         """保存 memory.json"""
         try:
             import json as _j
-            with open(MEMORY_PATH, 'w', encoding='utf-8') as f:
-                _j.dump({'facts': self.memory_facts, 'summaries': self.memory_summaries,
-                         'updated_at': __import__('datetime').datetime.now().isoformat()},
-                        f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(MEMORY_PATH, {'facts': self.memory_facts, 'summaries': self.memory_summaries,
+                         'updated_at': __import__('datetime').datetime.now().isoformat()})
         except Exception:
             pass
 
@@ -1656,9 +1661,7 @@ class PetWidget(QWidget):
 
     def _save_todos(self):
         try:
-            import json as _j
-            with open(TODO_PATH, 'w', encoding='utf-8') as f:
-                _j.dump(self.todos, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(TODO_PATH, self.todos)
         except Exception:
             pass
 
@@ -2109,16 +2112,20 @@ class PetWidget(QWidget):
                 except urllib.error.HTTPError as e:
                     if e.code in (429, 500, 502, 503) and attempt < 2:
                         is_en = getattr(self, 'language', 'zh') == 'en'
-                        self.ai_status_signal.emit((status_en if is_en else status_zh) + '（服务繁忙，重试中…）')
-                        time.sleep(5)
+                        wait = 5 * (attempt + 1)  # 指数退避：第1次等5秒，第2次等10秒
+                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
+                                                   f'（服务繁忙，{wait} 秒后第 {attempt + 2} 次重试…）')
+                        time.sleep(wait)
                         continue
                     raise
                 except (urllib.error.URLError, OSError, TimeoutError) as e:
                     # 网络类错误（10061 连接拒绝/超时/DNS）：也自动重试，网络恢复后自动成功
                     if attempt < 2:
                         is_en = getattr(self, 'language', 'zh') == 'en'
-                        self.ai_status_signal.emit((status_en if is_en else status_zh) + '（网络波动，重试中…）')
-                        time.sleep(5)
+                        wait = 5 * (attempt + 1)  # 指数退避：第1次等5秒，第2次等10秒
+                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
+                                                   f'（网络波动，{wait} 秒后第 {attempt + 2} 次重试…）')
+                        time.sleep(wait)
                         continue
                     raise
         try:
@@ -2409,8 +2416,7 @@ class PetWidget(QWidget):
         try:
             # 只保留最近 50 条 LLM 上下文 + 最近 300 条显示历史
             msgs = self.chat_history_msgs[-50:]
-            with open(mem_path, 'w', encoding='utf-8') as f:
-                json.dump({'messages': msgs, 'display': self.display_msgs[-300:]}, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(mem_path, {'messages': msgs, 'display': self.display_msgs[-300:]})
         except Exception:
             pass
 
@@ -3015,8 +3021,7 @@ class PetWidget(QWidget):
 
     def _save_reminders(self):
         try:
-            with open(self._reminders_path(), 'w', encoding='utf-8') as f:
-                json.dump(self.reminders, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(self._reminders_path(), self.reminders)
         except Exception:
             pass
 
@@ -4395,8 +4400,7 @@ class PetWidget(QWidget):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
             cfg[key] = value
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(CONFIG_PATH, cfg)
             self._load_ai_config()
             return True
         except Exception as e:
