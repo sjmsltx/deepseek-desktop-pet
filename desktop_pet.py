@@ -760,16 +760,23 @@ class _VkeyPanel(QWidget):
             self.role = role
 
     def _load_imgs(self, force=False):
-        """加载两个角色全部一体化场景图（8 张）"""
+        """加载基准场景图 + 手部贴图（同风格模板生成）"""
         base = os.path.join(BASE_DIR, 'assets', 'l2d_scene')
         for role in ('flash', 'pro'):
-            for act in self.HAND_ACTIONS:
+            key = f'{role}_scene'
+            if force or key not in self._imgs:
+                fp = os.path.join(base, f'{key}.png')
+                self._imgs[key] = QPixmap(fp) if os.path.exists(fp) else None
+            for act in ('key', 'mouse', 'scroll'):
                 key = f'{role}_{act}'
                 if force or key not in self._imgs:
                     fp = os.path.join(base, f'{key}.png')
                     self._imgs[key] = QPixmap(fp) if os.path.exists(fp) else None
 
     def scene_pixmap(self):
+        return self._imgs.get(f'{self.role}_scene')
+
+    def hand_pixmap(self):
         return self._imgs.get(f'{self.role}_{self.action}')
 
     def trigger_key(self):
@@ -798,10 +805,23 @@ class _VkeyPanel(QWidget):
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         p.fillRect(self.rect(), QColor(0, 0, 0, 0))
         sp = self.scene_pixmap()
-        if sp and not sp.isNull():
-            # 保持宽高比缩放到窗口 72% 高度（补偿生成图人物偏大），水平居中
-            scaled = sp.scaled(int(self.width() * 0.62), int(self.height() * 0.58), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            p.drawPixmap((self.width() - scaled.width()) // 2, 0, scaled)
+        if sp is None or sp.isNull():
+            return
+        scaled = sp.scaled(int(self.width() * 0.62), int(self.height() * 0.58), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        sx = (self.width() - scaled.width()) // 2
+        p.drawPixmap(sx, 0, scaled)
+        # 动作时：手部贴图叠加（key→键盘位置，mouse/scroll→鼠标位置）
+        if self.action in ('key', 'mouse', 'scroll'):
+            hp = self.hand_pixmap()
+            if hp and not hp.isNull():
+                hw, hh = hp.width(), hp.height()
+                if self.action == 'key':
+                    hx = sx + int(scaled.width() * 0.42) - hw // 2
+                    hy = int(scaled.height() * 0.66) - hh + 10
+                else:
+                    hx = sx + int(scaled.width() * 0.74) - hw // 2
+                    hy = int(scaled.height() * 0.70) - hh + 10
+                p.drawPixmap(hx, hy, hp)
         p.end()
 
 
