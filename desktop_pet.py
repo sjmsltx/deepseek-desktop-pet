@@ -752,7 +752,8 @@ class _VkeyPanel(QWidget):
         self.role = 'flash'
         self._imgs = {}
         self.action = 'hover'
-        self._action_timer = 0   # 动作停留计时（ms），到时回 hover
+        self._action_timer = 0
+        self.hl_zone = None     # 高亮区域 ('key'/'mouse')，输入反馈
         self._load_imgs()
 
     def set_role(self, role):
@@ -810,18 +811,19 @@ class _VkeyPanel(QWidget):
         scaled = sp.scaled(int(self.width() * 0.62), int(self.height() * 0.58), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         sx = (self.width() - scaled.width()) // 2
         p.drawPixmap(sx, 0, scaled)
-        # 动作时：手部贴图叠加（key→键盘位置，mouse/scroll→鼠标位置）
-        if self.action in ('key', 'mouse', 'scroll'):
-            hp = self.hand_pixmap()
-            if hp and not hp.isNull():
-                hw, hh = hp.width(), hp.height()
-                if self.action == 'key':
-                    hx = sx + int(scaled.width() * 0.42) - hw // 2
-                    hy = int(scaled.height() * 0.66) - hh + 10
-                else:
-                    hx = sx + int(scaled.width() * 0.74) - hw // 2
-                    hy = int(scaled.height() * 0.70) - hh + 10
-                p.drawPixmap(hx, hy, hp)
+        # 输入反馈：键盘/鼠标区域高亮闪烁（半透明黄）
+        if self.hl_zone and self._action_timer > 0:
+            if self.hl_zone == 'key':
+                hx = sx + int(scaled.width() * 0.26)
+                hy = int(scaled.height() * 0.60)
+                hw = int(scaled.width() * 0.42)
+                hh = int(scaled.height() * 0.12)
+            else:
+                hx = sx + int(scaled.width() * 0.66)
+                hy = int(scaled.height() * 0.62)
+                hw = int(scaled.width() * 0.16)
+                hh = int(scaled.height() * 0.14)
+            p.fillRect(hx, hy, hw, hh, QColor(255, 210, 80, 110))
         p.end()
 
 
