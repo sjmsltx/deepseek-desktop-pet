@@ -738,97 +738,104 @@ class _DropChatEdit(QTextEdit):
 
 
 class _VkeyPanel(QWidget):
-    """输入感知模式：简化虚拟键盘（无标注键块）+ 自绘手随机摸键 + 鼠标指示"""
-    COLS, ROWS = 6, 3
-    KEY_W, KEY_H, GAP = 34, 24, 5
+    """输入感知模式（方案B）：桌面场景图 + 角色手部图（hover/左键/右键/滚轮）"""
+    HAND_ACTIONS = ('hover', 'click_l', 'click_r', 'scroll')
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(244, 140)
-        self._keys = []  # (row, col, x, y, w, h)
-        for r in range(self.ROWS):
-            for c in range(self.COLS):
-                x = 10 + c * (self.KEY_W + self.GAP)
-                y = 10 + r * (self.KEY_H + self.GAP)
-                self._keys.append((r, c, x, y, self.KEY_W, self.KEY_H))
-        # 手：默认在上方中央，输入时移动到随机键
-        self.hand = [self.width() / 2, 0.0]
-        self.hand_target = None      # 目标键中心 (x, y)
-        self.hand_returning = False
-        self.press_left = 0          # 键高亮剩余 ms
-        self.press_key = None
-        self.mouse = [self.width() / 2, 100.0]
-        self._last_t = 0.0
+        self.setFixedSize(260, 210)
+        self.role = 'flash'
+        self._imgs = {}
+        self._load_imgs()
+        # 手：跟随鼠标位置（默认），键盘输入时快速移到键盘区域随机点
+        self.hand = [130.0, 160.0]
+        self.hand_target = None
+        self.action = 'hover'
+        self.press_left = 0
+        self.key_flash = None   # 键盘高亮矩形
+        self._load_t = 0
 
-    def trigger(self):
-        """检测到输入：手随机摸向一个键"""
+    def set_role(self, role):
+        if role in ('flash', 'pro'):
+            self.role = role
+
+    def _load_imgs(self, force=False):
+        """加载桌面场景 + 两个角色全部手部图（9 张，启动即加载）"""
+        base = os.path.join(BASE_DIR, 'assets', 'l2d_input')
+        if force or 'desk' not in self._imgs:
+            dp = os.path.join(base, 'desk_scene.png')
+            self._imgs['desk'] = QPixmap(dp) if os.path.exists(dp) else None
+        for role in ('flash', 'pro'):
+            for act in self.HAND_ACTIONS:
+                key = f'{role}_{act}'
+                if force or key not in self._imgs:
+                    fp = os.path.join(base, f'{key}.png')
+                    self._imgs[key] = QPixmap(fp) if os.path.exists(fp) else None
+
+    def hand_pixmap(self):
+        return self._imgs.get(f'{self.role}_{self.action}')
+
+    def trigger_key(self):
+        """键盘输入：hover 手快速移到键盘区域随机点 + 键盘高亮"""
         import random as _r
-        k = _r.choice(self._keys)
-        cx = k[2] + k[4] / 2
-        cy = k[3] + k[5] / 2
-        self.hand_target = [cx, cy]
-        self.press_key = k
+        self.action = 'hover'
+        # 键盘区域（桌面图左侧 60% 区域随机点）
+        tx = _r.randint(40, 150)
+        ty = _r.randint(90, 175)
+        self.hand_target = [float(tx), float(ty)]
+        self.key_flash = (40, 80, 160, 130)
         self.press_left = 350
-        self.hand_returning = False
         self.update()
 
     def set_mouse(self, x, y):
-        self.mouse = [max(10, min(self.width() - 10, x)), max(105, min(self.height() - 5, y))]
-        self.update()
+        # 手跟随鼠标（映射到面板范围）
+        self.hand = [max(20, min(self.width() - 20, float(x))), max(40, min(self.height() - 20, float(y)))]
+        if self.hand_target is None:
+            self.update()
+
+    def set_action(self, action):
+        if action in self.HAND_ACTIONS:
+            self.action = action
+            self.hand_target = None
+            self.update()
 
     def step(self, dt_ms):
-        """每帧：手向目标插值移动"""
+        """每帧：手向键盘目标插值移动 + 高亮计时"""
         if self.hand_target is not None:
             dx = self.hand_target[0] - self.hand[0]
             dy = self.hand_target[1] - self.hand[1]
-            step = dt_ms / 160.0
+            step = dt_ms / 140.0
             if abs(dx) < 1 and abs(dy) < 1:
                 self.hand = list(self.hand_target)
-                # 到达后停留，然后回原位
-                if not self.hand_returning:
-                    self.hand_returning = True
-                    self.press_left = 300
+                self.hand_target = None
+                self.press_left = 250
             else:
                 self.hand[0] += dx * min(1.0, step)
                 self.hand[1] += dy * min(1.0, step)
-        if self.hand_returning and self.press_left <= 0:
-            self.hand_target = [self.width() / 2, 0.0]
-            self.hand_returning = False
         if self.press_left > 0:
             self.press_left -= dt_ms
             if self.press_left <= 0:
-                self.press_key = None
+                self.key_flash = None
         self.update()
 
     def paintEvent(self, e):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        # 背景
-        p.setBrush(QColor(38, 44, 62))
-        p.setPen(QPen(QColor(60, 68, 92), 1))
-        p.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, 10, 10)
-        # 键块（无标注；按下的键高亮）
-        for k in self._keys:
-            x, y, w, h = k[2], k[3], k[4], k[5]
-            if self.press_key is k and self.press_left > 0:
-                p.setBrush(QColor(255, 200, 90))
-                p.drawRoundedRect(x, y + 2, w, h, 5, 5)  # 下压效果
-            else:
-                p.setBrush(QColor(52, 60, 84))
-                p.drawRoundedRect(x, y, w, h, 5, 5)
-        # 手（自绘手掌，朝下指向键）
-        hx, hy = self.hand
-        p.setBrush(QColor(255, 205, 180))
-        p.setPen(QPen(QColor(220, 150, 120), 1))
-        p.drawRoundedRect(int(hx) - 13, int(hy) - 8, 26, 24, 9, 9)          # 手掌
-        for i, dx in enumerate((-9, -3, 3, 9)):
-            p.drawRoundedRect(int(hx) + dx - 3, int(hy) + 14, 6, 13, 3, 3)  # 手指
-        # 鼠标指示（键盘区上方的小箭头）
-        mx, my = self.mouse
-        p.setBrush(QColor(120, 220, 255))
-        p.setPen(Qt.NoPen)
-        p.drawPolygon(QPolygon([QPoint(int(mx), int(my) - 8), QPoint(int(mx) - 6, int(my) + 2),
-                                QPoint(int(mx) + 6, int(my) + 2)]))
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        # 桌面场景图
+        desk = self._imgs.get('desk')
+        if desk and not desk.isNull():
+            p.drawPixmap(0, 0, self.width(), self.height(), desk)
+        else:
+            p.fillRect(self.rect(), QColor(38, 44, 62))
+        # 键盘高亮（按下时桌面图上闪一下）
+        if self.key_flash is not None and self.press_left > 0:
+            x, y, w, h = self.key_flash
+            p.fillRect(x, y, w, h, QColor(255, 210, 80, 120))
+        # 手部图（当前动作）
+        hp = self.hand_pixmap()
+        if hp and not hp.isNull():
+            hx, hy = int(self.hand[0]), int(self.hand[1])
+            p.drawPixmap(hx - hp.width() // 2, hy - hp.height() + 8, hp)
         p.end()
 
 
@@ -4840,13 +4847,25 @@ class PetWidget(QWidget):
             if not hasattr(self, '_input_prev'):
                 self._input_prev = {}
             user32 = ctypes.windll.user32
+            self._vkey_panel.set_role(self.current)
             for vk in self.INPUT_VK:
                 pressed = bool(user32.GetAsyncKeyState(vk) & 0x8000)
                 was = self._input_prev.get(vk, False)
                 if pressed and not was:
-                    self._vkey_panel.trigger()
+                    self._vkey_panel.trigger_key()
                     self._append_chat('桌宠', '⌨️ 检测到输入…')
                 self._input_prev[vk] = pressed
+            # 鼠标左/右键（松开回 hover）
+            lb = bool(user32.GetAsyncKeyState(0x01) & 0x8000)
+            rb = bool(user32.GetAsyncKeyState(0x02) & 0x8000)
+            if lb and not self._input_prev.get('lb', False):
+                self._vkey_panel.set_action('click_l')
+            elif rb and not self._input_prev.get('rb', False):
+                self._vkey_panel.set_action('click_r')
+            elif not lb and not rb and self._vkey_panel.action in ('click_l', 'click_r'):
+                self._vkey_panel.set_action('hover')
+            self._input_prev['lb'] = lb
+            self._input_prev['rb'] = rb
             # 鼠标位置映射到面板
             pt = ctypes.wintypes.POINT()
             if user32.GetCursorPos(ctypes.byref(pt)):
