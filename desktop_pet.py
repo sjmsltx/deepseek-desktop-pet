@@ -3022,6 +3022,7 @@ class PetWidget(QWidget):
                 missed = [r for r in data if now >= r.get('time', 0)]
                 pending = [r for r in data if now < r.get('time', 0)]
                 self.reminders = pending
+                self._save_reminders()   # 关键：补发过的从文件移除，防重启/重开重复补发
                 for r in missed:
                     self._deliver_missed_reminder(r)
         except Exception:
