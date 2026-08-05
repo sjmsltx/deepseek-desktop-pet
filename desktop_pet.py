@@ -75,7 +75,7 @@ UI_ZH = {
     'reminder_menu': '⏰ 提醒管理', 'rem_left': '剩余', 'rem_type': '类型', 'rem_cancel': '🗑 取消选中',
     'rem_clear': '🧹 清空全部', 'rem_none': '暂无提醒', 'rem_followup': '回访', 'rem_normal': '提醒',
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
-    'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
+    'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式', 'mode_input': '🎹 输入感知模式',
     'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
     'todo_menu': '📋 待办管理', 'todo_status': '状态', 'todo_time': '时间', 'todo_add': '➕ 添加',
     'todo_done': '✅ 完成选中', 'todo_del': '🗑 删除选中', 'todo_clear_done': '🧹 清空已完成',
@@ -108,7 +108,7 @@ UI_EN = {
     'reminder_menu': '⏰ Reminders', 'rem_left': 'Left', 'rem_type': 'Type', 'rem_cancel': '🗑 Cancel Selected',
     'rem_clear': '🧹 Clear All', 'rem_none': 'No reminders', 'rem_followup': 'Follow-up', 'rem_normal': 'Reminder',
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
-    'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
+    'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode', 'mode_input': '🎹 Input Mode',
     'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
     'todo_menu': '📋 Todo Manager', 'todo_status': 'Status', 'todo_time': 'Time', 'todo_add': '➕ Add',
     'todo_done': '✅ Done', 'todo_del': '🗑 Delete', 'todo_clear_done': '🧹 Clear Done',
@@ -737,6 +737,101 @@ class _DropChatEdit(QTextEdit):
         return super().viewportEvent(e)
 
 
+class _VkeyPanel(QWidget):
+    """输入感知模式：简化虚拟键盘（无标注键块）+ 自绘手随机摸键 + 鼠标指示"""
+    COLS, ROWS = 6, 3
+    KEY_W, KEY_H, GAP = 34, 24, 5
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(244, 140)
+        self._keys = []  # (row, col, x, y, w, h)
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                x = 10 + c * (self.KEY_W + self.GAP)
+                y = 10 + r * (self.KEY_H + self.GAP)
+                self._keys.append((r, c, x, y, self.KEY_W, self.KEY_H))
+        # 手：默认在上方中央，输入时移动到随机键
+        self.hand = [self.width() / 2, 0.0]
+        self.hand_target = None      # 目标键中心 (x, y)
+        self.hand_returning = False
+        self.press_left = 0          # 键高亮剩余 ms
+        self.press_key = None
+        self.mouse = [self.width() / 2, 100.0]
+        self._last_t = 0.0
+
+    def trigger(self):
+        """检测到输入：手随机摸向一个键"""
+        import random as _r
+        k = _r.choice(self._keys)
+        cx = k[2] + k[4] / 2
+        cy = k[3] + k[5] / 2
+        self.hand_target = [cx, cy]
+        self.press_key = k
+        self.press_left = 350
+        self.hand_returning = False
+        self.update()
+
+    def set_mouse(self, x, y):
+        self.mouse = [max(10, min(self.width() - 10, x)), max(105, min(self.height() - 5, y))]
+        self.update()
+
+    def step(self, dt_ms):
+        """每帧：手向目标插值移动"""
+        if self.hand_target is not None:
+            dx = self.hand_target[0] - self.hand[0]
+            dy = self.hand_target[1] - self.hand[1]
+            step = dt_ms / 160.0
+            if abs(dx) < 1 and abs(dy) < 1:
+                self.hand = list(self.hand_target)
+                # 到达后停留，然后回原位
+                if not self.hand_returning:
+                    self.hand_returning = True
+                    self.press_left = 300
+            else:
+                self.hand[0] += dx * min(1.0, step)
+                self.hand[1] += dy * min(1.0, step)
+        if self.hand_returning and self.press_left <= 0:
+            self.hand_target = [self.width() / 2, 0.0]
+            self.hand_returning = False
+        if self.press_left > 0:
+            self.press_left -= dt_ms
+            if self.press_left <= 0:
+                self.press_key = None
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        # 背景
+        p.setBrush(QColor(38, 44, 62))
+        p.setPen(QPen(QColor(60, 68, 92), 1))
+        p.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, 10, 10)
+        # 键块（无标注；按下的键高亮）
+        for k in self._keys:
+            x, y, w, h = k[2], k[3], k[4], k[5]
+            if self.press_key is k and self.press_left > 0:
+                p.setBrush(QColor(255, 200, 90))
+                p.drawRoundedRect(x, y + 2, w, h, 5, 5)  # 下压效果
+            else:
+                p.setBrush(QColor(52, 60, 84))
+                p.drawRoundedRect(x, y, w, h, 5, 5)
+        # 手（自绘手掌，朝下指向键）
+        hx, hy = self.hand
+        p.setBrush(QColor(255, 205, 180))
+        p.setPen(QPen(QColor(220, 150, 120), 1))
+        p.drawRoundedRect(int(hx) - 13, int(hy) - 8, 26, 24, 9, 9)          # 手掌
+        for i, dx in enumerate((-9, -3, 3, 9)):
+            p.drawRoundedRect(int(hx) + dx - 3, int(hy) + 14, 6, 13, 3, 3)  # 手指
+        # 鼠标指示（键盘区上方的小箭头）
+        mx, my = self.mouse
+        p.setBrush(QColor(120, 220, 255))
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygon([QPoint(int(mx), int(my) - 8), QPoint(int(mx) - 6, int(my) + 2),
+                                QPoint(int(mx) + 6, int(my) + 2)]))
+        p.end()
+
+
 class PetWidget(QWidget):
     # 类级信号：AI 回复（跨线程安全）
     ai_reply_signal = Signal(str)
@@ -865,6 +960,8 @@ class PetWidget(QWidget):
         # 显示模式容器：静态立绘 / Live2D 可切换
         from PySide6.QtWidgets import QStackedWidget
         self.pet_stack = QStackedWidget(self)
+        self._vkey_panel = _VkeyPanel(self)
+        self.pet_stack.addWidget(self._vkey_panel)  # 输入感知模式页（第三页）
         self.pet_stack.addWidget(self.pet_label)
         self.layout.addWidget(self.pet_stack, 0, Qt.AlignHCenter)
 
@@ -1886,8 +1983,8 @@ class PetWidget(QWidget):
             return '（reply_style 需为 short/normal/detailed）'
         if key == 'language' and value not in ('zh', 'en'):
             return '（language 需为 zh/en）'
-        if key == 'display_mode' and value not in ('static', 'live2d'):
-            return '（display_mode 需为 static/live2d）'
+        if key == 'display_mode' and value not in ('static', 'live2d', 'input'):
+            return '（display_mode 需为 static/live2d/input）'
         if key == 'active_chat':
             value = 'true' if value.lower() in ('true', '1', '开', 'on', 'yes') else 'false'
         if self._save_cfg_value(key, value):
@@ -2697,8 +2794,8 @@ class PetWidget(QWidget):
         self._append_chat('桌宠', f'🤖 已切换 Live2D 模型：{name}' if not is_en else f'🤖 Switched Live2D model: {name}')
 
     def _set_display_mode(self, mode):
-        """切换显示模式：static 静态立绘 / live2d 模型"""
-        if mode not in ('static', 'live2d'):
+        """切换显示模式：static 立绘 / live2d 模型 / input 输入感知"""
+        if mode not in ('static', 'live2d', 'input'):
             return
         is_en = getattr(self, 'language', 'zh') == 'en'
         if mode == 'live2d':
@@ -2714,9 +2811,16 @@ class PetWidget(QWidget):
             self.bubble.raise_()
             self._save_cfg_value('display_mode', 'live2d')
             self._append_chat('桌宠', '🎬 已切换到 Live2D 模式（右键可切回静态立绘）' if not is_en else '🎬 Switched to Live2D mode')
+        elif mode == 'input':
+            self.display_mode = 'input'
+            self.pet_stack.setCurrentWidget(self._vkey_panel)
+            self.setFixedSize(440, 800)
+            self._save_cfg_value('display_mode', 'input')
+            self._append_chat('桌宠', '🎹 已切换到输入感知模式（键盘输入时立绘伸手摸键）' if not is_en else '🎹 Switched to input-aware mode')
         else:
             self.display_mode = 'static'
             self.pet_stack.setCurrentWidget(self.pet_label)
+            self.setFixedSize(440, 560)
             self._save_cfg_value('display_mode', 'static')
             self._append_chat('桌宠', '🖼️ 已切换回静态立绘模式' if not is_en else '🖼️ Switched to static art mode')
 
@@ -4726,7 +4830,37 @@ class PetWidget(QWidget):
                 self._edge_popped = False
 
     # ---------- 动画 ----------
+    INPUT_VK = [0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+                 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A,
+                 0x20, 0x08]  # A-Z + 空格 + 退格
+
+    def _poll_input_keys(self):
+        """轮询键盘：检测到按下瞬间 → 手随机摸键 + 气泡"""
+        try:
+            if not hasattr(self, '_input_prev'):
+                self._input_prev = {}
+            user32 = ctypes.windll.user32
+            for vk in self.INPUT_VK:
+                pressed = bool(user32.GetAsyncKeyState(vk) & 0x8000)
+                was = self._input_prev.get(vk, False)
+                if pressed and not was:
+                    self._vkey_panel.trigger()
+                    self._append_chat('桌宠', '⌨️ 检测到输入…')
+                self._input_prev[vk] = pressed
+            # 鼠标位置映射到面板
+            pt = ctypes.wintypes.POINT()
+            if user32.GetCursorPos(ctypes.byref(pt)):
+                local = self._vkey_panel.mapFromGlobal(QPoint(pt.x, pt.y))
+                self._vkey_panel.set_mouse(local.x(), local.y())
+        except Exception:
+            pass
+
     def animate(self):
+        # 输入感知模式：轮询键盘 + 面板动画（不处理立绘）
+        if getattr(self, 'display_mode', 'static') == 'input':
+            self._poll_input_keys()
+            self._vkey_panel.step(33)
+            return
         # 贴边检查（非拖拽时）
         self._edge_dock_check()
         # 待机/拖拽/睡眠：完全静止，不重绘不移动（杜绝闪烁）
@@ -5239,6 +5373,10 @@ class PetWidget(QWidget):
         ma_l2d.setCheckable(True)
         ma_l2d.setChecked(getattr(self, 'display_mode', 'static') == 'live2d')
         ma_l2d.triggered.connect(lambda: self._set_display_mode('live2d'))
+        ma_input = modemenu.addAction(T('mode_input'))
+        ma_input.setCheckable(True)
+        ma_input.setChecked(getattr(self, 'display_mode', 'static') == 'input')
+        ma_input.triggered.connect(lambda: self._set_display_mode('input'))
         # Live2D 模型库：扫描 assets/live2d/，用户放入 model3.json 文件夹即可选用
         l2dmm = modemenu.addMenu(T('l2d_model_menu'))
         l2d_models = self._scan_live2d_models()
