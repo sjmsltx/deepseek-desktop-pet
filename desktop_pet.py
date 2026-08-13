@@ -18,6 +18,8 @@ import random
 import math
 import time
 import ctypes
+import threading  # v6.18 ApiStats 需要
+import datetime  # v6.18 ApiStats 需要（record/调试日志）
 import winsound
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
@@ -224,7 +226,7 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "生成文件并写入内容（报告/笔记/代码/表格等）。文件统一保存到桌宠目录的 输出/ 子目录（自动创建），文件名自动防路径穿越。当用户要求'生成/保存/输出一份文件'时使用，生成后告知用户完整路径。",
+            "description": "生成文件并写入内容（报告/笔记/代码/表格等）。文件统一保存到桌宠目录的 输出/ 子目录（自动创建），文件名自动防路径穿越。Python 文件（.py）会自动做语法校验，语法错误会拒绝保存并要求重新生成。仅在用户明确要求'生成/保存/输出一份文件'时才使用（用户说'写个文件/保存到文件/导出'等）；用户只是提问、讨论、分析问题时禁止主动创建文件，直接回答即可，拿不准时先问用户是否需要保存为文件。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -713,6 +715,209 @@ def _hotkey_filter_factory(callbacks):
     return _HotkeyFilter()
 
 
+# ---------- API 统计（v6.18 自监控：解析 usage，无代理无断链） ----------
+class ApiStats:
+    """API 调用自监控：解析响应 usage，统计模型/token/缓存/费用，持久化"""
+    PRICES = {  # 每百万 token 单价（元），V4 官方价示例，可改
+        'deepseek-v4-flash': {'input': 1.0, 'cache': 0.02, 'output': 2.0},
+        'deepseek-v4-pro': {'input': 3.0, 'cache': 0.025, 'output': 6.0},
+    }
+    DEFAULT_PRICE = {'input': 1.0, 'cache': 0.02, 'output': 2.0}
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+        self.today = {'count': 0, 'prompt': 0, 'completion': 0, 'total': 0, 'cost': 0.0,
+                      'cache_hit': 0, 'cache_miss': 0, 'date': ''}
+        self.total = {'count': 0, 'prompt': 0, 'completion': 0, 'total': 0, 'cost': 0.0,
+                      'cache_hit': 0, 'cache_miss': 0, 'date': ''}
+        self.last = None
+        self.calls = []  # 最近调用明细（上限 200）
+        self._load()
+
+    def _load(self):
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                self.total = data.get('total', self.total)
+                self.calls = data.get('calls', [])[-200:]
+                today = datetime.date.today().isoformat()
+                if data.get('date') == today:
+                    self.today = data.get('today', self.today)
+                else:
+                    self.today['date'] = today
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump({'date': datetime.date.today().isoformat(),
+                           'today': self.today, 'total': self.total,
+                           'calls': self.calls[-200:]}, f,
+                          ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _cost(model, prompt, completion, cache_hit, cache_miss):
+        p = ApiStats.PRICES.get(model or '', ApiStats.DEFAULT_PRICE)
+        try:
+            return (cache_miss / 1e6 * float(p['input'])
+                    + cache_hit / 1e6 * float(p.get('cache', p['input']))
+                    + (completion or 0) / 1e6 * float(p['output']))
+        except Exception:
+            return 0.0
+
+    def record(self, usage, model='?'):
+        prompt = usage.get('prompt_tokens') or 0
+        completion = usage.get('completion_tokens') or 0
+        cache_hit = usage.get('prompt_cache_hit_tokens') or 0
+        cache_miss = usage.get('prompt_cache_miss_tokens') or 0
+        if not cache_hit and not cache_miss:
+            det = usage.get('prompt_tokens_details') or {}
+            cache_hit = det.get('cached_tokens') or 0
+            cache_miss = prompt - cache_hit
+        cost = self._cost(model, prompt, completion, cache_hit, cache_miss)
+        entry = {'time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                 'model': model, 'prompt': prompt, 'completion': completion,
+                 'total': prompt + completion, 'cost': round(cost, 6),
+                 'cache_hit': cache_hit, 'cache_miss': cache_miss}
+        with self.lock:
+            today = datetime.date.today().isoformat()
+            if self.today.get('date') != today:
+                self.today = {'count': 0, 'prompt': 0, 'completion': 0, 'total': 0, 'cost': 0.0,
+                              'cache_hit': 0, 'cache_miss': 0, 'date': today}
+            for agg in (self.today, self.total):
+                agg['count'] += 1
+                agg['prompt'] += prompt
+                agg['completion'] += completion
+                agg['total'] += prompt + completion
+                agg['cost'] += cost
+                agg['cache_hit'] += cache_hit
+                agg['cache_miss'] += cache_miss
+            self.last = entry
+            self.calls.append(entry)
+        self._save()
+        return entry
+
+
+class _CodeCard(QFrame):
+    """代码卡片：标题栏（title + 复制按钮）+ 横向/纵向滚动 + 只读等宽文本（v6.17）"""
+    def __init__(self, code, title='代码', parent=None):
+        super().__init__(parent)
+        self._code = code
+        self.setStyleSheet("""
+            QFrame#codeCard { background:#1e2430; border-radius:8px; }
+            QLabel { color:#8aa; font-size:10px; background:transparent; }
+            QPushButton { background:#2a3142; color:#9ec; border:none; border-radius:4px;
+                          padding:2px 8px; font-size:10px; }
+            QPushButton:hover { background:#3a4152; }
+            QTextEdit { background:#161b26; color:#d8e0f0; border:none; font-size:11px;
+                        padding:4px; selection-background-color:#2a4a6b;
+                        font-family:'Consolas','Courier New',monospace; }
+            QScrollArea { background:transparent; border:none; }
+        """)
+        self.setObjectName('codeCard')
+        v = QVBoxLayout(self)
+        v.setContentsMargins(6, 4, 6, 6)
+        v.setSpacing(4)
+        bar = QHBoxLayout()
+        bar.setSpacing(6)
+        bar.addWidget(QLabel(title))
+        bar.addStretch(1)
+        self.copy_btn = QPushButton('复制')
+        self.copy_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_btn.clicked.connect(self._copy)
+        bar.addWidget(self.copy_btn)
+        v.addLayout(bar)
+        self.editor = QTextEdit()
+        self.editor.setReadOnly(True)
+        self.editor.setPlainText(code)
+        self.editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        v.addWidget(self.editor)
+        # 高度智能自适应：内容短完整显示(无滑块)，超过阈值才封顶内部滚动
+        QTimer.singleShot(0, self._fit_height)
+
+    def _fit_height(self):
+        doc = self.editor.document()
+        w = self.editor.viewport().width()
+        doc.setTextWidth(w if w > 50 else 360)  # 未布局时用兜底宽度
+        h = int(doc.size().height()) + 8
+        self.editor.setFixedHeight(max(28, min(260, h)))
+
+    def _copy(self):
+        """多格式智能复制：纯文本 + 等宽 HTML，粘贴 Word 保留代码样式（v6.17）"""
+        from PySide6.QtCore import QMimeData
+        mime = QMimeData()
+        mime.setText(self._code)  # text/plain：原始代码（markdown/记事本）
+        escaped = self._code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        mime.setHtml(f'<pre style="font-family:Consolas,monospace;white-space:pre-wrap">{escaped}</pre>')
+        QApplication.clipboard().setMimeData(mime)
+        self.copy_btn.setText('已复制 ✓')
+        QTimer.singleShot(1200, lambda: self.copy_btn.setText('复制'))
+
+
+class _TableCard(QFrame):
+    """表格卡片：标题栏（表格 + 复制 markdown 原文）+ 只读 HTML 表格（v6.17）"""
+    def __init__(self, md_text, html, parent=None):
+        super().__init__(parent)
+        self._md = md_text
+        self.setStyleSheet("""
+            QFrame#tableCard { background:#1e2430; border-radius:8px; }
+            QLabel { color:#8aa; font-size:10px; background:transparent; }
+            QPushButton { background:#2a3142; color:#9ec; border:none; border-radius:4px;
+                          padding:2px 8px; font-size:10px; }
+            QPushButton:hover { background:#3a4152; }
+            QTextEdit { background:#161b26; color:#d8e0f0; border:none; font-size:11px;
+                        padding:4px; }
+            QScrollArea { background:transparent; border:none; }
+        """)
+        self.setObjectName('tableCard')
+        v = QVBoxLayout(self)
+        v.setContentsMargins(6, 4, 6, 6)
+        v.setSpacing(4)
+        bar = QHBoxLayout()
+        bar.setSpacing(6)
+        bar.addWidget(QLabel('表格'))
+        bar.addStretch(1)
+        self.copy_btn = QPushButton('复制')
+        self.copy_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_btn.clicked.connect(self._copy)
+        bar.addWidget(self.copy_btn)
+        v.addLayout(bar)
+        self.editor = QTextEdit()
+        self.editor.setReadOnly(True)
+        self.editor.setHtml(html)
+        self.editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        v.addWidget(self.editor)
+        # 高度智能自适应：内容短完整显示(无滑块)，超过阈值才封顶内部滚动
+        QTimer.singleShot(0, self._fit_height)
+
+    def _fit_height(self):
+        doc = self.editor.document()
+        w = self.editor.viewport().width()
+        doc.setTextWidth(w if w > 50 else 360)  # 未布局时用兜底宽度
+        h = int(doc.size().height()) + 8
+        self.editor.setFixedHeight(max(28, min(220, h)))
+
+    def _copy(self):
+        """多格式智能复制：markdown 原文 + HTML 表格 + 纯文本，粘贴时目标程序自动适配（v6.17）"""
+        from PySide6.QtCore import QMimeData
+        mime = QMimeData()
+        mime.setText(self._md)  # text/plain：markdown 原文（记事本/一般编辑器）
+        mime.setData('text/markdown', self._md.encode('utf-8'))  # 显式 markdown（Typora/Obsidian 等）
+        mime.setHtml(self.editor.toHtml())  # text/html：Word 粘贴自动成真表格
+        QApplication.clipboard().setMimeData(mime)
+        self.copy_btn.setText('已复制 ✓')
+        QTimer.singleShot(1200, lambda: self.copy_btn.setText('复制'))
+
+
 class _DropChatEdit(QTextEdit):
     """支持文件拖放的聊天输入框（QTextEdit 默认不接受 uri-list 拖放，需子类化）"""
     def __init__(self, on_files, parent=None):
@@ -799,6 +1004,8 @@ class PetWidget(QWidget):
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
         self.display_msgs = []
+        self.api_stats = ApiStats(os.path.join(BASE_DIR, 'api_stats.json'))  # v6.18 API 自监控
+        self._api_stats_win = None
         self._pending_attachments = []  # 统一附件暂存（除 Ctrl+Alt+D 全局截图外，文件/图片先暂存）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
@@ -882,6 +1089,11 @@ class PetWidget(QWidget):
             }
             QTextEdit:focus { background: rgba(255,255,255,0.18); }
             QTextEdit viewport { background: transparent; }
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical { background: rgba(255,255,255,0.08); width: 8px; border-radius: 4px; margin: 0; }
+            QScrollBar::handle:vertical { background: rgba(255,255,255,0.45); border-radius: 4px; min-height: 20px; }
+            QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.65); }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         chat_layout = QVBoxLayout(self.chat_panel)
         chat_layout.setContentsMargins(8, 4, 8, 8)
@@ -902,10 +1114,19 @@ class PetWidget(QWidget):
         self.chat_more_btn.mousePressEvent = lambda e: self._load_more_history()
         self.chat_more_btn.hide()
         chat_layout.addWidget(self.chat_more_btn)
-        self.chat_history = QTextBrowser(self.chat_panel)
-        self.chat_history.setOpenExternalLinks(False)
-        self.chat_history.setPlaceholderText('')
-        chat_layout.addWidget(self.chat_history, 1)
+        self.chat_history_scroll = QScrollArea(self.chat_panel)
+        self.chat_history_scroll.setWidgetResizable(True)
+        self.chat_history_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.chat_history_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chat_history_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chat_history_container = QWidget()
+        self.chat_history_layout = QVBoxLayout(self.chat_history_container)
+        self.chat_history_layout.setContentsMargins(2, 2, 4, 2)
+        self.chat_history_layout.setSpacing(8)
+        self.chat_history_layout.addStretch(1)  # 底部弹簧：消息从顶部排、滚动贴底
+        self.chat_history_scroll.setWidget(self.chat_history_container)
+        chat_layout.addWidget(self.chat_history_scroll, 1)
+        self._status_widget = None  # 当前状态行（⏳/思考中）
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
         self.chat_input = _DropChatEdit(self._insert_dropped_paths, self.chat_panel)
@@ -1551,6 +1772,7 @@ class PetWidget(QWidget):
                 headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'})
             with urllib.request.urlopen(req, timeout=25) as resp:
                 r = _j.loads(resp.read().decode())
+            self._record_api_usage(r)
             summary = (r['choices'][0]['message'].get('content') or '').strip()
             if summary:
                 self.memory_summaries.append({'content': summary, 'time': __import__('datetime').datetime.now().isoformat(timespec='seconds')})
@@ -1920,15 +2142,34 @@ class PetWidget(QWidget):
         return '（写入失败）'
 
     def _write_file_tool(self, filename, content):
-        """AI 生成文件：统一写入 BASE_DIR/输出/（防穿越，自动建目录）"""
+        """AI 生成文件：统一写入 BASE_DIR/输出/（防穿越，自动建目录）。
+        .py 文件先做语法校验，校验失败不落盘并返回错误（v6.17 保证生成代码可运行）"""
         out_dir = os.path.join(BASE_DIR, '输出')
         try:
             os.makedirs(out_dir, exist_ok=True)
             safe = os.path.basename((filename or 'output.txt').strip() or 'output.txt')
             path = os.path.join(out_dir, safe)
+            content = content or ''
+            is_py = safe.lower().endswith('.py')
+            if is_py:
+                # 先写临时文件做 py_compile 语法校验，通过才落盘
+                import tempfile
+                tmp = os.path.join(tempfile.gettempdir(), '_pet_syntax_check.py')
+                try:
+                    with open(tmp, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    import py_compile
+                    py_compile.compile(tmp, doraise=True)
+                except Exception as e:
+                    return f'（❌ Python 语法校验失败，文件未保存：{e}）请重新生成缩进正确、语法完整的代码后再调用 write_file'
+                finally:
+                    try:
+                        os.remove(tmp)
+                    except Exception:
+                        pass
             with open(path, 'w', encoding='utf-8') as f:
-                f.write(content or '')
-            return f'✅ 已生成文件：{path}（共 {len(content or "")} 字符）'
+                f.write(content)
+            return f'✅ 已生成文件：{path}（共 {len(content)} 字符' + ('，语法校验通过' if is_py else '') + '）'
         except Exception as e:
             return f'（写入失败：{e}）'
 
@@ -2108,7 +2349,9 @@ class PetWidget(QWidget):
             for attempt in range(3):
                 try:
                     with urllib.request.urlopen(req, timeout=30) as resp:
-                        return jsonlib.loads(resp.read().decode())
+                        _resp = jsonlib.loads(resp.read().decode())
+                    self._record_api_usage(_resp)
+                    return _resp
                 except urllib.error.HTTPError as e:
                     if e.code in (429, 500, 502, 503) and attempt < 2:
                         is_en = getattr(self, 'language', 'zh') == 'en'
@@ -2156,7 +2399,7 @@ class PetWidget(QWidget):
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
             messages = [
-                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
+                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。代码规则：生成 Python 代码必须保证缩进正确、语法完整、可直接运行，禁止输出有语法错误的代码，写完先自检一遍缩进与冒号。文件规则：当用户要求"生成/保存/输出文件"时，必须调用 write_file 工具真实写入文件并告知路径，禁止只在回复文本中声称"已保存"而实际不调用工具。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
 
             ] + ctx
 
@@ -2328,8 +2571,7 @@ class PetWidget(QWidget):
 
     def _chat_type_start(self, text):
         """开始流式显示：拆块预渲染，逐块插入（回复到达时先清掉残留状态行）"""
-        raw_blocks = self._split_md_blocks(text)
-        self.chat_type_blocks = [self._md_to_html(b) for b in raw_blocks]
+        self.chat_type_blocks = self._split_rich_blocks(text)  # (类型, 内容) 元组列表
         self.chat_type_index = 0
         # 记录显示历史（AI 回复全文，与面板显示同步——打字机只是动画，历史立即入栈）
         import datetime as _dt
@@ -2337,50 +2579,36 @@ class PetWidget(QWidget):
         self.display_msgs.append({'who': '桌宠', 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
-        # 回复到达：清除残留状态行（⏳/思考中），避免提示词留在面板里
+        # 回复到达：自动检查代码块语法（v6.17），并清除残留状态行
+        self._code_check_warning = self._check_code_blocks(text)
         self._remove_status_line()
-        # 追加前缀行
-        self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">桌宠:</b> ')
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        # 创建气泡骨架（头部 + 空内容区，逐块填充）
+        self._chat_type_bubble, self._chat_type_content = self._new_bubble('桌宠', ts)
+        self._chat_scroll_bottom()
         if not self.chat_type_blocks:
             return
         self.chat_type_timer.start(30)
 
     def _chat_type_tick(self):
-        """打字机 tick：插入一块 HTML"""
-        from PySide6.QtGui import QTextCursor
+        """打字机 tick：渲染一块（文本段落/代码卡片/表格卡片）"""
         if self.chat_type_index >= len(self.chat_type_blocks):
             self.chat_type_timer.stop()
             return
-        block = self.chat_type_blocks[self.chat_type_index]
-        cur = self.chat_history.textCursor()
-        cur.movePosition(QTextCursor.MoveOperation.End)
-        if self.chat_type_index > 0:
-            cur.insertHtml('<br>')  # 必须用 insertHtml，insertText 会把 <br> 当字面量显示
-        cur.insertHtml(block)
+        kind, content = self.chat_type_blocks[self.chat_type_index]
+        self._render_one_block(self._chat_type_content, kind, content)
         self.chat_type_index += 1
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        self._chat_scroll_bottom()
         if self.chat_type_index >= len(self.chat_type_blocks):
             self.chat_type_timer.stop()
+            self._maybe_append_code_warning()
 
     def _chat_type_finish(self):
         """立即完成剩余块（新消息到达时 fast-forward）"""
-        from PySide6.QtGui import QTextCursor
         if not self.chat_type_timer.isActive():
             return
         self.chat_type_timer.stop()
         while self.chat_type_index < len(getattr(self, 'chat_type_blocks', [])):
-            block = self.chat_type_blocks[self.chat_type_index]
-            cur = self.chat_history.textCursor()
-            cur.movePosition(QTextCursor.MoveOperation.End)
-            if self.chat_type_index > 0:
-                cur.insertHtml('<br>')  # 必须用 insertHtml，insertText 会把 <br> 当字面量显示
-            cur.insertHtml(block)
-            self.chat_type_index += 1
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.maximum())
+            self._chat_type_tick()
 
     # ---------- 对话记忆（按角色隔离，v6.16） ----------
     def _chat_memory_path(self):
@@ -2400,13 +2628,13 @@ class PetWidget(QWidget):
             pass
 
     def _echo_display_history(self):
-        """回显最近 30 条显示历史到面板（在 chat_history 创建后调用）"""
+        """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）"""
         shown = self.display_msgs[-30:]
         for m in shown:
             ts = m.get('ts', '')
             who = m.get('who', '桌宠')
-            safe = str(m.get('text', '')).replace('<', '&lt;').replace('>', '&gt;')
-            self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}')
+            bubble, content = self._new_bubble(who, ts)
+            self._render_md_into(content, str(m.get('text', '')))
         self._display_offset = max(0, len(self.display_msgs) - len(shown))
         self._update_more_button()
 
@@ -2425,7 +2653,7 @@ class PetWidget(QWidget):
         self.display_msgs = []
         self._display_offset = 0
         self._save_chat_memory()
-        self.chat_history.clear()
+        self._clear_chat_history()
         self._update_more_button()
 
     def _select_msgs_dialog(self):
@@ -2876,7 +3104,7 @@ class PetWidget(QWidget):
                         f.write(f'{who}: {c}\n')
             # 清空对话
             self.chat_history_msgs = []
-            self.chat_history.clear()
+            self._clear_chat_history()
             self._save_chat_memory()
             self._append_chat('桌宠', f'📦 已存档并清空：{fname}' if not is_en else f'📦 Archived and cleared: {fname}')
         except Exception as e:
@@ -3676,6 +3904,306 @@ class PetWidget(QWidget):
             self._show_idle()
 
     # ---------- 聊天窗口 ----------
+    def _record_api_usage(self, resp):
+        """从 API 响应解析 usage 并记录（v6.18 自监控）"""
+        try:
+            dbg = os.path.join(BASE_DIR, '_apistats_debug.log')
+            with open(dbg, 'a', encoding='utf-8') as _f:
+                _f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                         f"type={type(resp).__name__} keys={list(resp.keys())[:6] if isinstance(resp, dict) else '-'} "
+                         f"usage={'有' if isinstance(resp, dict) and resp.get('usage') else '无'}\n")
+        except Exception:
+            pass
+        try:
+            if not isinstance(resp, dict):
+                return
+            usage = resp.get('usage')
+            if not usage:
+                return
+            model = resp.get('model') or ''
+            self.api_stats.record(usage, model)
+        except Exception:
+            pass
+
+    def _show_api_stats_history(self):
+        """显示最近 API 调用历史（消息框）"""
+        from PySide6.QtWidgets import QMessageBox
+        st = self.api_stats
+        with st.lock:
+            calls = list(reversed(st.calls[-20:]))
+            today = dict(st.today)
+            total = dict(st.total)
+        lines = [f"今日 {today.get('count',0)}次/{today.get('total',0)}tok/{today.get('cost',0):.3f}元 · 累计 {total.get('count',0)}次/{total.get('total',0)}tok/{total.get('cost',0):.3f}元", '']
+        if not calls:
+            lines.append('（暂无调用记录——发消息后自动统计）')
+        for c in calls:
+            lines.append(f"{c['time']} {c['model']} in{c['prompt']} out{c['completion']} 缓存{c['cache_hit']}hit {c['cost']:.4f}元")
+        QMessageBox.information(self, 'API 统计历史', '\n'.join(lines))
+
+    def _toggle_api_stats_window(self):
+        """开关 API 统计悬浮窗（透明置顶小窗，实时刷新 + 缓存命中率图表）"""
+        if self._api_stats_win is not None:
+            try:
+                self._api_stats_win.close()
+            except Exception:
+                pass
+            self._api_stats_win = None
+            return
+        from PySide6.QtWidgets import QVBoxLayout as _VL, QProgressBar
+        win = QWidget()
+        win.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
+                           Qt.Tool | Qt.NoDropShadowWindowHint)
+        win.setAttribute(Qt.WA_TranslucentBackground)
+        win.setStyleSheet("""
+            QWidget#ap { background: rgba(15,20,32,0.92); border: 1px solid #2c3a52;
+                         border-radius: 10px; }
+            QLabel { color: #dce3f0; font-size: 11px; background: transparent; }
+            QLabel#t { color: #7fb2ff; font-size: 12px; font-weight: bold; }
+            QLabel#v { color: #6ecb7a; font-size: 11px; }
+            QLabel#d { color: #8aa; font-size: 10px; }
+            QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 4px;
+                           text-align: center; color: #dce3f0; font-size: 10px; }
+            QProgressBar::chunk { background: #6ecb7a; border-radius: 4px; }
+        """)
+        panel = QWidget(win)
+        panel.setObjectName('ap')
+        v = _VL(panel)
+        v.setContentsMargins(10, 6, 10, 6)
+        v.setSpacing(3)
+        title = QLabel('\U0001F4CA API 统计')
+        title.setObjectName('t')
+        v.addWidget(title)
+
+        def _fmt(n):
+            try:
+                n = float(n or 0)
+            except Exception:
+                return '0'
+            if n >= 1e8:
+                return f'{n/1e8:.1f}亿'
+            if n >= 1e4:
+                return f'{n/1e4:.1f}万'
+            if n >= 1e3:
+                return f'{n/1e3:.1f}k'
+            return f'{int(n)}'
+
+        l_last = QLabel('最近: —'); l_last.setObjectName('v')
+        l_cache = QLabel('缓存: —'); l_cache.setObjectName('d')
+        cache_bar = QProgressBar()
+        cache_bar.setRange(0, 100)
+        cache_bar.setValue(0)
+        cache_bar.setFixedHeight(10)
+        l_today = QLabel('今日: —'); l_today.setObjectName('v')
+        l_total = QLabel('累计: —'); l_total.setObjectName('v')
+        l_app = QLabel('来源: —'); l_app.setObjectName('d')
+        v.addWidget(l_last); v.addWidget(l_cache); v.addWidget(cache_bar)
+        v.addWidget(l_today); v.addWidget(l_total); v.addWidget(l_app)
+
+        def refresh():
+            st = self.api_stats
+            with st.lock:
+                last = st.last
+                today = dict(st.today)
+                total = dict(st.total)
+            if last:
+                l_last.setText(f"最近: {last['model']} {_fmt(last['prompt'])}in/{_fmt(last['completion'])}out "
+                               f"{last['cost']:.4f}元")
+            hit = today.get('cache_hit', 0) or 0
+            miss = today.get('cache_miss', 0) or 0
+            l_cache.setText(f"缓存: {_fmt(hit)} 命中 / {_fmt(miss)} 未命中")
+            total_in = hit + miss
+            rate = int(hit / total_in * 100) if total_in else 0
+            cache_bar.setValue(rate)
+            cache_bar.setFormat(f'缓存命中率 {rate}%')
+            l_today.setText(f"今日: {today.get('count',0)}次 · {_fmt(today.get('total',0))} tok · {today.get('cost',0):.4f}元")
+            l_total.setText(f"累计: {total.get('count',0)}次 · {_fmt(total.get('total',0))} tok · {total.get('cost',0):.4f}元")
+            by_app = today.get('by_app', {})
+            if by_app:
+                parts = [f"{k} {v['count']}次/{_fmt(v['total'])}tok" for k, v in by_app.items()]
+                l_app.setText('来源: ' + ' · '.join(parts))
+            else:
+                l_app.setText('来源: —')
+
+        timer = QTimer(win)  # 父对象 win，防止被 GC 导致悬浮窗不刷新
+        timer.timeout.connect(refresh)
+        timer.start(1000)
+
+        _drag = {'on': False, 'x': 0, 'y': 0}
+        def _press(e):
+            if e.button() == Qt.LeftButton:
+                _drag['on'] = True
+                _drag['x'] = int(e.globalPosition().x() - win.x())
+                _drag['y'] = int(e.globalPosition().y() - win.y())
+        def _move(e):
+            if _drag['on']:
+                win.move(int(e.globalPosition().x() - _drag['x']),
+                         int(e.globalPosition().y() - _drag['y']))
+        def _release(e):
+            _drag['on'] = False
+        panel.mousePressEvent = _press
+        panel.mouseMoveEvent = _move
+        panel.mouseReleaseEvent = _release
+
+        win.setContextMenuPolicy(Qt.CustomContextMenu)
+        def _menu(pos):
+            m = QMenu(win)
+            a = m.addAction('关闭统计')
+            a.triggered.connect(lambda: self._toggle_api_stats_window())
+            m.exec(win.mapToGlobal(pos))
+        win.customContextMenuRequested.connect(_menu)
+
+        panel.setFixedWidth(320)
+        win.setFixedSize(320, 142)
+        win.move(40, 40)
+        win.show()
+        refresh()
+        self._api_stats_win = win
+
+    def _new_bubble(self, who, ts):
+        """创建消息气泡（头部时间戳+名字 + 空内容区），追加到消息流（v6.17 卡片式）"""
+        bubble = QFrame()
+        v = QVBoxLayout(bubble)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        name = QLabel(who)
+        name.setStyleSheet('color:#7fb2ff;font-size:11px;font-weight:bold;background:transparent;')
+        tl = QLabel(ts)
+        tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
+        head.addWidget(name)
+        head.addWidget(tl)
+        head.addStretch(1)
+        v.addLayout(head)
+        content = QVBoxLayout()
+        content.setSpacing(4)
+        v.addLayout(content)
+        self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, bubble)
+        return bubble, content
+
+    def _bubble_text_label(self, html_text):
+        """消息文本标签：富文本（<b>/<i>/<br> 等），自动换行，可选中复制"""
+        lbl = QLabel(html_text)
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
+        lbl.setStyleSheet('color:#eee; font-size:12px; background:transparent;')
+        return lbl
+
+    def _check_code_blocks(self, text):
+        """自动检查回复中 Python 代码块语法，返回 [(序号, 错误信息)]（v6.17 保证代码正确）"""
+        import re, tempfile
+        blocks = re.findall(r'```python\s*\n(.*?)```', str(text), flags=re.S)
+        bad = []
+        for i, b in enumerate(blocks):
+            if not b.strip():
+                continue
+            tmp = os.path.join(tempfile.gettempdir(), f'_pet_code_{i}.py')
+            try:
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    f.write(b)
+                import py_compile
+                py_compile.compile(tmp, doraise=True)
+            except Exception as e:
+                msg = str(e).strip().splitlines()
+                bad.append((i + 1, msg[-1] if msg else '语法错误'))
+            finally:
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+        return bad
+
+    def _maybe_append_code_warning(self):
+        """回复渲染完成后，若有语法错误的代码块，追加黄色提示（不阻止显示，仅提醒）"""
+        warns = getattr(self, '_code_check_warning', None)
+        if not warns:
+            return
+        parts = '；'.join(f'第{n}个: {m}' for n, m in warns[:3])
+        if len(warns) > 3:
+            parts += f'…（共{len(warns)}处）'
+        warn = QLabel(f'⚠️ 自动检查：上述回复有 {len(warns)} 处 Python 代码块语法错误（{parts}），建议让我重新生成。')
+        warn.setWordWrap(True)
+        warn.setStyleSheet('color:#e8c76a; font-size:11px; background:transparent; padding:2px 0;')
+        self._chat_type_content.addWidget(warn)
+        self._chat_scroll_bottom()
+
+    def _render_md_into(self, content_layout, text):
+        """把 markdown 文本分块渲染进内容区：代码/表格成卡片，连续文本合为一个段落（v6.17）"""
+        for kind, content in self._split_rich_blocks(text):
+            self._render_one_block(content_layout, kind, content)
+
+    @staticmethod
+    def _split_rich_blocks(text):
+        """把 markdown 拆成渲染块：(类型, 内容)。类型 text=连续段落(保留空行分段) code=代码块 table=表格块"""
+        blocks = []
+        lines = str(text).split('\n')
+        i, n = 0, len(lines)
+        buf = []
+        def flush():
+            if buf:
+                blocks.append(('text', '\n'.join(buf)))
+                buf.clear()
+        while i < n:
+            line = lines[i]
+            s = line.strip()
+            if s.startswith('```'):
+                flush()
+                code_lines = [line]
+                i += 1
+                while i < n and not lines[i].strip().startswith('```'):
+                    code_lines.append(lines[i])
+                    i += 1
+                if i < n:
+                    code_lines.append(lines[i])
+                    i += 1
+                body = code_lines[1:-1] if len(code_lines) >= 2 else code_lines
+                blocks.append(('code', '\n'.join(body).strip('\n')))
+            elif s.startswith('|'):
+                flush()
+                tbl = [line]
+                i += 1
+                while i < n and lines[i].strip().startswith('|'):
+                    tbl.append(lines[i])
+                    i += 1
+                blocks.append(('table', '\n'.join(tbl)))
+            else:
+                buf.append(line)
+                i += 1
+        flush()
+        return blocks
+
+    def _render_one_block(self, content_layout, kind, content):
+        """渲染单个块到内容区（文本/代码卡片/表格卡片）"""
+        if kind == 'code':
+            content_layout.addWidget(_CodeCard(content))
+        elif kind == 'table':
+            content_layout.addWidget(_TableCard(content, self._md_table_from_text(content)))
+        else:
+            content_layout.addWidget(self._bubble_text_label(self._md_to_html(content)))
+
+    @staticmethod
+    def _md_table_from_text(text):
+        """把纯文本表格块转 HTML（供 _TableCard 使用）"""
+        import re
+        m = re.match(r'((?:^\|.*\|\s*(?:\n|$))+)', text, flags=re.M)
+        return PetWidget._md_table(m) if m else text
+
+    def _chat_scroll_bottom(self):
+        """消息流滚动到底部"""
+        sb = self.chat_history_scroll.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _clear_chat_history(self):
+        """清空消息流（保留底部弹簧）"""
+        while self.chat_history_layout.count() > 1:
+            item = self.chat_history_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._status_widget = None
+
     def _update_more_button(self):
         """有更早历史时显示'显示更多'按钮"""
         if hasattr(self, 'chat_more_btn'):
@@ -3689,65 +4217,105 @@ class PetWidget(QWidget):
         start = max(0, self._display_offset - 50)
         chunk = self.display_msgs[start:self._display_offset]
         self._display_offset = start
-        html = ''
+        sb = self.chat_history_scroll.verticalScrollBar()
+        prev = sb.value()
+        new_bubbles = []
         for m in chunk:
             ts = m.get('ts', '')
             who = m.get('who', '桌宠')
-            safe = str(m.get('text', '')).replace('<', '&lt;').replace('>', '&gt;')
-            html += f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}<br>'
-        cursor = self.chat_history.textCursor()
-        cursor.movePosition(cursor.MoveOperation.Start)
-        cursor.insertHtml(html + '<br>')
+            bubble, content = self._new_bubble_at_top(who, ts)
+            self._render_md_into(content, str(m.get('text', '')))
+            new_bubbles.append(bubble)
         self._update_more_button()
-        # 保持滚动位置（插入在顶部，滚动条值偏移 chunk 高度）
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.value() + chunk.__len__() * 18)
+        # 保持滚动位置（顶部插入后原内容下移，滚动条值加上新插入高度）
+        added = sum(b.sizeHint().height() for b in new_bubbles) + 8 * len(new_bubbles)
+        sb.setValue(prev + added)
+
+    def _new_bubble_at_top(self, who, ts):
+        """在消息流顶部插入气泡（历史加载用）"""
+        bubble = QFrame()
+        v = QVBoxLayout(bubble)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        name = QLabel(who)
+        name.setStyleSheet('color:#7fb2ff;font-size:11px;font-weight:bold;background:transparent;')
+        tl = QLabel(ts)
+        tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
+        head.addWidget(name)
+        head.addWidget(tl)
+        head.addStretch(1)
+        v.addLayout(head)
+        content = QVBoxLayout()
+        content.setSpacing(4)
+        v.addLayout(content)
+        self.chat_history_layout.insertWidget(0, bubble)
+        return bubble, content
 
     def _append_chat(self, who, text):
-        """追加一条聊天记录（自动滚动到底部，带时间戳）"""
+        """追加一条聊天记录（纯文本路径：系统提示/用户消息，不解析 markdown；多行自动换行）"""
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
-        safe = str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        if '\n' in safe:
-            safe = ('<pre style="margin:2px 0;white-space:pre-wrap;font-family:Consolas,monospace;'
-                    'font-size:12px;background:rgba(255,255,255,0.05);border-radius:4px;padding:4px 6px;">'
-                    + safe + '</pre>')
-        self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {safe}')
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        safe = str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+        bubble, content = self._new_bubble(who, ts)
+        content.addWidget(self._bubble_text_label(safe))
+        self._chat_scroll_bottom()
 
     def _append_chat_md(self, who, text):
-        """追加一条聊天记录（AI 回复用，支持轻量 Markdown 渲染，带时间戳）"""
+        """追加一条聊天记录（AI 回复用，markdown 分块渲染：代码/表格成卡片）"""
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
-        self.chat_history.append(f'<span style="color:#667;font-size:10px">{ts}</span> <b style="color:#7fb2ff">{who}:</b> {self._md_to_html(text)}')
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        bubble, content = self._new_bubble(who, ts)
+        self._render_md_into(content, str(text))
+        self._chat_scroll_bottom()
 
     @staticmethod
     def _md_to_html(text):
-        """轻量 Markdown → HTML（代码块/表格/标题/粗体/斜体/列表/换行）"""
+        """轻量 Markdown → HTML（代码块/表格/标题/粗体/斜体/列表/换行）
+        2026-08-06 修复：代码块/行内代码/表格先占位符保护，粗体/斜体不再误伤代码内 * 与 **
+        （原实现 <pre> 内容仍会被斜体正则跨行配对，复制时星号丢失；行内代码/表格同理）"""
         import re
         t = str(text)
         t = t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        t = re.sub(r'```(?:\w*)\n(.*?)```', lambda m: f'<pre style="background:#1e2430;color:#d8e0f0;padding:6px;border-radius:4px">{m.group(1)}</pre>', t, flags=re.S)
-        t = re.sub(r'`([^`]+)`', r'<code style="background:#2a3142;padding:1px 4px;border-radius:3px">\1</code>', t)
+
+        saved = []  # 保护池：(类型, 内容)；pre=代码块 code=行内代码 table=表格HTML
+
+        def _save(kind, content):
+            saved.append((kind, content))
+            return f'\x00MD{len(saved)-1}\x00'
+
+        # ① 结构内容先占位（顺序：代码块 > 行内代码 > 表格）
+        t = re.sub(r'```(?:\w*)\n(.*?)```', lambda m: _save('pre', m.group(1)), t, flags=re.S)
+        t = re.sub(r'`([^`]+)`', lambda m: _save('code', m.group(1)), t)
+        t = re.sub(r'((?:^\|.*\|\s*(?:\n|$))+)', lambda m: _save('table', PetWidget._md_table(m)), t, flags=re.M)
+
+        # ② 行内样式（粗体/斜体不跨行，避免跨行配对误伤）
         t = re.sub(r'^###\s+(.+)$', r'<b style="font-size:14px">\1</b>', t, flags=re.M)
         t = re.sub(r'^##\s+(.+)$', r'<b style="font-size:15px">\1</b>', t, flags=re.M)
         t = re.sub(r'^#\s+(.+)$', r'<b style="font-size:16px">\1</b>', t, flags=re.M)
-        t = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', t)
-        t = re.sub(r'\*([^*]+)\*', r'<i>\1</i>', t)
+        t = re.sub(r'\*\*([^*\n]+)\*\*', r'<b>\1</b>', t)
+        t = re.sub(r'\*([^*\n]+)\*', r'<i>\1</i>', t)
         t = re.sub(r'^[-*]\s+', '• ', t, flags=re.M)
         t = re.sub(r'^\d+\.\s+', lambda m: '&nbsp;&nbsp;' + m.group(0), t, flags=re.M)
-        # 表格（必须放在换行转换之前，靠 \n 分行）
-        t = re.sub(r'((?:^\|.*\|\s*(?:\n|$))+)', PetWidget._md_table, t, flags=re.M)
         t = t.replace('\n', '<br>')
+
+        # ③ 还原保护内容（逆序：先外层后内层，支持表格内嵌行内代码）
+        for i in range(len(saved) - 1, -1, -1):
+            kind, content = saved[i]
+            ph = f'\x00MD{i}\x00'
+            if kind == 'pre':
+                t = t.replace(ph, '<pre style="white-space:pre-wrap;background:#1e2430;color:#d8e0f0;padding:6px;border-radius:4px">' + content + '</pre>')
+            elif kind == 'code':
+                t = t.replace(ph, '<code style="background:#2a3142;padding:1px 4px;border-radius:3px">' + content + '</code>')
+            else:
+                t = t.replace(ph, content)
         return t
 
     @staticmethod
@@ -3771,32 +4339,25 @@ class PetWidget(QWidget):
         return html + '</table>'
 
     def _remove_status_line(self):
-        """删除聊天面板最后一行（仅当它是状态行 ⏳/思考中），连同空块一起清掉，不留空行"""
-        from PySide6.QtGui import QTextCursor
-        doc = self.chat_history.document()
-        last = doc.lastBlock().text().strip()
-        if last.startswith('⏳') or '思考中' in last:
-            cur = QTextCursor(doc)
-            cur.beginEditBlock()
-            # 选中最后块全部内容
-            cur.movePosition(QTextCursor.MoveOperation.End)
-            cur.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
-            cur.removeSelectedText()
-            # 现在块已空，光标在块首；前移选中它前面的段落符并删除
-            # → 空块与上一块合并，空块消失（不留空行）
-            cur.movePosition(QTextCursor.MoveOperation.PreviousCharacter, QTextCursor.MoveMode.KeepAnchor)
-            if cur.selectedText():
-                cur.removeSelectedText()
-            cur.endEditBlock()
+        """删除状态行 widget（⏳/思考中）"""
+        if self._status_widget is not None:
+            try:
+                self.chat_history_layout.removeWidget(self._status_widget)
+                self._status_widget.deleteLater()
+            except Exception:
+                pass
+            self._status_widget = None
             return True
         return False
 
     def _update_ai_status(self, text):
         """更新 AI 处理状态（删旧状态行 + 追加新状态行，不残留）"""
         self._remove_status_line()
-        self.chat_history.append(f'<span style="color:#8aa">⏳ {text}</span>')
-        sb = self.chat_history.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        self._status_widget = QLabel(f'⏳ {text}')
+        self._status_widget.setWordWrap(True)
+        self._status_widget.setStyleSheet('color:#8aa; font-size:11px; background:transparent; padding:2px 0;')
+        self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, self._status_widget)
+        self._chat_scroll_bottom()
 
     def toggle_chat_panel(self):
         """显示/隐藏聊天面板"""
@@ -3899,7 +4460,13 @@ class PetWidget(QWidget):
                 self.chat_panel.setFixedWidth(new_w)
                 self.setFixedSize(self.width() + delta, self.height())
         else:
-            # 悬停光标提示（左右边缘可拖拽）
+            # 悬停光标提示（左右边缘可拖拽）——鼠标在子控件上（文本/卡片/输入框）时不干预光标，
+            # 否则会把文本的选择光标盖成边缘拖拽图标（v6.17 修复）
+            child = self.chat_panel.childAt(event.position().toPoint())
+            if child is not None and child is not self.chat_panel:
+                self.chat_panel.setCursor(Qt.ArrowCursor)
+                event.accept()
+                return
             x = event.position().x()
             w = self.chat_panel.width()
             self.chat_panel.setCursor(Qt.SizeHorCursor if (x < 8 or x > w - 8) else Qt.ArrowCursor)
@@ -4520,7 +5087,7 @@ class PetWidget(QWidget):
         self.ai_model = self._current_model()
         # 加载新角色的独立历史，刷新面板
         self.chat_history_msgs = []
-        self.chat_history.clear()
+        self._clear_chat_history()
         self._load_chat_memory()
         self._append_chat('桌宠', f'已切换到 {CHARACTERS[key]["name"]}（模型：{self.ai_model}）——这是 {CHARACTERS[key]["name"]} 的独立对话')
 
@@ -5068,6 +5635,7 @@ class PetWidget(QWidget):
                 headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'})
             with urllib.request.urlopen(req, timeout=25) as resp:
                 r = _j.loads(resp.read().decode())
+            self._record_api_usage(r)
             content = (r['choices'][0]['message'].get('content') or '')
             m = _re.search(r'\{[^{}]*\}', content, _re.S)
             if m:
@@ -5125,6 +5693,7 @@ class PetWidget(QWidget):
                     headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'})
                 with urllib.request.urlopen(req, timeout=25) as resp:
                     r = _j.loads(resp.read().decode())
+                self._record_api_usage(r)
                 msg = (r['choices'][0]['message'].get('content') or '').strip()
                 if msg:
                     self.wakeup_signal.emit(msg)
@@ -5205,7 +5774,7 @@ class PetWidget(QWidget):
         # 2. 常用：和 AI 聊天（顶级）
         acts['chat'] = menu.addAction(T('menu_chat'))
 
-        # 3. 互动（子菜单）
+        # 3. 互动（子菜单，含场景动作）
         imenu = menu.addMenu(T('menu_interact'))
         imenu.addAction(T('say')).triggered.connect(lambda: self.say_random())
         imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
@@ -5218,14 +5787,19 @@ class PetWidget(QWidget):
         imenu.addAction(T('archive')).triggered.connect(lambda: self._archive_and_clear())
         act_active = imenu.addAction(T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
         act_active.triggered.connect(lambda: self.toggle_active_chat())
+        imenu.addSeparator()
+        for sk, (label, _desc) in SCENE_ACTIONS.items():
+            imenu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
 
         # 4. 贴边模式（顶级开关）
         acts['edgemode'] = menu.addAction(T('edge_mode') + (T('edge_hidden') if self._edge_mode == 'peek' else T('edge_peek')))
 
-        # 5. 动作（子菜单）
-        amenu = menu.addMenu(T('menu_actions'))
-        for sk, (label, _desc) in SCENE_ACTIONS.items():
-            amenu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
+        # 5. 工具（子菜单：API 统计 / 网络搜索等工具类功能）
+        tmenu = menu.addMenu('🔧 工具')
+        tmenu.addAction('📊 API 统计').triggered.connect(lambda: self._toggle_api_stats_window())
+        tmenu.addAction('🌐 ' + T('search_setting')).triggered.connect(self._set_search_key_dialog)
+        tmenu.addSeparator()
+        tmenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
 
         # 6. 性格切换（子菜单）
         pmenu = menu.addMenu(T('menu_personality'))
@@ -5235,7 +5809,6 @@ class PetWidget(QWidget):
         # 7. 设置（子菜单）
         smenu = menu.addMenu(T('menu_settings'))
         smenu.addAction(T('api_setting')).triggered.connect(self._set_api_key_dialog)
-        smenu.addAction(T('search_setting')).triggered.connect(self._set_search_key_dialog)
         mdlmenu = smenu.addMenu(T('model_menu'))
         mdlmenu.addAction('⚡ Flash 模型…').triggered.connect(lambda: self._set_model_dialog('flash'))
         mdlmenu.addAction('🐋 Pro 模型…').triggered.connect(lambda: self._set_model_dialog('pro'))
