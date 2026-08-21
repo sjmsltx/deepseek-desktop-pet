@@ -270,7 +270,7 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "write_config",
-            "description": "修改桌宠配置（白名单字段，立即生效）。可改：personality(性格)/reply_style(回复风格:short,normal,detailed)/max_tokens(回复长度)/city(城市)/language(zh,en)/active_chat(主动关心true,false)/display_mode(static,live2d)/live2d_model(模型名)/sedentary_minutes(久坐分钟)。改 UI 外观、立绘切换、性格等用户要求时使用。",
+            "description": "修改桌宠配置（白名单字段，立即生效）。可改：personality(性格)/reply_style(回复风格:short,normal,detailed)/max_tokens(回复长度)/city(城市)/language(zh,en)/active_chat(主动关心true,false)/display_mode(static,live2d)/live2d_model(模型名)/sedentary_minutes(久坐分钟)/api_prices(API价格表，JSON对象，每百万token单价，格式如 {\"deepseek-v4-flash\":{\"input\":1,\"cache\":0.02,\"output\":2}}，用于API费用统计)。改UI外观、立绘、性格、以及用户提到deepseek/API价格调整/费用统计不准时（先web_search查最新官方价，再用api_prices更新）使用。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -722,6 +722,7 @@ class ApiStats:
         'deepseek-v4-flash': {'input': 1.0, 'cache': 0.02, 'output': 2.0},
         'deepseek-v4-pro': {'input': 3.0, 'cache': 0.025, 'output': 6.0},
     }
+    DEFAULT_PRICES = {k: dict(v) for k, v in PRICES.items()}  # 出厂价格快照（api_prices 清空时恢复）
     DEFAULT_PRICE = {'input': 1.0, 'cache': 0.02, 'output': 2.0}
 
     def __init__(self, path):
@@ -734,6 +735,23 @@ class ApiStats:
         self.last = None
         self.calls = []  # 最近调用明细（上限 200）
         self._load()
+        self._load_price_overrides()
+
+    def _load_price_overrides(self):
+        """从 config.json 读 api_prices 覆盖默认价格表（AI 可用 write_config 修改，v6.19）"""
+        try:
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                overrides = cfg.get('api_prices') or {}
+                if isinstance(overrides, dict):
+                    for k, v in overrides.items():
+                        if isinstance(v, dict):
+                            base = dict(ApiStats.PRICES.get(k, ApiStats.DEFAULT_PRICE))
+                            base.update({kk: float(vv) for kk, vv in v.items() if kk in ('input', 'cache', 'output')})
+                            ApiStats.PRICES[k] = base
+        except Exception:
+            pass
 
     def _load(self):
         try:
@@ -1099,13 +1117,6 @@ class PetWidget(QWidget):
         chat_layout.setContentsMargins(8, 4, 8, 8)
         chat_layout.setSpacing(6)
 
-        # 拖拽把手（调整对话窗口高度）
-        self.chat_drag_bar = QFrame(self.chat_panel)
-        self.chat_drag_bar.setFixedHeight(6)
-        self.chat_drag_bar.setCursor(Qt.SizeVerCursor)
-        self.chat_drag_bar.setStyleSheet("background: rgba(255,255,255,0.15); border-radius: 3px;")
-        chat_layout.addWidget(self.chat_drag_bar)
-
         # 聊天历史（只读）
         self.chat_more_btn = QLabel('📜 显示更多历史', self.chat_panel)
         self.chat_more_btn.setStyleSheet("color:#7fb2ff; font-size:11px; padding:2px; cursor:pointer;")
@@ -1159,30 +1170,17 @@ class PetWidget(QWidget):
         input_row.addWidget(self.chat_attach_btn)
         chat_layout.addLayout(input_row)
 
-        # 底部拖拽把手（标准：下拉=扩大）
-        self.chat_drag_bar_bottom = QFrame(self.chat_panel)
-        self.chat_drag_bar_bottom.setFixedHeight(6)
-        self.chat_drag_bar_bottom.setCursor(Qt.SizeVerCursor)
-        self.chat_drag_bar_bottom.setStyleSheet("background: rgba(255,255,255,0.15); border-radius: 3px;")
-        chat_layout.addWidget(self.chat_drag_bar_bottom)
-
         self.layout.addWidget(self.chat_panel, 0, Qt.AlignHCenter)
         self.chat_panel.setFixedWidth(420)
         self.chat_panel.setFixedHeight(240)
         self._chat_dragging = False
-        self._chat_drag_mode = None   # None / 'v'（垂直把手）/ 'h'（左右边缘）
-        self._chat_drag_from_bottom = False  # True=底部把手（下拉扩大），False=顶部把手（上拉扩大）
+        self._chat_drag_mode = None   # None / 'h'（左/右边）/ 'v_bottom'（下边）/ 'corner_bl'/'corner_br'（下两角）
+        self._chat_drag_side = None   # 'left' / 'right'（水平拖拽方向）
         self._chat_drag_start_y = 0
         self._chat_drag_start_h = 0
         self._chat_drag_start_x = 0
         self._chat_drag_start_w = 0
-        self.chat_drag_bar.mousePressEvent = self._chat_drag_press
-        self.chat_drag_bar.mouseMoveEvent = self._chat_drag_move
-        self.chat_drag_bar.mouseReleaseEvent = self._chat_drag_release
-        self.chat_drag_bar_bottom.mousePressEvent = self._chat_drag_press_bottom
-        self.chat_drag_bar_bottom.mouseMoveEvent = self._chat_drag_move
-        self.chat_drag_bar_bottom.mouseReleaseEvent = self._chat_drag_release
-        # 左右边缘拖拽（对称扩展）
+        # 边缘/下角拖拽（把手已全部移除 v6.19c：顶部 v6.19b 移除，底部 v6.19c 移除，改用边缘+下角）
         self.chat_panel.setMouseTracking(True)
         self.chat_panel.mousePressEvent = self._chat_panel_press
         self.chat_panel.mouseMoveEvent = self._chat_panel_move
@@ -2078,7 +2076,8 @@ class PetWidget(QWidget):
 
     # ---------- AI 自我管理（阶段1+2：改配置/读自己代码） ----------
     CONFIG_WHITELIST = ('personality', 'reply_style', 'max_tokens', 'city', 'language',
-                        'active_chat', 'display_mode', 'live2d_model', 'sedentary_minutes')
+                        'active_chat', 'display_mode', 'live2d_model', 'sedentary_minutes',
+                        'api_prices')
 
     def _read_own_file(self, rel_path):
         """AI 读自己的文件（限项目目录内，防穿越）"""
@@ -2115,6 +2114,18 @@ class PetWidget(QWidget):
             return '（display_mode 需为 static/live2d）'
         if key == 'active_chat':
             value = 'true' if value.lower() in ('true', '1', '开', 'on', 'yes') else 'false'
+        if key == 'api_prices':
+            # JSON 对象：{"模型名": {"input": x, "cache": y, "output": z}}（每百万 token 单价）
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return '（api_prices 需要合法 JSON，如 {"deepseek-v4-flash":{"input":1,"output":2}}）'
+            if not isinstance(parsed, dict):
+                return '（api_prices 需要 JSON 对象）'
+            for k, v in parsed.items():
+                if not isinstance(v, dict):
+                    return f'（模型 {k} 的价格需要对象，如 {{"input":1,"output":2}}）'
+            value = json.dumps(parsed, ensure_ascii=False)
         if self._save_cfg_value(key, value):
             # 热加载
             try:
@@ -2132,6 +2143,22 @@ class PetWidget(QWidget):
                     self.active_chat_enabled = value == 'true'
                 elif key == 'display_mode':
                     self._set_display_mode(value)
+                elif key == 'api_prices':
+                    # 热加载价格覆盖（空对象 → 恢复出厂默认价）
+                    try:
+                        parsed = json.loads(value)
+                        if isinstance(parsed, dict):
+                            if not parsed:
+                                ApiStats.PRICES.clear()
+                                ApiStats.PRICES.update({k: dict(v) for k, v in ApiStats.DEFAULT_PRICES.items()})
+                            else:
+                                for k, v in parsed.items():
+                                    if isinstance(v, dict):
+                                        base = dict(ApiStats.PRICES.get(k, ApiStats.DEFAULT_PRICE))
+                                        base.update({kk: float(vv) for kk, vv in v.items() if kk in ('input', 'cache', 'output')})
+                                        ApiStats.PRICES[k] = base
+                    except Exception:
+                        pass
                 elif key == 'live2d_model':
                     self._set_live2d_model(value)
                 elif key == 'sedentary_minutes':
@@ -2190,6 +2217,14 @@ class PetWidget(QWidget):
             _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
             _subprocess.run(['git', 'commit', '-m', 'AI self-edit: 修改前基线'], cwd=BASE_DIR,
                             capture_output=True, timeout=30)
+            # 1.5 额外备份一份到 backup/（双保险，防 git 异常时无回退点）
+            try:
+                bdir = os.path.join(BASE_DIR, 'backup')
+                os.makedirs(bdir, exist_ok=True)
+                import shutil
+                shutil.copy2(path, os.path.join(bdir, f'desktop_pet_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'))
+            except Exception:
+                pass
             # 2. 读代码 + 替换
             with open(path, encoding='utf-8', newline='') as f:
                 src = f.read()
@@ -2348,7 +2383,7 @@ class PetWidget(QWidget):
             )
             for attempt in range(3):
                 try:
-                    with urllib.request.urlopen(req, timeout=30) as resp:
+                    with urllib.request.urlopen(req, timeout=120) as resp:
                         _resp = jsonlib.loads(resp.read().decode())
                     self._record_api_usage(_resp)
                     return _resp
@@ -2378,7 +2413,7 @@ class PetWidget(QWidget):
             gs = self._guess_status(text)
             self.ai_status_signal.emit(gs[1] if getattr(self, 'language', 'zh') == 'en' else gs[0])
             # 上下文：最近 10 条 + 当前消息
-            ctx = self.chat_history_msgs[-10:] + [{'role': 'user', 'content': text}]
+            ctx = self.chat_history_msgs[-30:] + [{'role': 'user', 'content': text}]
             # 根据配置生成回复风格提示
             style_hint = {
                 'short': '回复尽量简短（一两句话以内）。',
@@ -2582,8 +2617,8 @@ class PetWidget(QWidget):
         # 回复到达：自动检查代码块语法（v6.17），并清除残留状态行
         self._code_check_warning = self._check_code_blocks(text)
         self._remove_status_line()
-        # 创建气泡骨架（头部 + 空内容区，逐块填充）
-        self._chat_type_bubble, self._chat_type_content = self._new_bubble('桌宠', ts)
+        # 创建气泡骨架（头部 + 空内容区，逐块填充；v6.19b 传 text 使 AI 消息也有复制/存图按钮）
+        self._chat_type_bubble, self._chat_type_content = self._new_bubble('桌宠', ts, is_user=False, text=str(text))
         self._chat_scroll_bottom()
         if not self.chat_type_blocks:
             return
@@ -2633,7 +2668,7 @@ class PetWidget(QWidget):
         for m in shown:
             ts = m.get('ts', '')
             who = m.get('who', '桌宠')
-            bubble, content = self._new_bubble(who, ts)
+            bubble, content = self._new_bubble(who, ts, is_user=(who == '我'), text=str(m.get('text', '')))
             self._render_md_into(content, str(m.get('text', '')))
         self._display_offset = max(0, len(self.display_msgs) - len(shown))
         self._update_more_button()
@@ -4059,8 +4094,9 @@ class PetWidget(QWidget):
         refresh()
         self._api_stats_win = win
 
-    def _new_bubble(self, who, ts):
-        """创建消息气泡（头部时间戳+名字 + 空内容区），追加到消息流（v6.17 卡片式）"""
+    def _new_bubble(self, who, ts, is_user=False, text=''):
+        """创建消息气泡（头部名字+时间+操作按钮 + 空内容区），追加到消息流（v6.19 微信式左右布局）
+        is_user=True 时名字靠右（用户消息），False 时靠左（桌宠/AI 消息）"""
         bubble = QFrame()
         v = QVBoxLayout(bubble)
         v.setContentsMargins(0, 0, 0, 0)
@@ -4068,12 +4104,37 @@ class PetWidget(QWidget):
         head = QHBoxLayout()
         head.setSpacing(6)
         name = QLabel(who)
-        name.setStyleSheet('color:#7fb2ff;font-size:11px;font-weight:bold;background:transparent;')
+        name_color = '#6fe3a1' if is_user else '#7fb2ff'
+        name.setStyleSheet(f'color:{name_color};font-size:11px;font-weight:bold;background:transparent;')
         tl = QLabel(ts)
         tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
-        head.addWidget(name)
-        head.addWidget(tl)
-        head.addStretch(1)
+        if is_user:
+            head.addStretch(1)
+            head.addWidget(name)
+            head.addWidget(tl)
+        else:
+            head.addWidget(name)
+            head.addWidget(tl)
+            head.addStretch(1)
+        # 操作按钮：一键复制 / 存为图片（hover 消息才显示，v6.19e；不污染对话历史）
+        if text:
+            cp = QLabel('⧉')
+            cp.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+            cp.setCursor(Qt.PointingHandCursor)
+            cp.setToolTip('复制该消息')
+            cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
+            cp.hide()
+            head.addWidget(cp)
+            sv = QLabel('🖼')
+            sv.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+            sv.setCursor(Qt.PointingHandCursor)
+            sv.setToolTip('存为图片')
+            sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
+            sv.hide()
+            head.addWidget(sv)
+            bubble._action_btns = [cp, sv]
+            bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
+            bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
         v.addLayout(head)
         content = QVBoxLayout()
         content.setSpacing(4)
@@ -4081,15 +4142,52 @@ class PetWidget(QWidget):
         self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, bubble)
         return bubble, content
 
-    def _bubble_text_label(self, html_text):
-        """消息文本标签：富文本（<b>/<i>/<br> 等），自动换行，可选中复制"""
+    def _bubble_text_label(self, html_text, is_user=False):
+        """消息文本标签：富文本（<b>/<i>/<br> 等），自动换行，可选中复制；
+        用户/AI 不同背景色+对齐（v6.19 对比度增强：用户绿调靠右，AI 蓝灰调靠左）"""
         lbl = QLabel(html_text)
         lbl.setWordWrap(True)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
-        lbl.setStyleSheet('color:#eee; font-size:12px; background:transparent;')
+        bg = 'rgba(30,88,70,0.80)' if is_user else 'rgba(46,54,76,0.80)'
+        lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
+        lbl.setStyleSheet(f'color:#eee; font-size:12px; background:{bg}; border-radius:8px; padding:6px 10px;')
         return lbl
+
+    def _copy_message_text(self, text):
+        """复制单条消息文本到剪贴板（用气泡提示，不污染对话历史）"""
+        try:
+            if _write_clipboard_text(str(text)):
+                self.say_plain('✅ 已复制该消息', immediate=True)
+            else:
+                self.say_plain('复制失败', immediate=True)
+        except Exception:
+            self.say_plain('复制失败', immediate=True)
+
+    def _save_bubble_image(self, bubble):
+        """把消息气泡渲染成 PNG 图片保存（合成深色背景，与聊天面板风格一致）"""
+        from PySide6.QtWidgets import QFileDialog
+        try:
+            default = os.path.join(os.path.expanduser('~'), 'Desktop', '桌宠消息.png')
+            path, _ = QFileDialog.getSaveFileName(self, '保存消息为图片', default, 'PNG 图片 (*.png)')
+            if not path:
+                return
+            pm = bubble.grab()
+            if pm.isNull():
+                self.say_plain('截图失败', immediate=True)
+                return
+            bg = QPixmap(pm.size())
+            bg.fill(QColor(20, 20, 30))
+            p = QPainter(bg)
+            p.drawPixmap(0, 0, pm)
+            p.end()
+            if bg.save(path):
+                self.say_plain(f'✅ 已保存：{os.path.basename(path)}', immediate=True)
+            else:
+                self.say_plain('保存失败', immediate=True)
+        except Exception as e:
+            self.say_plain(f'保存失败：{e}', immediate=True)
 
     def _check_code_blocks(self, text):
         """自动检查回复中 Python 代码块语法，返回 [(序号, 错误信息)]（v6.17 保证代码正确）"""
@@ -4223,7 +4321,7 @@ class PetWidget(QWidget):
         for m in chunk:
             ts = m.get('ts', '')
             who = m.get('who', '桌宠')
-            bubble, content = self._new_bubble_at_top(who, ts)
+            bubble, content = self._new_bubble_at_top(who, ts, is_user=(who == '我'), text=str(m.get('text', '')))
             self._render_md_into(content, str(m.get('text', '')))
             new_bubbles.append(bubble)
         self._update_more_button()
@@ -4231,8 +4329,8 @@ class PetWidget(QWidget):
         added = sum(b.sizeHint().height() for b in new_bubbles) + 8 * len(new_bubbles)
         sb.setValue(prev + added)
 
-    def _new_bubble_at_top(self, who, ts):
-        """在消息流顶部插入气泡（历史加载用）"""
+    def _new_bubble_at_top(self, who, ts, is_user=False, text=''):
+        """在消息流顶部插入气泡（历史加载用，v6.19 与 _new_bubble 同构：左右布局+操作按钮）"""
         bubble = QFrame()
         v = QVBoxLayout(bubble)
         v.setContentsMargins(0, 0, 0, 0)
@@ -4240,12 +4338,36 @@ class PetWidget(QWidget):
         head = QHBoxLayout()
         head.setSpacing(6)
         name = QLabel(who)
-        name.setStyleSheet('color:#7fb2ff;font-size:11px;font-weight:bold;background:transparent;')
+        name_color = '#6fe3a1' if is_user else '#7fb2ff'
+        name.setStyleSheet(f'color:{name_color};font-size:11px;font-weight:bold;background:transparent;')
         tl = QLabel(ts)
         tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
-        head.addWidget(name)
-        head.addWidget(tl)
-        head.addStretch(1)
+        if is_user:
+            head.addStretch(1)
+            head.addWidget(name)
+            head.addWidget(tl)
+        else:
+            head.addWidget(name)
+            head.addWidget(tl)
+            head.addStretch(1)
+        if text:
+            cp = QLabel('⧉')
+            cp.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+            cp.setCursor(Qt.PointingHandCursor)
+            cp.setToolTip('复制该消息')
+            cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
+            cp.hide()
+            head.addWidget(cp)
+            sv = QLabel('🖼')
+            sv.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+            sv.setCursor(Qt.PointingHandCursor)
+            sv.setToolTip('存为图片')
+            sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
+            sv.hide()
+            head.addWidget(sv)
+            bubble._action_btns = [cp, sv]
+            bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
+            bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
         v.addLayout(head)
         content = QVBoxLayout()
         content.setSpacing(4)
@@ -4261,8 +4383,8 @@ class PetWidget(QWidget):
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
         safe = str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
-        bubble, content = self._new_bubble(who, ts)
-        content.addWidget(self._bubble_text_label(safe))
+        bubble, content = self._new_bubble(who, ts, is_user=(who == '我'), text=str(text))
+        content.addWidget(self._bubble_text_label(safe, is_user=(who == '我')))
         self._chat_scroll_bottom()
 
     def _append_chat_md(self, who, text):
@@ -4272,7 +4394,7 @@ class PetWidget(QWidget):
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
         if len(self.display_msgs) > 300:
             self.display_msgs = self.display_msgs[-300:]
-        bubble, content = self._new_bubble(who, ts)
+        bubble, content = self._new_bubble(who, ts, is_user=False, text=str(text))
         self._render_md_into(content, str(text))
         self._chat_scroll_bottom()
 
@@ -4359,108 +4481,136 @@ class PetWidget(QWidget):
         self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, self._status_widget)
         self._chat_scroll_bottom()
 
+    def _sync_window_to_panel(self):
+        """窗口尺寸跟随面板（保持立绘+空隙差值 320），并钳制在屏幕工作区内——
+        修复：面板被拖大后重新显示，窗口 440x560 装不下导致下半部分（输入框）被截断（v6.19c）"""
+        try:
+            scr = self.screen() or QApplication.primaryScreen()
+            avail = scr.availableGeometry()
+            pw = max(300, self.chat_panel.width())
+            ph = max(120, self.chat_panel.height())
+            win_w = pw + 20    # 水平：面板居中 + 左右边距各 10
+            win_h = ph + 320   # 垂直：立绘 260 + 底部空隙 60（初始窗口 560 - 面板 240）
+            # 屏幕放不下时：压缩面板高度（优先保证窗口不超屏、不截断）
+            max_ph = avail.height() - 320
+            if max_ph >= 120 and ph > max_ph:
+                ph = int(max_ph)
+                self.chat_panel.setFixedHeight(ph)
+                win_h = ph + 320
+            win_w = min(win_w, avail.width())
+            win_h = min(win_h, avail.height())
+            self.setFixedSize(win_w, win_h)
+            nx = max(avail.left(), min(self.x(), avail.right() - win_w))
+            ny = max(avail.top(), min(self.y(), avail.bottom() - win_h))
+            self.move(nx, ny)
+        except Exception:
+            pass
+
     def toggle_chat_panel(self):
-        """显示/隐藏聊天面板"""
+        """显示/隐藏聊天面板（v6.19c 显示时窗口跟随面板尺寸，不再截断）"""
         if self.chat_panel.isVisible():
             self.chat_panel.hide()
             self.setFixedSize(440, 340)
         else:
             self.chat_panel.show()
-            self.setFixedSize(440, 560)
-            # 修复：拖拽遗留的大尺寸可能让面板超出窗口/屏幕（输入框被吞、边缘拖不到）
-            # 显示时检查窗口是否超出屏幕工作区，超出则重置面板尺寸并移回屏幕内
-            try:
-                scr = self.screen() or QApplication.primaryScreen()
-                avail = scr.availableGeometry()
-                if (self.y() + self.height() > avail.bottom() or self.x() + self.width() > avail.right()
-                        or self.y() < avail.top() or self.x() < avail.left()):
-                    self.chat_panel.setFixedWidth(420)
-                    self.chat_panel.setFixedHeight(240)
-                    self.setFixedSize(440, 560)
-                    nx = max(avail.left(), min(self.x(), avail.right() - 440))
-                    ny = max(avail.top(), min(self.y(), avail.bottom() - 560))
-                    self.move(nx, ny)
-            except Exception:
-                pass
-
-    def _chat_drag_press(self, event):
-        """顶部把手按下：垂直拖拽（上拉扩大）"""
-        self._chat_drag_mode = 'v'
-        self._chat_drag_from_bottom = False
-        self._chat_drag_start_y = event.globalPosition().y()
-        self._chat_drag_start_h = self.chat_panel.height()
-        event.accept()
-
-    def _chat_drag_press_bottom(self, event):
-        """底部把手按下：垂直拖拽（下拉扩大，标准行为）"""
-        self._chat_drag_mode = 'v'
-        self._chat_drag_from_bottom = True
-        self._chat_drag_start_y = event.globalPosition().y()
-        self._chat_drag_start_h = self.chat_panel.height()
-        event.accept()
-
-    def _chat_drag_move(self, event):
-        """垂直把手拖动：窗口高度同步跟随，输入框不会被吞"""
-        if self._chat_drag_mode == 'v':
-            dy = event.globalPosition().y() - self._chat_drag_start_y
-            old_h = self.chat_panel.height()
-            # 屏幕工作区上限（防止拖大后面板超出屏幕底部）
-            try:
-                scr = self.screen() or QApplication.primaryScreen()
-                avail = scr.availableGeometry()
-                max_win_h = max(240, avail.height() - 24)
-                max_panel_h = max(120, max_win_h - (self.height() - old_h))
-            except Exception:
-                max_panel_h = 900
-            if self._chat_drag_from_bottom:
-                # 底部把手：下拉（dy>0）→ 扩大（标准）
-                new_h = int(max(120, min(self._chat_drag_start_h + dy, 900, max_panel_h)))
-            else:
-                # 顶部把手：上拉（dy<0）→ 扩大
-                new_h = int(max(120, min(self._chat_drag_start_h - dy, 900, max_panel_h)))
-            delta = new_h - old_h
-            if delta:
-                self.chat_panel.setFixedHeight(new_h)
-                self.setFixedSize(self.width(), self.height() + delta)
-        event.accept()
-
-    def _chat_drag_release(self, event):
-        self._chat_drag_mode = None
-        event.accept()
+            self._sync_window_to_panel()
 
     def _chat_panel_press(self, event):
-        """聊天面板按下：检测左右边缘 → 水平对称拖拽"""
+        """聊天面板按下：下两角（同时改宽高）+ 左/右/下边拖拽（v6.19c 恢复下方两角，上边禁用）"""
         x = event.position().x()
+        y = event.position().y()
         w = self.chat_panel.width()
-        if x < 8 or x > w - 8:
+        h = self.chat_panel.height()
+        edge = 14
+        self._chat_drag_start_x = event.globalPosition().x()
+        self._chat_drag_start_y = event.globalPosition().y()
+        self._chat_drag_start_w = w
+        self._chat_drag_start_h = h
+        self._chat_drag_side = None
+        left, right = x < edge, x > w - edge
+        bottom = y > h - edge
+        if left and bottom:
+            self._chat_drag_mode = 'corner_bl'   # 左下角：向左+向下延伸
+        elif right and bottom:
+            self._chat_drag_mode = 'corner_br'   # 右下角：向右+向下延伸
+        elif left:
             self._chat_drag_mode = 'h'
-            self._chat_drag_start_x = event.globalPosition().x()
-            self._chat_drag_start_w = w
+            self._chat_drag_side = 'left'        # 拖左边 → 左边界向左延伸
+        elif right:
+            self._chat_drag_mode = 'h'
+            self._chat_drag_side = 'right'       # 拖右边 → 右边界向右延伸
+        elif bottom:
+            self._chat_drag_mode = 'v_bottom'    # 拖下边 → 下边界向下延伸
         else:
             self._chat_drag_mode = None
         event.accept()
 
     def _chat_panel_move(self, event):
-        """面板鼠标移动：拖拽中改宽（对称），悬停边缘显示光标"""
-        if self._chat_drag_mode == 'h':
+        """面板鼠标移动：拖左→左延伸（窗口左移），拖右→右延伸，拖下→下延伸；悬停边缘显示光标（v6.19b）"""
+        mode = self._chat_drag_mode
+        if mode:
             dx = event.globalPosition().x() - self._chat_drag_start_x
+            dy = event.globalPosition().y() - self._chat_drag_start_y
             old_w = self.chat_panel.width()
-            # 屏幕工作区上限（防止拖大后面板超出屏幕右缘）
+            old_h = self.chat_panel.height()
+            # 屏幕工作区上限（防止拖大后面板超出屏幕）
             try:
                 scr = self.screen() or QApplication.primaryScreen()
                 avail = scr.availableGeometry()
                 max_win_w = max(300, avail.width() - 24)
+                max_win_h = max(240, avail.height() - 24)
                 max_panel_w = max(300, max_win_w - (self.width() - old_w))
+                max_panel_h = max(120, max_win_h - (self.height() - old_h))
             except Exception:
-                max_panel_w = 700
-            # 1:1：鼠标移动多少总宽变多少（面板居中 → 两边对称各 dx/2）
-            new_w = int(max(300, min(self._chat_drag_start_w + dx, 700, max_panel_w)))
-            delta = new_w - old_w
-            if delta:
-                self.chat_panel.setFixedWidth(new_w)
-                self.setFixedSize(self.width() + delta, self.height())
+                max_panel_w, max_panel_h = 700, 900
+            new_w = old_w
+            new_h = old_h
+            move_x = 0  # 窗口 x 位移（左延伸时左移）
+            if mode == 'h':
+                if self._chat_drag_side == 'left':
+                    # 拖左边：向左拖（dx<0）→ 变宽，窗口左移（左边界向左延伸，右边界不动）
+                    new_w = int(max(300, min(self._chat_drag_start_w - dx, 700, max_panel_w)))
+                    move_x = -(new_w - old_w)
+                else:
+                    # 拖右边：向右拖（dx>0）→ 变宽，窗口位置不动（右边界向右延伸）
+                    new_w = int(max(300, min(self._chat_drag_start_w + dx, 700, max_panel_w)))
+            elif mode == 'v_bottom':
+                # 拖下边：下拉（dy>0）→ 变高，窗口位置不动（下边界向下延伸）
+                new_h = int(max(120, min(self._chat_drag_start_h + dy, 900, max_panel_h)))
+            elif mode == 'corner_bl':
+                # 左下角：向左+向下同时延伸（v6.19c 恢复下两角双维拖拽）
+                new_w = int(max(300, min(self._chat_drag_start_w - dx, 700, max_panel_w)))
+                move_x = -(new_w - old_w)
+                new_h = int(max(120, min(self._chat_drag_start_h + dy, 900, max_panel_h)))
+            elif mode == 'corner_br':
+                # 右下角：向右+向下同时延伸
+                new_w = int(max(300, min(self._chat_drag_start_w + dx, 700, max_panel_w)))
+                new_h = int(max(120, min(self._chat_drag_start_h + dy, 900, max_panel_h)))
+            # 基于窗口位置的底部限制：窗口底部不超屏幕底（防止输入框被屏幕/窗口截断）
+            if mode in ('v_bottom', 'corner_bl', 'corner_br'):
+                try:
+                    avail_bottom = (self.screen() or QApplication.primaryScreen()).availableGeometry().bottom()
+                    max_h_by_pos = max(120, avail_bottom - (self.y() + self.height() - old_h))
+                    new_h = min(new_h, max_h_by_pos)
+                except Exception:
+                    pass
+            delta_w = new_w - old_w
+            delta_h = new_h - old_h
+            if delta_w or delta_h:
+                self.chat_panel.setFixedSize(new_w, new_h)
+                self.setFixedSize(self.width() + delta_w, self.height() + delta_h)
+                # 屏幕边界保护：窗口完整落在工作区内（左缘/底缘）
+                try:
+                    avail = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+                    nx = self.x() + move_x
+                    nx = max(avail.left(), min(nx, avail.right() - self.width()))
+                    ny = max(avail.top(), min(self.y(), avail.bottom() - self.height()))
+                    if nx != self.x() or ny != self.y():
+                        self.move(nx, ny)
+                except Exception:
+                    pass
         else:
-            # 悬停光标提示（左右边缘可拖拽）——鼠标在子控件上（文本/卡片/输入框）时不干预光标，
+            # 悬停光标提示（边缘可拖拽）——鼠标在子控件上（文本/卡片/输入框）时不干预光标，
             # 否则会把文本的选择光标盖成边缘拖拽图标（v6.17 修复）
             child = self.chat_panel.childAt(event.position().toPoint())
             if child is not None and child is not self.chat_panel:
@@ -4468,8 +4618,23 @@ class PetWidget(QWidget):
                 event.accept()
                 return
             x = event.position().x()
+            y = event.position().y()
             w = self.chat_panel.width()
-            self.chat_panel.setCursor(Qt.SizeHorCursor if (x < 8 or x > w - 8) else Qt.ArrowCursor)
+            h = self.chat_panel.height()
+            edge = 14
+            left, right = x < edge, x > w - edge
+            bottom = y > h - edge
+            if left and bottom:
+                cur = Qt.SizeBDiagCursor   # 左下角（\ 方向）
+            elif right and bottom:
+                cur = Qt.SizeFDiagCursor   # 右下角（/ 方向）
+            elif left or right:
+                cur = Qt.SizeHorCursor
+            elif bottom:
+                cur = Qt.SizeVerCursor
+            else:
+                cur = Qt.ArrowCursor
+            self.chat_panel.setCursor(cur)
         event.accept()
 
     def _chat_panel_release(self, event):
@@ -5156,47 +5321,45 @@ class PetWidget(QWidget):
                 self._peek_mode_logic(side, x, y, w, h, mouse_x, mouse_y, geo)
 
     def _exit_dock_to_free(self):
-        """解除贴边，恢复正常待机（拖出/右键时用）"""
+        """解除贴边，恢复正常待机（拖出/右键时用；v6.19d 窗口跟随面板+屏幕钳制，防截断）"""
         self._edge_side = None
         self._edge_popped = False
         if self._chat_hidden_for_dock:
             self.chat_panel.show()
             self._chat_hidden_for_dock = False
-            # 防御：贴边期间面板可能被压缩，恢复时重置尺寸防输入框被吞
             try:
-                self.chat_panel.setMinimumSize(440, 260)
                 self.chat_input.setFixedHeight(34)
                 self.chat_input.setMinimumHeight(34)
             except Exception:
                 pass
-        self.setFixedSize(440, 560)
+        self._sync_window_to_panel()
         self.pet_label.setFixedSize(self.pet_size, self.pet_size)
         self._restore_display_state()
 
     def _popup_from_dock(self):
-        """从贴边弹出完整窗口（双击/右键用）"""
+        """从贴边弹出完整窗口（双击/右键用；v6.19d 窗口跟随面板+屏幕钳制）"""
         screen = QApplication.primaryScreen()
         if not screen:
             return
         geo = screen.geometry()
         side = self._edge_side
-        # 恢复完整窗口大小
         if self._chat_hidden_for_dock and not self.chat_panel.isVisible():
             self.chat_panel.show()
             self._chat_hidden_for_dock = False
             try:
-                self.chat_panel.setMinimumSize(440, 260)
                 self.chat_input.setFixedHeight(34)
                 self.chat_input.setMinimumHeight(34)
             except Exception:
                 pass
-        self.setFixedSize(440, 560)
+        self._sync_window_to_panel()
         if side in ('left', 'right'):
-            pop_x = 0 if side == 'left' else geo.right() - 440
-            self.move(pop_x, self._popup_y)
+            pop_x = 0 if side == 'left' else geo.right() - self.width()
+            pop_y = max(geo.top(), min(self._popup_y, geo.bottom() - self.height()))
+            self.move(pop_x, pop_y)
         else:
-            pop_y = 0 if side == 'top' else geo.bottom() - 560
-            self.move(self._popup_x, pop_y)
+            pop_y = 0 if side == 'top' else geo.bottom() - self.height()
+            pop_x = max(geo.left(), min(self._popup_x, geo.right() - self.width()))
+            self.move(pop_x, pop_y)
         self._edge_popped = True
         self._restore_display_state()
 
@@ -5240,8 +5403,8 @@ class PetWidget(QWidget):
                 self.move(max(0, min(self._popup_x, geo.right() - 440)), geo.bottom() - 1)
 
     def _restore_window_size(self):
-        """恢复完整窗口大小"""
-        self.setFixedSize(440, 560)
+        """恢复完整窗口大小（v6.19d 窗口跟随面板+屏幕钳制，防截断）"""
+        self._sync_window_to_panel()
 
     def _peek_mode_logic(self, side, x, y, w, h, mouse_x, mouse_y, geo):
         """扒边模式：双击弹出（mouseDoubleClickEvent 处理），此处只保持贴边"""
@@ -5662,12 +5825,13 @@ class PetWidget(QWidget):
             self._active_chat_next = time.time() + interval
 
     def _display_wakeup(self, msg):
-        """主线程槽：显示主动消息（气泡+聊天面板+立绘+写入对话历史）"""
+        """主线程槽：主动关心以浮动气泡显示，不写入对话历史（v6.19 不再污染聊天记录）"""
         if not msg:
             return
-        self._display_ai_reply(msg)
-        self.chat_history_msgs.append({'role': 'assistant', 'content': msg})
-        self._save_chat_memory()
+        display, emotion = self._strip_emotion_tag(msg)
+        if emotion:
+            self._apply_emotion(emotion)
+        self.say_plain(display, immediate=True)
 
     def _ai_followup(self, topic):
         """回访机制：对话中安排的回访到点 → 主动生成关心消息（带状态感知 v6.18）"""
