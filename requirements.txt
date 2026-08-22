@@ -6,3 +6,8 @@
 #   pyopengl  —— OpenGL 绑定（live2d-py 的依赖）
 
 PySide6>=6.5
+
+# 可选依赖（MCP 扩展）：
+#   mcp     —— Model Context Protocol 客户端（外部工具接入）
+
+mcp>=2.0

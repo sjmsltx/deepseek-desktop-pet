@@ -1,0 +1,19 @@
+{
+  "type": "theme",
+  "description": "白色主题：聊天面板纯白背景，配深灰文字与清爽蓝色点缀",
+  "theme": {
+    "background": "#FFFFFF",
+    "panel_bg": "#FFFFFF",
+    "text": "#333333",
+    "secondary_text": "#666666",
+    "primary": "#409EFF",
+    "secondary": "#F5F7FA",
+    "border": "#E0E0E0",
+    "input_bg": "#FFFFFF",
+    "bubble_bg": "#F0F4FF",
+    "bubble_text": "#333333"
+  },
+  "name": "theme_white",
+  "version": "1.0.0",
+  "enabled": true
+}

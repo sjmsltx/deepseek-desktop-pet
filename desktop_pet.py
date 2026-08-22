@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QFrame, QSizePolicy,
     QSystemTrayIcon, QTextBrowser, QTextEdit, QLineEdit, QInputDialog, QScrollArea
 )
+from mcp_bridge import McpBridge  # v6.20 MCP 桥接（外部 MCP server 工具接入）
+from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules/theme/skill）
 
 # Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
 DWMWA_NCRENDERING_POLICY = 2
@@ -241,14 +243,16 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_own_code",
-            "description": "直接修改桌宠自己的源代码（desktop_pet.py）——用于修复 bug、加小功能、改 UI 文字。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘）。修改后提示用户重启生效。只改 desktop_pet.py，其他文件用其他方式。",
+            "description": "直接修改桌宠自己的源代码（desktop_pet.py）。优先用【按行编辑】：先用 read_file 带 start_line/end_line 读目标行（输出带行号），再传 start_line/end_line + new_text 精确替换该行（可靠，推荐）；也可用 old_text/new_text 精确匹配。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘）。修改后提示用户重启生效。注意：UI 颜色/样式不要改源码——用主题系统（set_theme 切换或 install_plugin 装 theme 插件）。只改 desktop_pet.py，其他文件用其他方式。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "old_text": {"type": "string", "description": "要替换的原文（必须精确匹配，可从 read_file 读取）"},
-                    "new_text": {"type": "string", "description": "替换后的新代码"}
+                    "old_text": {"type": "string", "description": "要替换的原文（匹配模式用；按行模式可省略）"},
+                    "new_text": {"type": "string", "description": "替换后的新代码（按行模式=整行新内容，含缩进；匹配模式=替换文本）"},
+                    "start_line": {"type": "integer", "description": "按行编辑：起始行号（从 1 开始）"},
+                    "end_line": {"type": "integer", "description": "按行编辑：结束行号（含，省略=只替换 start_line 一行）"}
                 },
-                "required": ["old_text", "new_text"]
+                "required": ["new_text"]
             }
         }
     },
@@ -256,11 +260,13 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "读取桌宠自己的文件（源代码/配置/README，限项目目录内）。用于自查代码、确认配置、分析问题。",
+            "description": "读取桌宠自己的文件（源代码/配置/README，限项目目录内）。用于自查代码、确认配置、分析问题。支持 start_line/end_line 读取指定行范围（输出带行号，方便精确编辑）。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "相对项目目录的文件路径，如 desktop_pet.py / config.json / README.md"}
+                    "path": {"type": "string", "description": "相对项目目录的文件路径，如 desktop_pet.py / config.json / README.md"},
+                    "start_line": {"type": "integer", "description": "起始行号（可选）"},
+                    "end_line": {"type": "integer", "description": "结束行号（可选，省略=读到末尾）"}
                 },
                 "required": ["path"]
             }
@@ -278,6 +284,73 @@ AI_TOOLS = [
                     "value": {"type": "string", "description": "配置值"}
                 },
                 "required": ["key", "value"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "install_plugin",
+            "description": "安装插件（桌宠扩展能力：加AI工具/加行为规则/加右键菜单/换主题/加技能）。当用户说'装个XX插件'、'加个XX功能'、'自定义桌宠能力'时使用。用法：生成插件元数据 meta（type=tool表示给AI加工具，tools数组里每个工具含name/description/parameters；type=rules表示加行为规则，rules填规则文件路径+用rules_content给内容；type=menu表示加右键菜单项；type=theme表示换皮肤，theme字段填颜色变量对象如{\"panel_bg\":\"#FFFFFF\",\"text\":\"#333\"}；type=skill表示多步技能，steps数组列步骤），工具类插件还需提供 entry_content（plugin.py代码，工具处理函数=同名函数，入参args dict，返回字符串）。自动做安全校验并热加载生效，无需重启。注意：不要为了加功能去直接改桌面宠物源代码，用插件系统。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "插件名（字母/数字/下划线/连字符，≤32字符）"},
+                    "meta": {"type": "object", "description": "plugin.json 内容：type/description/entry/tools等"},
+                    "entry_content": {"type": "string", "description": "plugin.py 代码（tool/menu类插件需要，可选）"},
+                    "rules_content": {"type": "string", "description": "rules 类插件的规则内容（type=rules 时必填，会写入 rules 字段指向的文件）"}
+                },
+                "required": ["name", "meta"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "uninstall_plugin",
+            "description": "卸载已安装的插件。参数：name=插件名（用 list_plugins 可查）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "插件名"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_plugins",
+            "description": "查看已安装插件列表与状态。用户问'装了什么插件/插件状态'时使用。",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_theme",
+            "description": "切换桌宠聊天面板主题（换皮肤）。可用主题：default（默认深蓝黑）+ 已安装的 theme 插件名（可用 list_plugins 查）。当用户说'换个主题/换个皮肤/换配色/护眼模式'时使用；若用户要的主题不存在，可用 install_plugin 装一个 theme 插件（type=theme，theme字段指向颜色变量json）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "主题名：default 或 theme 插件名"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "skill_run",
+            "description": "执行复合技能（多步流程）。当用户要求'一键周报/一键整理/跑一遍XX流程'且该技能已安装时使用：返回执行步骤清单，你按步骤依次执行（每步用对应工具完成）。可用技能用 list_plugins 查看（type=skill）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "技能名"}
+                },
+                "required": ["name"]
             }
         }
     },
@@ -718,12 +791,13 @@ def _hotkey_filter_factory(callbacks):
 # ---------- API 统计（v6.18 自监控：解析 usage，无代理无断链） ----------
 class ApiStats:
     """API 调用自监控：解析响应 usage，统计模型/token/缓存/费用，持久化"""
-    PRICES = {  # 每百万 token 单价（元），V4 官方价示例，可改
-        'deepseek-v4-flash': {'input': 1.0, 'cache': 0.02, 'output': 2.0},
-        'deepseek-v4-pro': {'input': 3.0, 'cache': 0.025, 'output': 6.0},
+    PRICES = {  # 每百万 token 单价（元），2026-08 官方新价（含多模态 vision-exp）
+        'deepseek-v4-flash': {'input': 1.5, 'cache': 0.05, 'output': 4.5},
+        'deepseek-v4-pro': {'input': 4.5, 'cache': 0.15, 'output': 13.5},
+        'deepseek-v4-flash-vision-exp': {'input': 1.5, 'cache': 0.05, 'output': 4.5},
     }
     DEFAULT_PRICES = {k: dict(v) for k, v in PRICES.items()}  # 出厂价格快照（api_prices 清空时恢复）
-    DEFAULT_PRICE = {'input': 1.0, 'cache': 0.02, 'output': 2.0}
+    DEFAULT_PRICE = {'input': 1.5, 'cache': 0.05, 'output': 4.5}
 
     def __init__(self, path):
         self.path = path
@@ -819,6 +893,23 @@ class ApiStats:
             self.calls.append(entry)
         self._save()
         return entry
+
+
+# 主题变量（v6.23 主题系统）：默认深蓝黑风格，theme 插件可覆盖
+DEFAULT_THEME = {
+    'panel_bg': 'rgba(20,20,30,0.85)',
+    'text': '#eee',
+    'input_bg': 'rgba(255,255,255,0.12)',
+    'input_focus': 'rgba(255,255,255,0.18)',
+    'user_bubble': 'rgba(30,88,70,0.80)',
+    'ai_bubble': 'rgba(46,54,76,0.80)',
+    'name_user': '#6fe3a1',
+    'name_ai': '#7fb2ff',
+    'accent': '#7fb2ff',
+    'scroll_bg': 'rgba(255,255,255,0.08)',
+    'scroll_handle': '#ffffff',
+    'scroll_handle_hover': 'rgba(255,255,255,0.65)',
+}
 
 
 class _CodeCard(QFrame):
@@ -1024,6 +1115,11 @@ class PetWidget(QWidget):
         self.display_msgs = []
         self.api_stats = ApiStats(os.path.join(BASE_DIR, 'api_stats.json'))  # v6.18 API 自监控
         self._api_stats_win = None
+        self.mcp = McpBridge(CONFIG_PATH)  # v6.20 MCP 桥接：后台连接配置的 MCP server
+        self.mcp.connect_all()
+        self.plugin_mgr = PluginManager(os.path.join(BASE_DIR, 'plugins'))  # v6.21 插件管理器
+        self.current_theme = 'default'  # v6.23 主题系统：default / theme 插件名
+        self.theme = dict(DEFAULT_THEME)
         self._pending_attachments = []  # 统一附件暂存（除 Ctrl+Alt+D 全局截图外，文件/图片先暂存）      # 聊天面板显示历史（含系统提示/提醒/唤醒，供回显与导出）
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
@@ -1095,24 +1191,7 @@ class PetWidget(QWidget):
 
         # 聊天窗口（替代原功能按钮栏）
         self.chat_panel = QFrame(self)
-        self.chat_panel.setStyleSheet("""
-            QFrame { background-color: rgba(20,20,30,0.85); border-radius: 12px; }
-            QTextBrowser {
-                background: transparent; color: #eee; border: none;
-                font-size: 12px; padding: 6px;
-            }
-            QTextEdit {
-                background: rgba(255,255,255,0.12); color: #fff; border: none;
-                border-radius: 8px; padding: 6px 10px; font-size: 12px;
-            }
-            QTextEdit:focus { background: rgba(255,255,255,0.18); }
-            QTextEdit viewport { background: transparent; }
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical { background: rgba(255,255,255,0.08); width: 8px; border-radius: 4px; margin: 0; }
-            QScrollBar::handle:vertical { background: rgba(255,255,255,0.45); border-radius: 4px; min-height: 20px; }
-            QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.65); }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
+        self.chat_panel.setStyleSheet(self._panel_qss())  # v6.23 主题变量化样式
         chat_layout = QVBoxLayout(self.chat_panel)
         chat_layout.setContentsMargins(8, 4, 8, 8)
         chat_layout.setSpacing(6)
@@ -2079,8 +2158,8 @@ class PetWidget(QWidget):
                         'active_chat', 'display_mode', 'live2d_model', 'sedentary_minutes',
                         'api_prices')
 
-    def _read_own_file(self, rel_path):
-        """AI 读自己的文件（限项目目录内，防穿越）"""
+    def _read_own_file(self, rel_path, start_line=None, end_line=None):
+        """AI 读自己的文件（限项目目录内，防穿越；v6.25 支持行号范围，带行号输出方便精确引用）"""
         try:
             full = os.path.normpath(os.path.join(BASE_DIR, rel_path or ''))
             if not full.startswith(os.path.normpath(BASE_DIR)):
@@ -2089,7 +2168,19 @@ class PetWidget(QWidget):
                 return f'（文件不存在：{rel_path}）'
             if full.lower().endswith(('.py', '.md', '.txt', '.json', '.bat', '.ps1', '.html')):
                 with open(full, encoding='utf-8', errors='ignore') as f:
-                    return f.read(8000)
+                    content = f.read()  # 行号模式需读全文件（v6.25）
+                if start_line is not None:
+                    try:
+                        lines = content.splitlines()
+                        s = max(0, int(start_line) - 1)
+                        e = len(lines) if end_line is None else min(len(lines), int(end_line))
+                        sel = lines[s:e]
+                        content = '\n'.join(f'{s + i + 1}: {ln}' for i, ln in enumerate(sel))
+                    except Exception:
+                        pass
+                else:
+                    content = content[:8000]
+                return content
             return f'（不支持读取该类型文件：{rel_path}）'
         except Exception as e:
             return f'（读取失败：{e}）'
@@ -2200,13 +2291,14 @@ class PetWidget(QWidget):
         except Exception as e:
             return f'（写入失败：{e}）'
 
-    def _edit_own_code(self, old_text, new_text):
-        """阶段3：AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘"""
+    def _edit_own_code(self, old_text, new_text, start_line=None, end_line=None):
+        """AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘。
+        v6.25 支持两种模式：①按行号替换（start_line/end_line + new_text，推荐，精确可靠）；②old_text 精确匹配"""
         path = os.path.join(BASE_DIR, 'desktop_pet.py')
         old_text = old_text or ''
         new_text = new_text or ''
-        if not old_text.strip():
-            return '（old_text 不能为空）'
+        if not old_text.strip() and start_line is None:
+            return '（需要提供 old_text 或 start_line）'
         try:
             # 0. 确认 git 仓库（桌宠项目必须是 git 仓库才能安全自改）
             r = _subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=BASE_DIR,
@@ -2228,11 +2320,33 @@ class PetWidget(QWidget):
             # 2. 读代码 + 替换
             with open(path, encoding='utf-8', newline='') as f:
                 src = f.read()
-            if old_text not in src:
-                return '（未找到要修改的代码段，请先用 read_file 确认精确文本）'
-            if src.count(old_text) > 1:
-                return '（找到多处匹配，请提供更长的唯一上下文）'
-            new_src = src.replace(old_text, new_text, 1)
+            if start_line is not None:
+                # 按行替换：start_line~end_line 之间的内容替换为 new_text（v6.25）
+                try:
+                    lines = src.splitlines()
+                    s = int(start_line) - 1
+                    # end_line 省略 = 只替换 start_line 一行（v6.25 修复：此前误为到文件末尾）
+                    e = (s + 1) if end_line is None else int(end_line)
+                    if s < 0 or s >= len(lines) or e < s or e > len(lines):
+                        return f'（行号越界：文件共 {len(lines)} 行，请求 {start_line}~{end_line}）'
+                    new_src = '\n'.join(lines[:s] + [new_text] + lines[e:])
+                    if src.endswith('\n'):
+                        new_src += '\n'
+                except ValueError:
+                    return '（start_line/end_line 需要数字）'
+            else:
+                if old_text not in src:
+                    # 失败时提示附近行号，帮 AI 用 read_file 精确重新读取（v6.25）
+                    near = ''
+                    first_line = old_text.splitlines()[0][:20] if old_text else ''
+                    for i, ln in enumerate(src.splitlines(), 1):
+                        if first_line and first_line in ln:
+                            near = f'第 {i} 行附近：{ln[:80]}'
+                            break
+                    return f'（未找到要修改的代码段，请先用 read_file 带 start_line/end_line 精确读取原文再修改；{near}）'
+                if src.count(old_text) > 1:
+                    return '（找到多处匹配，请提供更长的唯一上下文）'
+                new_src = src.replace(old_text, new_text, 1)
             # 3. 语法验证（写临时文件检查，通过才落盘）
             tmp = path + '.ai_tmp'
             with open(tmp, 'w', encoding='utf-8', newline='') as f:
@@ -2256,6 +2370,43 @@ class PetWidget(QWidget):
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本"""
         try:
+            if name.startswith('mcp_'):
+                # v6.20 MCP 工具转发：mcp_<server>_<tool>
+                return self.mcp.call_tool(name, args)
+            if name in self.plugin_mgr.tool_names():
+                # v6.21 插件工具转发
+                return self.plugin_mgr.handle_tool(name, args)
+            if name == 'install_plugin':
+                # v6.21 AI 自主安装插件（校验+写入+热加载）
+                _, msg = self.plugin_mgr.install(
+                    args.get('name', ''),
+                    args.get('meta') or {},
+                    args.get('entry_content'),
+                    args.get('rules_content'))
+                return msg
+            if name == 'uninstall_plugin':
+                _, msg = self.plugin_mgr.uninstall(args.get('name', ''))
+                return msg
+            if name == 'list_plugins':
+                return self.plugin_mgr.status_text()
+            if name == 'set_theme':
+                # v6.23 主题切换（default / theme 插件名）；join 前强制 str 防非字符串元素崩（v6.23.1）
+                tname = str(args.get('name') or 'default').strip()
+                available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
+                if tname not in available:
+                    return f'（可用主题：{"、".join(available)}）'
+                self.current_theme = tname
+                self._apply_theme()
+                self._save_cfg_value('theme', tname)
+                return f'✅ 已切换主题：{tname}（面板样式即时生效，气泡颜色下次消息生效）'
+            if name == 'skill_run':
+                # v6.23 复合技能：返回步骤清单，AI 逐步执行
+                sname = str(args.get('name') or '').strip()
+                steps = self.plugin_mgr.skill_steps(sname)
+                if steps is None:
+                    avail = [str(x) for x in self.plugin_mgr.skill_names()]
+                    return f'（未找到技能 {sname}；可用技能：{"、".join(avail) or "无"}）'
+                return steps
             if name == 'open_app':
                 app = args.get('name', '')
                 return self._smart_open(app)
@@ -2265,9 +2416,10 @@ class PetWidget(QWidget):
             elif name == 'web_search':
                 return self._web_search(args.get('query', ''))
             elif name == 'read_file':
-                return self._read_own_file(args.get('path', ''))
+                return self._read_own_file(args.get('path', ''), args.get('start_line'), args.get('end_line'))
             elif name == 'edit_own_code':
-                return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''))
+                return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''),
+                                           args.get('start_line'), args.get('end_line'))
             elif name == 'write_file':
                 return self._write_file_tool(args.get('filename', ''), args.get('content', ''))
             elif name == 'write_config':
@@ -2424,6 +2576,9 @@ class PetWidget(QWidget):
             mem = self._memory_block()
             mem_hint = f'\n\n【你的长期记忆】\n{mem}' if mem else ''
             mem_rule = '\n当你发现用户的重要偏好/个人事实/任务目标时，调用 memorize 工具记住它；用户明确说"忘了/不要记住"时用 memorize 删除对应记忆。' if mem else '\n记忆规则：当你发现用户的重要偏好/个人事实/任务目标时，调用 memorize 工具记住它。'
+            # 插件规则注入（v6.21：rules 类插件内容拼进 system prompt）
+            plugin_rules = self.plugin_mgr.rules_text()
+            plugin_rules_hint = f'\n\n【插件规则】\n{plugin_rules}' if plugin_rules else ''
             # 待办清单注入
             todo_block = self._todo_block()
             todo_hint = f'\n\n【待办清单】\n{todo_block}' if todo_block else ''
@@ -2434,7 +2589,17 @@ class PetWidget(QWidget):
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
             messages = [
-                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。代码规则：生成 Python 代码必须保证缩进正确、语法完整、可直接运行，禁止输出有语法错误的代码，写完先自检一遍缩进与冒号。文件规则：当用户要求"生成/保存/输出文件"时，必须调用 write_file 工具真实写入文件并告知路径，禁止只在回复文本中声称"已保存"而实际不调用工具。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'},
+                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。代码规则：生成 Python 代码必须保证缩进正确、语法完整、可直接运行，禁止输出有语法错误的代码，写完先自检一遍缩进与冒号。文件规则：当用户要求"生成/保存/输出文件"时，必须调用 write_file 工具真实写入文件并告知路径，禁止只在回复文本中声称"已保存"而实际不调用工具。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。{plugin_rules_hint}'
+                + '\n\n【桌宠自身能力（重要，不要改源码）】桌宠有完整的插件系统/主题系统/MCP 扩展能力：\n'
+                + '1. 用户要求"改颜色/换主题/换皮肤/护眼模式"→ 先用 list_plugins 看已装主题，用 set_theme 切换；没有合适主题就用 install_plugin 装 theme 类型插件（theme 字段直接填颜色对象，如 {"panel_bg":"#FFFFFF","text":"#333333","user_bubble":"#E8F4FF","ai_bubble":"#F0F0F0"}）。禁止为此去读源码或搜索文件。\n'
+                + '2. 用户要求"装个XX插件/加个XX功能"→ 用 install_plugin（type=tool 加工具）。\n'
+                + '3. 用户要求"一键周报/一键XX流程"→ 用 skill_run（先 list_plugins 看可用技能）。\n'
+                + '4. 用户要求"接入外部服务/用XX能力"→ 桌宠支持 MCP 服务器（mcp_ 开头的工具可直接用）。\n'
+                + '5. read_file 的 path 是相对桌宠项目目录（desktop-pet-dev）的相对路径，不是当前工作目录。\n'
+                + '6. UI 样式（面板背景/文字/气泡/滚动条/输入框等所有颜色）都在主题系统里（默认 DEFAULT_THEME 变量 + theme 插件覆盖），改颜色永远用 set_theme 切换或 install_plugin 装/更新 theme 插件，禁止用 edit_own_code 修改源码里的颜色。\n'
+                + '7. 若确需用 edit_own_code 改代码：先用 read_file 带 start_line/end_line 精确读目标行（输出带行号），再用 start_line/end_line + new_text 按行替换，不要凭记忆写 old_text。\n'
+                + '8. 主题变量速查（改颜色时直接用）：panel_bg=面板背景、text=正文文字、input_bg=输入框、user_bubble=用户消息气泡、ai_bubble=桌宠消息气泡、name_user/name_ai=名字颜色、scroll_bg=滚动条轨道、scroll_handle=滚动条滑块、accent=强调色。示例：用户说"滑动条调亮到100%白"→ 用 install_plugin 装 theme 插件，name=theme_xxx，meta={"type":"theme","theme":{"scroll_handle":"#ffffff","scroll_bg":"rgba(255,255,255,0.15)"}}，装完用 set_theme 切换。\n'
+                + '9. 查桌宠自己的文件/主题变量一律用 read_file（相对路径），禁止用 run_powershell 搜索桌宠自身文件（run_powershell 的工作目录不是桌宠项目）。'},
 
             ] + ctx
 
@@ -2447,7 +2612,7 @@ class PetWidget(QWidget):
                 data = jsonlib.dumps({
                     'model': cur_model,
                     'messages': messages,
-                    'tools': AI_TOOLS,
+                    'tools': AI_TOOLS + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas(),  # v6.20/21 动态合并 MCP+插件工具
                     'max_tokens': getattr(self, 'max_tokens', 1000),
                 }).encode()
                 result = _post(data, '正在思考…', 'Thinking…')
@@ -4104,7 +4269,7 @@ class PetWidget(QWidget):
         head = QHBoxLayout()
         head.setSpacing(6)
         name = QLabel(who)
-        name_color = '#6fe3a1' if is_user else '#7fb2ff'
+        name_color = self.theme.get('name_user') if is_user else self.theme.get('name_ai')
         name.setStyleSheet(f'color:{name_color};font-size:11px;font-weight:bold;background:transparent;')
         tl = QLabel(ts)
         tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
@@ -4144,13 +4309,13 @@ class PetWidget(QWidget):
 
     def _bubble_text_label(self, html_text, is_user=False):
         """消息文本标签：富文本（<b>/<i>/<br> 等），自动换行，可选中复制；
-        用户/AI 不同背景色+对齐（v6.19 对比度增强：用户绿调靠右，AI 蓝灰调靠左）"""
+        用户/AI 不同背景色+对齐（v6.19 对比度增强 + v6.23 主题变量）"""
         lbl = QLabel(html_text)
         lbl.setWordWrap(True)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
-        bg = 'rgba(30,88,70,0.80)' if is_user else 'rgba(46,54,76,0.80)'
+        bg = self.theme.get('user_bubble') if is_user else self.theme.get('ai_bubble')
         lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
         lbl.setStyleSheet(f'color:#eee; font-size:12px; background:{bg}; border-radius:8px; padding:6px 10px;')
         return lbl
@@ -4338,7 +4503,7 @@ class PetWidget(QWidget):
         head = QHBoxLayout()
         head.setSpacing(6)
         name = QLabel(who)
-        name_color = '#6fe3a1' if is_user else '#7fb2ff'
+        name_color = self.theme.get('name_user') if is_user else self.theme.get('name_ai')
         name.setStyleSheet(f'color:{name_color};font-size:11px;font-weight:bold;background:transparent;')
         tl = QLabel(ts)
         tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
@@ -4480,6 +4645,33 @@ class PetWidget(QWidget):
         self._status_widget.setStyleSheet('color:#8aa; font-size:11px; background:transparent; padding:2px 0;')
         self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, self._status_widget)
         self._chat_scroll_bottom()
+
+    def _panel_qss(self):
+        """按当前主题变量生成聊天面板样式（v6.23 主题系统）"""
+        t = self.theme
+        return f"""
+            QFrame {{ background-color: {t['panel_bg']}; border-radius: 12px; }}
+            QTextBrowser {{ background: transparent; color: {t['text']}; border: none; font-size: 12px; padding: 6px; }}
+            QTextEdit {{ background: {t['input_bg']}; color: #fff; border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px; }}
+            QTextEdit:focus {{ background: {t['input_focus']}; }}
+            QTextEdit viewport {{ background: transparent; }}
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{ background: {t['scroll_bg']}; width: 8px; border-radius: 4px; margin: 0; }}
+            QScrollBar::handle:vertical {{ background: {t['scroll_handle']}; border-radius: 4px; min-height: 20px; }}
+            QScrollBar::handle:vertical:hover {{ background: {t['scroll_handle_hover']}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        """
+
+    def _apply_theme(self):
+        """应用当前主题（默认 + theme 插件覆盖）到面板样式（v6.23）"""
+        vars_ = dict(DEFAULT_THEME)
+        if self.current_theme != 'default':
+            vars_.update(self.plugin_mgr.theme_vars(self.current_theme))
+        self.theme = vars_
+        try:
+            self.chat_panel.setStyleSheet(self._panel_qss())
+        except Exception:
+            pass
 
     def _sync_window_to_panel(self):
         """窗口尺寸跟随面板（保持立绘+空隙差值 320），并钳制在屏幕工作区内——
@@ -5895,6 +6087,12 @@ class PetWidget(QWidget):
         self._append_chat('桌宠', f'主动关心{state}{mode}')
         self.say_plain(f'主动关心{state}', immediate=True)
 
+    def _run_plugin_menu(self, command):
+        """执行 menu 类插件的菜单命令（v6.22，结果用气泡提示不污染对话）"""
+        result = self.plugin_mgr.handle_menu(command)
+        if result:
+            self.say_plain(str(result), immediate=True)
+
     def _chat_with_ai(self):
         """聚焦聊天输入框"""
         if not self.ai_enabled:
@@ -5964,6 +6162,13 @@ class PetWidget(QWidget):
         tmenu.addAction('🌐 ' + T('search_setting')).triggered.connect(self._set_search_key_dialog)
         tmenu.addSeparator()
         tmenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
+        # v6.22 插件菜单项（menu 类插件）
+        plugin_menu_items = self.plugin_mgr.menu_items()
+        if plugin_menu_items:
+            tmenu.addSeparator()
+            for label, cmd, _pname in plugin_menu_items:
+                tmenu.addAction(f'{label}').triggered.connect(
+                    lambda checked, c=cmd: self._run_plugin_menu(c))
 
         # 6. 性格切换（子菜单）
         pmenu = menu.addMenu(T('menu_personality'))

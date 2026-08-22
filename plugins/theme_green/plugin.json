@@ -1,0 +1,7 @@
+{
+  "name": "theme_green",
+  "version": "1.0.0",
+  "description": "护眼绿主题：柔和绿色调，夜间长时间看电脑更舒服（v6.23 示例主题插件）",
+  "type": "theme",
+  "theme": "theme.json"
+}

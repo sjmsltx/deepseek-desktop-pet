@@ -1,0 +1,21 @@
+{
+  "name": "vision",
+  "version": "1.0.0",
+  "description": "看图能力：用 deepseek-v4-flash-vision-exp 描述图片/OCR 识图/图表分析（v6.22 内置示例插件）",
+  "type": "tool",
+  "entry": "plugin.py",
+  "tools": [
+    {
+      "name": "vision_describe",
+      "description": "看图：传入本地图片路径，AI 描述图片内容/识别截图文字/分析图表。当用户粘贴、截图、发送图片，或要求'看看这张图/识别一下/图里有什么'时使用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "本地图片绝对路径（jpg/png/gif/webp）"},
+          "prompt": {"type": "string", "description": "想让它做什么（默认：描述这张图片的内容）"}
+        },
+        "required": ["path"]
+      }
+    }
+  ]
+}

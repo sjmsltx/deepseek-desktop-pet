@@ -1,0 +1,14 @@
+{
+  "panel_bg": "rgba(14,30,22,0.88)",
+  "text": "#d9ead9",
+  "input_bg": "rgba(70,140,90,0.25)",
+  "input_focus": "rgba(90,170,110,0.35)",
+  "user_bubble": "rgba(30,110,65,0.82)",
+  "ai_bubble": "rgba(30,70,45,0.82)",
+  "name_user": "#7fe8a8",
+  "name_ai": "#a5e8b8",
+  "accent": "#8fe8a0",
+  "scroll_bg": "rgba(130,210,160,0.10)",
+  "scroll_handle": "rgba(150,225,180,0.45)",
+  "scroll_handle_hover": "rgba(170,240,195,0.65)"
+}
