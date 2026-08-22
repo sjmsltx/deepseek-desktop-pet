@@ -1,0 +1,11 @@
+{
+  "type": "theme",
+  "description": "黄色滚动条主题：滑动条亮黄色，轨道半透明白",
+  "theme": {
+    "scroll_handle": "#FFEB3B",
+    "scroll_bg": "rgba(255,255,255,0.12)"
+  },
+  "name": "theme_yellow_scrollbar",
+  "version": "1.0.0",
+  "enabled": true
+}

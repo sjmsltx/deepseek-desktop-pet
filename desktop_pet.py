@@ -2229,11 +2229,11 @@ class PetWidget(QWidget):
                 elif key == 'city':
                     self.pet_city = value
                 elif key == 'language':
-                    self._set_language(value)
+                    QTimer.singleShot(0, lambda v=value: self._set_language(v))  # GUI 回主线程（v6.25.1）
                 elif key == 'active_chat':
                     self.active_chat_enabled = value == 'true'
                 elif key == 'display_mode':
-                    self._set_display_mode(value)
+                    QTimer.singleShot(0, lambda v=value: self._set_display_mode(v))  # GUI 回主线程（v6.25.1）
                 elif key == 'api_prices':
                     # 热加载价格覆盖（空对象 → 恢复出厂默认价）
                     try:
@@ -2390,15 +2390,20 @@ class PetWidget(QWidget):
             if name == 'list_plugins':
                 return self.plugin_mgr.status_text()
             if name == 'set_theme':
-                # v6.23 主题切换（default / theme 插件名）；join 前强制 str 防非字符串元素崩（v6.23.1）
+                # v6.23 主题切换（default / theme 插件名）；v6.25.1 GUI 应用回主线程（防跨线程崩溃）
                 tname = str(args.get('name') or 'default').strip()
                 available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
                 if tname not in available:
                     return f'（可用主题：{"、".join(available)}）'
                 self.current_theme = tname
-                self._apply_theme()
+                # 数据部分（线程安全）立即更新
+                self.theme = dict(DEFAULT_THEME)
+                if tname != 'default':
+                    self.theme.update(self.plugin_mgr.theme_vars(tname))
+                # GUI 部分回主线程执行（QTimer.singleShot 线程安全）
+                QTimer.singleShot(0, self._apply_theme)
                 self._save_cfg_value('theme', tname)
-                return f'✅ 已切换主题：{tname}（面板样式即时生效，气泡颜色下次消息生效）'
+                return f'✅ 已切换主题：{tname}（样式即将生效）'
             if name == 'skill_run':
                 # v6.23 复合技能：返回步骤清单，AI 逐步执行
                 sname = str(args.get('name') or '').strip()
@@ -3972,8 +3977,12 @@ class PetWidget(QWidget):
         self.bubble.setGeometry(bx, by, bw, bh)
 
     def say_plain(self, text, immediate=False):
-        """气泡显示短文本。immediate=True 时直接完整显示（状态提示用，避免打字机卡顿误导）"""
+        """气泡显示短文本。immediate=True 时直接完整显示（状态提示用，避免打字机卡顿误导）
+        v6.25.1 非主线程调用自动转发主线程（防 Qt 跨线程崩溃）"""
         if not text:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            QTimer.singleShot(0, lambda t=text, i=immediate: self.say_plain(t, i))
             return
         if immediate:
             self.type_timer.stop()
@@ -4541,7 +4550,11 @@ class PetWidget(QWidget):
         return bubble, content
 
     def _append_chat(self, who, text):
-        """追加一条聊天记录（纯文本路径：系统提示/用户消息，不解析 markdown；多行自动换行）"""
+        """追加一条聊天记录（纯文本路径：系统提示/用户消息，不解析 markdown；多行自动换行）
+        v6.25.1 非主线程调用自动转发主线程——修复 AI 后台线程直接操作 Qt 控件导致的崩溃（Qt6Gui.dll 访问违规）"""
+        if threading.current_thread() is not threading.main_thread():
+            QTimer.singleShot(0, lambda w=who, t=text: self._append_chat(w, t))
+            return
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
@@ -4553,7 +4566,11 @@ class PetWidget(QWidget):
         self._chat_scroll_bottom()
 
     def _append_chat_md(self, who, text):
-        """追加一条聊天记录（AI 回复用，markdown 分块渲染：代码/表格成卡片）"""
+        """追加一条聊天记录（AI 回复用，markdown 分块渲染：代码/表格成卡片）
+        v6.25.1 非主线程调用自动转发主线程（防 Qt 跨线程崩溃）"""
+        if threading.current_thread() is not threading.main_thread():
+            QTimer.singleShot(0, lambda w=who, t=text: self._append_chat_md(w, t))
+            return
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self.display_msgs.append({'who': who, 'text': str(text), 'ts': ts})
@@ -4663,11 +4680,7 @@ class PetWidget(QWidget):
         """
 
     def _apply_theme(self):
-        """应用当前主题（默认 + theme 插件覆盖）到面板样式（v6.23）"""
-        vars_ = dict(DEFAULT_THEME)
-        if self.current_theme != 'default':
-            vars_.update(self.plugin_mgr.theme_vars(self.current_theme))
-        self.theme = vars_
+        """把当前主题应用到面板（v6.25.1 必须主线程调用——修复 AI 后台线程跨线程 setStyleSheet 崩溃）"""
         try:
             self.chat_panel.setStyleSheet(self._panel_qss())
         except Exception:
