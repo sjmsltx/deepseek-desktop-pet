@@ -6282,7 +6282,7 @@ class PetWidget(QWidget):
             return
         self._handle_affection(r)
         try:
-            self.play_scene('eat')
+            self._show_state_image('kiss')  # v6.30 喂食成功：撒娇亲亲
         except Exception:
             pass
         self._show_pet_bubble(f'好吃！饱食度 {r.get("satiety", 100):.0f}%，好感 +2')
@@ -6298,22 +6298,32 @@ class PetWidget(QWidget):
         self._game_window.show()
 
     def _on_game_result(self, win):
-        """小游戏结果 → 好感度事件"""
+        """小游戏结果 → 好感度事件 + 动作状态图（胜利/沮丧）"""
         try:
             r = self.affection.trigger(self.current, 'game_win' if win else 'game_play')
             self._handle_affection(r)
+            try:
+                self._show_state_image('victory' if win else 'defeat')
+            except Exception:
+                pass
             if win:
                 self.play_scene('happy')
         except Exception:
             pass
 
     def _check_satiety(self):
-        """饱食度巡检：低饱食提示（零惩罚，不扣好感；每小时最多提示一次）"""
+        """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）"""
         try:
             s = self.affection.satiety(self.current)
-            if s < 30 and time.time() - getattr(self, '_last_satiety_warn', 0) > 3600:
-                self._last_satiety_warn = time.time()
-                self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
+            if s < 30:
+                # v6.30 饥饿状态图（素材已应用后生效）
+                try:
+                    self._show_state_image('hungry')
+                except Exception:
+                    pass
+                if time.time() - getattr(self, '_last_satiety_warn', 0) > 3600:
+                    self._last_satiety_warn = time.time()
+                    self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
         except Exception:
             pass
 
@@ -6429,8 +6439,17 @@ class PetWidget(QWidget):
         act_active = imenu.addAction(T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
         act_active.triggered.connect(lambda: self.toggle_active_chat())
         imenu.addSeparator()
-        for sk, (label, _desc) in SCENE_ACTIONS.items():
+        # v6.30 动作分组：常用直接显示，其余收进「更多动作」子菜单（防臃肿）
+        scene_items = list(SCENE_ACTIONS.items())
+        COMMON_SCENE = {'eating', 'typing', 'reading', 'music', 'hug_whale'}
+        shown = [it for it in scene_items if it[0] in COMMON_SCENE]
+        rest = [it for it in scene_items if it[0] not in COMMON_SCENE]
+        for sk, (label, _desc) in shown:
             imenu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
+        if rest:
+            more_menu = imenu.addMenu('🎬 更多动作')
+            for sk, (label, _desc) in rest:
+                more_menu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
 
         # 4. 贴边模式（顶级开关）
         acts['edgemode'] = menu.addAction(T('edge_mode') + (T('edge_hidden') if self._edge_mode == 'peek' else T('edge_peek')))
