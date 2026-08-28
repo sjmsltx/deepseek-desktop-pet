@@ -30,6 +30,9 @@ from PySide6.QtWidgets import (
 )
 from mcp_bridge import McpBridge  # v6.20 MCP 桥接（外部 MCP server 工具接入）
 from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules/theme/skill）
+from affection_engine import AffectionEngine  # v6.30 好感度引擎
+from memory_events import MemoryEvents  # v6.30 回忆日志
+from affection_ui import RelationDialog  # v6.30 关系面板
 
 # Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
 DWMWA_NCRENDERING_POLICY = 2
@@ -47,6 +50,8 @@ ASSETS = os.path.join(BASE_DIR, 'assets')
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
 TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
+AFFECTION_PATH = os.path.join(BASE_DIR, 'affection.json')   # v6.30 好感度
+MEMORIES_PATH = os.path.join(BASE_DIR, 'memories.json')     # v6.30 回忆日志
 
 def asset(role, state):
     return os.path.join(ASSETS, role, f'{role}_{state}.png')
@@ -1090,6 +1095,10 @@ class PetWidget(QWidget):
         self.live2d_model = 'mao'
         self._load_ai_config()
         self.app_aliases = self._load_aliases()
+        # v6.30 好感度与成长系统（引擎 + 回忆日志）
+        self.affection = AffectionEngine(AFFECTION_PATH)
+        self.memories = MemoryEvents(MEMORIES_PATH)
+        self._relation_dialog = None
         # AI 回复信号（类级定义，connect 跨线程槽）
         self.ai_reply_signal.connect(self._display_ai_reply)
         self.ai_status_signal.connect(self._update_ai_status)
@@ -2590,11 +2599,20 @@ class PetWidget(QWidget):
             cur_model = self._current_model()
             # 语言指示：AI 回复语言跟随配置
             lang_hint = self._t('lang_hint')
+            # v6.30 好感度：人设阶段 + 最近回忆注入（动态随好感度进化）
+            affection_hint = ''
+            try:
+                _stage_t = self.affection.stage_prompt(self.current)
+                _mem_t = self.memories.prompt_hint(self.current)
+                if _stage_t or _mem_t:
+                    affection_hint = '\n\n【关系与回忆（随好感度动态进化）】' + f'\n{_stage_t}' + (_mem_t or '')
+            except Exception:
+                affection_hint = ''
             # 角色身份锚定：名字优先级 系统设定 > 记忆中的角色命名
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
             messages = [
-                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。代码规则：生成 Python 代码必须保证缩进正确、语法完整、可直接运行，禁止输出有语法错误的代码，写完先自检一遍缩进与冒号。文件规则：当用户要求"生成/保存/输出文件"时，必须调用 write_file 工具真实写入文件并告知路径，禁止只在回复文本中声称"已保存"而实际不调用工具。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。{plugin_rules_hint}'
+                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。代码规则：生成 Python 代码必须保证缩进正确、语法完整、可直接运行，禁止输出有语法错误的代码，写完先自检一遍缩进与冒号。文件规则：当用户要求"生成/保存/输出文件"时，必须调用 write_file 工具真实写入文件并告知路径，禁止只在回复文本中声称"已保存"而实际不调用工具。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。{plugin_rules_hint}{affection_hint}'
                 + '\n\n【桌宠自身能力（重要，不要改源码）】桌宠有完整的插件系统/主题系统/MCP 扩展能力：\n'
                 + '1. 用户要求"改颜色/换主题/换皮肤/护眼模式"→ 先用 list_plugins 看已装主题，用 set_theme 切换；没有合适主题就用 install_plugin 装 theme 类型插件（theme 字段直接填颜色对象，如 {"panel_bg":"#FFFFFF","text":"#333333","user_bubble":"#E8F4FF","ai_bubble":"#F0F0F0"}）。禁止为此去读源码或搜索文件。\n'
                 + '2. 用户要求"装个XX插件/加个XX功能"→ 用 install_plugin（type=tool 加工具）。\n'
@@ -2689,6 +2707,12 @@ class PetWidget(QWidget):
             if final_reply and not final_reply.startswith('（'):
                 self.chat_history_msgs.append({'role': 'user', 'content': text})
                 self.chat_history_msgs.append({'role': 'assistant', 'content': final_reply})
+            # v6.30 好感度：对话完成事件（占位/错误回复不计）
+            if final_reply and not final_reply.startswith('（'):
+                try:
+                    self.affection.trigger(self.current, 'chat')
+                except Exception:
+                    pass
             self.ai_reply_signal.emit(final_reply)
         except Exception as e:
             self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
@@ -6129,6 +6153,17 @@ class PetWidget(QWidget):
         else:
             self.play_scene(pick)
 
+    # ---------- 好感度关系面板（v6.30） ----------
+    def _open_relation(self):
+        if getattr(self, '_relation_dialog', None) is not None:
+            try:
+                self._relation_dialog.close()
+            except Exception:
+                pass
+        self._relation_dialog = RelationDialog(
+            self.affection, self.current, CHARACTERS[self.current]['name'])
+        self._relation_dialog.show()
+
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
@@ -6182,6 +6217,11 @@ class PetWidget(QWidget):
             for label, cmd, _pname in plugin_menu_items:
                 tmenu.addAction(f'{label}').triggered.connect(
                     lambda checked, c=cmd: self._run_plugin_menu(c))
+
+        # 5.5 好感度关系面板（v6.30）
+        menu.addSeparator()
+        rmenu = menu.addMenu('❤️ 关系')
+        rmenu.addAction(f'📊 {CHARACTERS[self.current]["name"]} 的关系').triggered.connect(self._open_relation)
 
         # 6. 性格切换（子菜单）
         pmenu = menu.addMenu(T('menu_personality'))
