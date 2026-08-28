@@ -9,7 +9,7 @@ import random
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QLineEdit, QMessageBox, QWidget)
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QRect
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush
 
 
@@ -289,7 +289,8 @@ class Game2048(BaseGame):
     def _move(self, dx, dy):
         moved = False
         if dy == 0:
-            order_x = range(4) if dx > 0 else range(3, -1, -1)
+            # dx>0 向右滑：从右往左取行合并（大数字靠右）
+            order_x = range(3, -1, -1) if dx > 0 else range(4)
             for y in range(4):
                 line = [self.board[y][x] for x in order_x]
                 nl = self._merge(line)
@@ -298,7 +299,8 @@ class Game2048(BaseGame):
                         moved = True
                     self.board[y][x] = nl[i]
         else:
-            order_y = range(4) if dy > 0 else range(3, -1, -1)
+            # dy>0 向下滑：从下往上取列合并
+            order_y = range(3, -1, -1) if dy > 0 else range(4)
             for x in range(4):
                 line = [self.board[y][x] for y in order_y]
                 nl = self._merge(line)
@@ -451,7 +453,7 @@ class _MineWidget(QWidget):
         x = int(event.position().x() // cell)
         y = int(event.position().y() // cell)
         if 0 <= x < g.W and 0 <= y < g.H:
-            self.clicked.emit(x, y, event.button().name == 'RightButton')
+            self.clicked.emit(x, y, event.button() == Qt.RightButton)
 
 
 # ---------- 游戏注册表 ----------
