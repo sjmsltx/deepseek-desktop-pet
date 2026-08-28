@@ -5741,6 +5741,9 @@ class PetWidget(QWidget):
     def animate(self):
         # 贴边检查（非拖拽时）
         self._edge_dock_check()
+        # v6.30 fix：贴边未弹出时完全静止（不做摆头移动，避免与贴边定位冲突导致左右抽动）
+        if self._edge_side is not None and not self._edge_popped:
+            return
         # 待机/拖拽/睡眠：完全静止，不重绘不移动（杜绝闪烁）
         if self.state == 'idle' or self.sleeping or self.dragging:
             return
