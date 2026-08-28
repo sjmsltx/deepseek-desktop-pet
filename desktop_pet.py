@@ -6333,13 +6333,22 @@ class PetWidget(QWidget):
             btn.setStyleSheet(
                 'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
                 ' border-radius:8px; padding:8px 12px; text-align:left; font-size:13px; }'
-                'QPushButton:hover { background:#35507a; border-color:#7fb2ff; }')
+                'QPushButton:hover { background:#35507a; border-color:#7fb2ff; }'
+                'QPushButton:disabled { background:#1c2740; color:#667; border-color:#24314a; }')
             btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, t=c: self._send_choice(t))
+            btn.clicked.connect(lambda checked, t=c, b=btn: self._send_choice(t, b))
             content.addWidget(btn)
 
-    def _send_choice(self, text):
-        """用户点击选项：作为用户消息发送 + 好感度 +1"""
+    def _send_choice(self, text, btn=None):
+        """用户点击选项：禁用整组按钮防止重复选择，作为用户消息发送 + 好感度 +1"""
+        if btn is not None:
+            try:
+                parent = btn.parentWidget()
+                if parent is not None:
+                    for b in parent.findChildren(QPushButton):
+                        b.setEnabled(False)
+            except Exception:
+                pass
         try:
             self.affection.trigger(self.current, 'chat')
         except Exception:
