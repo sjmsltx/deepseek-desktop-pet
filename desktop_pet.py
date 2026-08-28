@@ -425,6 +425,20 @@ AI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "offer_choices",
+            "description": "在对话关键时刻给主人提供 2-3 个选项（galgame 式选择支）。仅在合适场景使用：二选一/三选一的抉择、约不约、去不去、选哪个、让主人做决定时。调用后回复正文应简短（一两句），把选择权交给选项。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "choices": {"type": "array", "items": {"type": "string"}, "description": "2-3 个选项，每个不超过 10 字，口语化"}
+                },
+                "required": ["choices"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_weather",
             "description": "查询城市天气。仅当用户明确要求查天气/温度/降雨/空气质量/适不适合出门时才调用；用户问美食/景点/地理等与天气无关的问题时不要调用",
             "parameters": {
@@ -1114,6 +1128,8 @@ class PetWidget(QWidget):
         self.memories = MemoryEvents(MEMORIES_PATH)
         self._relation_dialog = None
         self._game_window = None
+        self._pending_choices = None   # v6.30 情感选项
+        self._choices_requested = False
         # v6.30 饱食度巡检（每 5 分钟，低饱食提示）
         self._satiety_timer = QTimer(self)
         self._satiety_timer.timeout.connect(self._check_satiety)
@@ -2472,6 +2488,13 @@ class PetWidget(QWidget):
             elif name == 'lock_screen':
                 ctypes.windll.user32.LockWorkStation()
                 return '已锁定屏幕'
+            elif name == 'offer_choices':
+                # v6.30 情感选项：返回特殊标记，_ai_worker 检测后暂停对话流并展示选项
+                choices = [str(c).strip()[:20] for c in (args.get('choices') or []) if str(c).strip()]
+                if len(choices) < 2:
+                    return '需要至少 2 个选项'
+                self._pending_choices = choices[:3]
+                return '__CHOICES__'
             elif name == 'query_weather':
                 # 真正联网查天气（wttr.in）
                 city = args.get('city', '') or self.pet_city
@@ -2702,11 +2725,18 @@ class PetWidget(QWidget):
                     st = status_map.get(name, (f'正在执行 {name}', f'Running {name}'))
                     self.ai_status_signal.emit((st[1] if is_en else st[0]) + '…')
                     result_text = self._execute_tool(name, args)
+                    if result_text == '__CHOICES__':
+                        # v6.30 情感选项：暂停对话流，等待用户点击选项
+                        final_reply = ''
+                        self._choices_requested = True
+                        break
                     messages.append({
                         'role': 'tool',
                         'tool_call_id': tc['id'],
                         'content': result_text,
                     })
+                if getattr(self, '_choices_requested', False):
+                    break
 
             if final_reply is None:
                 # 工具轮次耗尽但没生成文本回复：强制不带工具重试一次
@@ -2778,6 +2808,10 @@ class PetWidget(QWidget):
 
     def _display_ai_reply(self, reply):
         """主线程槽：显示 AI 回复（解析情绪标签切换立绘）"""
+        if not reply and getattr(self, '_choices_requested', False):
+            self._choices_requested = False
+            self._render_choices()
+            return
         display, emotion = self._strip_emotion_tag(reply)
         if emotion:
             self._apply_emotion(emotion)
@@ -6269,6 +6303,43 @@ class PetWidget(QWidget):
                 self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
         except Exception:
             pass
+
+    # ---------- 情感选项（galgame 选择支，v6.30 Phase3b） ----------
+    def _render_choices(self):
+        """渲染选项按钮（AI 调用 offer_choices 后，主线程展示）"""
+        choices = getattr(self, '_pending_choices', None) or []
+        self._pending_choices = None
+        if not choices:
+            return
+        import datetime as _dt
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+        self._append_chat('桌宠', '✨ 你想怎么做？')
+        try:
+            bubble, content = self._new_bubble('桌宠', ts, is_user=False, text='')
+        except Exception:
+            return
+        letters = ['A', 'B', 'C']
+        for i, c in enumerate(choices):
+            btn = QPushButton(f'{letters[i]}. {c}')
+            btn.setStyleSheet(
+                'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
+                ' border-radius:8px; padding:8px 12px; text-align:left; font-size:13px; }'
+                'QPushButton:hover { background:#35507a; border-color:#7fb2ff; }')
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked, t=c: self._send_choice(t))
+            content.addWidget(btn)
+        self._chat_scroll_bottom()
+
+    def _send_choice(self, text):
+        """用户点击选项：作为用户消息发送 + 好感度 +1"""
+        try:
+            self.affection.trigger(self.current, 'chat')
+        except Exception:
+            pass
+        self._append_chat('我', text)
+        self.chat_history_msgs.append({'role': 'user', 'content': text})
+        self._save_chat_memory()
+        self.ask_ai(text)
 
     # ---------- 回忆相册（v6.30 Phase3） ----------
     def _open_memories(self):
