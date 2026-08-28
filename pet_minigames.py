@@ -242,11 +242,225 @@ class _BoardWidget(QWidget):
             self.clicked.emit(x, y)
 
 
+# ---------- 2048 ----------
+class Game2048(BaseGame):
+    """2048：方向键移动合并，目标是 2048"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🔢 2048', on_result, parent)
+        self.setFixedSize(340, 380)
+        self.board = [[0] * 4 for _ in range(4)]
+        self.score = 0
+        self._spawn()
+        self._spawn()
+        lay = QVBoxLayout(self)
+        self.lb = QLabel('方向键移动，合并数字，到 2048 胜利', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        self.lb_board = QLabel('', alignment=Qt.AlignCenter)
+        self.lb_board.setStyleSheet('font-family:Consolas,monospace; font-size:18px;')
+        lay.addWidget(self.lb_board)
+        self._render()
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def _spawn(self):
+        empty = [(x, y) for y in range(4) for x in range(4) if self.board[y][x] == 0]
+        if empty:
+            x, y = random.choice(empty)
+            self.board[y][x] = 2 if random.random() < 0.9 else 4
+
+    def _render(self):
+        colors = {0: '#141b2c', 2: '#2a3a55', 4: '#35507a', 8: '#3f6ca8',
+                  16: '#4a8ac2', 32: '#5aa7d6', 64: '#e0527a', 128: '#e8739a',
+                  256: '#f09ab5', 512: '#f5b8cc', 1024: '#ffd700', 2048: '#ff8c00'}
+        html = ['<table cellspacing="4" align="center">']
+        for y in range(4):
+            html.append('<tr>')
+            for x in range(4):
+                v = self.board[y][x]
+                c = colors.get(v, '#e0527a')
+                txt = str(v) if v else ''
+                html.append(f'<td width="64" height="64" style="background:{c};border-radius:8px;'
+                            f'color:{"#fff" if v >= 8 else "#dce3f0"};font-weight:bold;text-align:center;">'
+                            f'{txt}</td>')
+            html.append('</tr>')
+        html.append('</table>')
+        self.lb_board.setText(''.join(html))
+
+    def _move(self, dx, dy):
+        moved = False
+        if dy == 0:
+            order_x = range(4) if dx > 0 else range(3, -1, -1)
+            for y in range(4):
+                line = [self.board[y][x] for x in order_x]
+                nl = self._merge(line)
+                for i, x in enumerate(order_x):
+                    if self.board[y][x] != nl[i]:
+                        moved = True
+                    self.board[y][x] = nl[i]
+        else:
+            order_y = range(4) if dy > 0 else range(3, -1, -1)
+            for x in range(4):
+                line = [self.board[y][x] for y in order_y]
+                nl = self._merge(line)
+                for i, y in enumerate(order_y):
+                    if self.board[y][x] != nl[i]:
+                        moved = True
+                    self.board[y][x] = nl[i]
+        if moved:
+            self._spawn()
+            self._render()
+            if max(max(r) for r in self.board) >= 2048:
+                self._finish(True, f'2048 达成！得分 {self.score}，好感度 +3')
+            elif not any(0 in r for r in self.board):
+                self._finish(False, f'棋盘满了，得分 {self.score}（参与 +1）')
+
+    def _merge(self, line):
+        non_zero = [v for v in line if v]
+        merged = []
+        i = 0
+        while i < len(non_zero):
+            if i + 1 < len(non_zero) and non_zero[i] == non_zero[i + 1]:
+                merged.append(non_zero[i] * 2)
+                self.score += non_zero[i] * 2
+                i += 2
+            else:
+                merged.append(non_zero[i])
+                i += 1
+        return merged + [0] * (4 - len(merged))
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Left:
+            self._move(-1, 0)
+        elif event.key() == Qt.Key_Right:
+            self._move(1, 0)
+        elif event.key() == Qt.Key_Up:
+            self._move(0, -1)
+        elif event.key() == Qt.Key_Down:
+            self._move(0, 1)
+        else:
+            super().keyPressEvent(event)
+
+
+# ---------- 扫雷 ----------
+class Minesweeper(BaseGame):
+    """扫雷：9x9，10 雷，左键翻开，右键标雷"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('💣 扫雷', on_result, parent)
+        self.W = 9
+        self.H = 9
+        self.MINES = 10
+        self.grid = [[0] * self.W for _ in range(self.H)]  # 0-8 数字, 9=雷
+        self.revealed = [[False] * self.W for _ in range(self.H)]
+        self.flagged = [[False] * self.W for _ in range(self.H)]
+        self.started = False
+        self.over = False
+        self._widget = _MineWidget(self)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('左键翻开 · 右键标雷 · 避开 10 颗雷', alignment=Qt.AlignCenter))
+        lay.addWidget(self._widget)
+        self._widget.clicked.connect(self._on_click)
+
+    def _plant(self, ex, ey):
+        import random as rnd
+        cells = [(x, y) for y in range(self.H) for x in range(self.W) if (x, y) != (ex, ey)]
+        for _ in range(self.MINES):
+            x, y = rnd.choice(cells)
+            cells.remove((x, y))
+            self.grid[y][x] = 9
+        for y in range(self.H):
+            for x in range(self.W):
+                if self.grid[y][x] != 9:
+                    self.grid[y][x] = sum(
+                        1 for dy in (-1, 0, 1) for dx in (-1, 0, 1)
+                        if 0 <= x + dx < self.W and 0 <= y + dy < self.H and self.grid[y + dy][x + dx] == 9)
+
+    def _on_click(self, x, y, right):
+        if self.over:
+            return
+        if not self.started:
+            self.started = True
+            self._plant(x, y)
+        if right:
+            self.flagged[y][x] = not self.flagged[y][x]
+            self._widget.update()
+            return
+        if self.flagged[y][x] or self.revealed[y][x]:
+            return
+        if self.grid[y][x] == 9:
+            self.over = True
+            self._reveal_all()
+            self._finish(False, '踩雷了！下次小心（参与 +1）')
+            return
+        self._flood(x, y)
+        self._widget.update()
+        if all(self.revealed[y][x] or self.grid[y][x] == 9 for y in range(self.H) for x in range(self.W)):
+            self.over = True
+            self._finish(True, '全部排完了！好感度 +3')
+
+    def _flood(self, x, y):
+        if not (0 <= x < self.W and 0 <= y < self.H) or self.revealed[y][x] or self.grid[y][x] == 9:
+            return
+        self.revealed[y][x] = True
+        if self.grid[y][x] == 0:
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    self._flood(x + dx, y + dy)
+
+    def _reveal_all(self):
+        for y in range(self.H):
+            for x in range(self.W):
+                self.revealed[y][x] = True
+
+
+class _MineWidget(QWidget):
+    clicked = __import__('PySide6.QtCore', fromlist=['Signal']).Signal(int, int, bool)
+
+    def __init__(self, game, parent=None):
+        super().__init__(parent)
+        self.game = game
+        cell = 32
+        self.setFixedSize(cell * game.W, cell * game.H)
+
+    def paintEvent(self, event):
+        g = self.game
+        p = QPainter(self)
+        cell = 32
+        for y in range(g.H):
+            for x in range(g.W):
+                rect = QRect(x * cell, y * cell, cell - 1, cell - 1)
+                if g.revealed[y][x]:
+                    p.fillRect(rect, QColor('#182136'))
+                    v = g.grid[y][x]
+                    if v == 9:
+                        p.setPen(QColor('#ff8a8a'))
+                        p.drawText(rect, Qt.AlignCenter, '💣')
+                    elif v:
+                        colors = {1: '#9fd0ff', 2: '#6ecb7a', 3: '#ff8a8a', 4: '#e0527a', 5: '#c9a0ff'}
+                        p.setPen(QColor(colors.get(v, '#dce3f0')))
+                        p.drawText(rect, Qt.AlignCenter, str(v))
+                else:
+                    p.fillRect(rect, QColor('#2a3a55'))
+                    if g.flagged[y][x]:
+                        p.setPen(QColor('#ffd700'))
+                        p.drawText(rect, Qt.AlignCenter, '🚩')
+
+    def mousePressEvent(self, event):
+        g = self.game
+        cell = 32
+        x = int(event.position().x() // cell)
+        y = int(event.position().y() // cell)
+        if 0 <= x < g.W and 0 <= y < g.H:
+            self.clicked.emit(x, y, event.button().name == 'RightButton')
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
     '🔢 猜数字': GuessNumber,
     '⚫ 五子棋': Gomoku,
+    '🔢 2048': Game2048,
+    '💣 扫雷': Minesweeper,
 }
 
 

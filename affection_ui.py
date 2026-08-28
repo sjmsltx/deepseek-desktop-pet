@@ -7,10 +7,55 @@ LiveGalGame 式可视化（变化动效 +N↑ 在 Phase 2 与余额气泡一起�
 """
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QProgressBar, QPushButton, QScrollArea, QWidget, QFrame,
-                               QGraphicsOpacityEffect)
+                               QGraphicsOpacityEffect, QListWidget, QListWidgetItem)
 from PySide6.QtCore import Qt, QPropertyAnimation, QPoint, QEasingCurve
 
 from affection_engine import AFFECTION_MAX, AFFECTION_INIT, xp_for_level, stage_from_affection
+
+
+class MemoriesDialog(QDialog):
+    """回忆相册：按时间线浏览共同经历（v6.30 Phase3）"""
+
+    _EMOJI = {'milestone': '🏆', 'event': '✨', 'user_mark': '📌', 'memory': '🧠'}
+
+    def __init__(self, memories, role: str, role_name: str, parent=None):
+        super().__init__(parent)
+        self.memories = memories
+        self.role = role
+        self.setWindowTitle(f'📖 回忆相册 · {role_name}')
+        self.resize(380, 460)
+        self.setStyleSheet(
+            "QDialog { background:#1e2430; }"
+            "QLabel { color:#dce3f0; font-size:13px; }"
+            "QListWidget { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;"
+            " border-radius:8px; font-size:13px; }"
+            "QListWidget::item { padding:8px; border-bottom:1px solid #24314a; }"
+            "QListWidget::item:selected { background:#35507a; }"
+        )
+        lay = QVBoxLayout(self)
+        self.lb_count = QLabel('')
+        lay.addWidget(self.lb_count)
+        self.list = QListWidget()
+        lay.addWidget(self.list)
+        self._refresh()
+
+    def _refresh(self):
+        items = self.memories.all(self.role)
+        self.lb_count.setText(f'共 {len(items)} 条回忆' + ('（还没回忆，多聊聊就会有了）' if not items else ''))
+        self.list.clear()
+        for m in items:
+            emoji = self._EMOJI.get(m.get('type', 'event'), '✨')
+            time_s = m.get('time', '')
+            title = m.get('title', '')
+            detail = m.get('detail', '')
+            aff = m.get('affection_at')
+            aff_s = f'  ·  当时好感 {aff}' if aff is not None else ''
+            text = f'{emoji} [{time_s}]{aff_s}\n{title}'
+            if detail:
+                text += f'\n    {detail}'
+            item = QListWidgetItem(text)
+            item.setToolTip(text)
+            self.list.addItem(item)
 
 
 class CostBubble(QLabel):

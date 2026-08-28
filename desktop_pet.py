@@ -32,7 +32,7 @@ from mcp_bridge import McpBridge  # v6.20 MCP 桥接（外部 MCP server 工具�
 from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules/theme/skill）
 from affection_engine import AffectionEngine  # v6.30 好感度引擎
 from memory_events import MemoryEvents  # v6.30 回忆日志
-from affection_ui import RelationDialog, CostBubble  # v6.30 关系面板 / 费用气泡
+from affection_ui import RelationDialog, CostBubble, MemoriesDialog  # v6.30 关系面板/费用气泡/回忆相册
 from pet_minigames import GameWindow  # v6.30 小游戏
 
 # Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
@@ -6267,6 +6267,11 @@ class PetWidget(QWidget):
         except Exception:
             pass
 
+    # ---------- 回忆相册（v6.30 Phase3） ----------
+    def _open_memories(self):
+        dlg = MemoriesDialog(self.memories, self.current, CHARACTERS[self.current]['name'], self)
+        dlg.exec()
+
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
@@ -6329,6 +6334,7 @@ class PetWidget(QWidget):
         menu.addSeparator()
         rmenu = menu.addMenu('❤️ 关系')
         rmenu.addAction(f'📊 {CHARACTERS[self.current]["name"]} 的关系').triggered.connect(self._open_relation)
+        rmenu.addAction('📖 回忆相册').triggered.connect(self._open_memories)
 
         # 6. 性格切换（子菜单）
         pmenu = menu.addMenu(T('menu_personality'))
