@@ -2726,8 +2726,8 @@ class PetWidget(QWidget):
                     self.ai_status_signal.emit((st[1] if is_en else st[0]) + '…')
                     result_text = self._execute_tool(name, args)
                     if result_text == '__CHOICES__':
-                        # v6.30 情感选项：暂停对话流，等待用户点击选项
-                        final_reply = ''
+                        # v6.30 情感选项：保留 AI 简短正文，暂停对话流等用户点击
+                        final_reply = (msg.get('content') or '').strip()
                         self._choices_requested = True
                         break
                     messages.append({
@@ -2884,6 +2884,9 @@ class PetWidget(QWidget):
         self._chat_scroll_bottom()
         if self.chat_type_index >= len(self.chat_type_blocks):
             self.chat_type_timer.stop()
+            # v6.30 打字机完成：追加待展示的选项按钮（同气泡）
+            if getattr(self, '_pending_choices', None):
+                self._render_choices()
             self._maybe_append_code_warning()
 
     def _chat_type_finish(self):
@@ -6306,18 +6309,24 @@ class PetWidget(QWidget):
 
     # ---------- 情感选项（galgame 选择支，v6.30 Phase3b） ----------
     def _render_choices(self):
-        """渲染选项按钮（AI 调用 offer_choices 后，主线程展示）"""
+        """把待展示的选项按钮追加到 AI 回复的同一气泡（打字机完成后调用）"""
         choices = getattr(self, '_pending_choices', None) or []
-        self._pending_choices = None
         if not choices:
             return
-        import datetime as _dt
-        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
-        self._append_chat('桌宠', '✨ 你想怎么做？')
-        try:
-            bubble, content = self._new_bubble('桌宠', ts, is_user=False, text='')
-        except Exception:
+        self._pending_choices = None
+        if self.chat_type_timer.isActive():
+            # 打字机还在渲染正文：等完成回调（_chat_type_tick）再追加，避免按钮插在文本中间
             return
+        content = getattr(self, '_chat_type_content', None)
+        if content is None:
+            import datetime as _dt
+            ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+            _, content = self._new_bubble('桌宠', ts, is_user=False, text='')
+        self._add_choice_buttons(content, choices)
+        self._chat_scroll_bottom()
+
+    def _add_choice_buttons(self, content, choices):
+        """在指定气泡内容区添加选项按钮（A/B/C）"""
         letters = ['A', 'B', 'C']
         for i, c in enumerate(choices):
             btn = QPushButton(f'{letters[i]}. {c}')
@@ -6328,7 +6337,6 @@ class PetWidget(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked, t=c: self._send_choice(t))
             content.addWidget(btn)
-        self._chat_scroll_bottom()
 
     def _send_choice(self, text):
         """用户点击选项：作为用户消息发送 + 好感度 +1"""
