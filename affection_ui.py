@@ -6,10 +6,51 @@ affection_ui.py — 好感度关系面板（Phase 1：展示；动效 Phase 2）
 LiveGalGame 式可视化（变化动效 +N↑ 在 Phase 2 与余额气泡一起做）。
 """
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                               QProgressBar, QPushButton, QScrollArea, QWidget, QFrame)
-from PySide6.QtCore import Qt
+                               QProgressBar, QPushButton, QScrollArea, QWidget, QFrame,
+                               QGraphicsOpacityEffect)
+from PySide6.QtCore import Qt, QPropertyAnimation, QPoint, QEasingCurve
 
 from affection_engine import AFFECTION_MAX, AFFECTION_INIT, xp_for_level, stage_from_affection
+
+
+class CostBubble(QLabel):
+    """费用/好感度动画气泡：上浮渐隐（dsh-pet 余额气泡 + LiveGalGame 动效）"""
+
+    def __init__(self, parent, text: str, color: str = '#9fd0ff'):
+        super().__init__(parent)
+        self.setText(text)
+        self.setStyleSheet(
+            f'color:{color}; font-size:12px; font-weight:bold; background:rgba(20,27,44,0.75);'
+            f'border:1px solid {color}; border-radius:8px; padding:2px 8px;')
+        self.adjustSize()
+        self._op = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._op)
+        self._pos_anim = QPropertyAnimation(self, b'pos', self)
+        self._op_anim = QPropertyAnimation(self._op, b'opacity', self)
+        self._finished = False
+
+    def show_bubble(self, x: int, y: int, dy: int = -46, duration: int = 1400):
+        """从 (x,y) 上浮 dy 并渐隐，结束后销毁自己"""
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self._pos_anim.stop()
+        self._op_anim.stop()
+        self._pos_anim.setDuration(duration)
+        self._pos_anim.setStartValue(QPoint(x, y))
+        self._pos_anim.setEndValue(QPoint(x, y + dy))
+        self._pos_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._op_anim.setDuration(duration)
+        self._op_anim.setStartValue(1.0)
+        self._op_anim.setEndValue(0.0)
+        self._pos_anim.finished.connect(self._on_done)
+        self._pos_anim.start()
+        self._op_anim.start()
+
+    def _on_done(self):
+        if not self._finished:
+            self._finished = True
+            self.deleteLater()
 
 
 class RelationDialog(QDialog):

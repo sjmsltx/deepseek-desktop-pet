@@ -32,7 +32,8 @@ from mcp_bridge import McpBridge  # v6.20 MCP 桥接（外部 MCP server 工具�
 from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules/theme/skill）
 from affection_engine import AffectionEngine  # v6.30 好感度引擎
 from memory_events import MemoryEvents  # v6.30 回忆日志
-from affection_ui import RelationDialog  # v6.30 关系面板
+from affection_ui import RelationDialog, CostBubble  # v6.30 关系面板 / 费用气泡
+from pet_minigames import GameWindow  # v6.30 小游戏
 
 # Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
 DWMWA_NCRENDERING_POLICY = 2
@@ -54,7 +55,18 @@ AFFECTION_PATH = os.path.join(BASE_DIR, 'affection.json')   # v6.30 好感度
 MEMORIES_PATH = os.path.join(BASE_DIR, 'memories.json')     # v6.30 回忆日志
 
 def asset(role, state):
-    return os.path.join(ASSETS, role, f'{role}_{state}.png')
+    p = os.path.join(ASSETS, role, f'{role}_{state}.png')
+    if os.path.exists(p):
+        return p
+    # v6.30 兜底：新状态素材缺失时降级到已有状态
+    fallback = {'hungry': 'eating', 'victory': 'happy', 'defeat': 'sad',
+                'kiss': 'hug_whale', 'shy_hug': 'hug_whale'}
+    fb = fallback.get(state)
+    if fb:
+        p2 = os.path.join(ASSETS, role, f'{role}_{fb}.png')
+        if os.path.exists(p2):
+            return p2
+    return os.path.join(ASSETS, role, f'{role}_idle.png')
 
 # ============ 国际化（v6.20，右键菜单/提示/AI 回复语言） ============
 UI_ZH = {
@@ -897,6 +909,7 @@ class ApiStats:
             self.last = entry
             self.calls.append(entry)
         self._save()
+        return cost  # v6.30 返回本次费用（余额气泡用）
         return entry
 
 
@@ -1064,6 +1077,7 @@ class PetWidget(QWidget):
     confirm_signal = Signal(object)  # 危险操作确认请求（跨线程回调）
     weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
     ocr_signal = Signal(str)       # OCR 识别结果（截图粘贴，跨线程安全）
+    cost_bubble_signal = Signal(float)  # v6.30 API 费用气泡（跨线程）
 
     def __init__(self):
         super().__init__()
@@ -1099,6 +1113,13 @@ class PetWidget(QWidget):
         self.affection = AffectionEngine(AFFECTION_PATH)
         self.memories = MemoryEvents(MEMORIES_PATH)
         self._relation_dialog = None
+        self._game_window = None
+        # v6.30 饱食度巡检（每 5 分钟，低饱食提示）
+        self._satiety_timer = QTimer(self)
+        self._satiety_timer.timeout.connect(self._check_satiety)
+        self._satiety_timer.start(5 * 60 * 1000)
+        self.cost_bubble_signal.connect(self._on_cost_bubble)
+        self._last_satiety_warn = 0.0
         # AI 回复信号（类级定义，connect 跨线程槽）
         self.ai_reply_signal.connect(self._display_ai_reply)
         self.ai_status_signal.connect(self._update_ai_status)
@@ -2710,7 +2731,7 @@ class PetWidget(QWidget):
             # v6.30 好感度：对话完成事件（占位/错误回复不计）
             if final_reply and not final_reply.startswith('（'):
                 try:
-                    self.affection.trigger(self.current, 'chat')
+                    self._handle_affection(self.affection.trigger(self.current, 'chat'))
                 except Exception:
                     pass
             self.ai_reply_signal.emit(final_reply)
@@ -4154,7 +4175,9 @@ class PetWidget(QWidget):
             if not usage:
                 return
             model = resp.get('model') or ''
-            self.api_stats.record(usage, model)
+            cost = self.api_stats.record(usage, model)
+            if cost:
+                self.cost_bubble_signal.emit(cost)  # v6.30 费用气泡
         except Exception:
             pass
 
@@ -6164,6 +6187,86 @@ class PetWidget(QWidget):
             self.affection, self.current, CHARACTERS[self.current]['name'])
         self._relation_dialog.show()
 
+    # ---------- 好感度 Phase2 交互（v6.30） ----------
+    def _handle_affection(self, result, role=None):
+        """好感度事件结果统一处理：里程碑自动记录回忆 + 头顶提示"""
+        if not result or result.get('blocked'):
+            return
+        role = role or self.current
+        notes = []
+        if result.get('leveled_up'):
+            notes.append(f'等级提升到 Lv.{result["new_level"]}')
+        if result.get('stage_changed'):
+            notes.append(f'关系进入「{result["new_stage"]}」阶段')
+        for t in result.get('unlocked_titles') or []:
+            notes.append(f'获得称号「{t}」')
+        if notes:
+            try:
+                self.memories.add(role, 'milestone', '；'.join(notes),
+                                  affection_at=self.affection.snapshot(role)['affection'])
+            except Exception:
+                pass
+            self._show_pet_bubble('、'.join(notes) + '！', 4)
+
+    def _show_pet_bubble(self, text, secs=3):
+        """角色头顶提示气泡（复用 CostBubble 动画）"""
+        try:
+            b = CostBubble(self, text, '#6ecb7a')
+            b.show_bubble(max(8, self.width() // 2 - len(text) * 6), 8, duration=secs * 1000)
+        except Exception:
+            pass
+
+    def _on_cost_bubble(self, cost):
+        """API 费用气泡（主线程，跨线程信号）"""
+        try:
+            b = CostBubble(self, f'-¥{cost:.3f}', '#ff8a8a' if cost > 0.1 else '#9fd0ff')
+            b.show_bubble(self.width() // 2 - 25, 8)
+        except Exception:
+            pass
+
+    def _feed_pet(self):
+        """喂食：恢复饱食度 + 好感（冷却 30 分钟）"""
+        r = self.affection.feed(self.current)
+        if r.get('blocked'):
+            self._show_pet_bubble('刚喂过啦，过会儿再喂～')
+            return
+        self._handle_affection(r)
+        try:
+            self.play_scene('eat')
+        except Exception:
+            pass
+        self._show_pet_bubble(f'好吃！饱食度 {r.get("satiety", 100):.0f}%，好感 +2')
+
+    def _open_games(self):
+        """打开小游戏窗口"""
+        if getattr(self, '_game_window', None) is not None:
+            try:
+                self._game_window.close()
+            except Exception:
+                pass
+        self._game_window = GameWindow(self._on_game_result, self)
+        self._game_window.show()
+
+    def _on_game_result(self, win):
+        """小游戏结果 → 好感度事件"""
+        try:
+            r = self.affection.trigger(self.current, 'game_win' if win else 'game_play')
+            self._handle_affection(r)
+            if win:
+                self.play_scene('happy')
+        except Exception:
+            pass
+
+    def _check_satiety(self):
+        """饱食度巡检：低饱食提示（零惩罚，不扣好感；每小时最多提示一次）"""
+        try:
+            s = self.affection.satiety(self.current)
+            if s < 30 and time.time() - getattr(self, '_last_satiety_warn', 0) > 3600:
+                self._last_satiety_warn = time.time()
+                self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
+        except Exception:
+            pass
+
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
@@ -6189,6 +6292,10 @@ class PetWidget(QWidget):
         imenu.addAction(T('say')).triggered.connect(lambda: self.say_random())
         imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
         imenu.addAction(T('random')).triggered.connect(lambda: self.random_action())
+        imenu.addSeparator()
+        imenu.addAction('🍖 喂食').triggered.connect(self._feed_pet)
+        imenu.addAction('🎮 小游戏').triggered.connect(self._open_games)
+        imenu.addSeparator()
         imenu.addAction(T('sleep')).triggered.connect(lambda: self.toggle_sleep())
         imenu.addSeparator()
         imenu.addAction(T('toggle_chat')).triggered.connect(lambda: self.toggle_chat_panel())

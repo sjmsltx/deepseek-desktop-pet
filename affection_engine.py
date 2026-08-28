@@ -17,6 +17,13 @@ AFFECTION_MAX = 200          # 好感度上限
 AFFECTION_INIT = 60          # 初始好感度（中立友好起点）
 XP_PER_COMPANION_MIN = 10    # 陪伴时长累计触发间隔（分钟）
 
+# ---------- 饱食度（DyberPet 式：时间衰减 + 喂食恢复） ----------
+SATIETY_MAX = 100
+SATIETY_INIT = 80
+SATIETY_DECAY_PER_MIN = 100 / (12 * 60)   # 12 小时从 100 衰减到 0
+SATIETY_FEED_RESTORE = 40                 # 每次喂食恢复量
+SATIETY_LOW = 30                          # 低于此值视为饥饿（只提示不惩罚）
+
 # ---------- XP 曲线（whale-girl 公式：到达 L 级所需累计 XP） ----------
 def xp_for_level(level: int) -> int:
     return 50 * level * (level - 1) // 2
@@ -134,6 +141,8 @@ class AffectionEngine:
                 'stats': {'tasks': 0, 'games': 0, 'companion_min': 0},
                 'cooldowns': {},
                 'daily': {'date': _today()},
+                'satiety': SATIETY_INIT,      # 饱食度（v6.30 Phase2）
+                'last_sat_time': time.time(),
                 'updated': time.time(),
             }
             self._data[role] = st
@@ -221,6 +230,37 @@ class AffectionEngine:
                 'new_stage': new_stage,
                 'unlocked_titles': unlocked,
             }
+
+    # ---------- 饱食度（v6.30 Phase2） ----------
+    def satiety(self, role: str) -> float:
+        """当前饱食度（按 last_sat_time 动态衰减计算，无需定时器）"""
+        with self._lock:
+            st = self._state(role)
+            last = st.get('last_sat_time', time.time())
+            elapsed_min = max(0, (time.time() - last) / 60)
+            s = st.get('satiety', SATIETY_INIT) - elapsed_min * SATIETY_DECAY_PER_MIN
+            return round(max(0.0, min(SATIETY_MAX, s)), 1)
+
+    def feed(self, role: str) -> dict:
+        """
+        喂食：恢复饱食度 +40（封顶 100）并触发 feed 事件（好感 +2，冷却 30 分钟）。
+        低饱食只提示不惩罚（零惩罚原则）。
+        """
+        with self._lock:
+            st = self._state(role)
+            now = time.time()
+            if now - st['cooldowns'].get('feed', 0) < EVENTS['feed'][2]:
+                return {'blocked': True}
+        r = self.trigger(role, 'feed')
+        if r.get('blocked'):
+            return r
+        with self._lock:
+            st = self._state(role)
+            st['satiety'] = min(SATIETY_MAX, st.get('satiety', SATIETY_INIT) + SATIETY_FEED_RESTORE)
+            st['last_sat_time'] = time.time()
+            self._save()
+        r['satiety'] = self.satiety(role)
+        return r
 
     # ---------- 陪伴时长（每满 10 分钟触发一次） ----------
     def add_companion_min(self, role: str, minutes: int = 10) -> dict:
