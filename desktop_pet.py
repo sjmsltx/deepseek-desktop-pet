@@ -426,11 +426,11 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "offer_choices",
-            "description": "在对话关键时刻给主人提供 2-3 个选项（galgame 式选择支）。仅在合适场景使用：二选一/三选一的抉择、约不约、去不去、选哪个、让主人做决定时。调用后回复正文应简短（一两句），把选择权交给选项。",
+            "description": "在对话关键时刻给主人提供 2-3 个选项（galgame 式选择支）。仅在合适场景使用：二选一/三选一的抉择、约不约、去不去、选哪个、让主人做决定时。调用后回复正文应简短（一两句），把选择权交给选项。每个选项可以是字符串，或对象 {text: 选项文字, affect: 好感度增量}（affect 用 1-3 的整数，表示选这个选项主人会多开心）",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "choices": {"type": "array", "items": {"type": "string"}, "description": "2-3 个选项，每个不超过 10 字，口语化"}
+                    "choices": {"type": "array", "items": {}, "description": "2-3 个选项，每个不超过 10 字，口语化；字符串或 {text, affect} 对象"}
                 },
                 "required": ["choices"]
             }
@@ -2489,8 +2489,18 @@ class PetWidget(QWidget):
                 ctypes.windll.user32.LockWorkStation()
                 return '已锁定屏幕'
             elif name == 'offer_choices':
-                # v6.30 情感选项：返回特殊标记，_ai_worker 检测后暂停对话流并展示选项
-                choices = [str(c).strip()[:20] for c in (args.get('choices') or []) if str(c).strip()]
+                # v6.30 情感选项：支持字符串或 {text, affect} 对象，返回特殊标记
+                raw = args.get('choices') or []
+                choices = []
+                for c in raw:
+                    if isinstance(c, dict):
+                        t = str(c.get('text') or '').strip()[:20]
+                        if t:
+                            choices.append({'text': t, 'affect': c.get('affect') or c.get('affection')})
+                    else:
+                        t = str(c).strip()[:20]
+                        if t:
+                            choices.append({'text': t, 'affect': None})
                 if len(choices) < 2:
                     return '需要至少 2 个选项'
                 self._pending_choices = choices[:3]
@@ -6326,21 +6336,34 @@ class PetWidget(QWidget):
         self._chat_scroll_bottom()
 
     def _add_choice_buttons(self, content, choices):
-        """在指定气泡内容区添加选项按钮（A/B/C）"""
+        """在指定气泡内容区添加选项按钮（A/B/C，带情感标签 ❤️+n）"""
         letters = ['A', 'B', 'C']
         for i, c in enumerate(choices):
-            btn = QPushButton(f'{letters[i]}. {c}')
+            if isinstance(c, dict):
+                label = c.get('text', '')
+                aff = c.get('affect')
+                tag = f'  ❤️+{aff}' if aff else ''
+            else:
+                label = str(c)
+                tag = ''
+            btn = QPushButton(f'{letters[i]}. {label}{tag}')
             btn.setStyleSheet(
                 'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
                 ' border-radius:8px; padding:8px 12px; text-align:left; font-size:13px; }'
                 'QPushButton:hover { background:#35507a; border-color:#7fb2ff; }'
                 'QPushButton:disabled { background:#1c2740; color:#667; border-color:#24314a; }')
             btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, t=c, b=btn: self._send_choice(t, b))
+            btn.clicked.connect(lambda checked, c=c, b=btn: self._send_choice(c, b))
             content.addWidget(btn)
 
-    def _send_choice(self, text, btn=None):
-        """用户点击选项：禁用整组按钮防止重复选择，作为用户消息发送 + 好感度 +1"""
+    def _send_choice(self, choice, btn=None):
+        """用户点击选项：禁用整组按钮防止重复选择，作为用户消息发送 + 好感度 +1(+affect)"""
+        if isinstance(choice, dict):
+            text = choice.get('text', '')
+            aff = choice.get('affect')
+        else:
+            text = str(choice)
+            aff = None
         if btn is not None:
             try:
                 parent = btn.parentWidget()
@@ -6350,7 +6373,12 @@ class PetWidget(QWidget):
             except Exception:
                 pass
         try:
-            self.affection.trigger(self.current, 'chat')
+            if aff:
+                # 情感增量：额外触发对应好感度（affect 次 chat 事件近似，或直接按数值加成）
+                for _ in range(min(3, int(aff))):
+                    self.affection.trigger(self.current, 'chat')
+            else:
+                self.affection.trigger(self.current, 'chat')
         except Exception:
             pass
         self._append_chat('我', text)

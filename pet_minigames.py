@@ -8,8 +8,8 @@ pet_minigames.py — 桌宠小游戏（v6.30 Phase2）
 import random
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QLineEdit, QMessageBox, QWidget)
-from PySide6.QtCore import Qt, QPoint, QRect
+                               QPushButton, QLineEdit, QMessageBox, QWidget, QGridLayout)
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush
 
 
@@ -456,6 +456,150 @@ class _MineWidget(QWidget):
             self.clicked.emit(x, y, event.button() == Qt.RightButton)
 
 
+# ---------- 贪吃蛇 ----------
+class Snake(BaseGame):
+    """贪吃蛇：方向键控制，吃食物变长"""
+
+    SIZE = 20
+    CELL = 15
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🐍 贪吃蛇', on_result, parent)
+        self.setFixedSize(340, 400)
+        self.snake = [(10, 10), (9, 10), (8, 10)]
+        self.dir = (1, 0)
+        self.score = 0
+        self.over = False
+        self.food = self._spawn_food()
+        self._widget = _SnakeWidget(self)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._step)
+        self.timer.start(130)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('方向键控制，吃到食物变长', alignment=Qt.AlignCenter))
+        lay.addWidget(self._widget)
+        self.lb = QLabel('得分 0', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def _spawn_food(self):
+        while True:
+            f = (random.randint(0, self.SIZE - 1), random.randint(0, self.SIZE - 1))
+            if f not in self.snake:
+                return f
+
+    def _step(self):
+        if self.over:
+            return
+        head = (self.snake[0][0] + self.dir[0], self.snake[0][1] + self.dir[1])
+        if head in self.snake or not (0 <= head[0] < self.SIZE and 0 <= head[1] < self.SIZE):
+            self.over = True
+            self.timer.stop()
+            self._finish(False, f'撞到了！得分 {self.score}（参与 +1）')
+            return
+        self.snake.insert(0, head)
+        if head == self.food:
+            self.score += 1
+            self.lb.setText(f'得分 {self.score}')
+            self.food = self._spawn_food()
+        else:
+            self.snake.pop()
+        self._widget.update()
+
+    def keyPressEvent(self, e):
+        m = {Qt.Key_Up: (0, -1), Qt.Key_Down: (0, 1), Qt.Key_Left: (-1, 0), Qt.Key_Right: (1, 0)}
+        d = m.get(e.key())
+        if d and (d[0] != -self.dir[0] or d[1] != -self.dir[1]):
+            self.dir = d
+        else:
+            super().keyPressEvent(e)
+
+
+class _SnakeWidget(QWidget):
+    def __init__(self, game, parent=None):
+        super().__init__(parent)
+        self.game = game
+        self.setFixedSize(game.SIZE * game.CELL, game.SIZE * game.CELL)
+
+    def paintEvent(self, event):
+        g = self.game
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor('#141b2c'))
+        # 食物
+        p.setBrush(QBrush(QColor('#e0527a')))
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(g.food[0] * g.CELL + 2, g.food[1] * g.CELL + 2, g.CELL - 4, g.CELL - 4)
+        # 蛇
+        for i, (x, y) in enumerate(g.snake):
+            color = QColor('#6ecb7a') if i == 0 else QColor('#3f8f5f')
+            p.setBrush(QBrush(color))
+            p.setPen(Qt.NoPen)
+            p.drawRoundedRect(x * g.CELL + 1, y * g.CELL + 1, g.CELL - 2, g.CELL - 2, 3, 3)
+
+
+# ---------- 记忆翻牌 ----------
+class MemoryMatch(BaseGame):
+    """记忆翻牌：配对 8 对表情卡片"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🃏 记忆翻牌', on_result, parent)
+        self.setFixedWidth(300)
+        emojis = ['🍎', '🍊', '🍇', '🍓', '🍑', '🥝', '🍉', '🍒'] * 2
+        random.shuffle(emojis)
+        self.cards = emojis
+        self.revealed = [False] * 16
+        self.matched = [False] * 16
+        self.first = None
+        self.tries = 0
+        self.buttons = []
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('翻开配对，全部配对获胜', alignment=Qt.AlignCenter))
+        grid = QGridLayout()
+        for i in range(16):
+            btn = QPushButton('❓')
+            btn.setFixedSize(56, 56)
+            btn.setStyleSheet(
+                'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
+                ' border-radius:8px; font-size:20px; }'
+                'QPushButton:hover { background:#35507a; }'
+                'QPushButton:disabled { background:#1c2740; color:#8aa; }')
+            btn.clicked.connect(lambda checked, idx=i: self._flip(idx))
+            grid.addWidget(btn, i // 4, i % 4)
+            self.buttons.append(btn)
+        lay.addLayout(grid)
+        self.lb = QLabel('尝试 0 次', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+
+    def _flip(self, idx):
+        if self.matched[idx] or self.revealed[idx]:
+            return
+        self.revealed[idx] = True
+        self.buttons[idx].setText(self.cards[idx])
+        if self.first is None:
+            self.first = idx
+            return
+        self.tries += 1
+        self.lb.setText(f'尝试 {self.tries} 次')
+        a, b = self.first, idx
+        self.first = None
+        if self.cards[a] == self.cards[b]:
+            self.matched[a] = self.matched[b] = True
+            self.buttons[a].setEnabled(False)
+            self.buttons[b].setEnabled(False)
+            if all(self.matched):
+                self._finish(True, f'全部配对！用了 {self.tries} 次，好感度 +3')
+        else:
+            QTimer.singleShot(650, lambda: self._unflip(a, b))
+
+    def _unflip(self, a, b):
+        if not self.matched[a]:
+            self.revealed[a] = False
+            self.buttons[a].setText('❓')
+        if not self.matched[b]:
+            self.revealed[b] = False
+            self.buttons[b].setText('❓')
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
@@ -463,6 +607,8 @@ GAMES = {
     '⚫ 五子棋': Gomoku,
     '🔢 2048': Game2048,
     '💣 扫雷': Minesweeper,
+    '🐍 贪吃蛇': Snake,
+    '🃏 记忆翻牌': MemoryMatch,
 }
 
 
