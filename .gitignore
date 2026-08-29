@@ -46,3 +46,5 @@ _apistats_debug.log
 gen_actions.py
 cut_actions.py
 assets/new_actions/
+
+games_save/

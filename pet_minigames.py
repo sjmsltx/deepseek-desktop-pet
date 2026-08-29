@@ -21,7 +21,7 @@ class BaseGame(QDialog):
         super().__init__(parent)
         self.on_result = on_result
         self.setWindowTitle(title)
-        self.setFixedWidth(340)
+        self.setMinimumWidth(320)  # v6.40 可缩放（右下角拖拽扩张），不再固定尺寸
         self.setStyleSheet(
             "QDialog { background:#1e2430; }"
             "QLabel { color:#dce3f0; font-size:14px; }"
@@ -39,21 +39,101 @@ class BaseGame(QDialog):
         self.difficulty = None
         self.pet_face = None
         self._closed = False
+        self._restore_checked = False
+
+    # ---------- 暂停保存协议（v6.40） ----------
+    @staticmethod
+    def _save_dir():
+        import os as _os
+        d = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'games_save')
+        try:
+            _os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+        return d
+
+    def _save_key(self):
+        return self.__class__.__name__
+
+    def _state_to_save(self):
+        """子类实现：返回可序列化 dict；返回 None = 不支持保存"""
+        return None
+
+    def _state_from_save(self, data):
+        """子类实现：恢复存档"""
+        pass
+
+    def _save_progress(self):
+        """关闭时自动保存未完成局（仅游戏进行中）"""
+        try:
+            if getattr(self, 'over', False):
+                return
+            data = self._state_to_save()
+            if data is None:
+                return
+            import json as _json
+            with open(self._save_path(), 'w', encoding='utf-8') as f:
+                _json.dump(data, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _save_path(self):
+        import os as _os
+        return _os.path.join(self._save_dir(), self._save_key() + '.json')
+
+    def _load_progress(self):
+        import os as _os
+        p = self._save_path()
+        if not _os.path.exists(p):
+            return None
+        try:
+            import json as _json
+            with open(p, 'r', encoding='utf-8') as f:
+                return _json.load(f)
+        except Exception:
+            return None
+
+    def _clear_save(self):
+        import os as _os
+        try:
+            if _os.path.exists(self._save_path()):
+                _os.remove(self._save_path())
+        except Exception:
+            pass
+
+    def _maybe_restore(self):
+        """有存档 → 询问恢复（首次显示时调用）"""
+        data = self._load_progress()
+        if not data:
+            return
+        try:
+            ret = QMessageBox.question(self, '继续上次', '发现未完成的存档，继续上次的进度吗？',
+                                       QMessageBox.Yes | QMessageBox.No)
+            if ret == QMessageBox.Yes:
+                self._state_from_save(data)
+            else:
+                self._clear_save()
+        except Exception:
+            pass
 
     def closeEvent(self, event):
-        """窗口关闭：标记已关闭 + 停掉所有常驻定时器（防止后台继续跑）"""
+        """窗口关闭：保存未完成局 + 停掉所有常驻定时器"""
+        self._save_progress()
         self._closed = True
         for t in self.findChildren(QTimer):
             t.stop()
         super().closeEvent(event)
 
     def showEvent(self, event):
-        """窗口显示：把焦点抢回游戏本体（防止难度下拉框吃掉方向键/空格）"""
+        """窗口显示：焦点抢回游戏本体 + 首次显示检查存档"""
         super().showEvent(event)
         try:
             self.setFocus()
         except Exception:
             pass
+        if not getattr(self, '_restore_checked', False):
+            self._restore_checked = True
+            self._maybe_restore()
 
     def _add_pet_face(self, lay):
         """桌宠表情区：游戏窗口内显示桌宠反应（解决黑箱问题）"""
@@ -91,6 +171,7 @@ class BaseGame(QDialog):
     def _finish(self, win: bool, msg: str, score: int = 0):
         if getattr(self, '_closed', False):
             return  # 窗口已关闭（用户中途退出）：不弹窗不结算
+        self._clear_save()  # 对局结束：清除未完成存档
         QMessageBox.information(self, '结果', msg)
         try:
             self.on_result(win, score, self.__class__.__name__)
@@ -365,7 +446,7 @@ class _BoardWidget(QWidget):
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self.game = game
-        self.setFixedSize(game.CELL * (game.SIZE - 1) + game.MARGIN * 2,
+        self.setMinimumSize(game.CELL * (game.SIZE - 1) + game.MARGIN * 2,
                           game.CELL * (game.SIZE - 1) + game.MARGIN * 2)
 
     def paintEvent(self, event):
@@ -403,7 +484,7 @@ class Game2048(BaseGame):
     RULES = '2048：用方向键移动所有方块，相同数字相撞会合并翻倍，合成目标数字（2048/4096）获胜。'
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 2048', on_result, parent)
-        self.setFixedSize(360, 400)
+        self.setMinimumSize(360, 400)
         self.board = [[0] * 4 for _ in range(4)]
         self.size = 4
         self.goal = 2048
@@ -539,7 +620,8 @@ class Minesweeper(BaseGame):
         if self._combo is not None:
             w, h, mines = self.difficulty
             self.W, self.H, self.MINES = w, h, mines
-            self.cell = max(14, min(32, 320 // w))
+            avail = max(280, self.width() - 40)
+            self.cell = max(12, min(32, avail // w))  # v6.40 高级档(30列)格子自适应不裁切
             self.grid = [[0] * w for _ in range(h)]
             self.revealed = [[False] * w for _ in range(h)]
             self.flagged = [[False] * w for _ in range(h)]
@@ -547,6 +629,21 @@ class Minesweeper(BaseGame):
             self.over = False
             self._widget.update()
             self._widget.setFixedSize(w * self.cell, h * self.cell)
+            self.setMinimumWidth(min(w * self.cell + 40, 900))  # 窗口宽度跟随棋盘
+
+    def resizeEvent(self, event):
+        """v6.40 窗口缩放：棋盘格子自适应新宽度"""
+        super().resizeEvent(event)
+        try:
+            if not hasattr(self, '_widget') or self._widget is None:
+                return
+            avail = max(240, self.width() - 40)
+            cell = max(12, min(32, avail // self.W))
+            if cell != self.cell:
+                self.cell = cell
+                self._widget.setFixedSize(self.W * cell, self.H * cell)
+        except Exception:
+            pass
 
     def _plant(self, ex, ey):
         import random as rnd
@@ -585,6 +682,36 @@ class Minesweeper(BaseGame):
             self.over = True
             self._finish(True, '全部排完了！好感度 +3')
 
+    # ---------- 暂停保存（v6.40）：中途退出自动存档，重开可恢复 ----------
+    def _state_to_save(self):
+        if getattr(self, 'over', False) or not getattr(self, 'started', False):
+            return None
+        return {
+            'W': self.W, 'H': self.H, 'MINES': self.MINES,
+            'grid': self.grid, 'revealed': self.revealed, 'flagged': self.flagged,
+            'started': self.started,
+            'diff': self._combo.currentIndex() if self._combo else 0,
+        }
+
+    def _state_from_save(self, data):
+        try:
+            self.W, self.H, self.MINES = data['W'], data['H'], data['MINES']
+            self.grid = data['grid']
+            self.revealed = data['revealed']
+            self.flagged = data['flagged']
+            self.started = data.get('started', True)
+            self.over = False
+            if self._combo is not None:
+                idx = int(data.get('diff', 0))
+                if 0 <= idx < self._combo.count():
+                    self._combo.setCurrentIndex(idx)
+            avail = max(240, self.width() - 40)
+            self.cell = max(12, min(32, avail // self.W))
+            self._widget.setFixedSize(self.W * self.cell, self.H * self.cell)
+            self._widget.update()
+        except Exception:
+            pass
+
     def _flood(self, x, y):
         if not (0 <= x < self.W and 0 <= y < self.H) or self.revealed[y][x] or self.grid[y][x] == 9:
             return
@@ -606,7 +733,7 @@ class _MineWidget(QWidget):
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self.game = game
-        self.setFixedSize(game.W * game.cell, game.H * game.cell)
+        self.setMinimumSize(game.W * game.cell, game.H * game.cell)
 
     def paintEvent(self, event):
         g = self.game
@@ -651,7 +778,7 @@ class Snake(BaseGame):
     RULES = '贪吃蛇：方向键控制蛇移动，吃到食物变长得分。撞墙或撞到自己结束。金色食物 5 秒内吃到 +3 分！'
     def __init__(self, on_result, parent=None):
         super().__init__('🐍 贪吃蛇', on_result, parent)
-        self.setFixedSize(340, 400)
+        self.setMinimumSize(340, 400)
         self.snake = [(10, 10), (9, 10), (8, 10)]
         self.dir = (1, 0)
         self.score = 0
@@ -713,7 +840,7 @@ class _SnakeWidget(QWidget):
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self.game = game
-        self.setFixedSize(game.SIZE * game.CELL, game.SIZE * game.CELL)
+        self.setMinimumSize(game.SIZE * game.CELL, game.SIZE * game.CELL)
 
     def paintEvent(self, event):
         g = self.game
@@ -740,7 +867,7 @@ class MemoryMatch(BaseGame):
 
     def __init__(self, on_result, parent=None):
         super().__init__('🃏 记忆翻牌', on_result, parent)
-        self.setFixedWidth(320)
+        self.setMinimumWidth(320)
         self.revealed = []
         self.matched = []
         self.first = None
@@ -828,7 +955,7 @@ class TicTacToe(BaseGame):
     RULES = '井字棋：你执 X 先手，在 3×3 棋盘落子，横竖斜连成一线获胜。难度决定 AI 聪明程度。'
     def __init__(self, on_result, parent=None):
         super().__init__('⚫ 井字棋', on_result, parent)
-        self.setFixedWidth(320)
+        self.setMinimumWidth(320)
         self.board = [''] * 9
         self.turn = 'X'  # 玩家 X，AI O
         self.over = False
@@ -943,7 +1070,7 @@ class Farkle(BaseGame):
     RULES = 'KCD 版 Farkle 骰子：先到目标分（500~10000 自选）获胜。\\n计分：单 1=100，单 5=50；三个 1=1000，三个 2~6=点数×100；四个同=×2，五个同=×4，六个同=×8；顺子 123456=1500，12345=500，23456=750。\\n流程：掷骰→点击选中计分骰→保留（得分入回合）→继续掷剩余骰或锁定。全部保留后奖励 6 个新骰。掷出无分骰=Farkle，回合清零。策略：贪心有风险，见好就收！'
     def __init__(self, on_result, parent=None):
         super().__init__('🎲 Farkle 骰子', on_result, parent)
-        self.setFixedWidth(400)
+        self.setMinimumWidth(400)
         self.pscore = 0
         self.escore = 0
         self.turn = 'player'
@@ -1182,7 +1309,7 @@ class WhackAMole(BaseGame):
     RULES = '打地鼠：30 秒内点中随机冒出的地鼠，点中 +1 分。速度越快的地鼠越难抓，15 分以上算胜利。'
     def __init__(self, on_result, parent=None):
         super().__init__('🎯 打地鼠', on_result, parent)
-        self.setFixedWidth(320)
+        self.setMinimumWidth(320)
         self.score = 0
         self.time_left = 30
         self.playing = False
@@ -1268,7 +1395,7 @@ class Blackjack(BaseGame):
     RULES = '21 点：和桌宠比谁更接近 21。A 可算 1 或 11，J/Q/K 算 10。要牌接近 21，超过 21 爆牌即输，停牌后桌宠补牌比大小。'
     def __init__(self, on_result, parent=None):
         super().__init__('🃏 21 点', on_result, parent)
-        self.setFixedWidth(340)
+        self.setMinimumWidth(340)
         self.deck = []
         self.phand = []
         self.ehand = []
@@ -1378,7 +1505,7 @@ class Sudoku(BaseGame):
     RULES = '数独：在 9×9 棋盘填入 1~9，保证每行、每列、每个 3×3 宫格内数字不重复。已给出的数字不可改，填完点「检查」。'
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 数独', on_result, parent)
-        self.setFixedWidth(420)
+        self.setMinimumWidth(420)
         self.solution = None
         self.puzzle = None
         self.cells = []
@@ -1495,7 +1622,7 @@ class Tetris(BaseGame):
     RULES = '俄罗斯方块：←→左右移动，↑旋转，↓加速下落，空格直接落底。方块堆满一行自动消除，一次消多行得分更高。堆到顶部游戏结束。'
     def __init__(self, on_result, parent=None):
         super().__init__('🧱 俄罗斯方块', on_result, parent)
-        self.setFixedSize(320, 440)
+        self.setMinimumSize(320, 440)
         self.board = [[0] * self.W for _ in range(self.H)]
         self.score = 0
         self.lines = 0
@@ -1587,7 +1714,7 @@ class _TetrisWidget(QWidget):
         super().__init__(parent)
         self.game = game
         cell = 18
-        self.setFixedSize(game.W * cell + 4, game.H * cell + 4)
+        self.setMinimumSize(game.W * cell + 4, game.H * cell + 4)
         self.cell = cell
 
     def paintEvent(self, event):
@@ -1618,7 +1745,7 @@ class SlidingPuzzle(BaseGame):
     RULES = '华容道：点击数字方块滑到旁边的空格里，目标是把数字按 1~15 顺序排好（空格在右下角）。步数越少越厉害。'
     def __init__(self, on_result, parent=None):
         super().__init__('🧩 华容道', on_result, parent)
-        self.setFixedWidth(340)
+        self.setMinimumWidth(340)
         self.steps = 0
         self.over = False
         self.buttons = []
@@ -1710,7 +1837,7 @@ class SimonSays(BaseGame):
     RULES = '西蒙记忆：桌宠会点亮一串颜色（红/绿/蓝/黄…），你要按顺序点击复述。每过一关序列加长一个，记住 8 个以上算记忆超神！'
     def __init__(self, on_result, parent=None):
         super().__init__('🎵 西蒙记忆', on_result, parent)
-        self.setFixedWidth(340)
+        self.setMinimumWidth(340)
         self.seq = []
         self.replay_idx = 0
         self.playing = False
