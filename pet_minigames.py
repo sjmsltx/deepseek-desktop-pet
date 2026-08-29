@@ -143,6 +143,7 @@ class Gomoku(BaseGame):
         self._board_widget = _BoardWidget(self)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('你执黑先手，连成五子获胜', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'简单': 0, '普通': 1, '困难': 2})
         lay.addWidget(self._board_widget)
         btn = QPushButton('认输')
         btn.clicked.connect(lambda: self._finish(False, '认输了…下次一定赢回来！'))
@@ -165,7 +166,18 @@ class Gomoku(BaseGame):
         self._ai_move()
 
     def _ai_move(self):
-        x, y = self._best_move()
+        d = self.difficulty or 1
+        if d == 0:
+            # 简单：30% 用评分防守，70% 随机
+            if random.random() < 0.3:
+                x, y = self._best_move()
+            else:
+                empties = [(x, y) for y in range(self.SIZE) for x in range(self.SIZE) if self.board[y][x] == 0]
+                if not empties:
+                    return
+                x, y = random.choice(empties)
+        else:
+            x, y = self._best_move(hard=(d >= 2))
         self.board[y][x] = 2
         if self._check_win(2):
             self.over = True
@@ -179,8 +191,9 @@ class Gomoku(BaseGame):
         self._board_widget.update()
 
     # ---- AI：对每个空位按「进攻 + 防守」评分 ----
-    def _score_pos(self, x, y):
-        return self._line_score(x, y, 1) + self._line_score(x, y, 2) * 0.9
+    def _score_pos(self, x, y, hard=False):
+        off = self._line_score(x, y, 1) * (1.35 if hard else 1.0)
+        return off + self._line_score(x, y, 2) * 0.9
 
     def _line_score(self, x, y, player):
         total = 0
@@ -204,13 +217,13 @@ class Gomoku(BaseGame):
             total += {5: 100000, 4: 5000, 3: 500, 2: 60, 1: 5}.get(count, 0) // (1 if blocked < 2 else 2)
         return total
 
-    def _best_move(self):
+    def _best_move(self, hard=False):
         best = None
         best_score = -1
         for y in range(self.SIZE):
             for x in range(self.SIZE):
                 if self.board[y][x] == 0:
-                    s = self._score_pos(x, y)
+                    s = self._score_pos(x, y, hard)
                     if s > best_score:
                         best_score = s
                         best = (x, y)
@@ -504,32 +517,40 @@ class Snake(BaseGame):
         self._widget = _SnakeWidget(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._step)
-        self.timer.start(130)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('方向键控制，吃到食物变长', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'慢': 180, '普通': 130, '快': 90})
         lay.addWidget(self._widget)
         self.lb = QLabel('得分 0', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb)
+        self.timer.start(self.difficulty or 130)
         self.setFocusPolicy(Qt.StrongFocus)
 
     def _spawn_food(self):
+        # (x, y, is_gold, expire_ts)；20% 概率金苹果（5 秒消失，+3 分）
+        gold = random.random() < 0.2
+        expire = time.time() + 5 if gold else 0
         while True:
             f = (random.randint(0, self.SIZE - 1), random.randint(0, self.SIZE - 1))
             if f not in self.snake:
-                return f
+                return (f[0], f[1], gold, expire)
 
     def _step(self):
         if self.over:
             return
+        import time as _t
+        # 金苹果过期消失
+        if self.food[2] and _t.time() > self.food[3]:
+            self.food = self._spawn_food()
         head = (self.snake[0][0] + self.dir[0], self.snake[0][1] + self.dir[1])
         if head in self.snake or not (0 <= head[0] < self.SIZE and 0 <= head[1] < self.SIZE):
             self.over = True
             self.timer.stop()
-            self._finish(False, f'撞到了！得分 {self.score}（参与 +1）')
+            self._finish(False, f'撞到了！得分 {self.score}（参与 +1）', self.score)
             return
         self.snake.insert(0, head)
-        if head == self.food:
-            self.score += 1
+        if head == (self.food[0], self.food[1]):
+            self.score += 3 if self.food[2] else 1
             self.lb.setText(f'得分 {self.score}')
             self.food = self._spawn_food()
         else:
