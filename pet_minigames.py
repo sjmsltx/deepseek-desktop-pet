@@ -791,21 +791,20 @@ class TicTacToe(BaseGame):
 
 # ---------- Farkle 骰子（天国拯救同款） ----------
 class Farkle(BaseGame):
-    """Farkle：目标分自选（500~10000），和桌宠轮流掷 6 骰，先到目标分获胜"""
+    """Farkle：目标分自选，和桌宠轮流掷 6 骰；点击骰子选中保留，先到目标分获胜"""
 
     TARGETS = [('500', 500), ('1000', 1000), ('1500', 1500), ('2000', 2000),
                ('3000', 3000), ('4000', 4000), ('8000', 8000), ('10000', 10000)]
 
     def __init__(self, on_result, parent=None):
         super().__init__('🎲 Farkle 骰子', on_result, parent)
-        self.setFixedWidth(380)
-        self.pscore = 0       # 玩家总成绩
-        self.escore = 0       # 桌宠总成绩
-        self.turn = 'player'  # player / enemy
-        self.turn_score = 0   # 当前回合累计
-        self.dice = []        # 剩余骰子
-        self.pending = []     # 待计分的骰子
-        self.kept_dice = []   # 本回合已保留的骰子
+        self.setFixedWidth(400)
+        self.pscore = 0
+        self.escore = 0
+        self.turn = 'player'
+        self.turn_score = 0
+        self.hand = []          # 手中骰子（可继续掷）
+        self.selected = set()   # 选中的骰子索引
         self.over = False
         lay = QVBoxLayout(self)
         row0 = QHBoxLayout()
@@ -820,18 +819,30 @@ class Farkle(BaseGame):
         self._add_difficulty(lay, {'普通': 0, '高手局': 1})
         self.lb_info = QLabel('目标 4000 分，先到者胜！', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb_info)
-        self.lb_dice = QLabel('点击「掷骰子」开始', alignment=Qt.AlignCenter)
-        self.lb_dice.setStyleSheet('font-size:22px;')
-        lay.addWidget(self.lb_dice)
+        grid = QGridLayout()
+        self.dice_btns = []
+        for i in range(6):
+            btn = QPushButton('·')
+            btn.setFixedSize(52, 52)
+            btn.setCheckable(True)
+            btn.setStyleSheet(
+                'QPushButton { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;'
+                ' border-radius:8px; font-size:20px; }'
+                'QPushButton:checked { background:#35507a; border:2px solid #ffd700; color:#fff; }'
+                'QPushButton:disabled { color:#445; }')
+            btn.clicked.connect(lambda checked, idx=i: self._toggle(idx))
+            grid.addWidget(btn, i // 3, i % 3)
+            self.dice_btns.append(btn)
+        lay.addLayout(grid)
+        self.lb_turn = QLabel('点击「掷骰子」开始', alignment=Qt.AlignCenter)
+        self.lb_turn.setWordWrap(True)
+        lay.addWidget(self.lb_turn)
         self.lb_score = QLabel('你: 0 ｜ 桌宠: 0', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb_score)
-        self.lb_turn = QLabel('', alignment=Qt.AlignCenter)
-        self.lb_turn.setStyleSheet('color:#8aa; font-size:12px;')
-        lay.addWidget(self.lb_turn)
         row = QHBoxLayout()
         self.btn_roll = QPushButton('🎲 掷骰子')
         self.btn_roll.clicked.connect(self._roll)
-        self.btn_keep = QPushButton('✅ 保留')
+        self.btn_keep = QPushButton('✅ 保留选中')
         self.btn_keep.clicked.connect(self._keep)
         self.btn_lock = QPushButton('🔒 锁定回合')
         self.btn_lock.clicked.connect(self._lock)
@@ -844,7 +855,6 @@ class Farkle(BaseGame):
     # ---------- 计分规则 ----------
     @staticmethod
     def score_dice(dice):
-        """返回 (分数, 可计分骰子索引集合)。无计分返回 (0, set())。"""
         from collections import Counter
         n = len(dice)
         if n == 6 and sorted(dice) == [1, 2, 3, 4, 5, 6]:
@@ -858,7 +868,7 @@ class Farkle(BaseGame):
             if c >= 3:
                 base = 1000 if v == 1 else v * 100
                 mult = 2 ** (c - 3)
-                score += base * mult   # 4个=2x, 5个=4x, 6个=8x（已覆盖全部 c 个骰子）
+                score += base * mult
                 for i, d in enumerate(dice):
                     if d == v:
                         usable.add(i)
@@ -875,34 +885,46 @@ class Farkle(BaseGame):
                             usable.add(i)
         return score, usable
 
-    # ---------- 游戏流程 ----------
+    # ---------- 玩家操作 ----------
+    def _toggle(self, idx):
+        if self.over or self.turn != 'player' or idx >= len(self.hand):
+            return
+        if idx in self.selected:
+            self.selected.discard(idx)
+        else:
+            self.selected.add(idx)
+        self._sync_ui()
+
     def _roll(self):
         if self.over or self.turn != 'player':
             return
-        if not self.dice:
-            self.dice = [random.randint(1, 6) for _ in range(6)]
-            self.kept_dice = []
-        else:
-            self.dice = [random.randint(1, 6) for _ in range(len(self.dice))]
-        self.pending = list(range(len(self.dice)))
-        s, _u = self.score_dice(self.dice)
+        n = 6 if not self.hand else len(self.hand)
+        self.hand = [random.randint(1, 6) for _ in range(n)]
+        self.selected = set()
+        s, _u = self.score_dice(self.hand)
         if s == 0:
+            self.lb_turn.setText('💥 FARKLE！本回合清零')
             self.turn_score = 0
-            self.lb_dice.setText('💥 FARKLE！无计分骰，回合清零')
-            QTimer.singleShot(1200, self._end_turn)
+            self.hand = []
+            self.selected = set()
             self._sync_ui()
+            QTimer.singleShot(1300, self._pass_turn)
             return
         self._sync_ui()
 
     def _keep(self):
-        if self.over or self.turn != 'player' or not self.dice:
+        if self.over or self.turn != 'player' or not self.hand or not self.selected:
             return
-        s, usable = self.score_dice(self.dice)
+        sel_vals = [self.hand[i] for i in sorted(self.selected)]
+        s, _u = self.score_dice(sel_vals)
         if s == 0:
+            self.lb_turn.setText('选中的骰子没有分哦，点计分骰（1/5/三同）')
             return
         self.turn_score += s
-        self.kept_dice += list(self.dice)
-        self.dice = []
+        self.hand = [v for i, v in enumerate(self.hand) if i not in self.selected]
+        self.selected = set()
+        if not self.hand:
+            self.lb_turn.setText(f'全保留了！本回合 {self.turn_score} 分，可继续掷新骰或锁定')
         self._sync_ui()
 
     def _lock(self):
@@ -910,7 +932,8 @@ class Farkle(BaseGame):
             return
         self.pscore += self.turn_score
         self.turn_score = 0
-        self.dice = []
+        self.hand = []
+        self.selected = set()
         if self.pscore >= self.target():
             self.over = True
             self._finish(True, f'你先到 {self.target()} 分！好感度 +3')
@@ -919,37 +942,30 @@ class Farkle(BaseGame):
         self._sync_ui()
         QTimer.singleShot(900, self._enemy_turn)
 
-    def _end_turn(self):
-        if self.turn == 'player':
-            self.turn_score = 0
-            self.dice = []
-            self.turn = 'enemy'
-            self._sync_ui()
-            QTimer.singleShot(900, self._enemy_turn)
-        else:
-            self.turn = 'player'
-            self.turn_score = 0
-            self.dice = []
-            self._sync_ui()
+    def _pass_turn(self):
+        self.turn = 'enemy'
+        self._sync_ui()
+        QTimer.singleShot(900, self._enemy_turn)
 
+    # ---------- 桌宠 AI ----------
     def _enemy_turn(self):
         if self.over:
             return
         self.turn_score = 0
-        self.dice = []
+        self.hand = []
         aggro = self.difficulty or 0
         for _round in range(12):
-            self.dice = [random.randint(1, 6) for _ in range(6 if not self.dice else len(self.dice))]
-            s, _u = self.score_dice(self.dice)
+            n = 6 if not self.hand else len(self.hand)
+            self.hand = [random.randint(1, 6) for _ in range(n)]
+            s, _u = self.score_dice(self.hand)
             if s == 0:
                 self.turn_score = 0
-                self.dice = []
+                self.hand = []
                 break
             self.turn_score += s
-            self.dice = []
-            # AI 决策：普通保守（≥200 锁定），高手局激进（≥350 锁定 或 剩 1 骰锁定）
+            self.hand = []   # AI 全保留
             lock_at = 200 if aggro == 0 else 350
-            if self.turn_score >= lock_at or len(self.dice) == 0:
+            if self.turn_score >= lock_at:
                 break
         self.escore += self.turn_score
         self.turn_score = 0
@@ -964,16 +980,25 @@ class Farkle(BaseGame):
         return self.combo_target.currentData() or 4000
 
     def _sync_ui(self):
-        if self.dice:
-            s, usable = self.score_dice(self.dice)
-            self.lb_dice.setText(' '.join(str(d) for d in self.dice))
-            self.lb_turn.setText(f'本轮可计 {s} 分' + ('（点保留）' if self.turn == 'player' else ''))
+        for i, btn in enumerate(self.dice_btns):
+            if i < len(self.hand):
+                btn.setText(str(self.hand[i]))
+                btn.setEnabled(True)
+                btn.setChecked(i in self.selected)
+            else:
+                btn.setText('·')
+                btn.setEnabled(False)
+                btn.setChecked(False)
+        if self.hand:
+            s, _u = self.score_dice(self.hand)
+            hint = f'本回合 {self.turn_score} 分 ｜ 当前可计 {s} 分，点击骰子选中'
         else:
-            self.lb_dice.setText('🎲')
-            self.lb_turn.setText('你的回合' if self.turn == 'player' else '桌宠回合…')
+            hint = f'本回合 {self.turn_score} 分'
+        who = '你的回合' if self.turn == 'player' else '桌宠回合…'
+        self.lb_turn.setText(f'{hint}（{who}）')
         self.lb_score.setText(f'你: {self.pscore} ｜ 桌宠: {self.escore}（目标 {self.target()}）')
         self.btn_roll.setEnabled(self.turn == 'player' and not self.over)
-        self.btn_keep.setEnabled(self.turn == 'player' and bool(self.dice) and not self.over)
+        self.btn_keep.setEnabled(self.turn == 'player' and bool(self.selected) and not self.over)
         self.btn_lock.setEnabled(self.turn == 'player' and self.turn_score > 0 and not self.over)
 
 
@@ -1087,7 +1112,7 @@ class Blackjack(BaseGame):
         row.addWidget(self.btn_hit)
         row.addWidget(self.btn_stand)
         lay.addLayout(row)
-        self._sync()
+        self._deal()
 
     def _deal(self):
         self.deck = [v for v in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10] for _ in range(4)]
@@ -1145,7 +1170,7 @@ class Blackjack(BaseGame):
 
     def _sync(self):
         self.lb_me.setText('你的牌：' + ' '.join(self._fmt(h) for h in self.phand) + f'（{self._value(self.phand)}）')
-        shown = self.ehand[:1] + ['?'] * (len(self.ehand) - 1) if self.ehand else []
+        shown = [self._fmt(h) for h in self.ehand[:1]] + ['?'] * (len(self.ehand) - 1) if self.ehand else []
         self.lb_enemy.setText('桌宠的牌：' + ' '.join(shown))
 
     @staticmethod
