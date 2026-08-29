@@ -315,6 +315,16 @@ class Game2048(BaseGame):
             x, y = random.choice(empty)
             self.board[y][x] = 2 if random.random() < 0.9 else 4
 
+    def _apply_difficulty(self):
+        super()._apply_difficulty()
+        if self.difficulty:
+            self.size, self.goal = self.difficulty
+            self.board = [[0] * self.size for _ in range(self.size)]
+            self.score = 0
+            self._spawn()
+            self._spawn()
+            self._render()
+
     def _render(self):
         colors = {0: '#141b2c', 2: '#2a3a55', 4: '#35507a', 8: '#3f6ca8',
                   16: '#4a8ac2', 32: '#5aa7d6', 64: '#e0527a', 128: '#e8739a',
