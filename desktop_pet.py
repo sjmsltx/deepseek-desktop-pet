@@ -6297,7 +6297,7 @@ class PetWidget(QWidget):
         self._game_window = GameWindow(self._on_game_result, self)
         self._game_window.show()
 
-    def _on_game_result(self, win):
+    def _on_game_result(self, win, score=0):
         """小游戏结果 → 好感度事件 + 动作状态图（胜利/沮丧）"""
         try:
             r = self.affection.trigger(self.current, 'game_win' if win else 'game_play')

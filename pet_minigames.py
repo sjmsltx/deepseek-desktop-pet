@@ -8,13 +8,13 @@ pet_minigames.py — 桌宠小游戏（v6.30 Phase2）
 import random
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QLineEdit, QMessageBox, QWidget, QGridLayout)
+                               QPushButton, QLineEdit, QMessageBox, QWidget, QGridLayout, QComboBox)
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor, QBrush
 
 
 class BaseGame(QDialog):
-    """游戏基类：结果通过 on_result(win: bool) 回调"""
+    """游戏基类：结果通过 on_result(win, score) 回调；支持难度选择"""
 
     def __init__(self, title: str, on_result, parent=None):
         super().__init__(parent)
@@ -27,13 +27,43 @@ class BaseGame(QDialog):
             "QPushButton { background:#2a3a55; color:#dce3f0; border:none;"
             " border-radius:6px; padding:8px 16px; font-size:14px; }"
             "QPushButton:hover { background:#35507a; }"
+            "QPushButton:disabled { background:#1c2740; color:#667; }"
+            "QComboBox { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;"
+            " border-radius:6px; padding:4px 8px; font-size:13px; }"
             "QLineEdit { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;"
             " border-radius:6px; padding:6px; font-size:14px; }"
         )
+        self._difficulties = {}
+        self._combo = None
+        self.difficulty = None
 
-    def _finish(self, win: bool, msg: str):
+    def _add_difficulty(self, lay, difficulties: dict):
+        """难度选择：difficulties = {显示名: 值}。少于 2 档自动隐藏下拉。"""
+        self._difficulties = difficulties
+        if len(difficulties) >= 2:
+            row = QHBoxLayout()
+            row.addWidget(QLabel('难度'))
+            self._combo = QComboBox()
+            for name in difficulties:
+                self._combo.addItem(name)
+            self._combo.currentIndexChanged.connect(lambda _: self._apply_difficulty())
+            row.addWidget(self._combo)
+            row.addStretch(1)
+            lay.insertLayout(0, row)
+        self._apply_difficulty()
+
+    def _apply_difficulty(self):
+        if self._combo is not None:
+            self.difficulty = self._difficulties.get(self._combo.currentText())
+        else:
+            self.difficulty = next(iter(self._difficulties.values()), None)
+
+    def _finish(self, win: bool, msg: str, score: int = 0):
         QMessageBox.information(self, '结果', msg)
-        self.on_result(win)
+        try:
+            self.on_result(win, score)
+        except TypeError:
+            self.on_result(win)
         self.close()
 
 
@@ -600,6 +630,304 @@ class MemoryMatch(BaseGame):
             self.buttons[b].setText('❓')
 
 
+# ---------- 井字棋 ----------
+class TicTacToe(BaseGame):
+    """井字棋：3×3，三档 AI 难度"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('⚫ 井字棋', on_result, parent)
+        self.setFixedWidth(320)
+        self.board = [''] * 9
+        self.turn = 'X'  # 玩家 X，AI O
+        self.over = False
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('你执 X，连成一线获胜', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'简单': 0, '普通': 1, '困难': 2})
+        self.lb = QLabel('', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        grid = QGridLayout()
+        self.btns = []
+        for i in range(9):
+            btn = QPushButton('')
+            btn.setFixedSize(70, 70)
+            btn.setStyleSheet(
+                'QPushButton { background:#182136; color:#dce3f0; border:1px solid #3a4a66;'
+                ' border-radius:8px; font-size:26px; }'
+                'QPushButton:hover { background:#24314a; }')
+            btn.clicked.connect(lambda checked, idx=i: self._move(idx))
+            grid.addWidget(btn, i // 3, i % 3)
+            self.btns.append(btn)
+        lay.addLayout(grid)
+        self._render()
+
+    def _render(self):
+        for i, b in enumerate(self.btns):
+            b.setText(self.board[i])
+        w = self._winner()
+        if w:
+            self.lb.setText(f'{"你" if w == "X" else "桌宠"}赢了！')
+        elif '' not in self.board:
+            self.lb.setText('平局')
+        else:
+            self.lb.setText('轮到你（X）' if self.turn == 'X' else '桌宠思考中…')
+
+    def _winner(self):
+        lines = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]
+        for a, b, c in lines:
+            if self.board[a] and self.board[a] == self.board[b] == self.board[c]:
+                return self.board[a]
+        return None
+
+    def _move(self, idx):
+        if self.over or self.turn != 'X' or self.board[idx]:
+            return
+        self.board[idx] = 'X'
+        if self._check_end():
+            return
+        self.turn = 'O'
+        self._render()
+        QTimer.singleShot(300, self._ai_move)
+
+    def _ai_move(self):
+        if self.over:
+            return
+        d = self.difficulty or 1
+        idx = None
+        if d >= 1:  # 普通/困难：先堵玩家再赢
+            idx = self._find_win('O')
+            if idx is None and d >= 2:
+                idx = self._find_win('X')  # 困难：堵玩家
+        if idx is None:
+            if d == 0:  # 简单：随机
+                empties = [i for i, v in enumerate(self.board) if not v]
+                idx = random.choice(empties) if empties else None
+            else:
+                idx = self._find_win('X')  # 普通：堵玩家
+                if idx is None:
+                    center = 4
+                    if not self.board[center]:
+                        idx = center
+                    else:
+                        empties = [i for i, v in enumerate(self.board) if not v]
+                        idx = random.choice(empties) if empties else None
+        if idx is not None:
+            self.board[idx] = 'O'
+            self.turn = 'X'
+            self._check_end()
+            self._render()
+
+    def _find_win(self, player):
+        for i, v in enumerate(self.board):
+            if not v:
+                self.board[i] = player
+                w = self._winner()
+                self.board[i] = ''
+                if w == player:
+                    return i
+        return None
+
+    def _check_end(self):
+        w = self._winner()
+        if w:
+            self.over = True
+            win = w == 'X'
+            self._finish(win, f'你赢了！好感度 +3' if win else f'桌宠赢了！（参与 +1）')
+            return True
+        if '' not in self.board:
+            self.over = True
+            self._finish(False, '平局！（参与 +1）')
+            return True
+        return False
+
+
+# ---------- Farkle 骰子（天国拯救同款） ----------
+class Farkle(BaseGame):
+    """Farkle：目标分自选（500~10000），和桌宠轮流掷 6 骰，先到目标分获胜"""
+
+    TARGETS = [('500', 500), ('1000', 1000), ('1500', 1500), ('2000', 2000),
+               ('3000', 3000), ('4000', 4000), ('8000', 8000), ('10000', 10000)]
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🎲 Farkle 骰子', on_result, parent)
+        self.setFixedWidth(380)
+        self.pscore = 0       # 玩家总成绩
+        self.escore = 0       # 桌宠总成绩
+        self.turn = 'player'  # player / enemy
+        self.turn_score = 0   # 当前回合累计
+        self.dice = []        # 剩余骰子
+        self.pending = []     # 待计分的骰子
+        self.kept_dice = []   # 本回合已保留的骰子
+        self.over = False
+        lay = QVBoxLayout(self)
+        row0 = QHBoxLayout()
+        row0.addWidget(QLabel('目标分'))
+        self.combo_target = QComboBox()
+        for label, v in self.TARGETS:
+            self.combo_target.addItem(label, v)
+        self.combo_target.setCurrentText('4000')
+        row0.addWidget(self.combo_target)
+        row0.addStretch(1)
+        lay.addLayout(row0)
+        self._add_difficulty(lay, {'普通': 0, '高手局': 1})
+        self.lb_info = QLabel('目标 4000 分，先到者胜！', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb_info)
+        self.lb_dice = QLabel('点击「掷骰子」开始', alignment=Qt.AlignCenter)
+        self.lb_dice.setStyleSheet('font-size:22px;')
+        lay.addWidget(self.lb_dice)
+        self.lb_score = QLabel('你: 0 ｜ 桌宠: 0', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb_score)
+        self.lb_turn = QLabel('', alignment=Qt.AlignCenter)
+        self.lb_turn.setStyleSheet('color:#8aa; font-size:12px;')
+        lay.addWidget(self.lb_turn)
+        row = QHBoxLayout()
+        self.btn_roll = QPushButton('🎲 掷骰子')
+        self.btn_roll.clicked.connect(self._roll)
+        self.btn_keep = QPushButton('✅ 保留')
+        self.btn_keep.clicked.connect(self._keep)
+        self.btn_lock = QPushButton('🔒 锁定回合')
+        self.btn_lock.clicked.connect(self._lock)
+        row.addWidget(self.btn_roll)
+        row.addWidget(self.btn_keep)
+        row.addWidget(self.btn_lock)
+        lay.addLayout(row)
+        self._sync_ui()
+
+    # ---------- 计分规则 ----------
+    @staticmethod
+    def score_dice(dice):
+        """返回 (分数, 可计分骰子索引集合)。无计分返回 (0, set())。"""
+        from collections import Counter
+        n = len(dice)
+        if n == 6 and sorted(dice) == [1, 2, 3, 4, 5, 6]:
+            return 1500, set(range(6))
+        counts = Counter(dice)
+        if n == 6 and sorted(counts.values()) == [2, 2, 2]:
+            return 1500, set(range(6))
+        score = 0
+        usable = set()
+        for v, c in counts.items():
+            if c >= 3:
+                base = 1000 if v == 1 else v * 100
+                mult = 2 ** (c - 3)
+                score += base * mult   # 4个=2x, 5个=4x, 6个=8x（已覆盖全部 c 个骰子）
+                for i, d in enumerate(dice):
+                    if d == v:
+                        usable.add(i)
+            else:
+                if v == 1:
+                    score += 100 * c
+                    for i, d in enumerate(dice):
+                        if d == 1:
+                            usable.add(i)
+                elif v == 5:
+                    score += 50 * c
+                    for i, d in enumerate(dice):
+                        if d == 5:
+                            usable.add(i)
+        return score, usable
+
+    # ---------- 游戏流程 ----------
+    def _roll(self):
+        if self.over or self.turn != 'player':
+            return
+        if not self.dice:
+            self.dice = [random.randint(1, 6) for _ in range(6)]
+            self.kept_dice = []
+        else:
+            self.dice = [random.randint(1, 6) for _ in range(len(self.dice))]
+        self.pending = list(range(len(self.dice)))
+        s, _u = self.score_dice(self.dice)
+        if s == 0:
+            self.turn_score = 0
+            self.lb_dice.setText('💥 FARKLE！无计分骰，回合清零')
+            QTimer.singleShot(1200, self._end_turn)
+            self._sync_ui()
+            return
+        self._sync_ui()
+
+    def _keep(self):
+        if self.over or self.turn != 'player' or not self.dice:
+            return
+        s, usable = self.score_dice(self.dice)
+        if s == 0:
+            return
+        self.turn_score += s
+        self.kept_dice += list(self.dice)
+        self.dice = []
+        self._sync_ui()
+
+    def _lock(self):
+        if self.over or self.turn != 'player' or self.turn_score <= 0:
+            return
+        self.pscore += self.turn_score
+        self.turn_score = 0
+        self.dice = []
+        if self.pscore >= self.target():
+            self.over = True
+            self._finish(True, f'你先到 {self.target()} 分！好感度 +3')
+            return
+        self.turn = 'enemy'
+        self._sync_ui()
+        QTimer.singleShot(900, self._enemy_turn)
+
+    def _end_turn(self):
+        if self.turn == 'player':
+            self.turn_score = 0
+            self.dice = []
+            self.turn = 'enemy'
+            self._sync_ui()
+            QTimer.singleShot(900, self._enemy_turn)
+        else:
+            self.turn = 'player'
+            self.turn_score = 0
+            self.dice = []
+            self._sync_ui()
+
+    def _enemy_turn(self):
+        if self.over:
+            return
+        self.turn_score = 0
+        self.dice = []
+        aggro = self.difficulty or 0
+        for _round in range(12):
+            self.dice = [random.randint(1, 6) for _ in range(6 if not self.dice else len(self.dice))]
+            s, _u = self.score_dice(self.dice)
+            if s == 0:
+                self.turn_score = 0
+                self.dice = []
+                break
+            self.turn_score += s
+            self.dice = []
+            # AI 决策：普通保守（≥200 锁定），高手局激进（≥350 锁定 或 剩 1 骰锁定）
+            lock_at = 200 if aggro == 0 else 350
+            if self.turn_score >= lock_at or len(self.dice) == 0:
+                break
+        self.escore += self.turn_score
+        self.turn_score = 0
+        if self.escore >= self.target():
+            self.over = True
+            self._finish(False, f'桌宠先到 {self.target()} 分…下次一定赢！（参与 +1）')
+            return
+        self.turn = 'player'
+        self._sync_ui()
+
+    def target(self):
+        return self.combo_target.currentData() or 4000
+
+    def _sync_ui(self):
+        if self.dice:
+            s, usable = self.score_dice(self.dice)
+            self.lb_dice.setText(' '.join(str(d) for d in self.dice))
+            self.lb_turn.setText(f'本轮可计 {s} 分' + ('（点保留）' if self.turn == 'player' else ''))
+        else:
+            self.lb_dice.setText('🎲')
+            self.lb_turn.setText('你的回合' if self.turn == 'player' else '桌宠回合…')
+        self.lb_score.setText(f'你: {self.pscore} ｜ 桌宠: {self.escore}（目标 {self.target()}）')
+        self.btn_roll.setEnabled(self.turn == 'player' and not self.over)
+        self.btn_keep.setEnabled(self.turn == 'player' and bool(self.dice) and not self.over)
+        self.btn_lock.setEnabled(self.turn == 'player' and self.turn_score > 0 and not self.over)
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
@@ -609,6 +937,8 @@ GAMES = {
     '💣 扫雷': Minesweeper,
     '🐍 贪吃蛇': Snake,
     '🃏 记忆翻牌': MemoryMatch,
+    '⚫ 井字棋': TicTacToe,
+    '🎲 Farkle 骰子': Farkle,
 }
 
 
