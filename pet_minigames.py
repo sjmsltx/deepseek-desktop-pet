@@ -37,6 +37,19 @@ class BaseGame(QDialog):
         self._difficulties = {}
         self._combo = None
         self.difficulty = None
+        self.pet_face = None
+
+    def _add_pet_face(self, lay):
+        """桌宠表情区：游戏窗口内显示桌宠反应（解决黑箱问题）"""
+        self.pet_face = QLabel('', alignment=Qt.AlignCenter)
+        self.pet_face.setStyleSheet(
+            'color:#9fd0ff; font-size:13px; background:#141b2c;'
+            ' border:1px solid #2c3a52; border-radius:8px; padding:6px;')
+        lay.addWidget(self.pet_face)
+
+    def _set_pet_face(self, text):
+        if self.pet_face is not None:
+            self.pet_face.setText(text)
 
     def _add_difficulty(self, lay, difficulties: dict):
         """难度选择：difficulties = {显示名: 值}。少于 2 档自动隐藏下拉。"""
@@ -819,6 +832,7 @@ class Farkle(BaseGame):
         self._add_difficulty(lay, {'普通': 0, '高手局': 1})
         self.lb_info = QLabel('目标 4000 分，先到者胜！', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb_info)
+        self._add_pet_face(lay)
         grid = QGridLayout()
         self.dice_btns = []
         for i in range(6):
@@ -857,11 +871,20 @@ class Farkle(BaseGame):
     def score_dice(dice):
         from collections import Counter
         n = len(dice)
+        # 六连顺子 1-6
         if n == 6 and sorted(dice) == [1, 2, 3, 4, 5, 6]:
             return 1500, set(range(6))
         counts = Counter(dice)
+        # 三个对子
         if n == 6 and sorted(counts.values()) == [2, 2, 2]:
             return 1500, set(range(6))
+        # 五连顺子 12345 / 23456
+        if n == 5 and sorted(dice) in ([1, 2, 3, 4, 5], [2, 3, 4, 5, 6]):
+            return 500, set(range(5))
+        # 双三同（两个三同及以上）
+        triples = [v for v, c in counts.items() if c >= 3]
+        if len(triples) >= 2 and n == 6:
+            return 2500, set(range(6))
         score = 0
         usable = set()
         for v, c in counts.items():
@@ -901,15 +924,31 @@ class Farkle(BaseGame):
         n = 6 if not self.hand else len(self.hand)
         self.hand = [random.randint(1, 6) for _ in range(n)]
         self.selected = set()
+        # 骰子滚动动画：先显示 🎲，300ms 后揭示点数
+        for btn in self.dice_btns:
+            btn.setText('🎲')
+            btn.setEnabled(True)
+            btn.setChecked(False)
+        self._set_pet_face('🎲 掷骰子…' + (' 😏 还敢继续？' if self.turn_score > 0 else ' 🙂'))
+        self.btn_roll.setEnabled(False)
+        self.btn_keep.setEnabled(False)
+        self.btn_lock.setEnabled(False)
+        QTimer.singleShot(300, self._reveal_dice)
+
+    def _reveal_dice(self):
+        if self.over:
+            return
         s, _u = self.score_dice(self.hand)
         if s == 0:
             self.lb_turn.setText('💥 FARKLE！本回合清零')
+            self._set_pet_face('😄 桌宠：Farkle！你白掷啦～')
             self.turn_score = 0
             self.hand = []
             self.selected = set()
             self._sync_ui()
-            QTimer.singleShot(1300, self._pass_turn)
+            QTimer.singleShot(1500, self._pass_turn)
             return
+        self._set_pet_face('😏 桌宠盯着你的骰子…')
         self._sync_ui()
 
     def _keep(self):
@@ -925,6 +964,7 @@ class Farkle(BaseGame):
         self.selected = set()
         if not self.hand:
             self.lb_turn.setText(f'全保留了！本回合 {self.turn_score} 分，可继续掷新骰或锁定')
+        self._set_pet_face(f'🤔 桌宠：你留下了 {s} 分…')
         self._sync_ui()
 
     def _lock(self):
@@ -936,8 +976,10 @@ class Farkle(BaseGame):
         self.selected = set()
         if self.pscore >= self.target():
             self.over = True
+            self._set_pet_face('😭 桌宠：你赢了…')
             self._finish(True, f'你先到 {self.target()} 分！好感度 +3')
             return
+        self._set_pet_face('😮 桌宠：锁定了？轮到我了！')
         self.turn = 'enemy'
         self._sync_ui()
         QTimer.singleShot(900, self._enemy_turn)
@@ -961,11 +1003,13 @@ class Farkle(BaseGame):
             if s == 0:
                 self.turn_score = 0
                 self.hand = []
+                self._set_pet_face('😭 桌宠：呜…我 Farkle 了')
                 break
             self.turn_score += s
             self.hand = []   # AI 全保留
             lock_at = 200 if aggro == 0 else 350
             if self.turn_score >= lock_at:
+                self._set_pet_face(f'🤗 桌宠：{self.turn_score} 分到手！')
                 break
         self.escore += self.turn_score
         self.turn_score = 0
@@ -1100,6 +1144,7 @@ class Blackjack(BaseGame):
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('比 21 点，谁爆谁输，接近者胜', alignment=Qt.AlignCenter))
         self._add_difficulty(lay, {'普通': 17, '高手局': 18})
+        self._add_pet_face(lay)
         self.lb_me = QLabel('你的牌：', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb_me)
         self.lb_enemy = QLabel('桌宠的牌：', alignment=Qt.AlignCenter)
@@ -1122,6 +1167,7 @@ class Blackjack(BaseGame):
         self.over = False
         self.btn_hit.setEnabled(True)
         self.btn_stand.setEnabled(True)
+        self._set_pet_face('🃏 桌宠：发牌！谁更接近 21？')
         self._sync()
         if self._value(self.phand) == 21:
             self._settle()
@@ -1135,15 +1181,23 @@ class Blackjack(BaseGame):
         return v
 
     def _hit(self):
+        self._set_pet_face('😏 桌宠：还敢要？小心爆牌哦')
+        self.btn_hit.setEnabled(False)
+        QTimer.singleShot(250, self._do_hit)
+
+    def _do_hit(self):
         self.phand.append(self.deck.pop())
+        self._sync()
         if self._value(self.phand) >= 21:
             self.btn_hit.setEnabled(False)
             QTimer.singleShot(600, self._settle)
-        self._sync()
+        else:
+            self.btn_hit.setEnabled(True)
 
     def _stand(self):
         self.btn_hit.setEnabled(False)
         self.btn_stand.setEnabled(False)
+        self._set_pet_face('🤔 桌宠：看我的！')
         QTimer.singleShot(600, self._settle)
 
     def _settle(self):
@@ -1156,16 +1210,22 @@ class Blackjack(BaseGame):
         pb = pv > 21
         eb = ev > 21
         if pb and eb:
+            self._set_pet_face('😐 桌宠：都爆了…平局')
             self._finish(False, f'都爆了！你 {pv} vs 桌宠 {ev}（平局，参与 +1）')
         elif pb:
+            self._set_pet_face('😄 桌宠：你爆啦！')
             self._finish(False, f'你爆了 {pv}！桌宠 {ev} 赢（参与 +1）')
         elif eb:
+            self._set_pet_face('😭 桌宠：呜…我爆了')
             self._finish(True, f'桌宠爆了 {ev}！你 {pv} 赢，好感度 +3')
         elif pv > ev:
+            self._set_pet_face('😭 桌宠：你赢了…')
             self._finish(True, f'你 {pv} > 桌宠 {ev}，赢了！好感度 +3')
         elif pv < ev:
+            self._set_pet_face('😄 桌宠：我赢啦！')
             self._finish(False, f'你 {pv} < 桌宠 {ev}，输了（参与 +1）')
         else:
+            self._set_pet_face('😐 桌宠：平局')
             self._finish(False, f'平局 {pv}（参与 +1）')
 
     def _sync(self):
