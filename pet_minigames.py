@@ -1585,6 +1585,111 @@ class SlidingPuzzle(BaseGame):
                 self._finish(True, f'完成！用了 {self.steps} 步，好感度 +3', self.steps)
 
 
+# ---------- 西蒙记忆 ----------
+class SimonSays(BaseGame):
+    """西蒙记忆：记颜色序列，逐步加长，4键/6键"""
+
+    COLORS = [('#e0527a', '红'), ('#6ecb7a', '绿'), ('#4a8ac2', '蓝'), ('#ffd700', '黄'),
+              ('#c9a0ff', '紫'), ('#00e5ff', '青')]
+
+
+    RULES = '西蒙记忆：桌宠会点亮一串颜色（红/绿/蓝/黄…），你要按顺序点击复述。每过一关序列加长一个，记住 8 个以上算记忆超神！'
+    def __init__(self, on_result, parent=None):
+        super().__init__('🎵 西蒙记忆', on_result, parent)
+        self.setFixedWidth(340)
+        self.seq = []
+        self.replay_idx = 0
+        self.playing = False
+        self.accept_input = False
+        self.over = False
+        lay = QVBoxLayout(self)
+        self._add_difficulty(lay, {'4 键': 4, '6 键': 6})
+        self.lb = QLabel('看桌宠点亮颜色，然后按顺序复述！', alignment=Qt.AlignCenter)
+        self.lb.setWordWrap(True)
+        lay.addWidget(self.lb)
+        grid = QGridLayout()
+        self.btns = []
+        for i in range(6):
+            color, name = self.COLORS[i]
+            btn = QPushButton('')
+            btn.setFixedSize(90, 90)
+            btn.setStyleSheet(f'QPushButton {{ background:{color}; border-radius:12px; }}'
+                              f'QPushButton:disabled {{ background:#2a3a55; }}')
+            btn.clicked.connect(lambda checked, idx=i: self._press(idx))
+            grid.addWidget(btn, i // 3, i % 3)
+            self.btns.append(btn)
+        lay.addLayout(grid)
+        self.btn_start = QPushButton('▶ 开始')
+        self.btn_start.clicked.connect(self._start)
+        lay.addWidget(self.btn_start)
+        self._set_pet_face('🎵 桌宠：跟紧我的节奏！')
+
+    def _apply_difficulty(self):
+        super()._apply_difficulty()
+        n = self.difficulty or 4
+        for i, btn in enumerate(self.btns):
+            btn.setVisible(i < n)
+
+    def _start(self):
+        self.seq = []
+        self.playing = True
+        self.accept_input = False
+        self.btn_start.setEnabled(False)
+        self._next_round()
+
+    def _next_round(self):
+        self.seq.append(random.randint(0, (self.difficulty or 4) - 1))
+        self.lb.setText(f'第 {len(self.seq)} 轮，看仔细了！')
+        self.replay_idx = 0
+        self.accept_input = False
+        QTimer.singleShot(600, self._play_next)
+
+    def _play_next(self):
+        if self.over:
+            return
+        if self.replay_idx >= len(self.seq):
+            self.accept_input = True
+            self.lb.setText(f'轮到你！第 {len(self.seq)} 轮，共 {len(self.seq)} 下')
+            return
+        idx = self.seq[self.replay_idx]
+        self._flash(idx)
+        self.replay_idx += 1
+        QTimer.singleShot(650, self._play_next)
+
+    def _flash(self, idx):
+        btn = self.btns[idx]
+        btn.setStyleSheet(f'QPushButton {{ background:#ffffff; border-radius:12px; }}')
+        QTimer.singleShot(250, lambda: btn.setStyleSheet(
+            f'QPushButton {{ background:{self.COLORS[idx][0]}; border-radius:12px; }}'))
+
+    def _press(self, idx):
+        if not self.accept_input or self.over:
+            return
+        self._flash(idx)
+        self._check_input(idx)
+
+    def _check_input(self, idx):
+        pos = len(self.seq) - (self.replay_idx - 0)
+        # 简化：用 self._input_pos 追踪
+        if not hasattr(self, '_input_pos'):
+            self._input_pos = 0
+        if idx == self.seq[self._input_pos]:
+            self._input_pos += 1
+            if self._input_pos >= len(self.seq):
+                self._input_pos = 0
+                self.accept_input = False
+                if len(self.seq) >= 8:
+                    self.over = True
+                    self._finish(True, f'记忆超人！记住 {len(self.seq)} 下，好感度 +3', len(self.seq))
+                else:
+                    self.lb.setText('漂亮！继续～')
+                    QTimer.singleShot(700, self._next_round)
+        else:
+            self.over = True
+            self.accept_input = False
+            self._finish(False, f'记错了…坚持了 {len(self.seq)} 下（参与 +1）', len(self.seq))
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
@@ -1601,6 +1706,7 @@ GAMES = {
     '🔢 数独': Sudoku,
     '🧱 俄罗斯方块': Tetris,
     '🧩 华容道': SlidingPuzzle,
+    '🎵 西蒙记忆': SimonSays,
 }
 
 
