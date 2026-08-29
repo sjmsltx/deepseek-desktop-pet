@@ -288,18 +288,21 @@ class _BoardWidget(QWidget):
 
 # ---------- 2048 ----------
 class Game2048(BaseGame):
-    """2048：方向键移动合并，目标是 2048"""
+    """2048：方向键移动合并，棋盘/目标多档可选"""
 
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 2048', on_result, parent)
-        self.setFixedSize(340, 380)
+        self.setFixedSize(360, 400)
         self.board = [[0] * 4 for _ in range(4)]
+        self.size = 4
+        self.goal = 2048
         self.score = 0
         self._spawn()
         self._spawn()
         lay = QVBoxLayout(self)
-        self.lb = QLabel('方向键移动，合并数字，到 2048 胜利', alignment=Qt.AlignCenter)
+        self.lb = QLabel('方向键移动，合并数字', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb)
+        self._add_difficulty(lay, {'标准 4x4': (4, 2048), '大棋盘 5x5': (5, 2048), '极限 4x4·4096': (4, 4096)})
         self.lb_board = QLabel('', alignment=Qt.AlignCenter)
         self.lb_board.setStyleSheet('font-family:Consolas,monospace; font-size:18px;')
         lay.addWidget(self.lb_board)
@@ -307,7 +310,7 @@ class Game2048(BaseGame):
         self.setFocusPolicy(Qt.StrongFocus)
 
     def _spawn(self):
-        empty = [(x, y) for y in range(4) for x in range(4) if self.board[y][x] == 0]
+        empty = [(x, y) for y in range(self.size) for x in range(self.size) if self.board[y][x] == 0]
         if empty:
             x, y = random.choice(empty)
             self.board[y][x] = 2 if random.random() < 0.9 else 4
@@ -315,11 +318,11 @@ class Game2048(BaseGame):
     def _render(self):
         colors = {0: '#141b2c', 2: '#2a3a55', 4: '#35507a', 8: '#3f6ca8',
                   16: '#4a8ac2', 32: '#5aa7d6', 64: '#e0527a', 128: '#e8739a',
-                  256: '#f09ab5', 512: '#f5b8cc', 1024: '#ffd700', 2048: '#ff8c00'}
+                  256: '#f09ab5', 512: '#f5b8cc', 1024: '#ffd700', 2048: '#ff8c00', 4096: '#ff5555'}
         html = ['<table cellspacing="4" align="center">']
-        for y in range(4):
+        for y in range(self.size):
             html.append('<tr>')
-            for x in range(4):
+            for x in range(self.size):
                 v = self.board[y][x]
                 c = colors.get(v, '#e0527a')
                 txt = str(v) if v else ''
@@ -328,14 +331,15 @@ class Game2048(BaseGame):
                             f'{txt}</td>')
             html.append('</tr>')
         html.append('</table>')
+        self.lb.setText(f'目标 {self.goal}，方向键移动')
         self.lb_board.setText(''.join(html))
 
     def _move(self, dx, dy):
         moved = False
+        n = self.size
         if dy == 0:
-            # dx>0 向右滑：从右往左取行合并（大数字靠右）
-            order_x = range(3, -1, -1) if dx > 0 else range(4)
-            for y in range(4):
+            order_x = range(n - 1, -1, -1) if dx > 0 else range(n)
+            for y in range(n):
                 line = [self.board[y][x] for x in order_x]
                 nl = self._merge(line)
                 for i, x in enumerate(order_x):
@@ -343,9 +347,8 @@ class Game2048(BaseGame):
                         moved = True
                     self.board[y][x] = nl[i]
         else:
-            # dy>0 向下滑：从下往上取列合并
-            order_y = range(3, -1, -1) if dy > 0 else range(4)
-            for x in range(4):
+            order_y = range(n - 1, -1, -1) if dy > 0 else range(n)
+            for x in range(n):
                 line = [self.board[y][x] for y in order_y]
                 nl = self._merge(line)
                 for i, y in enumerate(order_y):
@@ -355,10 +358,10 @@ class Game2048(BaseGame):
         if moved:
             self._spawn()
             self._render()
-            if max(max(r) for r in self.board) >= 2048:
-                self._finish(True, f'2048 达成！得分 {self.score}，好感度 +3')
+            if max(max(r) for r in self.board) >= self.goal:
+                self._finish(True, f'{self.goal} 达成！得分 {self.score}，好感度 +3', self.score)
             elif not any(0 in r for r in self.board):
-                self._finish(False, f'棋盘满了，得分 {self.score}（参与 +1）')
+                self._finish(False, f'棋盘满了，得分 {self.score}（参与 +1）', self.score)
 
     def _merge(self, line):
         non_zero = [v for v in line if v]
@@ -372,7 +375,7 @@ class Game2048(BaseGame):
             else:
                 merged.append(non_zero[i])
                 i += 1
-        return merged + [0] * (4 - len(merged))
+        return merged + [0] * (self.size - len(merged))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Left:
@@ -393,9 +396,8 @@ class Minesweeper(BaseGame):
 
     def __init__(self, on_result, parent=None):
         super().__init__('💣 扫雷', on_result, parent)
-        self.W = 9
-        self.H = 9
-        self.MINES = 10
+        self.W, self.H, self.MINES = 9, 9, 10
+        self.cell = 32
         self.grid = [[0] * self.W for _ in range(self.H)]  # 0-8 数字, 9=雷
         self.revealed = [[False] * self.W for _ in range(self.H)]
         self.flagged = [[False] * self.W for _ in range(self.H)]
@@ -403,9 +405,24 @@ class Minesweeper(BaseGame):
         self.over = False
         self._widget = _MineWidget(self)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel('左键翻开 · 右键标雷 · 避开 10 颗雷', alignment=Qt.AlignCenter))
+        lay.addWidget(QLabel('左键翻开 · 右键标雷 · 避开地雷', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'初级 9x9': (9, 9, 10), '中级 16x16': (16, 16, 40), '高级 30x16': (30, 16, 99)})
         lay.addWidget(self._widget)
         self._widget.clicked.connect(self._on_click)
+
+    def _apply_difficulty(self):
+        super()._apply_difficulty()
+        if self._combo is not None:
+            w, h, mines = self.difficulty
+            self.W, self.H, self.MINES = w, h, mines
+            self.cell = max(14, min(32, 320 // w))
+            self.grid = [[0] * w for _ in range(h)]
+            self.revealed = [[False] * w for _ in range(h)]
+            self.flagged = [[False] * w for _ in range(h)]
+            self.started = False
+            self.over = False
+            self._widget.update()
+            self._widget.setFixedSize(w * self.cell, h * self.cell)
 
     def _plant(self, ex, ey):
         import random as rnd
@@ -465,13 +482,12 @@ class _MineWidget(QWidget):
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self.game = game
-        cell = 32
-        self.setFixedSize(cell * game.W, cell * game.H)
+        self.setFixedSize(game.W * game.cell, game.H * game.cell)
 
     def paintEvent(self, event):
         g = self.game
         p = QPainter(self)
-        cell = 32
+        cell = g.cell
         for y in range(g.H):
             for x in range(g.W):
                 rect = QRect(x * cell, y * cell, cell - 1, cell - 1)
@@ -493,7 +509,7 @@ class _MineWidget(QWidget):
 
     def mousePressEvent(self, event):
         g = self.game
-        cell = 32
+        cell = g.cell
         x = int(event.position().x() // cell)
         y = int(event.position().y() // cell)
         if 0 <= x < g.W and 0 <= y < g.H:
