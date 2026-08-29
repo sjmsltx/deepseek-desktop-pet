@@ -38,6 +38,14 @@ class BaseGame(QDialog):
         self._combo = None
         self.difficulty = None
         self.pet_face = None
+        self._closed = False
+
+    def closeEvent(self, event):
+        """窗口关闭：标记已关闭 + 停掉所有常驻定时器（防止后台继续跑）"""
+        self._closed = True
+        for t in self.findChildren(QTimer):
+            t.stop()
+        super().closeEvent(event)
 
     def _add_pet_face(self, lay):
         """桌宠表情区：游戏窗口内显示桌宠反应（解决黑箱问题）"""
@@ -73,6 +81,8 @@ class BaseGame(QDialog):
             self.difficulty = next(iter(self._difficulties.values()), None)
 
     def _finish(self, win: bool, msg: str, score: int = 0):
+        if getattr(self, '_closed', False):
+            return  # 窗口已关闭（用户中途退出）：不弹窗不结算
         QMessageBox.information(self, '结果', msg)
         try:
             self.on_result(win, score)
@@ -1839,5 +1849,6 @@ class GameWindow(QDialog):
     def _open(self, cls):
         self.hide()
         g = cls(self.on_result, self.parent())
+        self._last_game = g  # 保留引用，防止 singleShot 回调访问已 GC 对象
         g.exec()
         self.close()
