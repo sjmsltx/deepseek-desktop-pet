@@ -1626,9 +1626,10 @@ class SimonSays(BaseGame):
 
     def _apply_difficulty(self):
         super()._apply_difficulty()
-        n = self.difficulty or 4
-        for i, btn in enumerate(self.btns):
-            btn.setVisible(i < n)
+        if hasattr(self, 'btns'):
+            n = self.difficulty or 4
+            for i, btn in enumerate(self.btns):
+                btn.setVisible(i < n)
 
     def _start(self):
         self.seq = []
