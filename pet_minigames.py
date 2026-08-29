@@ -6,6 +6,7 @@ pet_minigames.py — 桌宠小游戏（v6.30 Phase2）
 游戏结果通过 on_result(win) 回调给主程序 → 触发好感度事件（胜 +3/+6XP，参与 +1/+2XP）。
 """
 import random
+import time
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QLineEdit, QMessageBox, QWidget, QGridLayout, QComboBox)
