@@ -3,6 +3,8 @@
   "personality": "温柔",
   "reply_style": "normal",
   "max_tokens": 1000,
+  "reasoning": true,
+  "temperature": 1.0,
   "model_flash": "deepseek-v4-flash",
   "model_pro": "deepseek-v4-pro",
   "active_chat": false,

@@ -1087,6 +1087,9 @@ class PetWidget(QWidget):
     # 类级信号：AI 回复（跨线程安全）
     ai_reply_signal = Signal(str)
     ai_status_signal = Signal(str)  # AI 处理状态（思考中/正在执行xx）
+    stream_signal = Signal(str)     # v6.40 流式正文 chunk
+    reasoning_signal = Signal(str)  # v6.40 流式思考 chunk
+    stream_done_signal = Signal()   # v6.40 流式结束
     wakeup_signal = Signal(str)    # 主动消息（心跳/回访触发）
     confirm_signal = Signal(object)  # 危险操作确认请求（跨线程回调）
     weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
@@ -1136,6 +1139,15 @@ class PetWidget(QWidget):
         self._satiety_timer.start(5 * 60 * 1000)
         self.cost_bubble_signal.connect(self._on_cost_bubble)
         self._last_satiety_warn = 0.0
+        # v6.40 真流式：信号连接
+        self.stream_signal.connect(self._on_stream)
+        self.reasoning_signal.connect(self._on_reasoning)
+        self.stream_done_signal.connect(self._on_stream_done)
+        self._stream_active = False
+        self._stream_rendered = False
+        self._stream_text = ''
+        self._stream_label = None
+        self._thinking_label = None
         # AI 回复信号（类级定义，connect 跨线程槽）
         self.ai_reply_signal.connect(self._display_ai_reply)
         self.ai_status_signal.connect(self._update_ai_status)
@@ -1426,6 +1438,8 @@ class PetWidget(QWidget):
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
                 self.language = cfg.get('language', 'zh')  # zh/en
                 self.max_tokens = max(256, min(int(cfg.get('max_tokens', 1000)), 64000))
+                self.reasoning_enabled = cfg.get('reasoning', True)   # v6.40 思考模式开关
+                self.temperature = float(cfg.get('temperature', 1.0)) # v6.40 采样温度
                 self.display_mode = cfg.get('display_mode', 'static')  # static/live2d
                 self.live2d_model = cfg.get('live2d_model', 'mao')  # Live2D 模型目录名
         except Exception:
@@ -2626,6 +2640,83 @@ class PetWidget(QWidget):
                         time.sleep(wait)
                         continue
                     raise
+
+        def _post_stream(data, status_zh, status_en):
+            """v6.40 SSE 流式请求：yield ('reasoning', chunk) / ('content', chunk) / ('done', full)。
+            重试逻辑与 _post 一致。"""
+            req = urllib.request.Request(
+                'https://api.deepseek.com/chat/completions',
+                data=data,
+                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
+            )
+            for attempt in range(3):
+                try:
+                    with urllib.request.urlopen(req, timeout=300) as resp:
+                        buffer = b''
+                        reasoning_buf = []
+                        content_buf = []
+                        tool_calls = {}
+                        for chunk in resp:
+                            buffer += chunk
+                            while b'\n' in buffer:
+                                line, buffer = buffer.split(b'\n', 1)
+                                line = line.strip()
+                                if not line.startswith(b'data:'):
+                                    continue
+                                payload = line[5:].strip()
+                                if payload == b'[DONE]':
+                                    break
+                                try:
+                                    obj = jsonlib.loads(payload)
+                                except Exception:
+                                    continue
+                                try:
+                                    delta = obj['choices'][0].get('delta', {})
+                                except Exception:
+                                    continue
+                                rc = delta.get('reasoning_content')
+                                if rc:
+                                    reasoning_buf.append(rc)
+                                    yield ('reasoning', rc)
+                                c = delta.get('content')
+                                if c:
+                                    content_buf.append(c)
+                                    yield ('content', c)
+                                for tc in delta.get('tool_calls') or []:
+                                    idx = tc.get('index', 0)
+                                    t = tool_calls.setdefault(idx, {'id': '', 'function': {'name': '', 'arguments': ''}})
+                                    if tc.get('id'):
+                                        t['id'] += tc['id']
+                                    fn = tc.get('function', {})
+                                    if fn.get('name'):
+                                        t['function']['name'] += fn['name']
+                                    if fn.get('arguments'):
+                                        t['function']['arguments'] += fn['arguments']
+                    full = {
+                        'content': ''.join(content_buf),
+                        'reasoning_content': ''.join(reasoning_buf),
+                        'tool_calls': list(tool_calls.values()) if tool_calls else None,
+                    }
+                    yield ('done', full)
+                    return
+                except urllib.error.HTTPError as e:
+                    if e.code in (429, 500, 502, 503) and attempt < 2:
+                        is_en = getattr(self, 'language', 'zh') == 'en'
+                        wait = 5 * (attempt + 1)
+                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
+                                                   f'（服务繁忙，{wait} 秒后第 {attempt + 2} 次重试…）')
+                        time.sleep(wait)
+                        continue
+                    raise
+                except (urllib.error.URLError, OSError, TimeoutError) as e:
+                    if attempt < 2:
+                        is_en = getattr(self, 'language', 'zh') == 'en'
+                        wait = 5 * (attempt + 1)
+                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
+                                                   f'（网络波动，{wait} 秒后第 {attempt + 2} 次重试…）')
+                        time.sleep(wait)
+                        continue
+                    raise
         try:
             # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
             self._summarize_old()
@@ -2684,16 +2775,34 @@ class PetWidget(QWidget):
             final_reply = None
             empty_retries = 0
             for _ in range(5):
-                # 请求阶段：覆盖预判为确定状态
+                # 请求阶段：覆盖预判为确定状态；v6.40 真流式（SSE）
                 self.ai_status_signal.emit('正在思考…' if getattr(self, 'language', 'zh') != 'en' else 'Thinking…')
                 data = jsonlib.dumps({
                     'model': cur_model,
                     'messages': messages,
                     'tools': AI_TOOLS + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas(),  # v6.20/21 动态合并 MCP+插件工具
                     'max_tokens': getattr(self, 'max_tokens', 1000),
+                    'stream': True,
+                    'temperature': getattr(self, 'temperature', 1.0),
                 }).encode()
-                result = _post(data, '正在思考…', 'Thinking…')
-                msg = result['choices'][0]['message']
+                self.stream_done_signal.emit()  # 上一轮流式收尾（防残留）
+                full = None
+                for evt, val in _post_stream(data, '正在思考…', 'Thinking…'):
+                    if evt == 'reasoning':
+                        self.reasoning_signal.emit(val)
+                    elif evt == 'content':
+                        self.stream_signal.emit(val)
+                    elif evt == 'done':
+                        full = val
+                if full is None:
+                    raise RuntimeError('流式响应为空')
+                # 记录 API 用量（流式响应无 usage 字段，跳过；保留非流式路径的统计）
+                msg = {
+                    'content': full.get('content') or '',
+                    'tool_calls': full.get('tool_calls'),
+                    'reasoning_content': full.get('reasoning_content') or '',
+                }
+                self.stream_done_signal.emit()
                 messages.append(msg)
 
                 # 检查是否有工具调用
@@ -2816,8 +2925,77 @@ class PetWidget(QWidget):
             self._emotion_restore_timer.timeout.connect(self._restore_state_after_emotion)
         self._emotion_restore_timer.start(5000)  # 表情持续 5 秒后恢复 idle
 
+    # ---------- v6.40 真流式渲染（SSE chunk 直接上屏） ----------
+    def _chat_type_stream_begin(self):
+        """流式渲染开始：创建 AI 气泡骨架 + 思考区"""
+        import datetime as _dt
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+        self._remove_status_line()
+        self._chat_type_bubble, self._chat_type_content = self._new_bubble('桌宠', ts, is_user=False, text='')
+        self._stream_label = QLabel('')
+        self._stream_label.setWordWrap(True)
+        self._stream_label.setTextFormat(Qt.PlainText)
+        self._stream_label.setStyleSheet('color:#dce3f0; font-size:14px;')
+        self._chat_type_content.addWidget(self._stream_label)
+        self._chat_scroll_bottom()
+        self._stream_active = True
+
+    def _on_stream(self, chunk):
+        """主线程槽：流式正文 chunk → 直接渲染（真流式，无卡顿）"""
+        try:
+            if not self._stream_active:
+                self._chat_type_stream_begin()
+                self._stream_rendered = True
+            # 过滤情绪标签（[emotion:xxx]），避免显示在正文
+            import re as _re
+            chunk = _re.sub(r'\[emotion:[^\]]*\]', '', chunk)
+            if not chunk:
+                return
+            self._stream_text += chunk
+            if self._stream_label is not None:
+                self._stream_label.setText(self._stream_text)
+                self._chat_scroll_bottom()
+        except Exception:
+            pass
+
+    def _on_reasoning(self, chunk):
+        """主线程槽：流式思考 chunk → 灰色思考区（DSH 风格）"""
+        try:
+            if self._thinking_label is None:
+                import datetime as _dt
+                ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+                bubble, content = self._new_bubble('桌宠', ts, is_user=False, text='')
+                self._thinking_label = QLabel('💭')
+                self._thinking_label.setWordWrap(True)
+                self._thinking_label.setTextFormat(Qt.PlainText)
+                self._thinking_label.setStyleSheet(
+                    'color:#7a8aa0; font-size:12px; background:#141b2c; border-radius:6px; padding:6px;')
+                content.addWidget(self._thinking_label)
+                self._chat_scroll_bottom()
+            self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
+            self._chat_scroll_bottom()
+        except Exception:
+            pass
+
+    def _on_stream_done(self):
+        """主线程槽：流式结束（思考区保留，正文保持已渲染内容）"""
+        self._stream_active = False
+        self._stream_label = None
+        self._thinking_label = None
+
     def _display_ai_reply(self, reply):
         """主线程槽：显示 AI 回复（解析情绪标签切换立绘）"""
+        if getattr(self, '_stream_rendered', False) and reply:
+            # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复渲染
+            self._stream_rendered = False
+            import datetime as _dt
+            ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+            self.display_msgs.append({'who': '桌宠', 'text': str(reply), 'ts': ts})
+            if len(self.display_msgs) > 300:
+                self.display_msgs = self.display_msgs[-300:]
+            _display, emotion = self._strip_emotion_tag(reply)
+            self._apply_emotion(emotion)
+            return
         if not reply and getattr(self, '_choices_requested', False):
             self._choices_requested = False
             self._render_choices()
