@@ -38,3 +38,11 @@ _pasted_ocr.png
 # API 自监控运行时数据
 _apistats_debug.log
 api_stats.json
+
+affection.json
+memories.json
+api_stats.json
+_apistats_debug.log
+gen_actions.py
+cut_actions.py
+assets/new_actions/

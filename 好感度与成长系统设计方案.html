@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!-- 分类: 设计方案 | 项目: desktop-pet -->
+
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌宠「好感度与成长系统」设计方案</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#0f1420; color:#dce3f0; line-height:1.8; padding:24px 16px 48px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:24px; color:#fff; margin-bottom:6px; }
+  .sub { color:#8aa; font-size:13px; margin-bottom:24px; }
+  h2 { font-size:18px; color:#7fb2ff; margin:30px 0 12px; border-left:4px solid #7fb2ff; padding-left:10px; }
+  h3 { font-size:15px; color:#9fd0ff; margin:18px 0 8px; }
+  p { margin:8px 0; font-size:14px; }
+  table { width:100%; border-collapse:collapse; margin:12px 0 18px; font-size:13px; }
+  th, td { border:1px solid #2c3a52; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#1c2740; color:#9ec; }
+  tr:nth-child(even) { background:#141b2c; }
+  code { background:#1c2740; padding:2px 6px; border-radius:4px; font-size:12px; color:#9fd0ff; }
+  pre { background:#101828; border:1px solid #2c3a52; border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12px; margin:10px 0; }
+  pre code { background:none; padding:0; color:#b8d4ff; }
+  .tip { background:#182136; border-left:4px solid #6ecb7a; border-radius:8px; padding:12px 14px; margin:12px 0; font-size:13px; }
+  .warn { background:#2a1d24; border-left:4px solid #e07b53; border-radius:8px; padding:12px 14px; margin:12px 0; font-size:13px; }
+  .warn b { color:#ffb08a; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; margin:14px 0; }
+  .card { background:#182136; border-radius:10px; padding:14px 16px; font-size:13px; }
+  .card b { color:#9fd0ff; display:block; margin-bottom:6px; font-size:14px; }
+  .muted { color:#8aa; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>桌宠「好感度与成长系统」设计方案</h1>
+<div class="sub">2026-08-28 · 项目：deepseek-desktop-pet · 参考：whale-girl / DyberPet / LiveGalGame / dsh-pet</div>
+
+<h2>〇、现状盘点</h2>
+<table>
+  <tr><th>现有能力</th><th>与方案关系</th></tr>
+  <tr><td>双角色独立模型/对话/记忆</td><td>好感度按角色隔离，人设进化按角色独立</td></tr>
+  <tr><td>长期记忆（memorize + memory.json）</td><td>事实记忆层保留，新增「事件记忆（回忆日志）」层</td></tr>
+  <tr><td>API 统计（api_stats.json）</td><td>余额气泡直接复用费用数据</td></tr>
+  <tr><td>20+ 动作素材 + Live2D</td><td>扩展动作状态机即可</td></tr>
+  <tr><td>主动关心系统</td><td>关心频率由「人设阶段」统一调制</td></tr>
+</table>
+<div class="warn"><b>核心约束</b>：desktop_pet.py 已是 306KB 单文件 → 新系统<b>独立模块化</b>，主文件只接线。</div>
+
+<h2>一、总体架构</h2>
+<pre><code>desktop_pet.py（主程序，仅接线）
+ ├── affection_engine.py   ← 好感度引擎（纯逻辑无 UI，可单测）
+ ├── memory_events.py      ← 回忆日志（事件记忆）
+ ├── pet_minigames.py      ← 小游戏（注册式可扩展）
+ ├── affection_ui.py       ← 进度条/气泡动画/小游戏窗口
+ └── （现有）chat_memory / memory / api_stats / assets</code></pre>
+<p>原则：<b>引擎与 UI 分离</b>——引擎层纯数据逻辑，UI 层只做展示交互。</p>
+
+<h2>二、好感度数值系统（核心）</h2>
+<h3>双轴模型</h3>
+<table>
+  <tr><th>轴</th><th>范围</th><th>含义</th><th>影响</th></tr>
+  <tr><td>好感度 affection</td><td>0~200（初始 60）</td><td>情感亲密度</td><td>决定人设阶段、解锁动作/称号</td></tr>
+  <tr><td>等级 level / XP</td><td>无上限</td><td>陪伴资历</td><td>荣誉称号、里程碑</td></tr>
+</table>
+<h3>事件表（纯积累，零衰减零惩罚）</h3>
+<table>
+  <tr><th>事件</th><th>好感</th><th>防刷</th></tr>
+  <tr><td>对话</td><td>+1</td><td>单轮上限 +3</td></tr>
+  <tr><td>完成任务</td><td>+5</td><td>同一任务一次</td></tr>
+  <tr><td>喂食</td><td>+2</td><td>冷却 30 分钟</td></tr>
+  <tr><td>小游戏胜/参与</td><td>+3 / +1</td><td>每局</td></tr>
+  <tr><td>早安/晚安</td><td>+2</td><td>每天各一次</td></tr>
+  <tr><td>陪伴活跃</td><td>+1/10min</td><td>单日上限 +20</td></tr>
+</table>
+<p>XP 曲线（whale-girl 公式）：<code>xpForLevel(L) = 50·L·(L−1)/2</code>；Lv2=50, Lv5=500, Lv10=2250。</p>
+<p>称号 6 个：初次协作/勤劳伙伴/常驻伙伴/百炼成钢/越挫越勇/广结善缘。</p>
+<div class="tip">存储 <code>affection.json</code>：双角色独立（flash/pro），含 cooldowns + daily 防刷字段。</div>
+
+<h2>三、人设进化（纵向维度）</h2>
+<table>
+  <tr><th>阶段</th><th>好感度</th><th>关系定位</th><th>prompt 注入</th></tr>
+  <tr><td>初见</td><td>60~80</td><td>礼貌助手</td><td>称呼「您」、克制</td></tr>
+  <tr><td>熟悉</td><td>80~110</td><td>熟络朋友</td><td>称呼「你」、开玩笑</td></tr>
+  <tr><td>亲密</td><td>110~140</td><td>亲密伙伴</td><td>撒娇、昵称</td></tr>
+  <tr><td>依赖</td><td>140~170</td><td>心灵依靠</td><td>主动关心升级</td></tr>
+  <tr><td>灵魂伴侣</td><td>170~200</td><td>唯一</td><td>默契梗、特殊称呼</td></tr>
+</table>
+<p>实施：<code>ask_ai()</code> 构建 system prompt 时按好感度注入「关系阶段」段 + 最近 3 条回忆；双角色独立；阶段只升不降。</p>
+
+<h2>四、记忆机制（三层架构）</h2>
+<table>
+  <tr><th>层</th><th>文件</th><th>内容</th><th>生命周期</th></tr>
+  <tr><td>对话记忆</td><td>chat_memory*.json</td><td>近期对话</td><td>滚动压缩</td></tr>
+  <tr><td>事实记忆</td><td>memory.json</td><td>用户偏好（现有）</td><td>长期重要度排序</td></tr>
+  <tr><td><b>事件记忆（新）</b></td><td>memories.json</td><td>共同经历时间线</td><td>长期，上限 200 条滚动</td></tr>
+</table>
+<p>回忆日志结构：<code>{id, time, role, type, title, detail, emotion, affection_at}</code>；写入时机：memorize 双写 / 里程碑 / 用户右键「📌 记住这一刻」；读取时机：prompt 注入最近 3 条 + 回忆相册 UI（Phase 3）。</p>
+
+<h2>五~九、交互功能逐个说明</h2>
+<div class="grid">
+  <div class="card"><b>余额动画气泡</b>QLabel + QPropertyAnimation：角色头顶飘 <code>-¥0.032</code> 上浮渐隐 1.2s；费用&gt;¥0.1 红色放大。复用现有 ApiStats 数据。</div>
+  <div class="card"><b>动作素材扩展</b>asset() 状态机加新状态：撒娇/亲亲/胜利/沮丧/饥饿/送花——好感度联动触发；代码先行，素材后补（无素材降级现有动作）。</div>
+  <div class="card"><b>小游戏</b>pet_minigames.py 注册式：首批石头剪刀布/猜数字/五子棋（minimax 深度2）；胜利 +3 好感。右键菜单「🎮 小游戏」入口。</div>
+  <div class="card"><b>好感度可视化</b>右键「❤️ 关系」面板：进度条 + 阶段徽章 + 称号列表 + 最近变化；变化时飘 <code>+2↑</code> 动效。</div>
+  <div class="card"><b>饱食度</b>0~100 时间戳衰减（12h 归零），喂食 +40 并撒娇；低饱食只提示不惩罚（守零惩罚原则）。</div>
+</div>
+
+<h2>十、实施分期</h2>
+<table>
+  <tr><th>阶段</th><th>内容</th><th>工作量</th></tr>
+  <tr><td>Phase 1 核心</td><td>affection_engine + 人设五阶段 + memories.json + 关系面板</td><td>3-4 天</td></tr>
+  <tr><td>Phase 2 互动</td><td>余额气泡 + 饱食度 + 3 款小游戏 + 动作状态</td><td>3-4 天</td></tr>
+  <tr><td>Phase 3 进阶</td><td>回忆相册 + 情感选项 + 更多游戏 + 素材</td><td>灵活</td></tr>
+</table>
+
+<h2>十一、风险与边界</h2>
+<table>
+  <tr><th>风险</th><th>应对</th></tr>
+  <tr><td>单文件膨胀</td><td>新代码独立模块，主文件只接线</td></tr>
+  <tr><td>人设注入影响质量</td><td>阶段模板可配置，双角色可开关</td></tr>
+  <tr><td>素材缺失</td><td>代码先行，无素材降级现有动作</td></tr>
+  <tr><td>刷分</td><td>冷却/单日上限/封顶三重防刷</td></tr>
+  <tr><td>与主动关心冲突</td><td>关心频率由阶段统一调制</td></tr>
+</table>
+
+<h2>十二、参考项目取用对照</h2>
+<table>
+  <tr><th>参考</th><th>取用</th></tr>
+  <tr><td>whale-girl + growth-system</td><td>XP 曲线、称号、零负反馈、防刷、回忆日志、设计文档骨架</td></tr>
+  <tr><td>DyberPet</td><td>200 级好感度、饱食度、喂食、任务掉落</td></tr>
+  <tr><td>LiveGalGame</td><td>进度条 + 变化动效、情感标签（Phase 3）</td></tr>
+  <tr><td>dsh-pet</td><td>余额气泡、动作素材链、小游戏面板</td></tr>
+</table>
+
+</div>
+</body>
+</html>
