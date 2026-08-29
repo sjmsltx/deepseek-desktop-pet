@@ -928,6 +928,182 @@ class Farkle(BaseGame):
         self.btn_lock.setEnabled(self.turn == 'player' and self.turn_score > 0 and not self.over)
 
 
+# ---------- 打地鼠 ----------
+class WhackAMole(BaseGame):
+    """打地鼠：30 秒内点中随机冒出的地鼠"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🎯 打地鼠', on_result, parent)
+        self.setFixedWidth(320)
+        self.score = 0
+        self.time_left = 30
+        self.playing = False
+        self._mole = None
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('30 秒点地鼠，越快越多分！', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'慢': 900, '普通': 600, '快': 350})
+        self.lb = QLabel('得分 0 ｜ 剩余 30s', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        grid = QGridLayout()
+        self.btns = []
+        for i in range(9):
+            btn = QPushButton('🕳️')
+            btn.setFixedSize(72, 72)
+            btn.setStyleSheet(
+                'QPushButton { background:#182136; color:#dce3f0; border:1px solid #3a4a66;'
+                ' border-radius:10px; font-size:26px; }'
+                'QPushButton:hover { background:#24314a; }')
+            btn.clicked.connect(lambda checked, idx=i: self._hit(idx))
+            grid.addWidget(btn, i // 3, i % 3)
+            self.btns.append(btn)
+        lay.addLayout(grid)
+        self.btn_start = QPushButton('开始')
+        self.btn_start.clicked.connect(self._start)
+        lay.addWidget(self.btn_start)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self._move_timer = QTimer(self)
+        self._move_timer.timeout.connect(self._move_mole)
+
+    def _start(self):
+        self.score = 0
+        self.time_left = 30
+        self.playing = True
+        self.btn_start.setEnabled(False)
+        self._move_mole()
+        self.timer.start(1000)
+        self._move_timer.start(self.difficulty or 600)
+        self._sync()
+
+    def _move_mole(self):
+        if not self.playing:
+            return
+        for b in self.btns:
+            b.setText('🕳️')
+        self._mole = random.randint(0, 8)
+        self.btns[self._mole].setText('🐹')
+
+    def _hit(self, idx):
+        if not self.playing:
+            return
+        if idx == self._mole:
+            self.score += 1
+            self._move_mole()
+        else:
+            self.btns[idx].setText('💥')
+            QTimer.singleShot(150, self._move_mole)
+        self._sync()
+
+    def _tick(self):
+        self.time_left -= 1
+        self._sync()
+        if self.time_left <= 0:
+            self._end()
+
+    def _sync(self):
+        self.lb.setText(f'得分 {self.score} ｜ 剩余 {self.time_left}s')
+
+    def _end(self):
+        self.playing = False
+        self.timer.stop()
+        self._move_timer.stop()
+        self.btn_start.setEnabled(True)
+        win = self.score >= 15
+        self._finish(win, f'打了 {self.score} 只地鼠！' + (f'（好感度 +3）' if win else f'（参与 +1）'), self.score)
+
+
+# ---------- 21 点 ----------
+class Blackjack(BaseGame):
+    """21 点：和桌宠对赌，谁更接近 21 谁赢"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🃏 21 点', on_result, parent)
+        self.setFixedWidth(340)
+        self.deck = []
+        self.phand = []
+        self.ehand = []
+        self.over = False
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('比 21 点，谁爆谁输，接近者胜', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'普通': 17, '高手局': 18})
+        self.lb_me = QLabel('你的牌：', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb_me)
+        self.lb_enemy = QLabel('桌宠的牌：', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb_enemy)
+        row = QHBoxLayout()
+        self.btn_hit = QPushButton('🃏 要牌')
+        self.btn_hit.clicked.connect(self._hit)
+        self.btn_stand = QPushButton('✋ 停牌')
+        self.btn_stand.clicked.connect(self._stand)
+        row.addWidget(self.btn_hit)
+        row.addWidget(self.btn_stand)
+        lay.addLayout(row)
+        self._sync()
+
+    def _deal(self):
+        self.deck = [v for v in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10] for _ in range(4)]
+        random.shuffle(self.deck)
+        self.phand = [self.deck.pop(), self.deck.pop()]
+        self.ehand = [self.deck.pop(), self.deck.pop()]
+        self.over = False
+        self.btn_hit.setEnabled(True)
+        self.btn_stand.setEnabled(True)
+        self._sync()
+        if self._value(self.phand) == 21:
+            self._settle()
+
+    def _value(self, hand):
+        v = sum(hand)
+        aces = hand.count(1)
+        while v <= 11 and aces:
+            v += 10
+            aces -= 1
+        return v
+
+    def _hit(self):
+        self.phand.append(self.deck.pop())
+        if self._value(self.phand) >= 21:
+            self.btn_hit.setEnabled(False)
+            QTimer.singleShot(600, self._settle)
+        self._sync()
+
+    def _stand(self):
+        self.btn_hit.setEnabled(False)
+        self.btn_stand.setEnabled(False)
+        QTimer.singleShot(600, self._settle)
+
+    def _settle(self):
+        pv = self._value(self.phand)
+        stop = self.difficulty or 17
+        ev = self._value(self.ehand)
+        while ev < stop and len(self.ehand) < 5:
+            self.ehand.append(self.deck.pop())
+            ev = self._value(self.ehand)
+        pb = pv > 21
+        eb = ev > 21
+        if pb and eb:
+            self._finish(False, f'都爆了！你 {pv} vs 桌宠 {ev}（平局，参与 +1）')
+        elif pb:
+            self._finish(False, f'你爆了 {pv}！桌宠 {ev} 赢（参与 +1）')
+        elif eb:
+            self._finish(True, f'桌宠爆了 {ev}！你 {pv} 赢，好感度 +3')
+        elif pv > ev:
+            self._finish(True, f'你 {pv} > 桌宠 {ev}，赢了！好感度 +3')
+        elif pv < ev:
+            self._finish(False, f'你 {pv} < 桌宠 {ev}，输了（参与 +1）')
+        else:
+            self._finish(False, f'平局 {pv}（参与 +1）')
+
+    def _sync(self):
+        self.lb_me.setText('你的牌：' + ' '.join(self._fmt(h) for h in self.phand) + f'（{self._value(self.phand)}）')
+        shown = self.ehand[:1] + ['?'] * (len(self.ehand) - 1) if self.ehand else []
+        self.lb_enemy.setText('桌宠的牌：' + ' '.join(shown))
+
+    @staticmethod
+    def _fmt(v):
+        return {1: 'A', 11: 'J', 12: 'Q', 13: 'K'}.get(v, str(v))
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
@@ -939,6 +1115,8 @@ GAMES = {
     '🃏 记忆翻牌': MemoryMatch,
     '⚫ 井字棋': TicTacToe,
     '🎲 Farkle 骰子': Farkle,
+    '🎯 打地鼠': WhackAMole,
+    '🃏 21 点': Blackjack,
 }
 
 
