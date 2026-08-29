@@ -1361,6 +1361,229 @@ class Sudoku(BaseGame):
         self._finish(True, '数独完成！好感度 +3')
 
 
+# ---------- 俄罗斯方块 ----------
+class Tetris(BaseGame):
+    """俄罗斯方块：方向键移动/旋转，消行得分，速度三档"""
+
+    SHAPES = [
+        [[1, 1, 1, 1]],
+        [[1, 1], [1, 1]],
+        [[0, 1, 0], [1, 1, 1]],
+        [[0, 1, 1], [1, 1, 0]],
+        [[1, 1, 0], [0, 1, 1]],
+        [[1, 0, 0], [1, 1, 1]],
+        [[0, 0, 1], [1, 1, 1]],
+    ]
+    COLORS = ['#00e5ff', '#ffd700', '#c9a0ff', '#6ecb7a', '#ff8a8a', '#ffa040', '#4a8ac2']
+    W, H = 10, 20
+
+
+    RULES = '俄罗斯方块：←→左右移动，↑旋转，↓加速下落，空格直接落底。方块堆满一行自动消除，一次消多行得分更高。堆到顶部游戏结束。'
+    def __init__(self, on_result, parent=None):
+        super().__init__('🧱 俄罗斯方块', on_result, parent)
+        self.setFixedSize(320, 440)
+        self.board = [[0] * self.W for _ in range(self.H)]
+        self.score = 0
+        self.lines = 0
+        self.over = False
+        self._widget = _TetrisWidget(self)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('←→移动 ↑旋转 ↓加速 空格硬降', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'慢': 500, '普通': 350, '快': 220})
+        lay.addWidget(self._widget)
+        self.lb = QLabel('得分 0 ｜ 行 0', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        self.timer.start(self.difficulty or 350)
+        self._spawn()
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def _spawn(self):
+        i = random.randint(0, 6)
+        self.piece = [row[:] for row in self.SHAPES[i]]
+        self.px = self.W // 2 - len(self.piece[0]) // 2
+        self.py = 0
+        self.pcolor = self.COLORS[i]
+        if self._collide(self.px, self.py):
+            self.over = True
+            self.timer.stop()
+            self._finish(False, f'游戏结束！得分 {self.score}（参与 +1）', self.score)
+
+    def _collide(self, x, y):
+        for r, row in enumerate(self.piece):
+            for c, v in enumerate(row):
+                if v and (y + r >= self.H or x + c < 0 or x + c >= self.W or self.board[y + r][x + c]):
+                    return True
+        return False
+
+    def _lock(self):
+        for r, row in enumerate(self.piece):
+            for c, v in enumerate(row):
+                if v:
+                    self.board[self.py + r][self.px + c] = 1
+        full = [r for r in range(self.H) if all(self.board[r])]
+        for r in full:
+            del self.board[r]
+            self.board.insert(0, [0] * self.W)
+        if full:
+            self.lines += len(full)
+            self.score += [0, 100, 300, 500, 800][min(len(full), 4)]
+            self.lb.setText(f'得分 {self.score} ｜ 行 {self.lines}')
+        self._spawn()
+        self._widget.update()
+
+    def _tick(self):
+        if self.over:
+            return
+        if not self._collide(self.px, self.py + 1):
+            self.py += 1
+        else:
+            self._lock()
+        self._widget.update()
+
+    def _rotate(self):
+        piece = [list(row) for row in zip(*self.piece[::-1])]
+        old = self.piece
+        self.piece = piece
+        if self._collide(self.px, self.py):
+            self.piece = old
+
+    def keyPressEvent(self, e):
+        if self.over:
+            return
+        k = e.key()
+        if k == Qt.Key_Left and not self._collide(self.px - 1, self.py):
+            self.px -= 1
+        elif k == Qt.Key_Right and not self._collide(self.px + 1, self.py):
+            self.px += 1
+        elif k == Qt.Key_Down and not self._collide(self.px, self.py + 1):
+            self.py += 1
+        elif k == Qt.Key_Up:
+            self._rotate()
+        elif k == Qt.Key_Space:
+            while not self._collide(self.px, self.py + 1):
+                self.py += 1
+            self._lock()
+        self._widget.update()
+
+
+class _TetrisWidget(QWidget):
+    def __init__(self, game, parent=None):
+        super().__init__(parent)
+        self.game = game
+        cell = 18
+        self.setFixedSize(game.W * cell + 4, game.H * cell + 4)
+        self.cell = cell
+
+    def paintEvent(self, event):
+        g = self.game
+        p = QPainter(self)
+        cell = self.cell
+        p.fillRect(self.rect(), QColor('#0d1320'))
+        p.setPen(QPen(QColor('#1c2740')))
+        for y in range(g.H):
+            for x in range(g.W):
+                p.drawRect(x * cell, y * cell, cell, cell)
+                if g.board[y][x]:
+                    p.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2, QColor('#5aa7d6'))
+        # 当前方块
+        if not g.over and hasattr(g, 'piece'):
+            for r, row in enumerate(g.piece):
+                for c, v in enumerate(row):
+                    if v:
+                        p.fillRect((g.px + c) * cell + 1, (g.py + r) * cell + 1, cell - 2, cell - 2,
+                                   QColor(g.pcolor))
+
+
+# ---------- 华容道（数字滑块） ----------
+class SlidingPuzzle(BaseGame):
+    """华容道：数字滑块拼图，点击相邻块移动，按步数计成绩"""
+
+
+    RULES = '华容道：点击数字方块滑到旁边的空格里，目标是把数字按 1~15 顺序排好（空格在右下角）。步数越少越厉害。'
+    def __init__(self, on_result, parent=None):
+        super().__init__('🧩 华容道', on_result, parent)
+        self.setFixedWidth(340)
+        self.steps = 0
+        self.over = False
+        self.buttons = []
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('点击数字移动到空格，按顺序排好获胜', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'3×3': 3, '4×4': 4})
+        self.lb = QLabel('步数 0', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        self.grid = QGridLayout()
+        lay.addLayout(self.grid)
+        btn = QPushButton('🔄 重新打乱')
+        btn.clicked.connect(self._new_game)
+        lay.addWidget(btn)
+        self._new_game()
+
+    def _apply_difficulty(self):
+        super()._apply_difficulty()
+        self._new_game()
+
+    def _new_game(self):
+        n = self.difficulty or 3
+        self.n = n
+        total = n * n
+        # 从完成态随机移动 200 次保证可解
+        board = list(range(1, total)) + [0]
+        empty = total - 1
+        for _ in range(200):
+            candidates = []
+            if empty // n > 0: candidates.append(empty - n)
+            if empty // n < n - 1: candidates.append(empty + n)
+            if empty % n > 0: candidates.append(empty - 1)
+            if empty % n < n - 1: candidates.append(empty + 1)
+            idx = random.choice(candidates)
+            board[idx], board[empty] = board[empty], board[idx]
+            empty = idx
+        self.board = board
+        self.steps = 0
+        self.over = False
+        self.lb.setText('步数 0')
+        # 重建网格按钮
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.buttons = []
+        for i in range(total):
+            btn = QPushButton()
+            btn.setFixedSize(64, 64)
+            btn.setStyleSheet(
+                'QPushButton { background:#2a3a55; color:#dce3f0; border-radius:8px;'
+                ' font-size:20px; font-weight:bold; }'
+                'QPushButton:hover { background:#35507a; }'
+                'QPushButton:disabled { background:#182136; color:#445; }')
+            btn.clicked.connect(lambda checked, idx=i: self._move(idx))
+            self.grid.addWidget(btn, i // n, i % n)
+            self.buttons.append(btn)
+        self._render()
+
+    def _render(self):
+        for i, btn in enumerate(self.buttons):
+            v = self.board[i]
+            btn.setText(str(v) if v else '')
+            btn.setEnabled(v != 0)
+
+    def _move(self, idx):
+        if self.over:
+            return
+        empty = self.board.index(0)
+        same_row = idx // self.n == empty // self.n
+        if (abs(idx - empty) == 1 and same_row) or abs(idx - empty) == self.n:
+            self.board[idx], self.board[empty] = self.board[empty], self.board[idx]
+            self.steps += 1
+            self.lb.setText(f'步数 {self.steps}')
+            self._render()
+            if self.board == list(range(1, self.n * self.n)) + [0]:
+                self.over = True
+                self._finish(True, f'完成！用了 {self.steps} 步，好感度 +3', self.steps)
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
@@ -1375,6 +1598,8 @@ GAMES = {
     '🎯 打地鼠': WhackAMole,
     '🃏 21 点': Blackjack,
     '🔢 数独': Sudoku,
+    '🧱 俄罗斯方块': Tetris,
+    '🧩 华容道': SlidingPuzzle,
 }
 
 
