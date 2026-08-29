@@ -1522,7 +1522,8 @@ class SlidingPuzzle(BaseGame):
 
     def _apply_difficulty(self):
         super()._apply_difficulty()
-        self._new_game()
+        if hasattr(self, 'lb'):
+            self._new_game()
 
     def _new_game(self):
         n = self.difficulty or 3
