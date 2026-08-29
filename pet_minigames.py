@@ -47,6 +47,14 @@ class BaseGame(QDialog):
             t.stop()
         super().closeEvent(event)
 
+    def showEvent(self, event):
+        """窗口显示：把焦点抢回游戏本体（防止难度下拉框吃掉方向键/空格）"""
+        super().showEvent(event)
+        try:
+            self.setFocus()
+        except Exception:
+            pass
+
     def _add_pet_face(self, lay):
         """桌宠表情区：游戏窗口内显示桌宠反应（解决黑箱问题）"""
         self.pet_face = QLabel('', alignment=Qt.AlignCenter)
