@@ -1104,6 +1104,109 @@ class Blackjack(BaseGame):
         return {1: 'A', 11: 'J', 12: 'Q', 13: 'K'}.get(v, str(v))
 
 
+# ---------- 数独 ----------
+class Sudoku(BaseGame):
+    """数独：9×9，挖空 24/36/48 格三档难度"""
+
+    def __init__(self, on_result, parent=None):
+        super().__init__('🔢 数独', on_result, parent)
+        self.setFixedWidth(420)
+        self.solution = None
+        self.puzzle = None
+        self.cells = []
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel('填入 1-9，行列宫不重复', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'简单': 24, '普通': 36, '困难': 48})
+        grid = QGridLayout()
+        self.edits = {}
+        for r in range(9):
+            for c in range(9):
+                ed = QLineEdit()
+                ed.setMaxLength(1)
+                ed.setFixedSize(38, 38)
+                ed.setAlignment(Qt.AlignCenter)
+                ed.setStyleSheet(
+                    'QLineEdit { background:#141b2c; color:#dce3f0; border:1px solid #2c3a52;'
+                    ' border-radius:4px; font-size:16px; }'
+                    'QLineEdit[given="true"] { background:#1c2740; color:#7fb2ff; font-weight:bold; }')
+                grid.addWidget(ed, r, c)
+                self.edits[(r, c)] = ed
+                self.cells.append(ed)
+        lay.addLayout(grid)
+        self.lb = QLabel('', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        row = QHBoxLayout()
+        btn_new = QPushButton('🔄 新一局')
+        btn_new.clicked.connect(self._new_game)
+        btn_check = QPushButton('✅ 检查')
+        btn_check.clicked.connect(self._check)
+        row.addWidget(btn_new)
+        row.addWidget(btn_check)
+        lay.addLayout(row)
+        self._new_game()
+
+    # ---------- 生成 ----------
+    def _new_game(self):
+        self.solution = self._gen_solution()
+        holes = self.difficulty or 36
+        self.puzzle = [row[:] for row in self.solution]
+        cells = [(r, c) for r in range(9) for c in range(9)]
+        random.shuffle(cells)
+        for r, c in cells[:holes]:
+            self.puzzle[r][c] = 0
+        for (r, c), ed in self.edits.items():
+            v = self.puzzle[r][c]
+            ed.setText(str(v) if v else '')
+            ed.setProperty('given', 'true' if v else 'false')
+            ed.setReadOnly(bool(v))
+            ed.setStyleSheet(ed.styleSheet())  # 刷新属性样式
+        self.lb.setText(f'填 {holes} 个空格，开始吧')
+
+    def _gen_solution(self):
+        board = [[0] * 9 for _ in range(9)]
+        self._fill(board)
+        return board
+
+    def _fill(self, board):
+        for r in range(9):
+            for c in range(9):
+                if board[r][c] == 0:
+                    nums = list(range(1, 10))
+                    random.shuffle(nums)
+                    for n in nums:
+                        if self._ok(board, r, c, n):
+                            board[r][c] = n
+                            if self._fill(board):
+                                return True
+                            board[r][c] = 0
+                    return False
+        return True
+
+    @staticmethod
+    def _ok(board, r, c, n):
+        for i in range(9):
+            if board[r][i] == n or board[i][c] == n:
+                return False
+        br, bc = r // 3 * 3, c // 3 * 3
+        for i in range(3):
+            for j in range(3):
+                if board[br + i][bc + j] == n:
+                    return False
+        return True
+
+    # ---------- 检查 ----------
+    def _check(self):
+        for (r, c), ed in self.edits.items():
+            t = ed.text().strip()
+            if not t.isdigit() or not (1 <= int(t) <= 9):
+                self.lb.setText('还有空格或输入不对哦')
+                return
+            if int(t) != self.solution[r][c]:
+                self.lb.setText(f'第 {r + 1} 行第 {c + 1} 列错了')
+                return
+        self._finish(True, '数独完成！好感度 +3')
+
+
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
@@ -1117,6 +1220,7 @@ GAMES = {
     '🎲 Farkle 骰子': Farkle,
     '🎯 打地鼠': WhackAMole,
     '🃏 21 点': Blackjack,
+    '🔢 数独': Sudoku,
 }
 
 
