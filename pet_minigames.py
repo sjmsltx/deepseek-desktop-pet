@@ -86,6 +86,8 @@ class RockPaperScissors(BaseGame):
     CHOICES = {'✊ 石头': 'rock', '✋ 剪刀': 'scissors', '🖐 布': 'paper'}
     RULES = {('rock', 'scissors'): True, ('scissors', 'paper'): True, ('paper', 'rock'): True}
 
+
+    RULES = '石头剪刀布：石头赢剪刀，剪刀赢布，布赢石头。和桌宠猜拳比手气！'
     def __init__(self, on_result, parent=None):
         super().__init__('✊ 石头剪刀布', on_result, parent)
         lay = QVBoxLayout(self)
@@ -110,6 +112,8 @@ class RockPaperScissors(BaseGame):
 
 # ---------- 猜数字 ----------
 class GuessNumber(BaseGame):
+
+    RULES = '猜数字：桌宠心里想了一个 1~100 的数字，你猜它会提示「大了/小了」，直到猜中。'
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 猜数字', on_result, parent)
         self.target = random.randint(1, 100)
@@ -149,6 +153,8 @@ class Gomoku(BaseGame):
     CELL = 26
     MARGIN = 30
 
+
+    RULES = '五子棋：你执黑先手，点击棋盘落子，横、竖、斜任意方向连成五子即获胜。难度决定 AI 强弱。'
     def __init__(self, on_result, parent=None):
         super().__init__('⚫ 五子棋', on_result, parent)
         self.board = [[0] * self.SIZE for _ in range(self.SIZE)]  # 0空 1人 2AI
@@ -303,6 +309,8 @@ class _BoardWidget(QWidget):
 class Game2048(BaseGame):
     """2048：方向键移动合并，棋盘/目标多档可选"""
 
+
+    RULES = '2048：用方向键移动所有方块，相同数字相撞会合并翻倍，合成目标数字（2048/4096）获胜。'
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 2048', on_result, parent)
         self.setFixedSize(360, 400)
@@ -418,6 +426,8 @@ class Game2048(BaseGame):
 class Minesweeper(BaseGame):
     """扫雷：9x9，10 雷，左键翻开，右键标雷"""
 
+
+    RULES = '扫雷：左键翻开格子，右键标记地雷。数字表示周围 8 格的地雷数，排完所有安全格获胜。踩雷即输。'
     def __init__(self, on_result, parent=None):
         super().__init__('💣 扫雷', on_result, parent)
         self.W, self.H, self.MINES = 9, 9, 10
@@ -547,6 +557,8 @@ class Snake(BaseGame):
     SIZE = 20
     CELL = 15
 
+
+    RULES = '贪吃蛇：方向键控制蛇移动，吃到食物变长得分。撞墙或撞到自己结束。金色食物 5 秒内吃到 +3 分！'
     def __init__(self, on_result, parent=None):
         super().__init__('🐍 贪吃蛇', on_result, parent)
         self.setFixedSize(340, 400)
@@ -633,6 +645,8 @@ class _SnakeWidget(QWidget):
 class MemoryMatch(BaseGame):
     """记忆翻牌：配对 8 对表情卡片"""
 
+
+    RULES = '记忆翻牌：翻开两张卡片，图案相同则配对成功。全部 8 对配对完成获胜，用的次数越少越厉害。'
     def __init__(self, on_result, parent=None):
         super().__init__('🃏 记忆翻牌', on_result, parent)
         self.setFixedWidth(300)
@@ -696,6 +710,8 @@ class MemoryMatch(BaseGame):
 class TicTacToe(BaseGame):
     """井字棋：3×3，三档 AI 难度"""
 
+
+    RULES = '井字棋：你执 X 先手，在 3×3 棋盘落子，横竖斜连成一线获胜。难度决定 AI 聪明程度。'
     def __init__(self, on_result, parent=None):
         super().__init__('⚫ 井字棋', on_result, parent)
         self.setFixedWidth(320)
@@ -809,6 +825,8 @@ class Farkle(BaseGame):
     TARGETS = [('500', 500), ('1000', 1000), ('1500', 1500), ('2000', 2000),
                ('3000', 3000), ('4000', 4000), ('8000', 8000), ('10000', 10000)]
 
+
+    RULES = 'KCD 版 Farkle 骰子：先到目标分（500~10000 自选）获胜。\\n计分：单 1=100，单 5=50；三个 1=1000，三个 2~6=点数×100；四个同=×2，五个同=×4，六个同=×8；顺子 123456=1500，12345=500，23456=750。\\n流程：掷骰→点击选中计分骰→保留（得分入回合）→继续掷剩余骰或锁定。全部保留后奖励 6 个新骰。掷出无分骰=Farkle，回合清零。策略：贪心有风险，见好就收！'
     def __init__(self, on_result, parent=None):
         super().__init__('🎲 Farkle 骰子', on_result, parent)
         self.setFixedWidth(400)
@@ -869,27 +887,23 @@ class Farkle(BaseGame):
     # ---------- 计分规则 ----------
     @staticmethod
     def score_dice(dice):
+        """KCD 官方计分：单1=100 单5=50；三同=值×100(三个1=1000)；四五六同=×2/×4/×8；
+        顺子 123456=1500, 12345=500, 23456=750；无三个对子/双三同组合奖励"""
         from collections import Counter
         n = len(dice)
-        # 六连顺子 1-6
-        if n == 6 and sorted(dice) == [1, 2, 3, 4, 5, 6]:
+        s = sorted(dice)
+        if n == 6 and s == [1, 2, 3, 4, 5, 6]:
             return 1500, set(range(6))
-        counts = Counter(dice)
-        # 三个对子
-        if n == 6 and sorted(counts.values()) == [2, 2, 2]:
-            return 1500, set(range(6))
-        # 五连顺子 12345 / 23456
-        if n == 5 and sorted(dice) in ([1, 2, 3, 4, 5], [2, 3, 4, 5, 6]):
+        if n == 5 and s == [1, 2, 3, 4, 5]:
             return 500, set(range(5))
-        # 双三同（两个三同及以上）
-        triples = [v for v, c in counts.items() if c >= 3]
-        if len(triples) >= 2 and n == 6:
-            return 2500, set(range(6))
+        if n == 5 and s == [2, 3, 4, 5, 6]:
+            return 750, set(range(5))
+        counts = Counter(dice)
         score = 0
         usable = set()
         for v, c in counts.items():
             if c >= 3:
-                base = 1000 if v == 1 else v * 100
+                base = 1000 if v == 1 else (500 if v == 5 else v * 100)
                 mult = 2 ** (c - 3)
                 score += base * mult
                 for i, d in enumerate(dice):
@@ -1050,6 +1064,8 @@ class Farkle(BaseGame):
 class WhackAMole(BaseGame):
     """打地鼠：30 秒内点中随机冒出的地鼠"""
 
+
+    RULES = '打地鼠：30 秒内点中随机冒出的地鼠，点中 +1 分。速度越快的地鼠越难抓，15 分以上算胜利。'
     def __init__(self, on_result, parent=None):
         super().__init__('🎯 打地鼠', on_result, parent)
         self.setFixedWidth(320)
@@ -1134,6 +1150,8 @@ class WhackAMole(BaseGame):
 class Blackjack(BaseGame):
     """21 点：和桌宠对赌，谁更接近 21 谁赢"""
 
+
+    RULES = '21 点：和桌宠比谁更接近 21。A 可算 1 或 11，J/Q/K 算 10。要牌接近 21，超过 21 爆牌即输，停牌后桌宠补牌比大小。'
     def __init__(self, on_result, parent=None):
         super().__init__('🃏 21 点', on_result, parent)
         self.setFixedWidth(340)
@@ -1242,6 +1260,8 @@ class Blackjack(BaseGame):
 class Sudoku(BaseGame):
     """数独：9×9，挖空 24/36/48 格三档难度"""
 
+
+    RULES = '数独：在 9×9 棋盘填入 1~9，保证每行、每列、每个 3×3 宫格内数字不重复。已给出的数字不可改，填完点「检查」。'
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 数独', on_result, parent)
         self.setFixedWidth(420)
@@ -1365,7 +1385,7 @@ class GameWindow(QDialog):
         super().__init__(parent)
         self.on_result = on_result
         self.setWindowTitle('🎮 小游戏')
-        self.setFixedWidth(260)
+        self.setFixedWidth(300)
         self.setStyleSheet(
             "QDialog { background:#1e2430; }"
             "QLabel { color:#dce3f0; font-size:13px; }"
@@ -1376,9 +1396,19 @@ class GameWindow(QDialog):
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('和桌宠玩一局？赢了好感度 +3', alignment=Qt.AlignCenter))
         for name, cls in GAMES.items():
-            btn = QPushButton(name)
+            row = QHBoxLayout()
+            btn = QPushButton(f'▶ {name}')
             btn.clicked.connect(lambda checked, c=cls: self._open(c))
-            lay.addWidget(btn)
+            row.addWidget(btn)
+            rules = getattr(cls, 'RULES', '')
+            if rules:
+                rbtn = QPushButton('📖 规则')
+                rbtn.setFixedWidth(56)
+                rbtn.setStyleSheet('font-size:12px; padding:6px;')
+                rbtn.clicked.connect(lambda checked, c=cls, r=rules: QMessageBox.information(self, f'{c.__name__} 规则', r))
+                row.addWidget(rbtn)
+            row.addStretch(1)
+            lay.addLayout(row)
 
     def _open(self, cls):
         self.hide()
