@@ -6297,11 +6297,24 @@ class PetWidget(QWidget):
         self._game_window = GameWindow(self._on_game_result, self)
         self._game_window.show()
 
-    def _on_game_result(self, win, score=0):
-        """小游戏结果 → 好感度事件 + 动作状态图（胜利/沮丧）"""
+    def _on_game_result(self, win, score=0, game=None):
+        """小游戏结果 → 好感度事件 + 高分里程碑 + 动作状态图"""
         try:
             r = self.affection.trigger(self.current, 'game_win' if win else 'game_play')
             self._handle_affection(r)
+            # 高分里程碑（v6.30）：破纪录 → 庆祝 + 回忆 + 额外好感
+            if game and score:
+                try:
+                    rec = self.affection.record_best(self.current, game, score)
+                    if rec['is_record']:
+                        self.memories.add(
+                            self.current, 'milestone', f'「{game}」新纪录 {score} 分',
+                            f'打破了之前 {rec["prev"]} 分的纪录',
+                            affection_at=self.affection.snapshot(self.current)['affection'])
+                        self._show_pet_bubble(f'🏆 「{game}」新纪录 {score} 分！', 4)
+                        self.affection.trigger(self.current, 'chat')  # 破纪录额外好感
+                except Exception:
+                    pass
             try:
                 self._show_state_image('victory' if win else 'defeat')
             except Exception:

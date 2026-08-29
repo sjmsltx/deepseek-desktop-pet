@@ -93,9 +93,12 @@ class BaseGame(QDialog):
             return  # 窗口已关闭（用户中途退出）：不弹窗不结算
         QMessageBox.information(self, '结果', msg)
         try:
-            self.on_result(win, score)
+            self.on_result(win, score, self.__class__.__name__)
         except TypeError:
-            self.on_result(win)
+            try:
+                self.on_result(win, score)
+            except TypeError:
+                self.on_result(win)
         self.close()
 
 

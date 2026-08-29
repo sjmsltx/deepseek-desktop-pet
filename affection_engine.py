@@ -231,6 +231,19 @@ class AffectionEngine:
                 'unlocked_titles': unlocked,
             }
 
+    # ---------- 高分里程碑（v6.30 PhaseD 收尾） ----------
+    def record_best(self, role: str, game: str, score: int) -> dict:
+        """记录游戏最高分。破纪录返回 {'is_record': True, 'best', 'prev'}，否则 {'is_record': False, 'best'}。"""
+        with self._lock:
+            st = self._state(role)
+            best = st.setdefault('best', {})
+            prev = best.get(game, 0)
+            if score > prev:
+                best[game] = score
+                self._save()
+                return {'is_record': True, 'best': score, 'prev': prev}
+            return {'is_record': False, 'best': prev}
+
     # ---------- 饱食度（v6.30 Phase2） ----------
     def satiety(self, role: str) -> float:
         """当前饱食度（按 last_sat_time 动态衰减计算，无需定时器）"""
