@@ -2946,12 +2946,26 @@ class PetWidget(QWidget):
             if not self._stream_active:
                 self._chat_type_stream_begin()
                 self._stream_rendered = True
-            # 过滤情绪标签（[emotion:xxx]），避免显示在正文
+            # 情绪标签过滤（跨 chunk 安全：未闭合尾部缓存到下一 chunk）
             import re as _re
-            chunk = _re.sub(r'\[emotion:[^\]]*\]', '', chunk)
-            if not chunk:
+            combined = getattr(self, '_stream_pending', '') + chunk
+            # 提取完整 emotion 标签并应用立绘
+            for m in _re.finditer(r'\[emotion:([^\]]+)\]', combined):
+                try:
+                    self._apply_emotion(m.group(1).strip())
+                except Exception:
+                    pass
+            cleaned = _re.sub(r'\[emotion:[^\]]*\]', '', combined)
+            # 尾部可能存在未闭合标签（[emotion: 被拆到下一 chunk）→ 缓存
+            tail = _re.search(r'\[emotion:[^\]]*$', cleaned)
+            if tail:
+                self._stream_pending = tail.group(0)
+                cleaned = cleaned[:tail.start()]
+            else:
+                self._stream_pending = ''
+            if not cleaned:
                 return
-            self._stream_text += chunk
+            self._stream_text += cleaned
             if self._stream_label is not None:
                 self._stream_label.setText(self._stream_text)
                 self._chat_scroll_bottom()
@@ -2983,10 +2997,31 @@ class PetWidget(QWidget):
         self._stream_label = None
         self._thinking_label = None
 
+    # ---------- v6.40 流式富文本恢复 ----------
+    @staticmethod
+    def _looks_like_table(text):
+        """粗略判断：多行且含管道符的表格"""
+        lines = [ln for ln in text.splitlines() if ln.strip().startswith('|')]
+        return len(lines) >= 3
+
+    def _rerender_rich(self, text):
+        """流式结束后：把纯文本气泡重渲染为富文本（代码卡/表格卡，含复制按钮）"""
+        content = getattr(self, '_chat_type_content', None)
+        if content is None:
+            return
+        while content.count():
+            item = content.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        blocks = self._split_rich_blocks(text)
+        for kind, c in blocks:
+            self._render_one_block(content, kind, c)
+        self._chat_scroll_bottom()
+
     def _display_ai_reply(self, reply):
         """主线程槽：显示 AI 回复（解析情绪标签切换立绘）"""
         if getattr(self, '_stream_rendered', False) and reply:
-            # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复渲染
+            # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复打字机
             self._stream_rendered = False
             import datetime as _dt
             ts = _dt.datetime.now().strftime('%m-%d %H:%M')
@@ -2995,6 +3030,12 @@ class PetWidget(QWidget):
                 self.display_msgs = self.display_msgs[-300:]
             _display, emotion = self._strip_emotion_tag(reply)
             self._apply_emotion(emotion)
+            # v6.40+ 富文本恢复：含代码块/表格 → 同气泡重渲染成卡片（复制按钮回归）
+            if ('```' in _display) or self._looks_like_table(_display):
+                try:
+                    self._rerender_rich(_display)
+                except Exception:
+                    pass
             return
         if not reply and getattr(self, '_choices_requested', False):
             self._choices_requested = False
