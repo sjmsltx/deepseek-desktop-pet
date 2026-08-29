@@ -233,10 +233,10 @@ class AffectionEngine:
 
     # ---------- 高分里程碑（v6.30 PhaseD 收尾） ----------
     def record_best(self, role: str, game: str, score: int) -> dict:
-        """记录游戏最高分。破纪录返回 {'is_record': True, 'best', 'prev'}，否则 {'is_record': False, 'best'}。"""
+        """记录游戏最高分（存 stats.best）。破纪录返回 {'is_record': True, 'best', 'prev'}。"""
         with self._lock:
             st = self._state(role)
-            best = st.setdefault('best', {})
+            best = st['stats'].setdefault('best', {})
             prev = best.get(game, 0)
             if score > prev:
                 best[game] = score
