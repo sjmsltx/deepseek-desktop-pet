@@ -83,44 +83,89 @@ class BaseGame(QDialog):
 
 # ---------- 石头剪刀布 ----------
 class RockPaperScissors(BaseGame):
+    """石头剪刀布：单局或三局两胜；桌宠会记仇（你赢一局后它倾向出克制你的上一手）"""
+
+    RULES = '石头剪刀布：石头赢剪刀，剪刀赢布，布赢石头。三局两胜模式下桌宠会记仇——你赢一局后，它下一局更可能出克制你上一手的拳。'
     CHOICES = {'✊ 石头': 'rock', '✋ 剪刀': 'scissors', '🖐 布': 'paper'}
-    RULES = {('rock', 'scissors'): True, ('scissors', 'paper'): True, ('paper', 'rock'): True}
+    RULES_MAP = {('rock', 'scissors'): True, ('scissors', 'paper'): True, ('paper', 'rock'): True}
+    BEATS = {'rock': 'paper', 'paper': 'scissors', 'scissors': 'rock'}  # 克制我的
 
-
-    RULES = '石头剪刀布：石头赢剪刀，剪刀赢布，布赢石头。和桌宠猜拳比手气！'
     def __init__(self, on_result, parent=None):
         super().__init__('✊ 石头剪刀布', on_result, parent)
+        self.my_wins = 0
+        self.pet_wins = 0
+        self.last_my = None
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('出拳吧！', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'单局': 0, '三局两胜': 1})
+        self.lb = QLabel('', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
         row = QHBoxLayout()
         for label, key in self.CHOICES.items():
             btn = QPushButton(label)
             btn.clicked.connect(lambda checked, k=key: self._play(k))
             row.addWidget(btn)
         lay.addLayout(row)
+        self._sync()
 
-    def _play(self, choice: str):
-        ai = random.choice(list(self.CHOICES.values()))
-        ai_label = [k for k, v in self.CHOICES.items() if v == ai][0]
-        if choice == ai:
-            self._finish(False, f'平局！桌宠出了 {ai_label}')
-        elif self.RULES.get((choice, ai)):
-            self._finish(True, f'你赢了！桌宠出了 {ai_label}，好感度 +3')
+    def _sync(self):
+        if self.difficulty:
+            self.lb.setText(f'你 {self.my_wins} : {self.pet_wins} 桌宠（先赢 2 局）')
         else:
-            self._finish(False, f'你输了…桌宠出了 {ai_label}')
+            self.lb.setText('一局定胜负')
+
+    def _play(self, choice):
+        best = list(self.CHOICES.values())
+        if self.difficulty and self.last_my is not None and self.my_wins > 0:
+            # 记仇：60% 概率出克制玩家上一手
+            if random.random() < 0.6:
+                ai = self.BEATS.get(self.last_my, random.choice(best))
+            else:
+                ai = random.choice(best)
+        else:
+            ai = random.choice(best)
+        ai_label = [k for k, v in self.CHOICES.items() if v == ai][0]
+        self.last_my = choice
+        if choice == ai:
+            msg = f'平局！桌宠出了 {ai_label}'
+            win = None
+        elif self.RULES_MAP.get((choice, ai)):
+            win = True
+            msg = f'你赢了！桌宠出了 {ai_label}'
+        else:
+            win = False
+            msg = f'你输了…桌宠出了 {ai_label}'
+        if self.difficulty:
+            if win:
+                self.my_wins += 1
+            elif win is False:
+                self.pet_wins += 1
+            self._sync()
+            if self.my_wins >= 2:
+                self._finish(True, f'三局两胜：你赢了！好感度 +3')
+                return
+            if self.pet_wins >= 2:
+                self._finish(False, f'三局两胜：桌宠赢了（参与 +1）')
+                return
+            QMessageBox.information(self, '本局', f'{msg}（{self.my_wins}:{self.pet_wins}）')
+        else:
+            self._finish(win, f'{msg}，好感度 +3' if win else f'{msg}（参与 +1）')
 
 
 # ---------- 猜数字 ----------
 class GuessNumber(BaseGame):
+    """猜数字：范围/限次可选，限次内猜中获胜"""
 
-    RULES = '猜数字：桌宠心里想了一个 1~100 的数字，你猜它会提示「大了/小了」，直到猜中。'
+    RULES = '猜数字：桌宠想了一个数字，你猜它会提示「大了/小了」。简单 1~50 不限次；普通 1~100 限 7 次；困难 1~1000 限 10 次。'
+
     def __init__(self, on_result, parent=None):
         super().__init__('🔢 猜数字', on_result, parent)
         self.target = random.randint(1, 100)
         self.tries = 0
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel('1~100 之间猜一个数字（桌宠心里想好了）', alignment=Qt.AlignCenter))
-        self.lb_hint = QLabel('猜吧，会提示大了/小了', alignment=Qt.AlignCenter)
+        lay.addWidget(QLabel('猜一个数字，桌宠会提示大了/小了', alignment=Qt.AlignCenter))
+        self._add_difficulty(lay, {'简单 1-50': (50, 0), '普通 1-100': (100, 7), '困难 1-1000': (1000, 10)})
+        self.lb_hint = QLabel('', alignment=Qt.AlignCenter)
         lay.addWidget(self.lb_hint)
         row = QHBoxLayout()
         self.ed = QLineEdit()
@@ -131,6 +176,22 @@ class GuessNumber(BaseGame):
         row.addWidget(self.ed)
         row.addWidget(btn)
         lay.addLayout(row)
+        self._reset()
+
+    def _apply_difficulty(self):
+        super()._apply_difficulty()
+        if hasattr(self, 'lb_hint'):
+            self._reset()
+
+    def _reset(self):
+        hi = self.difficulty[0] if self.difficulty else 100
+        self.target = random.randint(1, hi)
+        self.tries = 0
+        limit = self.difficulty[1] if self.difficulty else 0
+        hint = f'1~{hi} 之间'
+        if limit:
+            hint += f'，限 {limit} 次'
+        self.lb_hint.setText(hint)
 
     def _guess(self):
         try:
@@ -138,13 +199,21 @@ class GuessNumber(BaseGame):
         except ValueError:
             self.lb_hint.setText('要输入数字哦')
             return
+        hi = self.difficulty[0] if self.difficulty else 100
+        limit = self.difficulty[1] if self.difficulty else 0
+        if not (1 <= n <= hi):
+            self.lb_hint.setText(f'要在 1~{hi} 之间哦')
+            return
         self.tries += 1
         if n < self.target:
             self.lb_hint.setText(f'{n} 太小了，再大点')
         elif n > self.target:
             self.lb_hint.setText(f'{n} 太大了，再小点')
         else:
-            self._finish(True, f'猜中了！就是 {n}，用了 {self.tries} 次，好感度 +3')
+            self._finish(True, f'猜中了！就是 {n}，用了 {self.tries} 次，好感度 +3', self.tries)
+            return
+        if limit and self.tries >= limit:
+            self._finish(False, f'次数用完了…答案是 {self.target}（参与 +1）')
 
 
 # ---------- 五子棋（简化 AI：连子评估 + 简单防守） ----------
@@ -643,41 +712,64 @@ class _SnakeWidget(QWidget):
 
 # ---------- 记忆翻牌 ----------
 class MemoryMatch(BaseGame):
-    """记忆翻牌：配对 8 对表情卡片"""
+    """记忆翻牌：6/8/12 对，配对全部完成获胜"""
 
+    RULES = '记忆翻牌：翻开两张卡片，图案相同则配对成功。可选 6/8/12 对，全部配对完成获胜，用的次数越少越厉害。'
+    EMOJIS = ['🍎', '🍊', '🍇', '🍓', '🍑', '🥝', '🍉', '🍒', '🍋', '🍐', '🫐', '🍍']
 
-    RULES = '记忆翻牌：翻开两张卡片，图案相同则配对成功。全部 8 对配对完成获胜，用的次数越少越厉害。'
     def __init__(self, on_result, parent=None):
         super().__init__('🃏 记忆翻牌', on_result, parent)
-        self.setFixedWidth(300)
-        emojis = ['🍎', '🍊', '🍇', '🍓', '🍑', '🥝', '🍉', '🍒'] * 2
-        random.shuffle(emojis)
-        self.cards = emojis
-        self.revealed = [False] * 16
-        self.matched = [False] * 16
+        self.setFixedWidth(320)
+        self.revealed = []
+        self.matched = []
         self.first = None
         self.tries = 0
         self.buttons = []
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('翻开配对，全部配对获胜', alignment=Qt.AlignCenter))
-        grid = QGridLayout()
-        for i in range(16):
+        self._add_difficulty(lay, {'6 对': 6, '8 对': 8, '12 对': 12})
+        self.lb = QLabel('', alignment=Qt.AlignCenter)
+        lay.addWidget(self.lb)
+        self.grid = QGridLayout()
+        lay.addLayout(self.grid)
+        self._rebuild()
+
+    def _apply_difficulty(self):
+        super()._apply_difficulty()
+        if hasattr(self, 'grid'):
+            self._rebuild()
+
+    def _rebuild(self):
+        pairs = self.difficulty or 8
+        cards = random.sample(self.EMOJIS, pairs) * 2
+        random.shuffle(cards)
+        self.cards = cards
+        self.revealed = [False] * len(cards)
+        self.matched = [False] * len(cards)
+        self.first = None
+        self.tries = 0
+        self.over = False
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.buttons = []
+        cols = 4
+        for i in range(len(cards)):
             btn = QPushButton('❓')
-            btn.setFixedSize(56, 56)
+            btn.setFixedSize(58, 58)
             btn.setStyleSheet(
                 'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
                 ' border-radius:8px; font-size:20px; }'
                 'QPushButton:hover { background:#35507a; }'
                 'QPushButton:disabled { background:#1c2740; color:#8aa; }')
             btn.clicked.connect(lambda checked, idx=i: self._flip(idx))
-            grid.addWidget(btn, i // 4, i % 4)
+            self.grid.addWidget(btn, i // cols, i % cols)
             self.buttons.append(btn)
-        lay.addLayout(grid)
-        self.lb = QLabel('尝试 0 次', alignment=Qt.AlignCenter)
-        lay.addWidget(self.lb)
+        self.lb.setText(f'{pairs} 对卡片，开始吧')
 
     def _flip(self, idx):
-        if self.matched[idx] or self.revealed[idx]:
+        if self.over or self.matched[idx] or self.revealed[idx]:
             return
         self.revealed[idx] = True
         self.buttons[idx].setText(self.cards[idx])
@@ -693,7 +785,8 @@ class MemoryMatch(BaseGame):
             self.buttons[a].setEnabled(False)
             self.buttons[b].setEnabled(False)
             if all(self.matched):
-                self._finish(True, f'全部配对！用了 {self.tries} 次，好感度 +3')
+                self.over = True
+                self._finish(True, f'全部配对！用了 {self.tries} 次，好感度 +3', self.tries)
         else:
             QTimer.singleShot(650, lambda: self._unflip(a, b))
 
