@@ -323,7 +323,8 @@ class Game2048(BaseGame):
             self.score = 0
             self._spawn()
             self._spawn()
-            self._render()
+            if hasattr(self, 'lb_board'):
+                self._render()
 
     def _render(self):
         colors = {0: '#141b2c', 2: '#2a3a55', 4: '#35507a', 8: '#3f6ca8',
