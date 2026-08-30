@@ -39,6 +39,7 @@ from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block
 from code_checker import check_python_blocks
+from care_engine import user_idle_minutes, judge_wakeup, followup_message
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -5646,23 +5647,13 @@ class PetWidget(QWidget):
     # ============ 主动关心系统（v6.18 链式+回访） ============
     @staticmethod
     def _user_idle_minutes():
-        """用户空闲分钟数（GetLastInputInfo，纯 ctypes）"""
-        try:
-            import ctypes
-            class LASTINPUTINFO(ctypes.Structure):
-                _fields_ = [('cbSize', ctypes.c_uint), ('dwTime', ctypes.c_uint)]
-            lii = LASTINPUTINFO()
-            lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
-            ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
-            millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
-            return millis / 60000.0
-        except Exception:
-            return 0.0
+        """用户空闲分钟数（拆至 care_engine.user_idle_minutes）"""
+        return user_idle_minutes()
 
     def _ai_wakeup_judge(self):
-        """链式唤醒判断：轻量请求 AI 决定 是否主动找用户 + 下次唤醒间隔（独立上下文，不污染主对话）"""
+        """链式唤醒判断（网络/解析拆至 care_engine.judge_wakeup，此处组装状态+注入用量记录）"""
         try:
-            import urllib.request, json as _j, datetime as _dt, re as _re
+            import datetime as _dt
             now = _dt.datetime.now()
             last_chat = ''
             if self.chat_history_msgs:
@@ -5672,24 +5663,13 @@ class PetWidget(QWidget):
             state = f'现在是{now.strftime("%H:%M")}（周{week}），电脑空闲 {idle:.0f} 分钟'
             if last_chat:
                 state += f'，最近对话：{last_chat}'
-            prompt = (f'{state}。你是桌宠{CHARACTERS[self.current]["name"]}。请判断现在要不要主动找用户说句话。'
-                      f'规则：用户空闲超过30分钟、或深夜(23:00-8:00)、或用户明显在忙时不打扰；'
-                      f'如果最近有值得关心的事（未完成的话题/重要事件）可以主动。'
-                      f'只返回 JSON：{{"act":"yes"或"no","message":"要说话时的1-2句自然关心语(act=yes时)","next_minutes":下次唤醒间隔分钟数(10-360)}}')
-            data = _j.dumps({'model': self._current_model(),
-                             'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 200}).encode()
-            req = urllib.request.Request('https://api.deepseek.com/chat/completions', data=data,
-                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'})
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                r = _j.loads(resp.read().decode())
-            self._record_api_usage(r)
-            content = (r['choices'][0]['message'].get('content') or '')
-            m = _re.search(r'\{[^{}]*\}', content, _re.S)
-            if m:
-                return _j.loads(m.group(0))
+            return judge_wakeup(
+                self.ai_key, self._current_model(), state,
+                CHARACTERS[self.current]['name'],
+                record_cb=self._record_api_usage,
+            )
         except Exception:
-            pass
-        return None
+            return None
 
     def _wakeup_worker(self):
         """唤醒判断线程：结果决定是否冒泡 + 更新下次唤醒间隔（链式）"""
@@ -5718,10 +5698,10 @@ class PetWidget(QWidget):
         self.say_plain(display, immediate=True)
 
     def _ai_followup(self, topic):
-        """回访机制：对话中安排的回访到点 → 主动生成关心消息（带状态感知 v6.18）"""
+        """回访机制（消息生成拆至 care_engine.followup_message，此处组装状态+发信号）"""
         def work():
             try:
-                import urllib.request, json as _j, datetime as _dt
+                import datetime as _dt
                 now = _dt.datetime.now()
                 idle = self._user_idle_minutes()
                 last_chat = ''
@@ -5731,18 +5711,11 @@ class PetWidget(QWidget):
                 state = f'现在是{now.strftime("%H:%M")}（周{week}），用户已空闲 {idle:.0f} 分钟'
                 if last_chat:
                     state += f'，最近对话：{last_chat}'
-                prompt = (f'{state}。用户之前提到：{topic}。作为{CHARACTERS[self.current]["name"]}，'
-                          f'现在按约定主动关心一下，1-2句话，自然不刻意。'
-                          f'根据状态调整语气：用户空闲超过60分钟→体谅/不催促（可能不在或很忙）；'
-                          f'空闲不到10分钟→语气可以亲近自然。可带[emotion:xxx]。')
-                data = _j.dumps({'model': self._current_model(),
-                                 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 150}).encode()
-                req = urllib.request.Request('https://api.deepseek.com/chat/completions', data=data,
-                    headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'})
-                with urllib.request.urlopen(req, timeout=25) as resp:
-                    r = _j.loads(resp.read().decode())
-                self._record_api_usage(r)
-                msg = (r['choices'][0]['message'].get('content') or '').strip()
+                msg = followup_message(
+                    self.ai_key, self._current_model(), state, topic,
+                    CHARACTERS[self.current]['name'],
+                    record_cb=self._record_api_usage,
+                )
                 if msg:
                     self.wakeup_signal.emit(msg)
             except Exception:
