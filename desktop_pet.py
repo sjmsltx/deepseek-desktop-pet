@@ -1350,7 +1350,12 @@ class PetWidget(QWidget):
                 return '（路径越界，拒绝读取）'
             if not os.path.isfile(full):
                 return f'（文件不存在：{rel_path}）'
-            if full.lower().endswith(('.py', '.md', '.txt', '.json', '.bat', '.ps1', '.html')):
+            # 敏感文件禁止读取（API key/隐私数据，防止泄露给 AI）
+            _low = full.lower()
+            if any(_s in _low for _s in ('config.json', 'api_stats.json', 'affection.json',
+                                         'memories.json', 'chat_memory', '.env', 'api_key', 'private_key')):
+                return '（敏感文件拒绝读取：包含 API 密钥/隐私数据）'
+            if _low.endswith(('.py', '.md', '.txt', '.json', '.bat', '.ps1', '.html')):
                 with open(full, encoding='utf-8', errors='ignore') as f:
                     content = f.read()  # 行号模式需读全文件（v6.25）
                 if start_line is not None:
@@ -1921,7 +1926,21 @@ class PetWidget(QWidget):
                     pass
             self.ai_reply_signal.emit(final_reply)
         except Exception as e:
-            self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
+            # 400 等 HTTP 错误：显示响应体中的具体原因（DeepSeek error.message）
+            try:
+                import urllib.error as _ue
+                if isinstance(e, _ue.HTTPError):
+                    body = e.read().decode('utf-8', 'replace')
+                    detail = body
+                    try:
+                        detail = jsonlib.loads(body).get('error', {}).get('message') or body[:200]
+                    except Exception:
+                        pass
+                    self.ai_reply_signal.emit(f'（AI 出错了：HTTP {e.code} — {detail}）')
+                else:
+                    self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
+            except Exception:
+                self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
             self._ai_busy = False
 
