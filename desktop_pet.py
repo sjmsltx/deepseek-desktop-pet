@@ -2973,12 +2973,30 @@ class PetWidget(QWidget):
             pass
 
     def _on_reasoning(self, chunk):
-        """主线程槽：流式思考 chunk → 灰色思考区（DSH 风格）"""
+        """主线程槽：流式思考 chunk → 灰色思考区（可折叠，AutoClaw 风格）"""
         try:
             if self._thinking_label is None:
                 import datetime as _dt
                 ts = _dt.datetime.now().strftime('%m-%d %H:%M')
                 bubble, content = self._new_bubble('桌宠', ts, is_user=False, text='')
+                self._thinking_bubble = bubble
+                # 折叠头：点击展开/收起思考内容
+                head = bubble.layout().itemAt(0).layout()
+                toggle = QPushButton('💭 思考过程')
+                toggle.setStyleSheet(
+                    'QPushButton { background:transparent; color:#7a8aa0; border:none;'
+                    ' font-size:11px; padding:0; text-align:left; }'
+                    'QPushButton:hover { color:#9fd0ff; }')
+                toggle.setCursor(Qt.PointingHandCursor)
+                self._thinking_collapsed = False
+                def _toggle():
+                    self._thinking_collapsed = not self._thinking_collapsed
+                    if self._thinking_label is not None:
+                        self._thinking_label.setVisible(not self._thinking_collapsed)
+                    toggle.setText('💭 思考过程 ▶' if self._thinking_collapsed else '💭 思考过程 ▼')
+                toggle.clicked.connect(_toggle)
+                head.insertWidget(2, toggle)
+                head.insertStretch(3, 1)
                 self._thinking_label = QLabel('💭')
                 self._thinking_label.setWordWrap(True)
                 self._thinking_label.setTextFormat(Qt.PlainText)
@@ -2986,7 +3004,11 @@ class PetWidget(QWidget):
                     'color:#7a8aa0; font-size:12px; background:#141b2c; border-radius:6px; padding:6px;')
                 content.addWidget(self._thinking_label)
                 self._chat_scroll_bottom()
-            self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
+            if self._thinking_label is not None and self._thinking_label.isVisible():
+                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
+            else:
+                # 折叠中：内容仍累加（存在 label 文本里），展开时显示完整
+                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
             self._chat_scroll_bottom()
         except Exception:
             pass
@@ -3030,6 +3052,11 @@ class PetWidget(QWidget):
                 self.display_msgs = self.display_msgs[-300:]
             _display, emotion = self._strip_emotion_tag(reply)
             self._apply_emotion(emotion)
+            self._save_chat_memory()  # v6.40 fix：流式路径此前跳过保存，对话历史不落盘
+            try:
+                self._attach_bubble_actions(self._chat_type_bubble, reply)  # v6.40 fix：流式气泡补复制/存图按钮
+            except Exception:
+                pass
             # v6.40+ 富文本恢复：含代码块/表格 → 同气泡重渲染成卡片（复制按钮回归）
             if ('```' in _display) or self._looks_like_table(_display):
                 try:
@@ -4604,24 +4631,7 @@ class PetWidget(QWidget):
             head.addWidget(tl)
             head.addStretch(1)
         # 操作按钮：一键复制 / 存为图片（hover 消息才显示，v6.19e；不污染对话历史）
-        if text:
-            cp = QLabel('⧉')
-            cp.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
-            cp.setCursor(Qt.PointingHandCursor)
-            cp.setToolTip('复制该消息')
-            cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
-            cp.hide()
-            head.addWidget(cp)
-            sv = QLabel('🖼')
-            sv.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
-            sv.setCursor(Qt.PointingHandCursor)
-            sv.setToolTip('存为图片')
-            sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
-            sv.hide()
-            head.addWidget(sv)
-            bubble._action_btns = [cp, sv]
-            bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
-            bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
+        self._attach_bubble_actions(bubble, text)
         v.addLayout(head)
         content = QVBoxLayout()
         content.setSpacing(4)
@@ -4892,6 +4902,34 @@ class PetWidget(QWidget):
         bubble, content = self._new_bubble(who, ts, is_user=False, text=str(text))
         self._render_md_into(content, str(text))
         self._chat_scroll_bottom()
+
+    def _attach_bubble_actions(self, bubble, text):
+        """给消息气泡补复制/存图按钮（hover 显示）。v6.40：流式气泡创建时 text 为空，流式结束后补上"""
+        if not text or getattr(bubble, '_action_btns', None):
+            return
+        v = bubble.layout()
+        if v is None or v.count() == 0:
+            return
+        head = v.itemAt(0).layout()
+        if head is None:
+            return
+        cp = QLabel('⧉')
+        cp.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+        cp.setCursor(Qt.PointingHandCursor)
+        cp.setToolTip('复制该消息')
+        cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
+        cp.hide()
+        head.addWidget(cp)
+        sv = QLabel('🖼')
+        sv.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+        sv.setCursor(Qt.PointingHandCursor)
+        sv.setToolTip('存为图片')
+        sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
+        sv.hide()
+        head.addWidget(sv)
+        bubble._action_btns = [cp, sv]
+        bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
+        bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
 
     @staticmethod
     def _md_to_html(text):
