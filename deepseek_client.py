@@ -94,7 +94,7 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
                             yield ('content', c)
                         for tc in delta.get('tool_calls') or []:
                             idx = tc.get('index', 0)
-                            t = tool_calls.setdefault(idx, {'id': '', 'function': {'name': '', 'arguments': ''}})
+                            t = tool_calls.setdefault(idx, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
                             if tc.get('id'):
                                 t['id'] += tc['id']
                             fn = tc.get('function', {})

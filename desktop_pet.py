@@ -1848,6 +1848,7 @@ class PetWidget(QWidget):
                     raise RuntimeError('流式响应为空')
                 # 记录 API 用量（流式响应无 usage 字段，跳过；保留非流式路径的统计）
                 msg = {
+                    'role': 'assistant',  # v6.40 fix：缺 role 导致工具调用后第二轮请求 400（DeepSeek 报 role 错误）
                     'content': full.get('content') or '',
                     'tool_calls': full.get('tool_calls'),
                     'reasoning_content': full.get('reasoning_content') or '',
