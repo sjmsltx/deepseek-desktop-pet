@@ -3052,10 +3052,10 @@ class PetWidget(QWidget):
             self._stream_rendered = False
             import datetime as _dt
             ts = _dt.datetime.now().strftime('%m-%d %H:%M')
-            self.display_msgs.append({'who': '桌宠', 'text': str(reply), 'ts': ts})
+            _display, emotion = self._strip_emotion_tag(reply)
+            self.display_msgs.append({'who': '桌宠', 'text': str(_display), 'ts': ts})  # v6.40 fix：历史存剥标签后的正文
             if len(self.display_msgs) > 300:
                 self.display_msgs = self.display_msgs[-300:]
-            _display, emotion = self._strip_emotion_tag(reply)
             self._apply_emotion(emotion)
             self._save_chat_memory()  # v6.40 fix：流式路径此前跳过保存，对话历史不落盘
             try:
@@ -3172,6 +3172,11 @@ class PetWidget(QWidget):
                     data = json.load(f)
                 self.chat_history_msgs = data.get('messages', [])
                 self.display_msgs = data.get('display', [])[-300:]
+                # v6.40：净化历史数据中残留的 emotion 控制标签（旧版保存过含标签的显示历史）
+                import re as _re
+                for _m in self.display_msgs:
+                    if isinstance(_m, dict) and _m.get('text'):
+                        _m['text'] = _re.sub(r'\[emotion:[^\]]*\]', '', str(_m['text']))
         except Exception:
             pass
 
