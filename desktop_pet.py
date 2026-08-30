@@ -37,6 +37,8 @@ from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
+from prompt_builder import guess_status
+from code_checker import check_python_blocks
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -1714,25 +1716,8 @@ class PetWidget(QWidget):
     # ============ AI 状态预判（v6.19） ============
     @staticmethod
     def _guess_status(text):
-        """按用户消息关键词预判 AI 状态（猜测，工具确认后会覆盖）——返回 (状态文本, 语言) 交由调用方适配"""
-        t = (text or '').lower()
-        rules = [
-            (['天气', '温度', '下雨', '降雨', '气温', '雾霾', '空气质量', '湿度'], ('正在查询天气', 'Checking weather')),
-            (['时间', '几点', '日期', '星期'], ('正在获取时间', 'Getting time')),
-            (['文件', '搜索', '查找', '找到', '哪个目录'], ('正在搜索文件', 'Searching files')),
-            (['进程', '卡顿', '内存', 'cpu', '占用', '后台'], ('正在读取系统状态', 'Reading system status')),
-            (['打开', '启动', '运行', '启动程序', '开一下'], ('正在打开程序', 'Opening app')),
-            (['音量', '静音', '声音', '喇叭'], ('正在调整音量', 'Adjusting volume')),
-            (['提醒', '闹钟', '待办', 'todo', '记得', '任务'], ('正在安排提醒/待办', 'Setting reminder/todo')),
-            (['锁屏', '锁定'], ('正在锁定屏幕', 'Locking screen')),
-            (['剪贴板', '复制', '粘贴'], ('正在读取剪贴板', 'Reading clipboard')),
-            (['计算', '算一下', '等于'], ('正在计算', 'Calculating')),
-            (['吃什么', '美食', '景点', '推荐', '介绍', '历史', '攻略'], ('正在组织回答', 'Preparing answer')),
-        ]
-        for keys, status in rules:
-            if any(k in t for k in keys):
-                return status
-        return ('正在思考', 'Thinking')
+        """按用户消息关键词预判 AI 状态（拆至 prompt_builder.guess_status）"""
+        return guess_status(text)
 
     def _web_search(self, query):
         """Tavily 联网搜索：返回格式化结果给 LLM；未配置 key 时返回提示"""
@@ -4163,28 +4148,8 @@ class PetWidget(QWidget):
             self.say_plain(f'保存失败：{e}', immediate=True)
 
     def _check_code_blocks(self, text):
-        """自动检查回复中 Python 代码块语法，返回 [(序号, 错误信息)]（v6.17 保证代码正确）"""
-        import re, tempfile
-        blocks = re.findall(r'```python\s*\n(.*?)```', str(text), flags=re.S)
-        bad = []
-        for i, b in enumerate(blocks):
-            if not b.strip():
-                continue
-            tmp = os.path.join(tempfile.gettempdir(), f'_pet_code_{i}.py')
-            try:
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(b)
-                import py_compile
-                py_compile.compile(tmp, doraise=True)
-            except Exception as e:
-                msg = str(e).strip().splitlines()
-                bad.append((i + 1, msg[-1] if msg else '语法错误'))
-            finally:
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
-        return bad
+        """自动检查回复中 Python 代码块语法（拆至 code_checker.check_python_blocks）"""
+        return check_python_blocks(text)
 
     def _maybe_append_code_warning(self):
         """回复渲染完成后，若有语法错误的代码块，追加黄色提示（不阻止显示，仅提醒）"""
