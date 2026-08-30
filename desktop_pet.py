@@ -34,6 +34,7 @@ from pet_sysutils import (
 from pet_storage import atomic_write_json as _atomic_write_json_impl
 from api_stats import ApiStats
 from deepseek_client import chat_completions, stream_chat_completions
+from memory_store import load_memory, save_memory, remember_fact
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -1505,77 +1506,19 @@ class PetWidget(QWidget):
 
     # ============ 长期记忆系统（v6.11） ============
     def _load_memory(self):
-        """加载 memory.json（事实 + 摘要）"""
-        try:
-            import json as _j
-            if os.path.exists(MEMORY_PATH):
-                data = _j.load(open(MEMORY_PATH, encoding='utf-8'))
-                self.memory_facts = data.get('facts', []) or []
-                self.memory_summaries = data.get('summaries', []) or []
-        except Exception:
-            self.memory_facts = []
-            self.memory_summaries = []
+        """加载 memory.json（事实 + 摘要；数据层拆至 memory_store）"""
+        self.memory_facts, self.memory_summaries = load_memory(MEMORY_PATH)
 
     def _save_memory(self):
-        """保存 memory.json"""
-        try:
-            import json as _j
-            self._atomic_write_json(MEMORY_PATH, {'facts': self.memory_facts, 'summaries': self.memory_summaries,
-                         'updated_at': __import__('datetime').datetime.now().isoformat()})
-        except Exception:
-            pass
+        """保存 memory.json（数据层拆至 memory_store）"""
+        save_memory(MEMORY_PATH, self.memory_facts, self.memory_summaries)
 
     def _remember_fact(self, action, content='', importance=3, fid='', role='both'):
-        """memorize 工具处理：add/update/delete 长期事实。role: both=共享 / flash / pro"""
-        import datetime
-        now = datetime.datetime.now().isoformat(timespec='seconds')
-        try:
-            importance = max(1, min(int(importance), 5))
-        except Exception:
-            importance = 3
-        if role not in ('flash', 'pro', 'both'):
-            role = 'both'
-        content = (content or '').strip()
-        if action == 'add':
-            if not content:
-                return '内容为空，未保存'
-            # 相似内容已存在则更新（软覆盖）
-            for f in self.memory_facts:
-                if f.get('status') == 'active' and (f.get('content') == content or content in f.get('content', '') or f.get('content', '') in content):
-                    f['content'] = content
-                    f['importance'] = importance
-                    f['roles'] = role
-                    f['updated_at'] = now
-                    self._save_memory()
-                    return f'已更新已有记忆 #{f["id"]}'
-            fid = f'f{int(datetime.datetime.now().timestamp() * 1000)}'
-            self.memory_facts.append({'id': fid, 'content': content, 'importance': importance,
-                                      'created_at': now, 'updated_at': now, 'status': 'active', 'roles': role})
-            # 遗忘机制：超 50 条按 重要度升序+旧 淘汰
-            if len(self.memory_facts) > 50:
-                self.memory_facts.sort(key=lambda x: (x.get('importance', 3), x.get('updated_at', '')))
-                self.memory_facts = self.memory_facts[-50:]
-            self._save_memory()
-            return f'已记住（重要度 {importance}/5）'
-        if action == 'delete':
-            for f in self.memory_facts:
-                if f.get('id') == fid or f.get('content') == content:
-                    f['status'] = 'superseded'
-                    f['updated_at'] = now
-                    self._save_memory()
-                    return f'已遗忘 #{f["id"]}'
-            return '未找到对应记忆'
-        if action == 'update':
-            for f in self.memory_facts:
-                if f.get('id') == fid:
-                    f['content'] = content or f.get('content', '')
-                    f['importance'] = importance
-                    f['updated_at'] = now
-                    f['status'] = 'active'
-                    self._save_memory()
-                    return f'已更新 #{fid}'
-            return '未找到对应记忆 ID'
-        return '未知操作（add/update/delete）'
+        """memorize 工具处理（数据逻辑拆至 memory_store.remember_fact，此处持有状态+落盘）"""
+        self.memory_facts, msg = remember_fact(
+            self.memory_facts, action, content, importance, fid, role)
+        self._save_memory()
+        return msg
 
     def _memory_block(self):
         """生成注入 system prompt 的记忆块（按当前角色过滤，预算：事实 ≤1000 字符 + 摘要 ≤900）"""
