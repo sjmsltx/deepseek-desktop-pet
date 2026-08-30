@@ -36,6 +36,7 @@ from api_stats import ApiStats
 from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
+from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -668,121 +669,6 @@ DEFAULT_THEME = {
     'scroll_handle': '#ffffff',
     'scroll_handle_hover': 'rgba(255,255,255,0.65)',
 }
-
-
-class _CodeCard(QFrame):
-    """代码卡片：标题栏（title + 复制按钮）+ 横向/纵向滚动 + 只读等宽文本（v6.17）"""
-    def __init__(self, code, title='代码', parent=None):
-        super().__init__(parent)
-        self._code = code
-        self.setStyleSheet("""
-            QFrame#codeCard { background:#1e2430; border-radius:8px; }
-            QLabel { color:#8aa; font-size:10px; background:transparent; }
-            QPushButton { background:#2a3142; color:#9ec; border:none; border-radius:4px;
-                          padding:2px 8px; font-size:10px; }
-            QPushButton:hover { background:#3a4152; }
-            QTextEdit { background:#161b26; color:#d8e0f0; border:none; font-size:11px;
-                        padding:4px; selection-background-color:#2a4a6b;
-                        font-family:'Consolas','Courier New',monospace; }
-            QScrollArea { background:transparent; border:none; }
-        """)
-        self.setObjectName('codeCard')
-        v = QVBoxLayout(self)
-        v.setContentsMargins(6, 4, 6, 6)
-        v.setSpacing(4)
-        bar = QHBoxLayout()
-        bar.setSpacing(6)
-        bar.addWidget(QLabel(title))
-        bar.addStretch(1)
-        self.copy_btn = QPushButton('复制')
-        self.copy_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_btn.clicked.connect(self._copy)
-        bar.addWidget(self.copy_btn)
-        v.addLayout(bar)
-        self.editor = QTextEdit()
-        self.editor.setReadOnly(True)
-        self.editor.setPlainText(code)
-        self.editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        v.addWidget(self.editor)
-        # 高度智能自适应：内容短完整显示(无滑块)，超过阈值才封顶内部滚动
-        QTimer.singleShot(0, self._fit_height)
-
-    def _fit_height(self):
-        doc = self.editor.document()
-        w = self.editor.viewport().width()
-        doc.setTextWidth(w if w > 50 else 360)  # 未布局时用兜底宽度
-        h = int(doc.size().height()) + 8
-        self.editor.setFixedHeight(max(28, min(260, h)))
-
-    def _copy(self):
-        """多格式智能复制：纯文本 + 等宽 HTML，粘贴 Word 保留代码样式（v6.17）"""
-        from PySide6.QtCore import QMimeData
-        mime = QMimeData()
-        mime.setText(self._code)  # text/plain：原始代码（markdown/记事本）
-        escaped = self._code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        mime.setHtml(f'<pre style="font-family:Consolas,monospace;white-space:pre-wrap">{escaped}</pre>')
-        QApplication.clipboard().setMimeData(mime)
-        self.copy_btn.setText('已复制 ✓')
-        QTimer.singleShot(1200, lambda: self.copy_btn.setText('复制'))
-
-
-class _TableCard(QFrame):
-    """表格卡片：标题栏（表格 + 复制 markdown 原文）+ 只读 HTML 表格（v6.17）"""
-    def __init__(self, md_text, html, parent=None):
-        super().__init__(parent)
-        self._md = md_text
-        self.setStyleSheet("""
-            QFrame#tableCard { background:#1e2430; border-radius:8px; }
-            QLabel { color:#8aa; font-size:10px; background:transparent; }
-            QPushButton { background:#2a3142; color:#9ec; border:none; border-radius:4px;
-                          padding:2px 8px; font-size:10px; }
-            QPushButton:hover { background:#3a4152; }
-            QTextEdit { background:#161b26; color:#d8e0f0; border:none; font-size:11px;
-                        padding:4px; }
-            QScrollArea { background:transparent; border:none; }
-        """)
-        self.setObjectName('tableCard')
-        v = QVBoxLayout(self)
-        v.setContentsMargins(6, 4, 6, 6)
-        v.setSpacing(4)
-        bar = QHBoxLayout()
-        bar.setSpacing(6)
-        bar.addWidget(QLabel('表格'))
-        bar.addStretch(1)
-        self.copy_btn = QPushButton('复制')
-        self.copy_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_btn.clicked.connect(self._copy)
-        bar.addWidget(self.copy_btn)
-        v.addLayout(bar)
-        self.editor = QTextEdit()
-        self.editor.setReadOnly(True)
-        self.editor.setHtml(html)
-        self.editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        v.addWidget(self.editor)
-        # 高度智能自适应：内容短完整显示(无滑块)，超过阈值才封顶内部滚动
-        QTimer.singleShot(0, self._fit_height)
-
-    def _fit_height(self):
-        doc = self.editor.document()
-        w = self.editor.viewport().width()
-        doc.setTextWidth(w if w > 50 else 360)  # 未布局时用兜底宽度
-        h = int(doc.size().height()) + 8
-        self.editor.setFixedHeight(max(28, min(220, h)))
-
-    def _copy(self):
-        """多格式智能复制：markdown 原文 + HTML 表格 + 纯文本，粘贴时目标程序自动适配（v6.17）"""
-        from PySide6.QtCore import QMimeData
-        mime = QMimeData()
-        mime.setText(self._md)  # text/plain：markdown 原文（记事本/一般编辑器）
-        mime.setData('text/markdown', self._md.encode('utf-8'))  # 显式 markdown（Typora/Obsidian 等）
-        mime.setHtml(self.editor.toHtml())  # text/html：Word 粘贴自动成真表格
-        QApplication.clipboard().setMimeData(mime)
-        self.copy_btn.setText('已复制 ✓')
-        QTimer.singleShot(1200, lambda: self.copy_btn.setText('复制'))
 
 
 class _DropChatEdit(QTextEdit):
