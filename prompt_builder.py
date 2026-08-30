@@ -4,8 +4,10 @@ prompt_builder.py — Prompt 构建·纯逻辑层（P1/P2 模块化拆分）
 ============================================================
 从 desktop_pet.py 拆出的无 UI 纯函数：
 - guess_status：按用户消息关键词预判 AI 处理状态（天气/时间/文件/进程等）
+- build_memory_block：生成注入 system prompt 的记忆块（角色过滤 + 预算裁剪）
+- build_todo_block：生成注入 prompt 的待办清单块
 
-模块化说明：纯规则匹配，无依赖，可独立单测。
+模块化说明：纯函数，读入状态数据、返回字符串，可独立单测。
 """
 
 
@@ -29,3 +31,43 @@ def guess_status(text):
         if any(k in t for k in keys):
             return status
     return ('正在思考', 'Thinking')
+
+
+def build_memory_block(facts, summaries, current):
+    """生成注入 system prompt 的记忆块（按当前角色过滤，预算：事实 ≤1000 字符 + 摘要 ≤900）"""
+    lines = []
+    budget = 1000
+    # 角色过滤：roles=both（或无 roles 字段=共享）或 roles==当前角色
+    fs = [f for f in facts
+          if f.get('status') == 'active'
+          and (f.get('roles', 'both') == 'both' or f.get('roles') == current)]
+    fs.sort(key=lambda x: -x.get('importance', 3))
+    for f in fs:
+        text = f.get('content', '').strip()
+        if not text:
+            continue
+        if budget - len(text) < 0:
+            break
+        lines.append(f'★{f.get("importance", 3)} {text}')
+        budget -= len(text)
+    block = '\n'.join(lines)
+    # 会话摘要（最多 3 条，每条 ≤300 字符）
+    sm = []
+    for s in summaries[-3:]:
+        t = (s.get('content') or '').strip()[:300]
+        if t:
+            sm.append(t)
+    if sm:
+        block += ('\n【之前的对话摘要】\n' + '\n'.join(sm)) if block else '【之前的对话摘要】\n' + '\n'.join(sm)
+    return block.strip()
+
+
+def build_todo_block(todos):
+    """生成注入 prompt 的待办清单块"""
+    if not todos:
+        return ''
+    lines = []
+    for t in todos:
+        mark = '✅' if t.get('done') else '⬜'
+        lines.append(f'{mark} {t.get("text", "")}')
+    return '\n'.join(lines)

@@ -37,7 +37,7 @@ from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
-from prompt_builder import guess_status
+from prompt_builder import guess_status, build_memory_block, build_todo_block
 from code_checker import check_python_blocks
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
@@ -1410,32 +1410,8 @@ class PetWidget(QWidget):
         return msg
 
     def _memory_block(self):
-        """生成注入 system prompt 的记忆块（按当前角色过滤，预算：事实 ≤1000 字符 + 摘要 ≤900）"""
-        lines = []
-        budget = 1000
-        # 角色过滤：roles=both（或无 roles 字段=共享）或 roles==当前角色
-        facts = [f for f in self.memory_facts
-                 if f.get('status') == 'active'
-                 and (f.get('roles', 'both') == 'both' or f.get('roles') == self.current)]
-        facts.sort(key=lambda x: -x.get('importance', 3))
-        for f in facts:
-            text = f.get('content', '').strip()
-            if not text:
-                continue
-            if budget - len(text) < 0:
-                break
-            lines.append(f'★{f.get("importance", 3)} {text}')
-            budget -= len(text)
-        block = '\n'.join(lines)
-        # 会话摘要（最多 3 条，每条 ≤300 字符）
-        sm = []
-        for s in self.memory_summaries[-3:]:
-            t = (s.get('content') or '').strip()[:300]
-            if t:
-                sm.append(t)
-        if sm:
-            block += ('\n【之前的对话摘要】\n' + '\n'.join(sm)) if block else '【之前的对话摘要】\n' + '\n'.join(sm)
-        return block.strip()
+        """生成注入 system prompt 的记忆块（拆至 prompt_builder.build_memory_block）"""
+        return build_memory_block(self.memory_facts, self.memory_summaries, self.current)
 
     def _summarize_old(self):
         """旧消息滚动摘要：chat_history_msgs 超 20 条时，最旧 10 条压成摘要"""
@@ -1577,14 +1553,8 @@ class PetWidget(QWidget):
             pass
 
     def _todo_block(self):
-        """生成注入 prompt 的待办清单块"""
-        if not self.todos:
-            return ''
-        lines = []
-        for t in self.todos:
-            mark = '✅' if t.get('done') else '⬜'
-            lines.append(f'{mark} {t.get("text", "")}')
-        return '\n'.join(lines)
+        """生成注入 prompt 的待办清单块（拆至 prompt_builder.build_todo_block）"""
+        return build_todo_block(self.todos)
 
     def _manage_todo(self, action, text='', tid=''):
         """待办操作：add/list/done/remove"""
