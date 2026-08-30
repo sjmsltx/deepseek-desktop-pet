@@ -2876,7 +2876,8 @@ class PetWidget(QWidget):
             # 保存到对话记忆（占位/错误回复不存，避免污染后续上下文）
             if final_reply and not final_reply.startswith('（'):
                 self.chat_history_msgs.append({'role': 'user', 'content': text})
-                self.chat_history_msgs.append({'role': 'assistant', 'content': final_reply})
+                # v6.40 fix：上下文存剥标签后的回复（原始含[emotion:xxx]会污染上下文+被AI模仿输出）
+                self.chat_history_msgs.append({'role': 'assistant', 'content': self._strip_emotion_tags(final_reply)[0]})
             # v6.30 好感度：对话完成事件（占位/错误回复不计）
             if final_reply and not final_reply.startswith('（'):
                 try:
@@ -3076,7 +3077,7 @@ class PetWidget(QWidget):
             self._apply_emotion(emotion)
             self._save_chat_memory()  # v6.40 fix：流式路径此前跳过保存，对话历史不落盘
             try:
-                self._attach_bubble_actions(self._chat_type_bubble, reply)  # v6.40 fix：流式气泡补复制/存图按钮
+                self._attach_bubble_actions(self._chat_type_bubble, _display)  # v6.40 fix：复制按钮存剥标签后的正文（原始reply含[emotion:xxx]）
             except Exception:
                 pass
             # v6.40+ 富文本恢复：含代码块/表格 → 同气泡重渲染成卡片（复制按钮回归）
