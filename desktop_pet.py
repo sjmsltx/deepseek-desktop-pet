@@ -3046,13 +3046,20 @@ class PetWidget(QWidget):
         content = getattr(self, '_chat_type_content', None)
         if content is None:
             return
+        thinking = getattr(self, '_thinking_label', None)
         while content.count():
             item = content.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w is thinking:
+                continue  # v6.40 fix：思考区保留，不被重渲染清掉（否则折叠后无法展开）
+            if w:
+                w.deleteLater()
         blocks = self._split_rich_blocks(text)
         for kind, c in blocks:
             self._render_one_block(content, kind, c)
+        if thinking is not None:
+            content.insertWidget(0, thinking)  # 思考区保持在正文上方
+            thinking.setVisible(not getattr(self, '_thinking_collapsed', False) and bool(thinking.text().strip()))
         self._chat_scroll_bottom()
 
     def _display_ai_reply(self, reply):
