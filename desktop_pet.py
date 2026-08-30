@@ -3126,6 +3126,7 @@ class PetWidget(QWidget):
 
     def _chat_type_start(self, text):
         """开始流式显示：拆块预渲染，逐块插入（回复到达时先清掉残留状态行）"""
+        text = self._strip_emotion_tags(str(text))[0]  # v6.40 出口统一剥 emotion 标签
         self.chat_type_blocks = self._split_rich_blocks(text)  # (类型, 内容) 元组列表
         self.chat_type_index = 0
         # 记录显示历史（AI 回复全文，与面板显示同步——打字机只是动画，历史立即入栈）
@@ -4337,6 +4338,7 @@ class PetWidget(QWidget):
     def say_plain(self, text, immediate=False):
         """气泡显示短文本。immediate=True 时直接完整显示（状态提示用，避免打字机卡顿误导）
         v6.25.1 非主线程调用自动转发主线程（防 Qt 跨线程崩溃）"""
+        text = self._strip_emotion_tags(str(text))[0]  # v6.40 出口统一剥 emotion 标签
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
@@ -4895,6 +4897,7 @@ class PetWidget(QWidget):
     def _append_chat(self, who, text):
         """追加一条聊天记录（纯文本路径：系统提示/用户消息，不解析 markdown；多行自动换行）
         v6.25.1 非主线程调用自动转发主线程——修复 AI 后台线程直接操作 Qt 控件导致的崩溃（Qt6Gui.dll 访问违规）"""
+        text = self._strip_emotion_tags(str(text))[0]  # v6.40 出口统一剥 emotion 标签
         if threading.current_thread() is not threading.main_thread():
             QTimer.singleShot(0, lambda w=who, t=text: self._append_chat(w, t))
             return
