@@ -2925,13 +2925,41 @@ class PetWidget(QWidget):
             self._emotion_restore_timer.timeout.connect(self._restore_state_after_emotion)
         self._emotion_restore_timer.start(5000)  # 表情持续 5 秒后恢复 idle
 
-    # ---------- v6.40 真流式渲染（SSE chunk 直接上屏） ----------
+    # ---------- v6.40 真流式渲染（思考+正文同卡片，AutoClaw 风格） ----------
     def _chat_type_stream_begin(self):
-        """流式渲染开始：创建 AI 气泡骨架 + 思考区"""
+        """流式渲染开始：创建气泡（思考折叠区 + 正文流式区）"""
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self._remove_status_line()
         self._chat_type_bubble, self._chat_type_content = self._new_bubble('桌宠', ts, is_user=False, text='')
+        # 思考折叠区（同卡片顶部，AutoClaw 风格）
+        try:
+            head = self._chat_type_bubble.layout().itemAt(0).layout()
+            self._thinking_toggle = QPushButton('💭 思考过程 ▼')
+            self._thinking_toggle.setStyleSheet(
+                'QPushButton { background:transparent; color:#7a8aa0; border:none;'
+                ' font-size:11px; padding:0; text-align:left; }'
+                'QPushButton:hover { color:#9fd0ff; }')
+            self._thinking_toggle.setCursor(Qt.PointingHandCursor)
+            self._thinking_collapsed = False
+            def _toggle():
+                self._thinking_collapsed = not self._thinking_collapsed
+                if self._thinking_label is not None:
+                    self._thinking_label.setVisible(not self._thinking_collapsed)
+                self._thinking_toggle.setText('💭 思考过程 ▶' if self._thinking_collapsed else '💭 思考过程 ▼')
+            self._thinking_toggle.clicked.connect(_toggle)
+            head.insertWidget(2, self._thinking_toggle)
+            head.insertStretch(3, 1)
+        except Exception:
+            self._thinking_toggle = None
+        self._thinking_label = QLabel('')
+        self._thinking_label.setWordWrap(True)
+        self._thinking_label.setTextFormat(Qt.PlainText)
+        self._thinking_label.setStyleSheet(
+            'color:#7a8aa0; font-size:12px; background:#141b2c; border-radius:6px; padding:6px;')
+        self._thinking_label.hide()  # 无思考时不占位
+        self._chat_type_content.addWidget(self._thinking_label)
+        # 正文流式区
         self._stream_label = QLabel('')
         self._stream_label.setWordWrap(True)
         self._stream_label.setTextFormat(Qt.PlainText)
@@ -2973,51 +3001,28 @@ class PetWidget(QWidget):
             pass
 
     def _on_reasoning(self, chunk):
-        """主线程槽：流式思考 chunk → 灰色思考区（可折叠，AutoClaw 风格）"""
+        """主线程槽：流式思考 chunk → 同卡片灰色思考区（可折叠）"""
         try:
             if self._thinking_label is None:
-                import datetime as _dt
-                ts = _dt.datetime.now().strftime('%m-%d %H:%M')
-                bubble, content = self._new_bubble('桌宠', ts, is_user=False, text='')
-                self._thinking_bubble = bubble
-                # 折叠头：点击展开/收起思考内容
-                head = bubble.layout().itemAt(0).layout()
-                toggle = QPushButton('💭 思考过程')
-                toggle.setStyleSheet(
-                    'QPushButton { background:transparent; color:#7a8aa0; border:none;'
-                    ' font-size:11px; padding:0; text-align:left; }'
-                    'QPushButton:hover { color:#9fd0ff; }')
-                toggle.setCursor(Qt.PointingHandCursor)
-                self._thinking_collapsed = False
-                def _toggle():
-                    self._thinking_collapsed = not self._thinking_collapsed
-                    if self._thinking_label is not None:
-                        self._thinking_label.setVisible(not self._thinking_collapsed)
-                    toggle.setText('💭 思考过程 ▶' if self._thinking_collapsed else '💭 思考过程 ▼')
-                toggle.clicked.connect(_toggle)
-                head.insertWidget(2, toggle)
-                head.insertStretch(3, 1)
-                self._thinking_label = QLabel('💭')
-                self._thinking_label.setWordWrap(True)
-                self._thinking_label.setTextFormat(Qt.PlainText)
-                self._thinking_label.setStyleSheet(
-                    'color:#7a8aa0; font-size:12px; background:#141b2c; border-radius:6px; padding:6px;')
-                content.addWidget(self._thinking_label)
-                self._chat_scroll_bottom()
-            if self._thinking_label is not None and self._thinking_label.isVisible():
-                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
-            else:
-                # 折叠中：内容仍累加（存在 label 文本里），展开时显示完整
-                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
+                self._chat_type_stream_begin()
+                self._stream_rendered = True
+            if self._thinking_label is None:
+                return
+            if not self._thinking_label.isVisible():
+                self._thinking_label.show()
+            self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
             self._chat_scroll_bottom()
         except Exception:
             pass
 
     def _on_stream_done(self):
-        """主线程槽：流式结束（思考区保留，正文保持已渲染内容）"""
+        """主线程槽：流式结束（清状态行；思考区保留在卡片内可折叠）"""
         self._stream_active = False
         self._stream_label = None
-        self._thinking_label = None
+        try:
+            self._remove_status_line()
+        except Exception:
+            pass
 
     # ---------- v6.40 流式富文本恢复 ----------
     @staticmethod
