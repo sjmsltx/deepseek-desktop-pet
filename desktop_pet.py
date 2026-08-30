@@ -21,6 +21,17 @@ import ctypes
 import threading  # v6.18 ApiStats 需要
 import datetime  # v6.18 ApiStats 需要（record/调试日志）
 import winsound
+
+# P1 模块化：系统工具层 / 存储层（拆自本文件，纯函数无 UI 依赖）
+from pet_sysutils import (
+    check_dangerous as _check_dangerous,
+    read_clipboard_text as _read_clipboard_text,
+    write_clipboard_text as _write_clipboard_text,
+    run_ps as _run_ps,
+    volume_ps as _volume_ps,
+    hotkey_filter_factory as _hotkey_filter_factory,
+)
+from pet_storage import atomic_write_json as _atomic_write_json_impl
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -606,188 +617,6 @@ AI_TOOLS = [
 # ============ PowerShell 安全执行（v6） ============
 import re as _re
 import subprocess as _subprocess
-
-# 危险命令检测（精确匹配，避免误杀 Format-Table 等常用命令）
-DANGEROUS_PATTERNS = [
-    r'\bshutdown\b', r'\brestart\b', r'\breboot\b', r'\bformat\s+[a-zA-Z]:', r'\bdiskpart\b',
-    r'\bremove-item\b', r'\brm\s+-r', r'\brmdir\s+/s', r'\bdel\s+/s', r'\breg\s+delete\b',
-    r'\bnet\s+user\b', r'\bclear-recyclebin\b', r'\bformat-volume\b',
-    r'set-content\b', r'add-content\b', r'out-file\b', r'new-item\b',
-    r'stop-process\s+-force', r'\brmdir\b.*-recurse',
-]
-DANGEROUS_RE = [_re.compile(p, _re.IGNORECASE) for p in DANGEROUS_PATTERNS]
-
-
-def _check_dangerous(cmd):
-    """返回拦截提示，无危险返回 None"""
-    for rx in DANGEROUS_RE:
-        if rx.search(cmd):
-            return f'危险操作已拦截（匹配 {rx.pattern}）：删除/关机/格式化/写文件/强制结束等操作我不执行，请手动操作。'
-    return None
-
-
-def _read_clipboard_text():
-    """读取剪贴板文本（纯 ctypes，worker 线程安全）"""
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        # 64 位下句柄/指针必须显式声明 restype + argtypes，否则默认 32 位 c_int 截断
-        user32.GetClipboardData.restype = ctypes.c_void_p
-        kernel32.GlobalLock.restype = ctypes.c_void_p
-        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-        if not user32.OpenClipboard(0):
-            return None
-        try:
-            if not user32.IsClipboardFormatAvailable(13):  # CF_UNICODETEXT
-                return None
-            h = user32.GetClipboardData(13)
-            if not h:
-                return None
-            p = kernel32.GlobalLock(h)
-            try:
-                return ctypes.c_wchar_p(p).value or ''
-            finally:
-                kernel32.GlobalUnlock(h)
-        finally:
-            user32.CloseClipboard()
-    except Exception:
-        return None
-
-
-def _write_clipboard_text(text):
-    """写入剪贴板文本（纯 ctypes，worker 线程安全）"""
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        kernel32.GlobalAlloc.restype = ctypes.c_void_p
-        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
-        kernel32.GlobalLock.restype = ctypes.c_void_p
-        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-        user32.SetClipboardData.restype = ctypes.c_void_p
-        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
-        if not user32.OpenClipboard(0):
-            return False
-        try:
-            user32.EmptyClipboard()
-            data = str(text).encode('utf-16-le') + b'\x00\x00'
-            h = kernel32.GlobalAlloc(0x0042, len(data))  # GMEM_MOVEABLE | GMEM_ZEROINIT
-            if not h:
-                return False
-            p = kernel32.GlobalLock(h)
-            if not p:
-                return False
-            ctypes.memmove(p, data, len(data))
-            kernel32.GlobalUnlock(h)
-            user32.SetClipboardData(13, h)
-            return True
-        finally:
-            user32.CloseClipboard()
-    except Exception:
-        return False
-
-
-def _run_ps(command, timeout=15, skip_check=False):
-    """执行 PowerShell 命令：安全校验 + 超时 + UTF-8 + 输出截断"""
-    if not skip_check:
-        blocked = _check_dangerous(command)
-        if blocked:
-            return blocked
-    try:
-        full = f'[Console]::OutputEncoding=[Text.Encoding]::UTF8; $OutputEncoding=[Text.Encoding]::UTF8; {command}'
-        p = _subprocess.run(
-            ['powershell', '-NoProfile', '-NonInteractive', '-Command', full],
-            capture_output=True, text=True, timeout=timeout,
-            encoding='utf-8', errors='replace', creationflags=_subprocess.CREATE_NO_WINDOW,
-        )
-        out = (p.stdout or '').strip()
-        err = (p.stderr or '').strip()
-        if not out and err:
-            out = f'（错误）{err}'
-        if not out:
-            out = '（无输出，执行成功）'
-        return out if len(out) <= 1500 else out[:1500] + '\n…（输出过长已截断）'
-    except _subprocess.TimeoutExpired:
-        return f'（超时：命令超过 {timeout} 秒未完成，已终止）'
-    except Exception as e:
-        return f'（执行失败：{e}）'
-
-
-# ============ 精确音量控制（v6.1，IAudioEndpointVolume API） ============
-_VOLUME_CS = r'''using System;
-using System.Runtime.InteropServices;
-
-[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-class MMDeviceEnumeratorComObject { }
-
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDeviceEnumerator {
-    int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDevice device);
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
-}
-
-[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDevice {
-    int Activate(ref Guid iid, int clsCtx, IntPtr pActivationParams, out IAudioEndpointVolume volume);
-}
-
-[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IAudioEndpointVolume {
-    int RegisterControlChangeNotify(IntPtr pNotify);
-    int UnregisterControlChangeNotify(IntPtr pNotify);
-    int GetChannelCount(out int count);
-    int SetMasterVolumeLevel(float level, Guid ctx);
-    int SetMasterVolumeLevelScalar(float level, Guid ctx);
-    int GetMasterVolumeLevel(out float level);
-    int GetMasterVolumeLevelScalar(out float level);
-    int SetChannelVolumeLevel(uint index, float level, Guid ctx);
-    int SetChannelVolumeLevelScalar(uint index, float level, Guid ctx);
-    int GetChannelVolumeLevel(uint index, out float level);
-    int GetChannelVolumeLevelScalar(uint index, out float level);
-    int SetMute(bool mute, Guid ctx);
-    int GetMute(out bool mute);
-}
-
-public static class Volume {
-    static IAudioEndpointVolume GetVolume() {
-        IMMDeviceEnumerator enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDevice device;
-        enumerator.GetDefaultAudioEndpoint(0, 1, out device);
-        Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-        IAudioEndpointVolume volume;
-        device.Activate(ref iid, 23, IntPtr.Zero, out volume);
-        return volume;
-    }
-    public static float GetPercent() {
-        float level;
-        GetVolume().GetMasterVolumeLevelScalar(out level);
-        return (float)Math.Round(level * 100f);
-    }
-    public static void SetPercent(float percent) {
-        float v = Math.Max(0f, Math.Min(100f, percent)) / 100f;
-        GetVolume().SetMasterVolumeLevelScalar(v, Guid.Empty);
-    }
-    public static bool GetMuted() {
-        bool m;
-        GetVolume().GetMute(out m);
-        return m;
-    }
-    public static void SetMuted(bool mute) {
-        GetVolume().SetMute(mute, Guid.Empty);
-    }
-}
-'''
-
-
-def _volume_ps(script):
-    """执行带 Volume 类的 PowerShell 脚本"""
-    ps = f'[Console]::OutputEncoding=[Text.Encoding]::UTF8; Add-Type -TypeDefinition @"\n{_VOLUME_CS}\n"@; {script}'
-    return _run_ps(ps, timeout=20)
-
-
 
 # blink 图相对 idle 的平移偏移（相位相关测得）：用于对齐整图切换眨眼
 # 切换时其他部位完全重合，只有眼睛变化，不闪
@@ -1387,12 +1216,8 @@ class PetWidget(QWidget):
 
     @staticmethod
     def _atomic_write_json(path, data, pretty=True):
-        """原子写 JSON：先写临时文件再 os.replace 替换。
-        防止程序崩溃/断电时直接损坏原文件（JSON 直接 open('w') 会截断原内容）。"""
-        tmp = path + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2 if pretty else None)
-        os.replace(tmp, path)
+        """原子写 JSON（委托 pet_storage.atomic_write_json，P1 模块化）"""
+        _atomic_write_json_impl(path, data, pretty)
 
     def _save_position(self):
         """保存位置，同时保留已有配置（api key 等不被覆盖）"""
