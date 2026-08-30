@@ -691,6 +691,16 @@ class PetWidget(QWidget):
             return
         import threading
         self._ai_busy = True
+        # v6.40 fix：新对话重置流式状态（工具调用轮次由续用逻辑接管，避免正文渲染进孤儿气泡）
+        self._chat_type_bubble = None
+        self._thinking_label = None
+        self._thinking_toggle = None
+        self._stream_label = None
+        self._stream_active = False
+        self._stream_text = ''
+        self._stream_pending = ''
+        self._thinking_pending = ''
+        self._stream_rendered = False
         threading.Thread(target=self._ai_worker, args=(text,), daemon=True).start()
 
     # ---------- 智能本地应用检索（v6.36） ----------
@@ -2043,7 +2053,18 @@ class PetWidget(QWidget):
         """主线程槽：流式正文 chunk → 直接渲染（真流式，无卡顿）"""
         try:
             if not self._stream_active:
-                self._chat_type_stream_begin()
+                if (getattr(self, '_thinking_label', None) is not None
+                        and getattr(self, '_chat_type_content', None) is not None
+                        and self._thinking_label.parent() is not None):
+                    # v6.40 fix：工具调用轮次续用——思考区已在本气泡，复用气泡只重建正文 label
+                    self._stream_label = QLabel('')
+                    self._stream_label.setWordWrap(True)
+                    self._stream_label.setTextFormat(Qt.PlainText)
+                    self._stream_label.setStyleSheet('color:#dce3f0; font-size:14px;')
+                    self._chat_type_content.addWidget(self._stream_label)
+                else:
+                    self._chat_type_stream_begin()
+                self._stream_active = True
                 self._stream_rendered = True
             combined = getattr(self, '_stream_pending', '') + chunk
             cleaned, pending, emotions = self._strip_emotion_tags(combined)
