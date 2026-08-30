@@ -2976,7 +2976,9 @@ class PetWidget(QWidget):
         for m in _re.finditer(r'\[emotion:([^\]]+)\]', combined):
             emotions.append(m.group(1).strip())
         cleaned = _re.sub(r'\[emotion:[^\]]*\]', '', combined)
-        tail = _re.search(r'\[emotion:[^\]]*$', cleaned)
+        # 缓存可能是 emotion 标签开头的尾部（标签被切碎成任意 chunk 也能兜住）
+        # 模式：[ 开头 + 字母/冒号/等号/下划线/连字符 到行尾
+        tail = _re.search(r'\[[a-z_:=\-]*$', cleaned)
         pending = ''
         if tail:
             pending = tail.group(0)
@@ -3029,6 +3031,17 @@ class PetWidget(QWidget):
     def _on_stream_done(self):
         """主线程槽：流式结束（清状态行；思考区保留在卡片内可折叠）"""
         self._stream_active = False
+        # flush 残留 pending（若流结束时仍未凑成标签 → 是普通文本，显示出来）
+        if getattr(self, '_stream_pending', ''):
+            self._stream_text += self._stream_pending
+            self._stream_pending = ''
+            if self._stream_label is not None:
+                self._stream_label.setText(self._stream_text)
+                self._chat_scroll_bottom()
+        if getattr(self, '_thinking_pending', ''):
+            if self._thinking_label is not None:
+                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + self._thinking_pending)
+            self._thinking_pending = ''
         self._stream_label = None
         try:
             self._remove_status_line()
