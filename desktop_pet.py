@@ -33,6 +33,7 @@ from pet_sysutils import (
 )
 from pet_storage import atomic_write_json as _atomic_write_json_impl
 from api_stats import ApiStats
+from deepseek_client import chat_completions, stream_chat_completions
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -2328,114 +2329,25 @@ class PetWidget(QWidget):
         import json as jsonlib
 
         def _post(data, status_zh, status_en):
-            """API 请求：503/429/500/502 服务繁忙自动重试（等 5 秒，最多 2 次）"""
-            req = urllib.request.Request(
-                'https://api.deepseek.com/chat/completions',
-                data=data,
-                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
+            """API 请求（网络层已拆至 deepseek_client，此处薄封装：注入 key/语言/状态信号/用量记录）"""
+            is_en = getattr(self, 'language', 'zh') == 'en'
+            resp = chat_completions(
+                self.ai_key, data,
+                status_cb=lambda s: self.ai_status_signal.emit(s),
+                status_zh=status_zh, status_en=status_en, is_en=is_en,
             )
-            for attempt in range(3):
-                try:
-                    with urllib.request.urlopen(req, timeout=120) as resp:
-                        _resp = jsonlib.loads(resp.read().decode())
-                    self._record_api_usage(_resp)
-                    return _resp
-                except urllib.error.HTTPError as e:
-                    if e.code in (429, 500, 502, 503) and attempt < 2:
-                        is_en = getattr(self, 'language', 'zh') == 'en'
-                        wait = 5 * (attempt + 1)  # 指数退避：第1次等5秒，第2次等10秒
-                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
-                                                   f'（服务繁忙，{wait} 秒后第 {attempt + 2} 次重试…）')
-                        time.sleep(wait)
-                        continue
-                    raise
-                except (urllib.error.URLError, OSError, TimeoutError) as e:
-                    # 网络类错误（10061 连接拒绝/超时/DNS）：也自动重试，网络恢复后自动成功
-                    if attempt < 2:
-                        is_en = getattr(self, 'language', 'zh') == 'en'
-                        wait = 5 * (attempt + 1)  # 指数退避：第1次等5秒，第2次等10秒
-                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
-                                                   f'（网络波动，{wait} 秒后第 {attempt + 2} 次重试…）')
-                        time.sleep(wait)
-                        continue
-                    raise
+            self._record_api_usage(resp)
+            return resp
 
         def _post_stream(data, status_zh, status_en):
-            """v6.40 SSE 流式请求：yield ('reasoning', chunk) / ('content', chunk) / ('done', full)。
-            重试逻辑与 _post 一致。"""
-            req = urllib.request.Request(
-                'https://api.deepseek.com/chat/completions',
-                data=data,
-                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'},
+            """SSE 流式（网络层已拆至 deepseek_client，薄封装）"""
+            is_en = getattr(self, 'language', 'zh') == 'en'
+            yield from stream_chat_completions(
+                self.ai_key, data,
+                status_cb=lambda s: self.ai_status_signal.emit(s),
+                status_zh=status_zh, status_en=status_en, is_en=is_en,
             )
-            for attempt in range(3):
-                try:
-                    with urllib.request.urlopen(req, timeout=300) as resp:
-                        buffer = b''
-                        reasoning_buf = []
-                        content_buf = []
-                        tool_calls = {}
-                        for chunk in resp:
-                            buffer += chunk
-                            while b'\n' in buffer:
-                                line, buffer = buffer.split(b'\n', 1)
-                                line = line.strip()
-                                if not line.startswith(b'data:'):
-                                    continue
-                                payload = line[5:].strip()
-                                if payload == b'[DONE]':
-                                    break
-                                try:
-                                    obj = jsonlib.loads(payload)
-                                except Exception:
-                                    continue
-                                try:
-                                    delta = obj['choices'][0].get('delta', {})
-                                except Exception:
-                                    continue
-                                rc = delta.get('reasoning_content')
-                                if rc:
-                                    reasoning_buf.append(rc)
-                                    yield ('reasoning', rc)
-                                c = delta.get('content')
-                                if c:
-                                    content_buf.append(c)
-                                    yield ('content', c)
-                                for tc in delta.get('tool_calls') or []:
-                                    idx = tc.get('index', 0)
-                                    t = tool_calls.setdefault(idx, {'id': '', 'function': {'name': '', 'arguments': ''}})
-                                    if tc.get('id'):
-                                        t['id'] += tc['id']
-                                    fn = tc.get('function', {})
-                                    if fn.get('name'):
-                                        t['function']['name'] += fn['name']
-                                    if fn.get('arguments'):
-                                        t['function']['arguments'] += fn['arguments']
-                    full = {
-                        'content': ''.join(content_buf),
-                        'reasoning_content': ''.join(reasoning_buf),
-                        'tool_calls': list(tool_calls.values()) if tool_calls else None,
-                    }
-                    yield ('done', full)
-                    return
-                except urllib.error.HTTPError as e:
-                    if e.code in (429, 500, 502, 503) and attempt < 2:
-                        is_en = getattr(self, 'language', 'zh') == 'en'
-                        wait = 5 * (attempt + 1)
-                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
-                                                   f'（服务繁忙，{wait} 秒后第 {attempt + 2} 次重试…）')
-                        time.sleep(wait)
-                        continue
-                    raise
-                except (urllib.error.URLError, OSError, TimeoutError) as e:
-                    if attempt < 2:
-                        is_en = getattr(self, 'language', 'zh') == 'en'
-                        wait = 5 * (attempt + 1)
-                        self.ai_status_signal.emit((status_en if is_en else status_zh) +
-                                                   f'（网络波动，{wait} 秒后第 {attempt + 2} 次重试…）')
-                        time.sleep(wait)
-                        continue
-                    raise
+
         try:
             # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
             self._summarize_old()
