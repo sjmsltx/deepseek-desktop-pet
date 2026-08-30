@@ -2968,29 +2968,34 @@ class PetWidget(QWidget):
         self._chat_scroll_bottom()
         self._stream_active = True
 
+    def _strip_emotion_tags(self, combined):
+        """过滤 emotion 控制标签（跨 chunk 安全）。返回 (清理文本, 未闭合尾缀, 提取到的情绪列表)"""
+        import re as _re
+        emotions = []
+        for m in _re.finditer(r'\[emotion:([^\]]+)\]', combined):
+            emotions.append(m.group(1).strip())
+        cleaned = _re.sub(r'\[emotion:[^\]]*\]', '', combined)
+        tail = _re.search(r'\[emotion:[^\]]*$', cleaned)
+        pending = ''
+        if tail:
+            pending = tail.group(0)
+            cleaned = cleaned[:tail.start()]
+        return cleaned, pending, emotions
+
     def _on_stream(self, chunk):
         """主线程槽：流式正文 chunk → 直接渲染（真流式，无卡顿）"""
         try:
             if not self._stream_active:
                 self._chat_type_stream_begin()
                 self._stream_rendered = True
-            # 情绪标签过滤（跨 chunk 安全：未闭合尾部缓存到下一 chunk）
-            import re as _re
             combined = getattr(self, '_stream_pending', '') + chunk
-            # 提取完整 emotion 标签并应用立绘
-            for m in _re.finditer(r'\[emotion:([^\]]+)\]', combined):
+            cleaned, pending, emotions = self._strip_emotion_tags(combined)
+            self._stream_pending = pending
+            for emo in emotions:
                 try:
-                    self._apply_emotion(m.group(1).strip())
+                    self._apply_emotion(emo)
                 except Exception:
                     pass
-            cleaned = _re.sub(r'\[emotion:[^\]]*\]', '', combined)
-            # 尾部可能存在未闭合标签（[emotion: 被拆到下一 chunk）→ 缓存
-            tail = _re.search(r'\[emotion:[^\]]*$', cleaned)
-            if tail:
-                self._stream_pending = tail.group(0)
-                cleaned = cleaned[:tail.start()]
-            else:
-                self._stream_pending = ''
             if not cleaned:
                 return
             self._stream_text += cleaned
@@ -3001,16 +3006,21 @@ class PetWidget(QWidget):
             pass
 
     def _on_reasoning(self, chunk):
-        """主线程槽：流式思考 chunk → 同卡片灰色思考区（可折叠）"""
+        """主线程槽：流式思考 chunk → 同卡片灰色思考区（可折叠）；过滤 emotion 标签"""
         try:
             if self._thinking_label is None:
                 self._chat_type_stream_begin()
                 self._stream_rendered = True
             if self._thinking_label is None:
                 return
+            combined = getattr(self, '_thinking_pending', '') + chunk
+            cleaned, pending, _emotions = self._strip_emotion_tags(combined)
+            self._thinking_pending = pending
+            if not cleaned:
+                return
             if not self._thinking_label.isVisible():
                 self._thinking_label.show()
-            self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + chunk)
+            self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + cleaned)
             self._chat_scroll_bottom()
         except Exception:
             pass
