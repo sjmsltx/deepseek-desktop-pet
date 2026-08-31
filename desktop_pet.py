@@ -35,6 +35,7 @@ from pet_storage import atomic_write_json as _atomic_write_json_impl
 from api_stats import ApiStats
 from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
+from memory_engine import search_memory, extract_memories
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
@@ -1032,6 +1033,89 @@ class PetWidget(QWidget):
         """保存 memory.json（数据层拆至 memory_store）"""
         save_memory(MEMORY_PATH, self.memory_facts, self.memory_summaries)
 
+    # ---------- v6.41 记忆引擎：检索重排 + 自动抽取（memory_engine） ----------
+    def _rerank_memories(self, query, candidates):
+        """LLM 重排：候选记忆 → 选最相关 top-3（8 选 3 把关，复用 deepseek_client）"""
+        try:
+            import re as _re
+            lines = '\n'.join(f'{i + 1}. {c.get("text", "")}' for i, c in enumerate(candidates))
+            prompt = (f'用户问：{query}\n候选记忆：\n{lines}\n'
+                      f'请选出与问题最相关的 1-3 条（宁缺毋滥，不相关的不选），'
+                      f'按相关度从高到低只输出编号，用逗号分隔。')
+            data = json.dumps({'model': self._current_model(),
+                               'messages': [{'role': 'user', 'content': prompt}],
+                               'max_tokens': 30}).encode()
+            resp = chat_completions(self.ai_key, data)
+            self._record_api_usage(resp)
+            nums = [int(n) for n in _re.findall(r'\d+', resp['choices'][0]['message'].get('content') or '')]
+            picked = [candidates[i - 1]['id'] for i in nums if 1 <= i <= len(candidates)]
+            return picked or [c['id'] for c in candidates[:3]]
+        except Exception:
+            return [c['id'] for c in candidates[:3]]
+
+    def _maybe_extract_memory(self):
+        """低频触发自动抽取：距上次 ≥30 分钟且对话 ≥4 轮"""
+        try:
+            now = time.time()
+            last = getattr(self, '_last_extract_ts', 0)
+            if now - last < 1800:
+                return
+            if len(self.chat_history_msgs) < 4:
+                return
+            self._last_extract_ts = now
+            import threading as _th
+            _th.Thread(target=self._extract_worker, daemon=True).start()
+        except Exception:
+            pass
+
+    def _extract_chat(self, messages, max_tokens):
+        """抽取用的 LLM 调用（worker 线程，非流式）"""
+        try:
+            data = json.dumps({'model': self._current_model(),
+                               'messages': messages, 'max_tokens': max_tokens}).encode()
+            resp = chat_completions(self.ai_key, data)
+            self._record_api_usage(resp)
+            return resp['choices'][0]['message'].get('content') or ''
+        except Exception:
+            return ''
+
+    def _extract_worker(self):
+        """抽取线程：最近对话 → LLM 提炼事实/事件 → 写回 memory.json / memories.json"""
+        try:
+            recent = list(self.chat_history_msgs[-8:])
+            dialogue = '\n'.join(
+                f'{"用户" if m.get("role") == "user" else "桌宠"}: {str(m.get("content", ""))[:150]}'
+                for m in recent if m.get('content'))
+            existing = '；'.join(str(f.get('content', ''))[:60] for f in self.memory_facts[-10:]
+                                 if f.get('status', 'active') == 'active')
+            result = extract_memories(self._extract_chat, dialogue, existing)
+            changed = False
+            for f in result.get('facts', []):
+                content = str(f.get('content', '')).strip()
+                if content:
+                    self.memory_facts, _msg = remember_fact(
+                        self.memory_facts, 'add', content, f.get('importance', 3), role='both')
+                    changed = True
+            for u in result.get('update_facts', []):
+                fid = str(u.get('id', ''))
+                content = str(u.get('content', '')).strip()
+                if fid and content:
+                    self.memory_facts, _msg = remember_fact(
+                        self.memory_facts, 'update', content, fid=fid, role='both')
+                    changed = True
+            if changed:
+                self._save_memory()
+            for e in result.get('events', []):
+                title = str(e.get('title', '')).strip()
+                if title:
+                    try:
+                        self.memories.add(self.current, 'event', title,
+                                          str(e.get('detail', ''))[:200])
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     def _remember_fact(self, action, content='', importance=3, fid='', role='both'):
         """memorize 工具处理（数据逻辑拆至 memory_store.remember_fact，此处持有状态+落盘）"""
         self.memory_facts, msg = remember_fact(
@@ -1773,8 +1857,16 @@ class PetWidget(QWidget):
                 'detailed': '分析类问题可以详细回答，允许用列表/表格，不必受简短限制。',
                 'normal': '回答简短可爱，但分析类问题可以稍详细。',
             }.get(getattr(self, 'reply_style', 'normal'), '回答简短可爱。')
-            # 长期记忆注入（预算内）
+            # 长期记忆注入（v6.41：core + 按问题检索相关记忆）
             mem = self._memory_block()
+            try:
+                # BM25 粗筛 + LLM 重排 top-3（memory_engine）
+                rel = search_memory(self.memory_facts, text, top_k=3, rerank=self._rerank_memories)
+                if rel:
+                    rel_block = '\n'.join(f'★{c.get("importance", 3)} {c["text"]}' for c in rel)
+                    mem = (rel_block + '\n\n' + mem) if mem else rel_block
+            except Exception:
+                pass
             mem_hint = f'\n\n【你的长期记忆】\n{mem}' if mem else ''
             mem_rule = '\n当你发现用户的重要偏好/个人事实/任务目标时，调用 memorize 工具记住它；用户明确说"忘了/不要记住"时用 memorize 删除对应记忆。' if mem else '\n记忆规则：当你发现用户的重要偏好/个人事实/任务目标时，调用 memorize 工具记住它。'
             # 插件规则注入（v6.21：rules 类插件内容拼进 system prompt）
@@ -1915,6 +2007,11 @@ class PetWidget(QWidget):
                 except Exception:
                     pass
             self.ai_reply_signal.emit(final_reply)
+            # v6.41 自动记忆抽取（低频：间隔 30 分钟且 ≥4 轮对话）
+            try:
+                self._maybe_extract_memory()
+            except Exception:
+                pass
         except Exception as e:
             # 400 等 HTTP 错误：显示响应体中的具体原因（DeepSeek error.message）
             try:
