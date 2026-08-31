@@ -37,10 +37,10 @@ from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
-from prompt_builder import guess_status, build_memory_block, build_todo_block
+from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
 from code_checker import check_python_blocks
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
-from tools_registry import AI_TOOLS
+from tools_registry import AI_TOOLS, TOOL_STATUS
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -1807,18 +1807,9 @@ class PetWidget(QWidget):
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
             messages = [
-                {'role': 'system', 'content': f'你是{CHARACTERS[self.current]["name"]}，一只Q版桌宠，用中文。当前性格：{self.personality}。{style_hint}{lang_hint}你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。工具使用规则：只在用户明确要求时才调用对应工具，不要为了回答常识/推荐/介绍类问题而调用无关工具（如介绍美食、景点、历史等直接用你的知识回答，不要查天气、不要执行命令）。选择支提示：当你准备问主人二选一/三选一的问题（去不去/选哪个/约不约/吃什么）时，可以调用 offer_choices 工具把选项变成按钮让主人点击，体验更好。示例：主人问"周末干嘛好"，正文简短说一两句后调用 offer_choices(choices=["宅家推galgame","出门逛重庆","深挖数据"])。如果问题不适合拆成选项，直接在正文里问也可以。代码规则：生成 Python 代码必须保证缩进正确、语法完整、可直接运行，禁止输出有语法错误的代码，写完先自检一遍缩进与冒号。文件规则：当用户要求"生成/保存/输出文件"时，必须调用 write_file 工具真实写入文件并告知路径，禁止只在回复文本中声称"已保存"而实际不调用工具。你的知识截止 2024 年 8 月——当用户问需要最新/当前信息的问题（新闻、行情、时事、最新事件）时，必须调用 web_search 工具联网搜索获取实时信息后再回答。{mem_hint}{todo_hint}{mem_rule}回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。{plugin_rules_hint}{affection_hint}'
-                + '\n\n【桌宠自身能力（重要，不要改源码）】桌宠有完整的插件系统/主题系统/MCP 扩展能力：\n'
-                + '1. 用户要求"改颜色/换主题/换皮肤/护眼模式"→ 先用 list_plugins 看已装主题，用 set_theme 切换；没有合适主题就用 install_plugin 装 theme 类型插件（theme 字段直接填颜色对象，如 {"panel_bg":"#FFFFFF","text":"#333333","user_bubble":"#E8F4FF","ai_bubble":"#F0F0F0"}）。禁止为此去读源码或搜索文件。\n'
-                + '2. 用户要求"装个XX插件/加个XX功能"→ 用 install_plugin（type=tool 加工具）。\n'
-                + '3. 用户要求"一键周报/一键XX流程"→ 用 skill_run（先 list_plugins 看可用技能）。\n'
-                + '4. 用户要求"接入外部服务/用XX能力"→ 桌宠支持 MCP 服务器（mcp_ 开头的工具可直接用）。\n'
-                + '5. read_file 的 path 是相对桌宠项目目录（desktop-pet-dev）的相对路径，不是当前工作目录。\n'
-                + '6. UI 样式（面板背景/文字/气泡/滚动条/输入框等所有颜色）都在主题系统里（默认 DEFAULT_THEME 变量 + theme 插件覆盖），改颜色永远用 set_theme 切换或 install_plugin 装/更新 theme 插件，禁止用 edit_own_code 修改源码里的颜色。\n'
-                + '7. 若确需用 edit_own_code 改代码：先用 read_file 带 start_line/end_line 精确读目标行（输出带行号），再用 start_line/end_line + new_text 按行替换，不要凭记忆写 old_text。\n'
-                + '8. 主题变量速查（改颜色时直接用）：panel_bg=面板背景、text=正文文字、input_bg=输入框、user_bubble=用户消息气泡、ai_bubble=桌宠消息气泡、name_user/name_ai=名字颜色、scroll_bg=滚动条轨道、scroll_handle=滚动条滑块、accent=强调色。示例：用户说"滑动条调亮到100%白"→ 用 install_plugin 装 theme 插件，name=theme_xxx，meta={"type":"theme","theme":{"scroll_handle":"#ffffff","scroll_bg":"rgba(255,255,255,0.15)"}}，装完用 set_theme 切换。\n'
-                + '9. 查桌宠自己的文件/主题变量一律用 read_file（相对路径），禁止用 run_powershell 搜索桌宠自身文件（run_powershell 的工作目录不是桌宠项目）。'},
-
+                {'role': 'system', 'content': build_system_prompt(
+                    CHARACTERS[self.current]['name'], self.current, cur_model, self.personality,
+                    style_hint, lang_hint, mem_hint, todo_hint, mem_rule, plugin_rules_hint, affection_hint)},
             ] + ctx
 
             # 最多 5 轮工具调用；空回复自动重试（防截断/空content）
@@ -1883,16 +1874,7 @@ class PetWidget(QWidget):
                     name = fn['name']
                     args = jsonlib.loads(fn.get('arguments') or '{}')
                     is_en = getattr(self, 'language', 'zh') == 'en'
-                    status_map = {
-                        'open_app': ('正在打开应用', 'Opening app'), 'query_weather': ('正在查询天气', 'Checking weather'),
-                        'run_powershell': ('正在执行命令', 'Running command'), 'get_system_info': ('正在读取系统信息', 'Reading system info'),
-                        'list_processes': ('正在读取进程列表', 'Listing processes'), 'kill_process': ('正在结束进程', 'Ending process'),
-                        'search_files': ('正在搜索文件', 'Searching files'), 'calculate': ('正在计算', 'Calculating'),
-                        'get_time': ('正在获取时间', 'Getting time'), 'memorize': ('正在记住', 'Remembering'),
-                        'set_reminder': ('正在设置提醒', 'Setting reminder'), 'lock_screen': ('正在锁定屏幕', 'Locking screen'),
-                        'control_volume': ('正在调整音量', 'Adjusting volume'),
-                    }
-                    st = status_map.get(name, (f'正在执行 {name}', f'Running {name}'))
+                    st = TOOL_STATUS.get(name, (f'正在执行 {name}', f'Running {name}'))
                     self.ai_status_signal.emit((st[1] if is_en else st[0]) + '…')
                     result_text = self._execute_tool(name, args)
                     if result_text == '__CHOICES__':

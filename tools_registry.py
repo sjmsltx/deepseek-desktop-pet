@@ -390,3 +390,21 @@ AI_TOOLS = [
         }
     },
 ]
+
+
+# 工具执行时的状态提示（工具名 → (中文, English)）——拆自 _ai_worker 的 status_map
+TOOL_STATUS = {
+    'open_app': ('正在打开应用', 'Opening app'),
+    'query_weather': ('正在查询天气', 'Checking weather'),
+    'run_powershell': ('正在执行命令', 'Running command'),
+    'get_system_info': ('正在读取系统信息', 'Reading system info'),
+    'list_processes': ('正在读取进程列表', 'Listing processes'),
+    'kill_process': ('正在结束进程', 'Ending process'),
+    'search_files': ('正在搜索文件', 'Searching files'),
+    'calculate': ('正在计算', 'Calculating'),
+    'get_time': ('正在获取时间', 'Getting time'),
+    'memorize': ('正在记住', 'Remembering'),
+    'set_reminder': ('正在设置提醒', 'Setting reminder'),
+    'lock_screen': ('正在锁定屏幕', 'Locking screen'),
+    'control_volume': ('正在调整音量', 'Adjusting volume'),
+}
