@@ -2148,7 +2148,9 @@ class PetWidget(QWidget):
                 else:
                     self._chat_type_stream_begin()
                 self._stream_active = True
-                self._stream_rendered = True
+            # v6.41 fix：正文渲染即标记（reasoning 先触发 begin 后 content 到达也必须标记，
+            # 否则 _display_ai_reply 误走非流式分支 → 正文重复打字机渲染 + 情感选项不弹出）
+            self._stream_rendered = True
             combined = getattr(self, '_stream_pending', '') + chunk
             cleaned, pending, emotions = self._strip_emotion_tags(combined)
             self._stream_pending = pending
@@ -2254,6 +2256,13 @@ class PetWidget(QWidget):
             if ('```' in _display) or self._looks_like_table(_display):
                 try:
                     self._rerender_rich(_display)
+                except Exception:
+                    pass
+            # v6.41 fix：流式路径也渲染情感选项（AI 正文 + offer_choices 工具调用时）
+            if getattr(self, '_choices_requested', False):
+                self._choices_requested = False
+                try:
+                    self._render_choices()
                 except Exception:
                     pass
             return
