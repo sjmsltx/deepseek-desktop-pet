@@ -41,6 +41,7 @@ from prompt_builder import guess_status, build_memory_block, build_todo_block, b
 from code_checker import check_python_blocks
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
 from tools_registry import AI_TOOLS, TOOL_STATUS
+from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
 from PySide6.QtWidgets import (
@@ -1659,20 +1660,8 @@ class PetWidget(QWidget):
                 self._pending_choices = choices[:3]
                 return '__CHOICES__'
             elif name == 'query_weather':
-                # 真正联网查天气（wttr.in）
-                city = args.get('city', '') or self.pet_city
-                try:
-                    import urllib.request
-                    import urllib.parse
-                    url = f'https://wttr.in/{urllib.parse.quote(city)}?format=3&lang=zh'
-                    req = urllib.request.Request(url, headers={'User-Agent': 'curl/8.0'})
-                    with urllib.request.urlopen(req, timeout=15) as resp:
-                        result = resp.read().decode('utf-8').strip()
-                    if result:
-                        return f'{city} 的天气：{result}'
-                    return f'没查到 {city} 的天气'
-                except Exception as e:
-                    return f'天气查询失败：{e}'
+                # 真正联网查天气（wttr.in，网络层拆至 tools_executor.query_weather）
+                return query_weather(args.get('city', '') or self.pet_city)
             elif name == 'run_powershell':
                 cmd = args.get('command', '')
                 blocked = _check_dangerous(cmd)
