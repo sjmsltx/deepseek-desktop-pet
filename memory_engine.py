@@ -1,4 +1,3 @@
-# v6.41 跨模块修改测试
 # -*- coding: utf-8 -*-
 """
 memory_engine.py — 记忆引擎（Phase 1 重构）
