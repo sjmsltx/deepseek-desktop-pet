@@ -63,6 +63,23 @@ class BaseGame(QDialog):
         """子类实现：恢复存档"""
         pass
 
+    def _manual_save(self):
+        """手动保存当前进度（v6.40：自选保存按钮触发）"""
+        try:
+            if getattr(self, 'over', False):
+                QMessageBox.information(self, '保存', '本局已结束，无需保存')
+                return
+            data = self._state_to_save()
+            if data is None:
+                QMessageBox.information(self, '保存', '该游戏暂不支持保存进度')
+                return
+            import json as _json
+            with open(self._save_path(), 'w', encoding='utf-8') as f:
+                _json.dump(data, f, ensure_ascii=False)
+            QMessageBox.information(self, '保存', '✅ 进度已保存，下次打开可选择继续')
+        except Exception as e:
+            QMessageBox.information(self, '保存', f'保存失败：{e}')
+
     def _save_progress(self):
         """关闭时自动保存未完成局（仅游戏进行中）"""
         try:
@@ -117,8 +134,7 @@ class BaseGame(QDialog):
             pass
 
     def closeEvent(self, event):
-        """窗口关闭：保存未完成局 + 停掉所有常驻定时器"""
-        self._save_progress()
+        """窗口关闭：停掉所有常驻定时器（v6.40 fix：不再退出自动保存，改为游戏内手动保存按钮）"""
         self._closed = True
         for t in self.findChildren(QTimer):
             t.stop()
@@ -148,18 +164,27 @@ class BaseGame(QDialog):
             self.pet_face.setText(text)
 
     def _add_difficulty(self, lay, difficulties: dict):
-        """难度选择：difficulties = {显示名: 值}。少于 2 档自动隐藏下拉。"""
+        """难度选择：difficulties = {显示名: 值}。少于 2 档自动隐藏下拉。
+        v6.40：行尾加手动保存按钮（自选保存，退出不再自动存）"""
         self._difficulties = difficulties
+        row = QHBoxLayout()
         if len(difficulties) >= 2:
-            row = QHBoxLayout()
             row.addWidget(QLabel('难度'))
             self._combo = QComboBox()
             for name in difficulties:
                 self._combo.addItem(name)
             self._combo.currentIndexChanged.connect(lambda _: self._apply_difficulty())
             row.addWidget(self._combo)
-            row.addStretch(1)
-            lay.insertLayout(0, row)
+        row.addStretch(1)
+        self._save_btn = QPushButton('💾 保存')
+        self._save_btn.setStyleSheet(
+            'QPushButton { background:#2a3a55; color:#9ec; border:none;'
+            ' border-radius:6px; padding:4px 10px; font-size:12px; }'
+            'QPushButton:hover { background:#35507a; }')
+        self._save_btn.setCursor(Qt.PointingHandCursor)
+        self._save_btn.clicked.connect(self._manual_save)
+        row.addWidget(self._save_btn)
+        lay.insertLayout(0, row)
         self._apply_difficulty()
 
     def _apply_difficulty(self):
@@ -695,16 +720,18 @@ class Minesweeper(BaseGame):
 
     def _state_from_save(self, data):
         try:
+            # v6.40 fix：先切难度（触发 _apply_difficulty 重置棋盘建立正确尺寸），再覆盖存档数据
+            # （旧顺序先恢复后 setCurrentIndex → 触发重置把刚恢复的棋盘清空 = 回档无效）
+            if self._combo is not None:
+                idx = int(data.get('diff', 0))
+                if 0 <= idx < self._combo.count():
+                    self._combo.setCurrentIndex(idx)
             self.W, self.H, self.MINES = data['W'], data['H'], data['MINES']
             self.grid = data['grid']
             self.revealed = data['revealed']
             self.flagged = data['flagged']
             self.started = data.get('started', True)
             self.over = False
-            if self._combo is not None:
-                idx = int(data.get('diff', 0))
-                if 0 <= idx < self._combo.count():
-                    self._combo.setCurrentIndex(idx)
             avail = max(240, self.width() - 40)
             self.cell = max(12, min(32, avail // self.W))
             self._widget.setFixedSize(self.W * self.cell, self.H * self.cell)

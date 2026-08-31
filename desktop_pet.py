@@ -2001,30 +2001,36 @@ class PetWidget(QWidget):
         # 思考折叠区（同卡片顶部，AutoClaw 风格）
         try:
             head = self._chat_type_bubble.layout().itemAt(0).layout()
-            self._thinking_toggle = QPushButton('💭 思考过程 ▼')
-            self._thinking_toggle.setStyleSheet(
+            thinking_toggle = QPushButton('💭 思考过程 ▼')
+            thinking_toggle.setStyleSheet(
                 'QPushButton { background:transparent; color:#7a8aa0; border:none;'
                 ' font-size:11px; padding:0; text-align:left; }'
                 'QPushButton:hover { color:#9fd0ff; }')
-            self._thinking_toggle.setCursor(Qt.PointingHandCursor)
-            self._thinking_collapsed = False
+            thinking_toggle.setCursor(Qt.PointingHandCursor)
+            thinking_toggle._collapsed = False
             def _toggle():
-                self._thinking_collapsed = not self._thinking_collapsed
-                if self._thinking_label is not None:
-                    self._thinking_label.setVisible(not self._thinking_collapsed)
-                self._thinking_toggle.setText('💭 思考过程 ▶' if self._thinking_collapsed else '💭 思考过程 ▼')
-            self._thinking_toggle.clicked.connect(_toggle)
-            head.insertWidget(2, self._thinking_toggle)
+                # v6.40 fix：闭包捕获本气泡局部变量（旧代码引用 self._thinking_* 最新值，
+                # 导致多轮对话后旧气泡的折叠按钮操作的是最新气泡——旧对话无法折叠）
+                collapsed = not getattr(thinking_toggle, '_collapsed', False)
+                thinking_toggle._collapsed = collapsed
+                if thinking_label is not None:
+                    thinking_label.setVisible(not collapsed)
+                thinking_toggle.setText('💭 思考过程 ▶' if collapsed else '💭 思考过程 ▼')
+            thinking_toggle.clicked.connect(_toggle)
+            head.insertWidget(2, thinking_toggle)
             head.insertStretch(3, 1)
+            self._thinking_toggle = thinking_toggle
+            self._thinking_collapsed = False
         except Exception:
             self._thinking_toggle = None
-        self._thinking_label = QLabel('')
-        self._thinking_label.setWordWrap(True)
-        self._thinking_label.setTextFormat(Qt.PlainText)
-        self._thinking_label.setStyleSheet(
+        thinking_label = QLabel('')
+        thinking_label.setWordWrap(True)
+        thinking_label.setTextFormat(Qt.PlainText)
+        thinking_label.setStyleSheet(
             'color:#7a8aa0; font-size:12px; background:#141b2c; border-radius:6px; padding:6px;')
-        self._thinking_label.hide()  # 无思考时不占位
-        self._chat_type_content.addWidget(self._thinking_label)
+        thinking_label.hide()  # 无思考时不占位
+        self._chat_type_content.addWidget(thinking_label)
+        self._thinking_label = thinking_label
         # 正文流式区
         self._stream_label = QLabel('')
         self._stream_label.setWordWrap(True)
