@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌宠拆分收官 · 真实回归测试计划</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.7; padding:32px 16px; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a5f,#2c6e9e); color:#fff; border-radius:16px; padding:28px 36px; margin-bottom:24px; }
+  header h1 { font-size:25px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:20px; margin:28px 0 12px; padding-left:12px; border-left:4px solid #2c6e9e; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13.5px; }
+  th { background:#eef4fa; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #ecf0f3; vertical-align:top; }
+  .no { width:34px; text-align:center; font-weight:700; color:#2c6e9e; }
+  .exp { color:#1e7a44; }
+  .warn { background:#fff8e6; }
+  .warn td { color:#7a5b00; }
+  .tag { display:inline-block; background:#e8f1fa; color:#1e5a8a; border-radius:4px; padding:1px 8px; font-size:12px; }
+  .note { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>桌宠拆分收官 · 真实回归测试计划</h1>
+    <p>模块化拆分（13 模块，-1089 行）收官后的全链路验证，覆盖拆过的每一层 + 近期修复的 bug（2026-08-31）</p>
+  </header>
+
+  <div class="card">
+    <h2 style="margin-top:0">测试准备</h2>
+    <table>
+      <tr><th>步骤</th><th>操作</th></tr>
+      <tr><td>1</td><td>确认桌宠进程已完全退出（任务管理器无 pythonw 桌宠进程）</td></tr>
+      <tr><td>2</td><td>在项目目录 `E:\ai工作站\desktop-pet\` 执行 <code>git log --oneline -3</code>，确认最近 3 条提交包含 `tools_executor` / `build_system_prompt` / `A-1` / `A-2`（拆分享收）</td></tr>
+      <tr><td>3</td><td>重新启动桌宠（启动桌宠.bat）</td></tr>
+      <tr><td>4</td><td>发现问题时：截图 + 记住复现步骤；有报错文字就复制全文</td></tr>
+    </table>
+    <div class="note">顺序建议：Phase 1 → 2 → 3 → 5 是核心，Phase 4/6 可后置。总耗时约 20-30 分钟。</div>
+  </div>
+
+  <h2>Phase 1 · 核心对话链路（deepseek_client / prompt_builder / 流式渲染）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>操作</th><th>预期</th></tr>
+      <tr><td class="no">1</td><td>发「你好，介绍一下你自己」</td><td class="exp">思考区（灰色）先出现 → 正文流式逐字渲染 → 结束无「正在思考」残留；回复符合小蓝人设（含性格/角色名）</td></tr>
+      <tr><td class="no">2</td><td>发一段多轮追问（3-5 轮，如天气→重庆旅游→桃片）</td><td class="exp">每轮回复正常；AI 能引用上下文（prompt_builder 记忆/摘要注入正常）；历史不丢失</td></tr>
+      <tr><td class="no">3</td><td>让 AI 回复带表格：「把重庆38个区县列个表格」</td><td class="exp">表格卡片渲染（标题栏+复制按钮）；复制粘贴到 Word 成真表格</td></tr>
+      <tr><td class="no">4</td><td>让 AI 写一段 Python 代码（如排序算法）</td><td class="exp">代码卡片（等宽+复制）；若有语法错误显示黄色警告提示</td></tr>
+      <tr><td class="no">5</td><td>多轮对话后，点旧消息的「💭 思考过程」折叠/展开</td><td class="exp"><b>每气泡独立折叠</b>（刚修的闭包 bug）；折叠不影响其他气泡；折叠中思考内容仍完整</td></tr>
+      <tr><td class="no">6</td><td>回复完成后点消息的 ⧉ 复制按钮，粘贴到记事本</td><td class="exp">复制内容 <b>无 [emotion:xxx] 标签</b>（emotion 泄漏修复）</td></tr>
+      <tr><td class="no">7</td><td>重启桌宠，看历史对话回显</td><td class="exp">历史消息正常回显，无标签残留、无乱码；新对话正常</td></tr>
+    </table>
+  </div>
+
+  <h2>Phase 2 · 工具调用链路（tools_registry / tools_executor / 400 修复）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>操作</th><th>预期</th></tr>
+      <tr><td class="no">8</td><td>发「现在几点了」</td><td class="exp">AI 调用 get_time，回复当前时间（tools_executor 纯函数）</td></tr>
+      <tr><td class="no">9</td><td>发「算一下 235×47+128」</td><td class="exp">AI 调用 calculate，回复计算结果</td></tr>
+      <tr><td class="no">10</td><td>发「查一下重庆天气」</td><td class="exp">思考→调 query_weather→<b>正文正常出现</b>（工具轮次气泡续用修复）；无 400 报错（role/type 修复）</td></tr>
+      <tr><td class="no">11</td><td>发「搜一下最近的国内新闻」</td><td class="exp">思考→web_search→正文带新闻条目；<b>无 400、无「光思考无回复」</b></td></tr>
+      <tr><td class="no">12</td><td>发「打开记事本」</td><td class="exp">AI 调 open_app，记事本被打开（复杂 handler 留主文件，验证正常）</td></tr>
+      <tr><td class="no">13</td><td>发「把音量调到 30%」</td><td class="exp">AI 调 control_volume，系统音量变为 30%（pet_sysutils 音量层）</td></tr>
+      <tr><td class="no">14</td><td>发「帮我设 10 秒后提醒喝水」</td><td class="exp">设置成功，10 秒后弹出提醒气泡</td></tr>
+      <tr><td class="warn"><td colspan="2">⚠️ 工具调用轮次后：检查是否有「AI 出错了：HTTP 400」气泡——这是回归重点（历史 400 重灾区）</td></tr>
+    </table>
+  </div>
+
+  <h2>Phase 3 · 记忆与养成（memory_store / affection_engine / api_stats）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>操作</th><th>预期</th></tr>
+      <tr><td class="no">15</td><td>对 AI 说「记住：我下个月要去成都」（等待回复确认「已记住」）</td><td class="exp">AI 调 memorize 工具；新对话中问「我下个月去哪」能答出成都（记忆注入 prompt）</td></tr>
+      <tr><td class="no">16</td><td>右键 → ❤️ 关系，看好感度面板</td><td class="exp">好感度/等级/称号正常显示，数值随对话增长</td></tr>
+      <tr><td class="no">17</td><td>多聊几轮后看头顶余额气泡</td><td class="exp">每次 API 调用角色头顶飘出费用（api_stats 统计正常）</td></tr>
+      <tr><td class="no">18</td><td>右键 → 🔧 工具 → 📊 API 统计</td><td class="exp">模型/token/费用统计有数据且合理</td></tr>
+    </table>
+  </div>
+
+  <h2>Phase 4 · 主动关心（care_engine）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>操作</th><th>预期</th></tr>
+      <tr><td class="no">19</td><td>空闲 10+ 分钟不操作电脑</td><td class="exp">桌宠可能冒泡关心（消息无 [emotion:xxx] 标签——出口过滤）；深夜不打扰</td></tr>
+      <tr><td class="no">20</td><td>对话中说「我明天要考试」（触发回访）</td><td class="exp">AI 可能安排回访；到点主动关心，无报错</td></tr>
+    </table>
+    <div class="note">Phase 4 依赖时间，可后台挂着观察，不阻塞其他测试。</div>
+  </div>
+
+  <h2>Phase 5 · 小游戏（手动保存 / 回档）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>操作</th><th>预期</th></tr>
+      <tr><td class="no">21</td><td>右键 → 💬 互动 → 🎮 小游戏 → 扫雷，选<b>中级 16x16</b></td><td class="exp">窗口可缩放；难度行右侧有「💾 保存」按钮</td></tr>
+      <tr><td class="no">22</td><td>点开几个格子（游戏进行中）→ 点「💾 保存」</td><td class="exp">弹出「✅ 进度已保存」</td></tr>
+      <tr><td class="no">23</td><td>关闭游戏窗口（不点保存的新局）→ 重开扫雷选中级</td><td class="exp"><b>弹窗「继续上次？」→ 点是 → 棋盘恢复</b>（回档顺序修复：中级也能恢复）</td></tr>
+      <tr><td class="no">24</td><td>恢复后继续玩到结束</td><td class="exp">正常结算（胜负弹窗 + 好感度）；对局结束存档清除，下次不再弹「继续上次」</td></tr>
+      <tr><td class="no">25</td><td>随便玩一款其他游戏（如 2048）中途关闭</td><td class="exp">不弹「继续上次？」（未手动保存则无档；点保存会提示该游戏暂不支持）</td></tr>
+    </table>
+  </div>
+
+  <h2>Phase 6 · 系统集成（pet_sysutils / 托盘 / 热键）</h2>
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>操作</th><th>预期</th></tr>
+      <tr><td class="no">26</td><td>全局热键 Ctrl+Alt+P 呼出聊天</td><td class="exp">聊天窗口正常呼出（热键过滤器）</td></tr>
+      <tr><td class="no">27</td><td>拖动桌宠贴到屏幕边缘</td><td class="exp">贴边/扒边正常；拖出恢复待机</td></tr>
+      <tr><td class="no">28</td><td>右键菜单各入口点一遍（角色切换/互动/设置/记忆管理）</td><td class="exp">无报错；切 Pro 角色对话正常（独立历史/记忆）</td></tr>
+      <tr><td class="no">29</td><td>托盘图标：最小化到托盘 → 恢复</td><td class="exp">正常；托盘菜单功能可用</td></tr>
+    </table>
+  </div>
+
+  <h2>发现问题的上报格式</h2>
+  <div class="card">
+    <table>
+      <tr><th>信息</th><th>内容</th></tr>
+      <tr><td>用例编号</td><td>如 Phase2-#11</td></tr>
+      <tr><td>现象</td><td>截图（能看清气泡内容）+ 一句话描述</td></tr>
+      <tr><td>报错文本</td><td>气泡里的报错全文（如「AI 出错了：HTTP 400 — ...」），新版已显示具体原因</td></tr>
+      <tr><td>复现步骤</td><td>做了什么操作触发的</td></tr>
+    </table>
+    <div class="note">若某用例偶发失败：重启桌宠再试一次，确认是否稳定复现——区分「偶发」和「必现」能大幅加速定位。</div>
+  </div>
+
+  <footer>桌宠拆分收官回归测试计划 · 2026-08-31</footer>
+</div>
+</body>
+</html>

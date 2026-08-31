@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌宠记忆重构 · 概念全解</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.8; padding:32px 16px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a5f,#2c6e9e); color:#fff; border-radius:16px; padding:28px 36px; margin-bottom:24px; }
+  header h1 { font-size:25px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:20px; margin:30px 0 12px; padding-left:12px; border-left:4px solid #2c6e9e; }
+  h3 { font-size:16px; margin:16px 0 6px; color:#1e3a5f; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13.5px; }
+  th { background:#eef4fa; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #ecf0f3; vertical-align:top; }
+  .concept { background:#fff; border-radius:12px; padding:16px 20px; margin-bottom:12px; box-shadow:0 2px 6px rgba(30,58,95,.06); border-left:4px solid #2c6e9e; }
+  .concept .cn { font-weight:700; font-size:15px; color:#1e3a5f; }
+  .concept .en { font-size:12px; color:#8a9bad; margin-left:6px; }
+  .concept .exp { margin-top:4px; font-size:14px; }
+  .concept .example { margin-top:6px; font-size:13px; color:#5a6b7b; background:#f7fafd; border-radius:6px; padding:8px 12px; }
+  .flow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0; font-size:13px; }
+  .flow .node { background:#e8f1fa; color:#1e5a8a; border-radius:6px; padding:4px 10px; font-weight:600; }
+  .flow .arrow { color:#2c6e9e; font-weight:700; }
+  .note { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>桌宠记忆重构 · 概念全解</h1>
+    <p>从「为什么 LLM 需要记忆」到四层模型、检索、写入、注入——所有概念的体系化讲解（2026-08-31）</p>
+  </header>
+
+  <h2>〇、地基：为什么 LLM 需要记忆系统</h2>
+  <div class="card">
+    <h3>1. LLM 是无状态的</h3>
+    <p>每次调用 API，模型只看到你<strong>这次请求里塞进去的文字</strong>，它不记得上一次对话。所谓「记忆」，本质是：<strong>把过去的对话/事实，整理后重新塞回这次请求的上下文里</strong>。</p>
+    <div class="example">桌宠例子：你昨天说「我爱吃桃片」，今天问它「我爱吃什么」——它不知道，除非我们把「爱吃桃片」写进今天的请求。</div>
+
+    <h3>2. 上下文窗口有限（token 是门票）</h3>
+    <p>模型一次能读的文本量有限（DeepSeek 约 64k-128k token，1 个汉字 ≈ 1-2 token）。全部历史都塞进去：装不下（超限报错/截断）、很贵（按 token 计费）、还会让模型「分心」（检索质量随上下文膨胀退化——BEAM 基准结论）。</p>
+    <div class="example">桌宠聊 1 个月，对话可能 20 万 token——不可能全塞，必须「挑重点」。挑重点 = 记忆系统。</div>
+
+    <h3>3. 记忆系统解决什么</h3>
+    <div class="flow"><span class="node">过去对话</span><span class="arrow">→</span><span class="node">整理（抽取/摘要）</span><span class="arrow">→</span><span class="node">存储（结构化）</span><span class="arrow">→</span><span class="node">检索（挑相关）</span><span class="arrow">→</span><span class="node">注入（塞回请求）</span></div>
+  </div>
+
+  <h2>一、四层 Agentic Memory 模型（分类框架）</h2>
+  <div class="card">
+    <p>Futurum Research 2026 年提出的业界分类标准，把 Agent 记忆按「时效 + 用途」分四层：</p>
+    <table>
+      <tr><th>层</th><th>英文</th><th>是什么</th><th>桌宠对应</th><th>存取速度</th></tr>
+      <tr><td><b>工作记忆</b></td><td>Working</td><td>当前对话上下文，用完即弃</td><td>chat_history 最近 30 条</td><td>最快（直接读）</td></tr>
+      <tr><td><b>情景记忆</b></td><td>Episodic</td><td>发生过的事（经历/事件）</td><td>回忆日志 memories.json</td><td>中（按事件检索）</td></tr>
+      <tr><td><b>语义记忆</b></td><td>Semantic</td><td>沉淀下来的事实/知识</td><td>memory.json 用户事实</td><td>慢（检索 top-k）</td></tr>
+      <tr><td><b>程序记忆</b></td><td>Procedural</td><td>技能/行为模式/规则</td><td>「用户不懂英语」这类行为规则</td><td>常驻</td></tr>
+    </table>
+    <div class="example">类比人脑：工作记忆 = 正在说的话；情景 = 「上周吃了火锅」；语义 = 「重庆是直辖市」；程序 = 会骑自行车。</div>
+  </div>
+
+  <h2>二、存储层概念</h2>
+
+  <div class="concept">
+    <span class="cn">结构化记忆</span><span class="en">Structured Memory</span>
+    <div class="exp">把散落对话提炼成「一条条有字段的记录」：内容、重要度、时间、归属角色、状态。字段化才能排序、筛选、检索。</div>
+    <div class="example">桌宠事实：{ content: "用户爱吃桃片", importance: 5, roles: "both", status: "active", updated_at: "..." }</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">时间戳 / recency 加权</span><span class="en">Timestamp & Recency Weighting</span>
+    <div class="exp">每条记忆带时间。检索打分时，<strong>越新的记忆权重越高</strong>（指数衰减），因为「上周的喜好」比「去年的」更可能还成立。</div>
+    <div class="example">用户说过「我爱喝冰美式」（昨天）和「我不喝咖啡了」（今天）——按 recency，今天这条优先，旧的下沉甚至淘汰。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">软覆盖 / 遗忘机制</span><span class="en">Soft Overwrite & Forgetting</span>
+    <div class="exp">新信息与旧记忆冲突时：旧记录标记为 superseded（作废）而不是物理删除（可回溯）；超量时按重要度+旧 淘汰。</div>
+    <div class="example">桌宠已有：新「下午上课」覆盖旧「下午没课」→ 旧标记作废。记忆超 50 条 → 优先淘汰「低重要度 + 很久没更新」的。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">分层预算</span><span class="en">Layered Budget</span>
+    <div class="exp">prompt 空间有限，给不同层分配「注入额度」：core 常驻（用户画像，永远在）、检索层（按问题挑）、归档层（基本不注入）。</div>
+    <div class="example">Letta 的设计：core memory（~1k 字符常驻）+ archival（按需检索）+ recall（对话回忆）。桌宠预算：core 400 + 检索 600 + 情景 3 条。</div>
+  </div>
+
+  <h2>三、检索层概念（核心中的核心）</h2>
+
+  <div class="concept">
+    <span class="cn">BM25 关键词检索</span><span class="en">Best Matching 25</span>
+    <div class="exp">经典文本检索算法（搜索界的常青树）。给每个词算分：<strong>词频</strong>（出现越多越相关）× <strong>逆文档频率</strong>（越稀有的词越值钱，如「桃片」比「喜欢」值钱）+ 长度归一化。纯 Python 可写，零依赖。</div>
+    <div class="example">问「我下午干什么」→ 分词（下午/干什么）→ 与记忆逐条算分 → 「下午上课」（命中「下午」）排前，「用户爱喝咖啡」得分低。</div>
+    <div class="note">中文难点：需要分词。轻量做法 n-gram（把「下午上课」切成「下午」「午上」「上课」等片段）或内置常用词表。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">Embedding / 向量化</span><span class="en">Embedding / Vectorization</span>
+    <div class="exp">把「文字」变成「一串数字（向量）」，让语义相近的句子向量距离近。如「下午的课」和「下午上课」向量很近（BM25 只能靠字面重合，embedding 懂意思）。</div>
+    <div class="example">"我爱吃桃片" → [0.12, -0.34, 0.87, ...]（几百维数字）。「桃片」和「合川特产」向量距离近，即使字面不同。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">余弦相似度</span><span class="en">Cosine Similarity</span>
+    <div class="exp">衡量两个向量「方向是否一致」：值 -1~1，越接近 1 越相似。向量检索就是：把问题向量化，和所有记忆向量算余弦，取 top-k。numpy 一行就能算，不需要数据库。</div>
+    <div class="example">query 向量 vs 28 条记忆向量 → 28 个相似度 → 排序取前 3 条注入。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">RAG（检索增强生成）</span><span class="en">Retrieval-Augmented Generation</span>
+    <div class="exp">不是某个具体技术，而是一种模式：<strong>生成前先检索</strong>——把检索到的资料/记忆塞进 prompt，让模型基于资料回答。桌宠记忆重构本质就是「给桌宠加一个 RAG 记忆通道」。</div>
+    <div class="example">用户问 → 检索记忆（BM25/向量）→ 拼进 system prompt → AI 看到「用户下午上课」→ 回答「你下午有课呀」。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">LLM 重排序</span><span class="en">Rerank</span>
+    <div class="exp">检索先粗筛（BM25/向量给 top-8），再用 LLM 精排：「以下候选记忆，哪些与问题最相关？选 3 条」。检索要快、重排要准，两级配合。</div>
+    <div class="example">BM25 捞出 8 条（快）→ LLM 看 8 条选最相关的 3 条（准，多花 0.5k tokens）→ 只把 3 条注入。</div>
+  </div>
+
+  <h2>四、写入层概念</h2>
+
+  <div class="concept">
+    <span class="cn">自动抽取</span><span class="en">Memory Extraction</span>
+    <div class="exp">对话结束后，让 LLM 通读对话，提炼「值得长期记住的信息」，写成结构化记忆。mem0 的核心（add 方法）：抽取原则是 <strong>faithful</strong>（忠实原文，不脑补）。</div>
+    <div class="example">对话「我下午上课，晚上去食堂」→ 抽取：「用户今天下午有课」。桌宠现在靠 AI 主动调 memorize，改成系统自动抽，不漏记。</div>
+  </div>
+
+  <div class="concept">
+    <span class="cn">记忆链接 / 去重合并</span><span class="en">Memory Linking & Dedup</span>
+    <div class="exp">新记忆与旧记忆相关时：合并更新而不是新增一条（避免「爱吃桃片」出现 5 条）。mem0 用图结构做 linking；桌宠用轻量规则（内容相似度/关键词命中）即可。</div>
+    <div class="example">已有「用户爱吃桃片」→ 新对话「我更爱甜味桃片」→ 更新原条：content 合并为「用户爱吃桃片，尤其甜味」。</div>
+  </div>
+
+  <h2>五、三个借鉴项目怎么落地这些概念</h2>
+  <div class="card">
+    <table>
+      <tr><th>项目</th><th>存储</th><th>检索</th><th>写入</th><th>我们借鉴</th></tr>
+      <tr><td><b>mem0</b>（~40k★）</td><td>向量库 + 图</td><td>向量相似度</td><td>LLM 自动抽取 + 图去重</td><td>自动抽取、去重合并、add/search 接口</td></tr>
+      <tr><td><b>Letta</b>（~14k★）</td><td>JSON（core/archival/recall）</td><td>关键词 + 向量</td><td>Agent 自我编辑记忆</td><td>分层预算、常驻 core</td></tr>
+      <tr><td><b>Zep</b>（~5k★）</td><td>时序知识图谱</td><td>图遍历 + 向量</td><td>自动抽取实体关系</td><td>时间戳、recency 加权</td></tr>
+    </table>
+    <p>桌宠取三者精华、去掉重型依赖：<b>存储用 JSON（Letta 风格）+ 检索 BM25→向量（mem0 思路，环境允许后）+ 写入自动抽取（mem0）+ 注入分层预算（Letta）+ 时效加权（Zep）</b>。</p>
+  </div>
+
+  <h2>六、概念全景串联</h2>
+  <div class="card">
+    <div class="flow"><span class="node">对话</span><span class="arrow">→</span><span class="node">自动抽取(LLM)</span><span class="arrow">→</span><span class="node">结构化存储(字段+时间戳)</span><span class="arrow">→</span><span class="node">去重合并</span></div>
+    <div class="flow"><span class="node">用户提问</span><span class="arrow">→</span><span class="node">BM25 粗筛 top-8</span><span class="arrow">→</span><span class="node">(Phase2: 向量+余弦)</span><span class="arrow">→</span><span class="node">LLM 重排 top-3</span><span class="arrow">→</span><span class="node">recency 加权</span></div>
+    <div class="flow"><span class="node">注入：core 常驻(400)</span><span class="arrow">+</span><span class="node">检索 top-3(600)</span><span class="arrow">+</span><span class="node">情景最近3条</span><span class="arrow">→</span><span class="node">AI 回答</span></div>
+    <p style="margin-top:10px">这就是「四层记忆 + RAG」的完整闭环：<strong>写（抽取→存储）→ 查（检索→重排）→ 用（分层注入）</strong>。</p>
+  </div>
+
+  <footer>桌宠记忆重构概念全解 · 2026-08-31</footer>
+</div>
+</body>
+</html>

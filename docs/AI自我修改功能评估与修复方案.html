@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 自我修改功能 · 拆分后评估与修复方案</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.75; padding:32px 16px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#5a3a1e,#9e6b2c); color:#fff; border-radius:16px; padding:26px 34px; margin-bottom:24px; }
+  header h1 { font-size:24px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:20px; margin:28px 0 12px; padding-left:12px; border-left:4px solid #9e6b2c; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13.5px; }
+  th { background:#f6efe4; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #f0e8dc; vertical-align:top; }
+  .bad { color:#a03c1e; font-weight:700; }
+  .ok { color:#1e7a44; font-weight:700; }
+  .warn { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  .phase { border-left:5px solid; border-radius:8px; padding:14px 18px; margin:12px 0; background:#fff; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .p1 { border-color:#2e9e5b; } .p2 { border-color:#2c6e9e; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AI 自我修改功能 · 拆分后评估与修复方案</h1>
+    <p>edit_own_code / read_file / install_plugin 在 14 模块架构下的问题盘点、可行性检查、修复路径（2026-08-31）</p>
+  </header>
+
+  <h2>一、现状问题盘点（拆分放大的硬伤）</h2>
+  <div class="card">
+    <table>
+      <tr><th>问题</th><th>现状</th><th>严重度</th></tr>
+      <tr><td><b>edit_own_code 硬编码单文件</b></td><td>handler 里 `path = BASE_DIR/desktop_pet.py` <b>写死</b>——拆分后 AI 无法修改其他 13 个模块，要求改 affection_engine.py 也会被改到 desktop_pet.py</td><td class="bad">高（功能失效）</td></tr>
+      <tr><td><b>AI 不知道项目结构</b></td><td>提示词只有「read_file 相对 desktop-pet-dev」——<b>目录名都过时了</b>，且没有模块清单/职责说明，AI 只能猜路径</td><td class="bad">高（找错位置根源）</td></tr>
+      <tr><td><b>无代码搜索能力</b></td><td>AI 想找「好感度在哪实现」——只能 read_file 逐文件猜，没有 grep 工具。人类靠 Ctrl+Shift+F，AI 没有</td><td class="bad">高（找错位置根源）</td></tr>
+      <tr><td><b>read_file 不能浏览目录</b></td><td>传目录返回「不支持读取该类型文件」，AI 无法列出项目文件</td><td class="ok">中</td></tr>
+      <tr><td><b>行号编辑依赖先读对文件</b></td><td>按行编辑要求先 read_file 带行号——文件猜错了，行号全错，改错位置</td><td class="bad">高</td></tr>
+    </table>
+    <div class="warn">用户反馈「找会找错位置，不尽人意」的根因：AI 只有「猜路径读文件」一种定位手段，没有「地图（结构清单）+ 搜索（grep）+ 浏览（目录列表）」。单文件时代勉强能用，14 模块后必然迷路。</div>
+  </div>
+
+  <h2>二、不受拆分影响的部分（无需改）</h2>
+  <div class="card">
+    <table>
+      <tr><th>能力</th><th>说明</th></tr>
+      <tr><td class="ok">git 保护</td><td>edit_own_code 改前提交基线 + 语法验证 + 失败不落盘 + backup 双保险——逻辑与文件数无关，扩展 file 参数即可复用</td></tr>
+      <tr><td class="ok">插件系统</td><td>install_plugin 写入 plugins/ 独立目录 + 热加载，不碰源码——不受拆分影响</td></tr>
+      <tr><td class="ok">主题系统</td><td>set_theme / theme 插件独立于源码——不受影响</td></tr>
+      <tr><td class="ok">write_config</td><td>白名单字段 + 热加载——独立功能</td></tr>
+      <tr><td class="ok">write_file</td><td>输出文件写 输出/ 目录——与源码隔离，安全</td></tr>
+    </table>
+  </div>
+
+  <h2>三、可行性检查（修复方案）</h2>
+  <div class="phase p1">
+    <h3>① 项目模块地图注入 system prompt <span class="bad">低风险 · 高收益</span></h3>
+    <p>system prompt 加「项目结构」段：列出 14 个模块文件 + 职责一句话（如 affection_engine.py=好感度引擎、memory_store.py=记忆数据层）。<b>AI 第一次就知道去哪找</b>。</p>
+  </div>
+  <div class="phase p1">
+    <h3>② read_file 支持目录浏览 <span class="bad">低风险 · 10 行代码</span></h3>
+    <p>rel_path 是目录时返回「文件名 + 行数 + 一句话职责（内置映射）」列表——AI 可探索。</p>
+  </div>
+  <div class="phase p1">
+    <h3>③ 新增 search_code 工具（grep） <span class="bad">中低风险 · 根治找错位置</span></h3>
+    <p>新工具：关键词 → 扫描所有 .py 模块，返回「文件:行号:代码行」命中列表（限项目目录、限 .py、限 20 条）。AI 找功能 = 搜索而非猜路径。</p>
+  </div>
+  <div class="phase p2">
+    <h3>④ edit_own_code 支持多文件 <span class="bad">中风险 · 核心修复</span></h3>
+    <p>加 <code>file</code> 参数（默认 desktop_pet.py）：白名单限定 .py 模块（排除 tools_registry.py 等生成文件？不——全部允许，git 保护兜底）。行号/old_text 编辑逻辑复用，git 基线 + 语法验证 + backup 扩展到目标文件。</p>
+  </div>
+  <div class="phase p1">
+    <h3>⑤ 提示词更新（9 条规则 5/7 条 + 工具 description） <span class="bad">低风险</span></h3>
+    <p>「desktop-pet-dev」→ 实际目录名；「只改 desktop_pet.py」→ 「可改任意模块，优先 search_code 定位」；read_file/edit_own_code 的 description 同步更新。</p>
+  </div>
+
+  <h2>四、风险评估</h2>
+  <div class="card">
+    <table>
+      <tr><th>风险</th><th>现有防线</th><th>补充</th></tr>
+      <tr><td>AI 乱改代码破坏功能</td><td>git 基线提交 + 语法验证 + 失败不落盘 + backup 双保险</td><td>改前自动备份到 backup/（已有）；改后提示用户重启验证</td></tr>
+      <tr><td>AI 改错模块</td><td>—（当前无）</td><td>search_code 定位 + 模块地图 + file 参数白名单</td></tr>
+      <tr><td>search_code 泄露敏感信息</td><td>—</td><td>只搜 .py 源码（排除 config.json 等数据文件）；config.json 等本来就不在搜索范围</td></tr>
+      <tr><td>grep 性能</td><td>—</td><td>14 个模块总 ~1.6 万行，秒级完成；限制结果 20 条</td></tr>
+    </table>
+  </div>
+
+  <h2>五、实施路径</h2>
+  <div class="card">
+    <table>
+      <tr><th>步骤</th><th>内容</th><th>预计</th></tr>
+      <tr><td>1</td><td>模块地图注入 prompt_builder + 提示词更新</td><td>20 分钟</td></tr>
+      <tr><td>2</td><td>read_file 目录浏览 + search_code 工具（schema + handler）</td><td>30 分钟</td></tr>
+      <tr><td>3</td><td>edit_own_code 多文件支持（file 参数 + 白名单 + 备份扩展）</td><td>30 分钟</td></tr>
+      <tr><td>4</td><td>回归验证（真实 LLM：让 AI 用 search_code 定位 → read_file 读行号 → edit 改对文件）</td><td>30 分钟</td></tr>
+    </table>
+    <div class="warn">结论：<b>可行且必要</b>。核心是给 AI「地图（模块清单）+ 搜索（grep）+ 浏览（目录）」三件套，把定位方式从「猜」变成「查」。git 保护体系现成，多文件化风险可控。总工作量约 1.5 小时。</div>
+  </div>
+
+  <footer>AI 自我修改功能评估 · 2026-08-31</footer>
+</div>
+</body>
+</html>

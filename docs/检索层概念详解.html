@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>检索层概念 · 深入详解</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.85; padding:32px 16px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#0f3d5e,#1f6f9e); color:#fff; border-radius:16px; padding:28px 36px; margin-bottom:24px; }
+  header h1 { font-size:25px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:20px; margin:30px 0 12px; padding-left:12px; border-left:4px solid #1f6f9e; }
+  h3 { font-size:16px; margin:16px 0 6px; color:#0f3d5e; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  .formula { background:#f0f6fc; border-radius:8px; padding:12px 16px; margin:8px 0; font-size:13.5px; color:#0f3d5e; font-family:Consolas,monospace; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13.5px; }
+  th { background:#eef4fa; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #ecf0f3; vertical-align:top; }
+  .example { background:#f7fafd; border-left:3px solid #7fb2ff; border-radius:6px; padding:10px 14px; margin:8px 0; font-size:13.5px; color:#3a4a5e; }
+  .example b { color:#1f6f9e; }
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:10px 0; }
+  .compare .col { background:#f7fafd; border-radius:10px; padding:14px 16px; font-size:13.5px; }
+  .compare .col h4 { margin-bottom:6px; font-size:14px; }
+  .note { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  .flow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0; font-size:13px; }
+  .flow .node { background:#e8f1fa; color:#1e5a8a; border-radius:6px; padding:4px 10px; font-weight:600; }
+  .flow .arrow { color:#1f6f9e; font-weight:700; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>检索层概念 · 深入详解</h1>
+    <p>从「检索要解决什么」到 BM25、Embedding、余弦相似度、两级检索、重排序、混合检索——带直觉、公式和中文场景（2026-08-31）</p>
+  </header>
+
+  <h2>〇、检索要解决的本质问题</h2>
+  <div class="card">
+    <p>记忆有几十上百条，prompt 只能塞 3-5 条。<b>检索 = 从一堆记忆里挑出「与当前问题最相关」的那几条</b>。它要回答的始终是同一个问题：</p>
+    <div class="formula">给定查询 Q（如「我下午干什么」），从记忆集合 M 中选出最相关的 k 条 → 打分函数 score(Mᵢ, Q) 排序取 top-k</div>
+    <p>所有检索技术的差异，只在于<b>怎么定义「相关」</b>：字面重合？（BM25）语义相近？（Embedding）还是综合判断？（重排序）</p>
+    <div class="example"><b>贯穿例</b>：查询 Q=「我下午干什么」，记忆库里有：<br>
+    M₁「用户下午上课」（应命中） M₂「用户爱喝冰美式」 M₃「用户老家合川」 M₄「用户下午没课」（误导项）</div>
+  </div>
+
+  <h2>一、BM25 关键词检索</h2>
+  <div class="card">
+    <h3>1.1 核心思想：给「词」打分</h3>
+    <p>BM25 把查询拆成词，每个词对每条记忆算一个分，加起来。打分看三件事：</p>
+    <table>
+      <tr><th>因子</th><th>直觉</th><th>例子（查「下午干什么」）</th></tr>
+      <tr><td><b>词频 TF</b></td><td>这个词在这条记忆里出现越多越相关，但不是线性（出现 3 次 ≠ 3 倍相关，要饱和）</td><td>「下午」在 M₁ 出现 1 次 → 加分；出现 0 次 → 不加</td></tr>
+      <tr><td><b>逆文档频率 IDF</b></td><td>在所有记忆里越稀有的词越有区分度。满库都是的词（「用户」「喜欢」）权重低，稀有的词（「上课」「桃片」）权重高</td><td>「下午」比较稀有 → 权重大；「用户」人人都有 → 权重≈0</td></tr>
+      <tr><td><b>长度归一化</b></td><td>长记忆天然词多，直接累加会偏袒长文 → 按长度打折</td><td>50 字的记忆和 5 字的记忆，同样命中「下午」应同分</td></tr>
+    </table>
+    <div class="formula">score(Mᵢ, Q) = Σ 词w ∈ Q: IDF(w) × [TF(w,Mᵢ) × (k₁+1)] / [TF(w,Mᵢ) + k₁×(1 - b + b×|Mᵢ|/avgLen)]</div>
+    <p class="example" style="margin-top:6px"><b>直觉版公式</b>：每个查询词 ×（这个词有多稀有）×（这个词在这条记忆出现多少次，且饱和 + 长度打折）。k₁≈1.2、b≈0.75 是经典参数，调好就不用动。</p>
+    <h3>1.2 优点与硬伤</h3>
+    <div class="compare">
+      <div class="col"><h4>✅ 优点</h4>零依赖纯 Python 可写；快（几十条记忆毫秒级）；可解释（知道是哪个词命中的）；不需要训练/模型</div>
+      <div class="col"><h4>❌ 硬伤：字面匹配</h4>「下午的课」≠「下午上课」（字面不重合）；同义词（「课」vs「课程」）匹配不上；英文大小写/词形变化要预处理</div>
+    </div>
+    <div class="example"><b>M₁「用户下午上课」vs M₄「用户下午没课」</b>：BM25 对两者打分几乎一样（都命中「下午」），无法区分「上课」和「没课」的语义差异——这是关键词检索的天花板。</div>
+    <div class="note">中文额外难点：<b>分词</b>。「我下午干什么」怎么切？「下午/干什么」还是「下午干/什么」？轻量做法 n-gram（2-gram 切成「下午/午干/干什/什么」）——会引入噪音词（「午干」无意义），但 IDF 会自动把噪音权重压下去。</div>
+  </div>
+
+  <h2>二、Embedding 向量化（语义检索）</h2>
+  <div class="card">
+    <h3>2.1 核心思想：文字 → 数字空间</h3>
+    <p>Embedding 模型把「一句话」映射成一个<b>几百维的向量</b>（一串数字），映射的规则是训练出来的：<b>语义相近的句子，向量在空间里距离近</b>。</p>
+    <div class="formula">「用户下午上课」 → [0.23, -0.15, 0.88, 0.02, ...]（384 维）<br>「用户下午的课」 → [0.25, -0.14, 0.86, 0.03, ...]（距离很近 ✅）<br>「用户爱喝咖啡」 → [-0.41, 0.72, -0.08, ...]（距离很远 ✅）</div>
+    <h3>2.2 向量是怎么「懂语义」的（直觉）</h3>
+    <p>训练目标非常朴素：<b>让「经常一起出现的词」向量相近</b>（Word2Vec 的 Skip-gram：拿一个词去猜它周围的词，猜得准 → 向量编码了上下文 → 「下午」和「上课」常共现 → 向量相近）。句向量则是把整句编码（现代做法：BERT 类模型加池化，如 bge/sentence-transformers）。</p>
+    <div class="example">「合川」「桃片」「重庆」经常出现在一起 → 它们的向量互相靠近 → 问「重庆特产」时，「桃片」向量距离近 → 即使查询里没出现「桃片」两个字也能召回。</div>
+    <h3>2.3 局限</h3>
+    <table>
+      <tr><th>局限</th><th>说明</th></tr>
+      <tr><td>需要模型</td><td>本地跑 embedding 要下载模型文件（bge-small-zh ≈ 100MB）+ 推理库（onnxruntime）——<b>Python 3.14 装不上，环境硬约束</b></td></tr>
+      <tr><td>混淆语义 vs 事实</td><td>「下午上课」和「下午没课」向量也偏近（都关于下午的课），纯向量无法区分「肯定/否定」——需要更细的模型或后处理</td></tr>
+      <tr><td>数字/时间不敏感</td><td>「3 点」和「5 点」向量几乎一样，向量不擅长精确数值匹配</td></tr>
+    </table>
+  </div>
+
+  <h2>三、余弦相似度：向量怎么比</h2>
+  <div class="card">
+    <p>有了向量，怎么算「距离」？直觉上可以算欧氏距离（直线距离），但更常用的是<b>余弦相似度</b>：</p>
+    <div class="formula">cos(A, B) = (A·B) / (|A| × |B|)  → 只看「方向」，不看「长度」</div>
+    <p><b>为什么不看长度</b>：向量长度往往只反映「句子的长度/信息量」（长句向量模长大），与语义无关。两个向量同方向（角度小）= 语义相似；夹角 90° = 无关；反方向 = 相反。</p>
+    <div class="compare">
+      <div class="col"><h4>欧氏距离（不推荐）</h4>「我爱吃桃片」和「我爱吃桃片，尤其老工艺现切的甜味桃片」——后者向量长，欧氏距离大，误判为不相似</div>
+      <div class="col"><h4>余弦相似度（推荐）</h4>两者方向一致 → 余弦 ≈ 1 → 相似 ✅。长度差异被归一化忽略</div>
+    </div>
+    <p><b>桌宠落地</b>：几十到几百条记忆，numpy 一行算全部余弦：<code>sims = X @ q / (|X| × |q|)</code>，取 top-k。数据量小，根本不需要向量数据库。</p>
+  </div>
+
+  <h2>四、两级检索：粗筛 + 精排</h2>
+  <div class="card">
+    <p>检索有个经典的权衡：<b>召回率</b>（相关的是否都被捞出来）vs <b>精确率</b>（捞出来的是否都相关）。任何单一方法都难两全，业界标准做法是分两级：</p>
+    <div class="flow"><span class="node">全量记忆</span><span class="arrow">→</span><span class="node">粗筛（BM25/向量，快）</span><span class="arrow">→</span><span class="node">top-8 候选</span><span class="arrow">→</span><span class="node">精排（重排序，慢但准）</span><span class="arrow">→</span><span class="node">top-3 注入</span></div>
+    <table>
+      <tr><th></th><th>粗筛（Retriever）</th><th>精排（Reranker）</th></tr>
+      <tr><td>目标</td><td>别漏（高召回）</td><td>别错（高精确）</td></tr>
+      <tr><td>速度</td><td>毫秒级</td><td>百毫秒~秒级（或 LLM 调用）</td></tr>
+      <tr><td>方法</td><td>BM25 / 向量余弦</td><td>LLM 判断 / 交叉编码器（query+文档一起过模型）</td></tr>
+      <tr><td>成本</td><td>0</td><td>LLM：每次 +0.5-1k tokens</td></tr>
+    </table>
+    <div class="example"><b>为什么不能只用精排</b>：全量 50 条全给 LLM 判断——每次提问多花几千 token（贵且慢）。粗筛先用免费方法砍到 8 条，LLM 只在 8 条里挑 3 条——成本降 80%，准确率几乎不变。</div>
+  </div>
+
+  <h2>五、LLM 重排序（精排的实现）</h2>
+  <div class="card">
+    <p>让 LLM 当裁判：把候选记忆 + 用户问题一起给它，让它选最相关的几条。关键在<b>提示词设计</b>：</p>
+    <div class="formula">「用户问：{问题}。以下是候选记忆：1.… 2.… 8.…。请选出与问题最相关的 3 条，只输出编号，按相关度排序。」</div>
+    <table>
+      <tr><th>优点</th><th>注意点</th></tr>
+      <tr><td>真正理解语义/否定/时间（能区分「上课」和「没课」）</td><td>输出要严格约束（只输出编号），避免 LLM 自由发挥</td></tr>
+      <tr><td>可以结合其他信号（重要度/recency）一起权衡</td><td>候选太多会稀释注意力 → 粗筛控制在 8 条内</td></tr>
+      <tr><td>零额外依赖</td><td>每次提问多一次小请求（max_tokens 小、速度快）</td></tr>
+    </table>
+    <div class="example">粗筛 top-8 里有 M₁「下午上课」和 M₄「下午没课」→ LLM 看问题「我下午干什么」→ 知道问的是「安排」→ 选 M₁（有课是事实），排除 M₄（可能是过期或反例）→ 注入 M₁。</div>
+    <div class="note">更专业的精排是<b>交叉编码器</b>（如 bge-reranker，query 和文档拼一起过模型直接输出相关分）——但它同样是 onnxruntime 依赖，Python 3.14 环境受限，Phase 1 用 LLM 重排。</div>
+  </div>
+
+  <h2>六、混合检索（Hybrid Search）</h2>
+  <div class="card">
+    <p>BM25 擅长「精确词命中」，向量擅长「语义相近」——两者互补，业界标准是<b>混合</b>：两个通道都跑，分数融合。</p>
+    <div class="formula">常用融合：RRF（Reciprocal Rank Fusion）——按排名而非分数融合：score = Σ 1/(k + rankᵢ)<br>（k≈60 常数；谁排名靠前谁得分高，避免两套分数量纲不一致的问题）</div>
+    <div class="example">查「下午干什么」：<br>BM25 通道：M₁「下午上课」rank1、M₄「下午没课」rank2<br>向量通道：M₁ rank2、M₄ rank1、M₂「下午茶？」rank3<br>RRF 融合后 M₁ 总排名最前 → 入选 ✅（单通道时 BM25 无法区分 M₁/M₄，混合后语义通道帮它胜出）</div>
+    <p><b>桌宠落地</b>：Phase 1 先做 BM25 + LLM 重排（无向量）；Phase 2 加向量通道后升级为 BM25 + 向量 + RRF + LLM 重排的四级管线。</p>
+  </div>
+
+  <h2>七、中文检索的特殊性</h2>
+  <div class="card">
+    <table>
+      <tr><th>难点</th><th>说明</th><th>桌宠方案</th></tr>
+      <tr><td>没有空格分词</td><td>英文天然按空格分；中文「下午上课」要切</td><td>n-gram（2-gram）零依赖；IDF 自动压噪音</td></tr>
+      <tr><td>同义/口语化</td><td>「干嘛」vs「做什么」vs「干什么」</td><td>n-gram 部分缓解；LLM 重排兜底（它懂口语）</td></tr>
+      <tr><td>否定/时态</td><td>「没课」「不上」「改期了」</td><td>BM25/向量都弱 → 靠 LLM 重排 + recency 加权（新的覆盖旧的）</td></tr>
+      <tr><td>人名/地名/专有词</td><td>「合川桃片」「Galgame」</td><td>专有词 IDF 极高（稀有）→ 天然高权重 ✅</td></tr>
+    </table>
+  </div>
+
+  <h2>八、桌宠检索管线全景（Phase 1 + 2）</h2>
+  <div class="card">
+    <div class="flow"><span class="node">用户提问</span><span class="arrow">→</span><span class="node">BM25 粗筛 top-8</span><span class="arrow">+</span><span class="node">[Phase2] 向量余弦 top-8</span><span class="arrow">→</span><span class="node">RRF 融合</span><span class="arrow">→</span><span class="node">LLM 重排 top-3</span><span class="arrow">→</span><span class="node">recency 加权</span><span class="arrow">→</span><span class="node">注入 prompt</span></div>
+    <table>
+      <tr><th>环节</th><th>成本</th><th>作用</th></tr>
+      <tr><td>BM25 粗筛</td><td>0（纯 Python）</td><td>快速排除 80% 无关记忆</td></tr>
+      <tr><td>向量余弦（Phase2）</td><td>0（本地 numpy）</td><td>召回「字面不同但语义相关」的</td></tr>
+      <tr><td>RRF 融合</td><td>0</td><td>两通道排名合并</td></tr>
+      <tr><td>LLM 重排</td><td>+0.5-1k tokens/问</td><td>理解语义/否定/时间，最终把关</td></tr>
+      <tr><td>recency 加权</td><td>0</td><td>新记忆优先（可能修正旧记忆）</td></tr>
+    </table>
+    <div class="note">一句话总结：<b>免费方法先干活（BM25/向量/RRF），花钱的 LLM 只做最后 8 选 3 的把关</b>——检索质量接近专业 RAG，成本可控。</div>
+  </div>
+
+  <footer>检索层概念深入详解 · 2026-08-31</footer>
+</div>
+</body>
+</html>

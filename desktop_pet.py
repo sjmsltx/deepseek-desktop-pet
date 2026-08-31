@@ -1437,6 +1437,32 @@ class PetWidget(QWidget):
                         'active_chat', 'display_mode', 'live2d_model', 'sedentary_minutes',
                         'api_prices')
 
+    def _search_code(self, keyword, max_results=20):
+        """关键词搜索项目源码（所有 .py 模块），返回 文件:行号:代码行（v6.41 定位工具）"""
+        keyword = (keyword or '').strip()
+        if not keyword:
+            return '请提供搜索关键词'
+        hits = []
+        for f in sorted(os.listdir(BASE_DIR)):
+            if not f.endswith('.py') or f.startswith('_'):
+                continue
+            path = os.path.join(BASE_DIR, f)
+            try:
+                with open(path, encoding='utf-8', errors='ignore') as fh:
+                    for i, line in enumerate(fh, 1):
+                        if keyword.lower() in line.lower():
+                            hits.append(f'{f}:{i}: {line.strip()[:100]}')
+                            if len(hits) >= max_results:
+                                break
+            except Exception:
+                pass
+            if len(hits) >= max_results:
+                break
+        if not hits:
+            return f'未找到包含 "{keyword}" 的代码'
+        total = len(hits)
+        return '\n'.join(hits[:max_results]) + (f'\n…（共 {total} 处，仅显示前 {max_results} 条）' if total > max_results else '')
+
     def _read_own_file(self, rel_path, start_line=None, end_line=None):
         """AI 读自己的文件（限项目目录内，防穿越；v6.25 支持行号范围，带行号输出方便精确引用）"""
         try:
@@ -1444,6 +1470,20 @@ class PetWidget(QWidget):
             if not full.startswith(os.path.normpath(BASE_DIR)):
                 return '（路径越界，拒绝读取）'
             if not os.path.isfile(full):
+                # v6.41：目录 → 返回文件列表（AI 可浏览项目结构）
+                if os.path.isdir(full):
+                    _lines = []
+                    for _f in sorted(os.listdir(full)):
+                        _fp = os.path.join(full, _f)
+                        if os.path.isfile(_fp):
+                            try:
+                                _n = sum(1 for _ in open(_fp, encoding='utf-8', errors='ignore'))
+                            except Exception:
+                                _n = 0
+                            _lines.append(f'{_f} ({_n} 行)')
+                        elif os.path.isdir(_fp):
+                            _lines.append(f'{_f}/')
+                    return '（目录内容）\n' + '\n'.join(_lines[:60]) if _lines else '（空目录）'
                 return f'（文件不存在：{rel_path}）'
             # 敏感文件禁止读取（API key/隐私数据，防止泄露给 AI）
             _low = full.lower()
@@ -1575,10 +1615,15 @@ class PetWidget(QWidget):
         except Exception as e:
             return f'（写入失败：{e}）'
 
-    def _edit_own_code(self, old_text, new_text, start_line=None, end_line=None):
+    def _edit_own_code(self, old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py'):
         """AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘。
-        v6.25 支持两种模式：①按行号替换（start_line/end_line + new_text，推荐，精确可靠）；②old_text 精确匹配"""
-        path = os.path.join(BASE_DIR, 'desktop_pet.py')
+        v6.41 支持任意模块（file 参数，白名单 .py）；v6.25 两种编辑模式：①按行号替换（start_line/end_line + new_text，推荐）；②old_text 精确匹配"""
+        fname = (file or 'desktop_pet.py').strip()
+        if not fname.endswith('.py') or fname.startswith('_') or '/' in fname or '\\' in fname:
+            return f'（不允许修改的文件：{fname}，只能改项目内的 .py 模块）'
+        path = os.path.join(BASE_DIR, fname)
+        if not os.path.isfile(path):
+            return f'（文件不存在：{fname}，可用 read_file 传目录查看项目文件列表）'
         old_text = old_text or ''
         new_text = new_text or ''
         if not old_text.strip() and start_line is None:
@@ -1598,7 +1643,7 @@ class PetWidget(QWidget):
                 bdir = os.path.join(BASE_DIR, 'backup')
                 os.makedirs(bdir, exist_ok=True)
                 import shutil
-                shutil.copy2(path, os.path.join(bdir, f'desktop_pet_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'))
+                shutil.copy2(path, os.path.join(bdir, f'{fname.replace(".py", "")}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'))
             except Exception:
                 pass
             # 2. 读代码 + 替换
@@ -1704,11 +1749,14 @@ class PetWidget(QWidget):
                 return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             elif name == 'web_search':
                 return self._web_search(args.get('query', ''))
+            elif name == 'search_code':
+                return self._search_code(args.get('keyword', ''))
             elif name == 'read_file':
                 return self._read_own_file(args.get('path', ''), args.get('start_line'), args.get('end_line'))
             elif name == 'edit_own_code':
                 return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''),
-                                           args.get('start_line'), args.get('end_line'))
+                                           args.get('start_line'), args.get('end_line'),
+                                           args.get('file', 'desktop_pet.py'))
             elif name == 'write_file':
                 return self._write_file_tool(args.get('filename', ''), args.get('content', ''))
             elif name == 'write_config':

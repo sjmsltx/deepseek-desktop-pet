@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌宠模块化拆分 · 全局评估报告</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.7; padding:32px 16px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a5f,#2c6e9e); color:#fff; border-radius:16px; padding:30px 36px; margin-bottom:24px; }
+  header h1 { font-size:26px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:21px; margin:30px 0 12px; padding-left:12px; border-left:4px solid #2c6e9e; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:14px 0; }
+  .metric { background:#fff; border-radius:10px; padding:14px 18px; text-align:center; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .metric b { font-size:26px; color:#2c6e9e; display:block; }
+  .metric span { font-size:12.5px; color:#8a9bad; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13.5px; }
+  th { background:#eef4fa; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #ecf0f3; }
+  .ok { color:#1e7a44; font-weight:700; }
+  .warn { color:#b06a00; font-weight:700; }
+  .bad { color:#a03c1e; font-weight:700; }
+  .phase { border-left:5px solid; border-radius:8px; padding:14px 18px; margin:12px 0; background:#fff; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .rec { border-color:#2e9e5b; } .skip { border-color:#b8b8c4; }
+  .phase h3 { font-size:16px; margin-bottom:6px; }
+  .tag { display:inline-block; border-radius:4px; padding:1px 8px; font-size:12px; margin-right:6px; }
+  .tag-low { background:#e3f5ea; color:#1e7a44; }
+  .tag-mid { background:#fdf3d8; color:#9a6b00; }
+  .tag-high { background:#fde3e0; color:#a03c1e; }
+  .note { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>桌宠模块化拆分 · 全局评估报告</h1>
+    <p>拆模块计划执行到中段后的全局体检：已完成盘点、剩余结构分析、继续拆的收益/风险量化、最终建议（2026-08-31）</p>
+  </header>
+
+  <h2>一、当前状态总览</h2>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><b>5814</b><span>主文件行数（原 6903）</span></div>
+      <div class="metric"><b>13</b><span>独立功能模块</span></div>
+      <div class="metric"><b>-1089</b><span>主文件瘦身</span></div>
+      <div class="metric"><b>226</b><span>PetWidget 方法数</span></div>
+    </div>
+    <table>
+      <tr><th>模块</th><th>行数</th><th>职责</th><th>状态</th></tr>
+      <tr><td>deepseek_client.py</td><td>129</td><td>API 网络层（非流式 + SSE 流式 + 重试）</td><td class="ok">已拆</td></tr>
+      <tr><td>tools_registry.py</td><td>392</td><td>28 个工具 schema 纯数据</td><td class="ok">已拆</td></tr>
+      <tr><td>pet_sysutils.py</td><td>219</td><td>剪贴板/PowerShell/音量/热键/危险检测</td><td class="ok">已拆</td></tr>
+      <tr><td>memory_store.py</td><td>94</td><td>长期记忆数据层（软覆盖/遗忘机制）</td><td class="ok">已拆</td></tr>
+      <tr><td>chat_render.py</td><td>154</td><td>Markdown 解析（5 个纯函数）</td><td class="ok">已拆</td></tr>
+      <tr><td>chat_cards.py</td><td>129</td><td>代码/表格卡片组件</td><td class="ok">已拆</td></tr>
+      <tr><td>prompt_builder.py</td><td>73</td><td>状态预判/记忆块/待办块</td><td class="ok">已拆</td></tr>
+      <tr><td>code_checker.py</td><td>36</td><td>Python 代码块语法检查</td><td class="ok">已拆</td></tr>
+      <tr><td>care_engine.py</td><td>79</td><td>主动关心网络/判断层</td><td class="ok">已拆</td></tr>
+      <tr><td>api_stats.py</td><td>123</td><td>API 用量监控</td><td class="ok">已拆</td></tr>
+      <tr><td>pet_storage.py</td><td>32</td><td>JSON 原子持久化</td><td class="ok">已拆</td></tr>
+      <tr><td>affection_engine / memory_events / affection_ui / pet_minigames / plugin_manager / mcp_bridge</td><td>3112</td><td>原有独立模块（好感度/回忆/关系面板/小游戏/插件/MCP）</td><td class="ok">原有</td></tr>
+    </table>
+  </div>
+
+  <h2>二、剩余主文件结构分析</h2>
+  <div class="card">
+    <p>PetWidget 剩余 226 个方法，按前缀分组（方法名语义分区）：</p>
+    <table>
+      <tr><th>分区</th><th>方法数</th><th>耦合特征</th></tr>
+      <tr><td>UI 交互（_set/_on/_open/_show/_render/_build_menu）</td><td>~60</td><td>聊天面板/菜单/子窗口构建，Qt 布局代码</td></tr>
+      <tr><td>AI 工作流（_ai_worker/_execute_tool/_call_* 工具 handler）</td><td>~30</td><td>工具执行分发 + prompt 组装 + 工具循环</td></tr>
+      <tr><td>数据读写（_load/_save/_read/_export/_import）</td><td>~30</td><td>多数已委托新模块，剩余为 UI 相关存储</td></tr>
+      <tr><td>动画/立绘（_animate/_apply_emotion/_restore）</td><td>~25</td><td>QTimer + 立绘状态，与 UI 强耦合</td></tr>
+      <tr><td>主动关心调度（_check_active_chat/_wakeup_worker）</td><td>~8</td><td>网络层已拆，剩余调度/信号</td></tr>
+      <tr><td>系统集成（托盘/热键/自启/贴边）</td><td>~15</td><td>系统 API + UI 混合</td></tr>
+    </table>
+  </div>
+
+  <h2>三、剩余可拆项评估（收益 vs 风险）</h2>
+
+  <div class="phase rec">
+    <h3>✅ 建议继续拆 · 工具执行器 tools_executor.py <span class="tag tag-mid">中风险 · 高收益</span></h3>
+    <p><code>_execute_tool</code> 的 if/elif 分发 + 28 个工具 handler（_smart_open/_web_search/_read_own_file 等）→ 拆为独立模块，通过 context 对象访问状态。</p>
+    <p><b>收益</b>：主文件 -500 行；工具逻辑可独立单测（本次 400 排查中工具链路测试困难正源于此）。<b>风险</b>：handler 深度耦合 self 状态，需 1-2 小时精细迁移。</p>
+  </div>
+
+  <div class="phase rec">
+    <h3>✅ 建议继续拆 · system prompt 构建 <span class="tag tag-low">低风险 · 中收益</span></h3>
+    <p><code>_ai_worker</code> 内 80+ 行 system prompt 拼接（身份/性格/记忆/待办/插件规则/好感度/工具规则）→ 参数化拆到 prompt_builder.build_system_prompt()。</p>
+    <p><b>收益</b>：主文件 -80 行；prompt 模板与业务逻辑分离，改提示词不动主文件。<b>风险</b>：低（纯字符串拼接）。</p>
+  </div>
+
+  <div class="phase skip">
+    <h3>⚠️ 不建议拆 · 动画/立绘系统 <span class="tag tag-high">高风险 · 低收益</span></h3>
+    <p>呼吸/眨眼/呆毛动画与 QTimer + 立绘状态深度交织，拆出后无法脱离 UI 测试，收益仅是「行数好看」。</p>
+  </div>
+
+  <div class="phase skip">
+    <h3>⚠️ 不建议拆 · 聊天面板/子窗口构建 <span class="tag tag-mid">中风险 · 低收益</span></h3>
+    <p>一次性 Qt 布局构建代码，拆出去不可复用、不可单测，且容易在拆分中破坏布局细节（刚修完的折叠/流式 bug 就属于该区域）。</p>
+  </div>
+
+  <h2>四、全局结论</h2>
+  <div class="card">
+    <div class="note">拆分已走过「甜区」：所有纯逻辑、纯数据、独立组件已拆完（12 模块，-1060 行）。剩余主文件是状态密集的 UI/AI 工作流区，继续拆的收益递减、风险递增。</div>
+    <table>
+      <tr><th>方案</th><th>内容</th><th>结果</th><th>建议</th></tr>
+      <tr><td><b>A（已执行）</b></td><td>工具纯逻辑层 tools_executor + system prompt 构建</td><td>主文件 5814 行，13 个模块</td><td class="ok">已完成（2026-08-31）</td></tr>
+      <tr><td>B</td><td>就此收尾</td><td>主文件 5843 行，12 个模块</td><td>可接受：已满足模块化目标</td></tr>
+      <tr><td>C（不推荐）</td><td>继续拆 UI/动画/子窗口</td><td>主文件 ~3500 行</td><td class="bad">风险大于收益，可能引入回归</td></tr>
+    </table>
+    <p><b>收官说明（2026-08-31）</b>：方案 A 已执行——拆出 tools_executor.py（纯逻辑工具层：时间/计算/锁屏/天气/选项解析，可独立单测）+ system prompt 构建 + TOOL_STATUS 数据。
+    复杂工具 handler（open_app/read_file/write_file/edit_own_code/插件/主题/进程/音量等 ~500 行）因深度依赖 PetWidget 状态（别名库/文件系统/插件管理器/主题/QTimer 回调），
+    强行迁移需引入 ctx 传递复杂度，收益低于风险，保留主文件。主文件 5814 行 + 13 模块，拆分计划收官。</p>
+  </div>
+
+  <h2>五、建议路径</h2>
+  <div class="card">
+    <table>
+      <tr><th>步骤</th><th>内容</th><th>预计</th></tr>
+      <tr><td>1</td><td>拆 tools_executor.py（纯逻辑工具：时间/计算/锁屏/天气/选项解析）</td><td>已完成 ✅</td></tr>
+      <tr><td>2</td><td>system prompt 构建拆到 prompt_builder + TOOL_STATUS 到 tools_registry</td><td>已完成 ✅</td></tr>
+      <tr><td>3</td><td>回归测试（工具调用端到端 + 流式 + 选项解析）→ 提交</td><td>已完成 ✅</td></tr>
+      <tr><td>4</td><td><b>拆分计划收官</b>，进入维护模式</td><td>✅ 2026-08-31</td></tr>
+    </table>
+  </div>
+
+  <footer>模块化拆分全局评估 · 2026-08-31</footer>
+</div>
+</body>
+</html>

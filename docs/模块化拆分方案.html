@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>desktop_pet.py 模块化拆分方案</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.7; padding:32px 16px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#8a2f2f,#c05b3c); color:#fff; border-radius:16px; padding:30px 36px; margin-bottom:24px; }
+  header h1 { font-size:26px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:21px; margin:30px 0 12px; padding-left:12px; border-left:4px solid #c05b3c; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+  th { background:#fdf0ea; text-align:left; padding:9px 12px; }
+  td { padding:9px 12px; border-bottom:1px solid #f0eae6; }
+  code { background:#fdf0ea; padding:1px 6px; border-radius:4px; font-size:12.5px; color:#a03c1e; }
+  .phase { border-left:5px solid; border-radius:8px; padding:14px 18px; margin:12px 0; background:#fff; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .p1 { border-color:#2e9e5b; } .p2 { border-color:#e6a817; } .p3 { border-color:#2c6e9e; } .p4 { border-color:#8a5cc0; }
+  .phase h3 { font-size:16px; margin-bottom:6px; }
+  .phase .risk { font-size:12.5px; color:#8a9bad; margin-top:6px; }
+  .tag { display:inline-block; border-radius:4px; padding:1px 8px; font-size:12px; margin-right:6px; }
+  .tag-low { background:#e3f5ea; color:#1e7a44; }
+  .tag-mid { background:#fdf3d8; color:#9a6b00; }
+  .tag-high { background:#fde3e0; color:#a03c1e; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:14px 0; }
+  .metric { background:#fff; border-radius:10px; padding:14px 18px; text-align:center; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .metric b { font-size:26px; color:#c05b3c; display:block; }
+  .metric span { font-size:12.5px; color:#8a9bad; }
+  .note { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>desktop_pet.py 模块化拆分方案</h1>
+    <p>现状诊断 → 拆分阶段 → 风险评估 → 时机建议（2026-08-30）</p>
+  </header>
+
+  <h2>一、现状诊断</h2>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><b>226</b><span>PetWidget 方法数</span></div>
+      <div class="metric"><b>~6500</b><span>单文件行数</span></div>
+      <div class="metric"><b>85</b><span>_append_chat 引用次数</span></div>
+      <div class="metric"><b>4+1</b><span>已拆模块 / 待拆主文件</span></div>
+    </div>
+    <p><b>事实澄清：项目不是「全单文件」</b>——08-28 起的新系统（好感度引擎 <code>affection_engine.py</code>、回忆日志 <code>memory_events.py</code>、关系面板 <code>affection_ui.py</code>、小游戏 <code>pet_minigames.py</code>、插件 <code>plugin_manager.py</code>、MCP <code>mcp_bridge.py</code>）都是独立模块。</p>
+    <p>问题是<b>历史主程序</b>：<code>desktop_pet.py</code> 从项目第一天（v6.19）就是单文件，v6.20~v6.25 每版功能继续往里堆（4672 → 6211 行），一直没有停下来拆。属于「老系统单文件 + 新系统模块化」的混合状态。</p>
+  </div>
+
+  <h2>二、为什么之前没拆（真实原因）</h2>
+  <div class="card">
+    <table>
+      <tr><th>原因</th><th>说明</th></tr>
+      <tr><td>开发惯性</td><td>每版新功能都在主文件里加方法最快，模块化被推迟为「以后再说」，以后一直没来</td></tr>
+      <tr><td>强耦合</td><td>226 个方法共享 self 状态（chat_panel/bubble/pet_label/model），拆类会互相传 self，初期判断「拆不如不拆」</td></tr>
+      <tr><td>缺少回归测试</td><td>单文件改完直接跑，拆分后没有测试网兜底，怕拆完引入一堆回归</td></tr>
+    </table>
+    <p class="note">结论：这是执行失误，不是技术不可能。用户明确要求过工程化模块化，主文件没有执行到位。</p>
+  </div>
+
+  <h2>三、拆分方案（渐进式，4 阶段）</h2>
+
+  <div class="phase p1">
+    <h3>P1 · 无 UI 纯逻辑抽取 <span class="tag tag-low">低风险</span></h3>
+    <p><code>api_client.py</code> — SSE 流式客户端（_post_stream/_on_stream/_ai_worker/_record_api_usage）</p>
+    <p><code>tools_executor.py</code> — 15+ 工具执行（_call_*）+ PowerShell 安全执行（_run_ps/_check_dangerous）</p>
+    <p><code>memory_store.py</code> — 记忆读写（_save_memory/memorize/记忆管理/摘要压缩）</p>
+    <p><code>storage.py</code> — JSON 原子持久化（_atomic_write_json/_load/_save 通用件）</p>
+    <div class="risk">方法边界清晰、不碰 UI 状态，拆完行为不变，风险最低 · 预计主文件 -2000 行</div>
+  </div>
+
+  <div class="phase p2">
+    <h3>P2 · 聊天渲染器抽取 <span class="tag tag-mid">中风险</span></h3>
+    <p><code>chat_render.py</code> — Markdown 渲染（_render_md_into/_split_rich_blocks/_CodeCard/_TableCard）</p>
+    <p><code>chat_bubbles.py</code> — 气泡构建（_new_bubble/_attach_bubble_actions/_render_rich）</p>
+    <div class="risk">UI 相关但纯函数化程度高，通过参数传 widget，不依赖 self 全局态 · 预计主文件 -800 行</div>
+  </div>
+
+  <div class="phase p3">
+    <h3>P3 · 信号槽与子窗口整理 <span class="tag tag-mid">中风险</span></h3>
+    <p><code>chat_panel.py</code> — 聊天面板（_open_chat_panel/输入/历史/导出）</p>
+    <p><code>dialogs.py</code> — 记忆管理/提醒管理/关系面板等子窗口</p>
+    <div class="risk">涉及布局与信号连接，需要逐窗口手工验证</div>
+  </div>
+
+  <div class="phase p4">
+    <h3>P4 · PetWidget 按 Mixin 瘦身 <span class="tag tag-high">高风险（可选）</span></h3>
+    <p>AnimationMixin（动画/立绘/动作）· TrayMixin（托盘/热键/自启）· CareMixin（主动关心/唤醒）</p>
+    <div class="risk">同实例多 Mixin 共享状态，需要谨慎处理初始化顺序；若 P1-P3 已完成，主文件已降至 ~2500 行，P4 可缓</div>
+  </div>
+
+  <h2>四、风险评估与对策</h2>
+  <div class="card">
+    <table>
+      <tr><th>风险</th><th>对策</th></tr>
+      <tr><td>拆分引入回归 bug</td><td>每阶段拆完跑 smoke_test + 手工验证核心链路（对话/工具/记忆/主动关心），确认无回归再进下一阶段</td></tr>
+      <tr><td>v6.40 流式修复未稳</td><td>建议先确认 emotion 泄漏/思考折叠验证通过，再动架构，避免「新 bug + 架构变动」叠加排查</td></tr>
+      <tr><td>模块间循环 import</td><td>P1 模块只被主文件 import，单向依赖；P2+ 通过参数注入 widget，不反向 import 主文件</td></tr>
+      <tr><td>git 历史混乱</td><td>拆分提交只做「移动代码」，不夹带功能改动，保持可回溯</td></tr>
+    </table>
+  </div>
+
+  <h2>五、工作量与时机</h2>
+  <div class="card">
+    <table>
+      <tr><th>阶段</th><th>预计</th><th>主文件剩余</th></tr>
+      <tr><td>P1 纯逻辑</td><td>半天（含回归）</td><td>~4500 行</td></tr>
+      <tr><td>P2 渲染器</td><td>半天</td><td>~3700 行</td></tr>
+      <tr><td>P3 子窗口</td><td>半天</td><td>~2800 行</td></tr>
+      <tr><td>P4 Mixin（可选）</td><td>1 天</td><td>~2000 行</td></tr>
+    </table>
+    <p class="note">建议时机：先完成 v6.40 修复验收 → 再启动 P1（低风险起步）→ 每阶段验证后推进。用户拍板是否现在开始。</p>
+  </div>
+
+  <footer>模块化拆分方案 · 2026-08-30</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "type": "theme",
+  "description": "滚动条绿色主题：滑动条亮绿、轨道半透明绿，对比度清晰",
+  "theme": {
+    "scroll_handle": "#4ade80",
+    "scroll_bg": "rgba(74, 222, 128, 0.22)"
+  },
+  "name": "theme_green_scrollbar",
+  "version": "1.0.0",
+  "enabled": true
+}

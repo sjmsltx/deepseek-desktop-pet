@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek 桌宠助手 · 代码架构与引擎开发介绍</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.7; padding:32px 16px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a5f,#2c6e9e); color:#fff; border-radius:16px; padding:36px 40px; margin-bottom:28px; }
+  header h1 { font-size:28px; margin-bottom:8px; }
+  header p { opacity:.9; font-size:14px; }
+  .badges { margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; }
+  .badge { background:rgba(255,255,255,.18); border-radius:20px; padding:4px 14px; font-size:12px; }
+  h2 { font-size:22px; margin:36px 0 14px; padding-left:12px; border-left:4px solid #2c6e9e; }
+  h3 { font-size:17px; margin:18px 0 8px; color:#1e3a5f; }
+  .card { background:#fff; border-radius:12px; padding:20px 24px; margin-bottom:16px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+  th { background:#eef4fa; text-align:left; padding:9px 12px; }
+  td { padding:9px 12px; border-bottom:1px solid #ecf0f3; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin:14px 0; }
+  .engine { background:#fff; border-radius:12px; padding:18px 20px; box-shadow:0 2px 8px rgba(30,58,95,.08); border-top:4px solid #2c6e9e; }
+  .engine h3 { margin-top:0; }
+  .engine .tag { display:inline-block; background:#e8f1fa; color:#1e5a8a; border-radius:4px; padding:1px 8px; font-size:12px; margin-bottom:8px; }
+  .arch { background:#fff; border-radius:12px; padding:20px 24px; box-shadow:0 2px 8px rgba(30,58,95,.08); margin-bottom:16px; }
+  .layer { border:2px solid #2c6e9e; border-radius:10px; padding:14px 18px; margin:10px 0; }
+  .layer .lname { font-weight:700; color:#1e3a5f; margin-bottom:4px; }
+  .layer .ldesc { font-size:13.5px; color:#5a6b7b; }
+  .arrow { text-align:center; color:#2c6e9e; font-size:18px; margin:2px 0; }
+  .timeline { border-left:3px solid #2c6e9e; margin:14px 0 14px 8px; padding-left:20px; }
+  .tl-item { margin-bottom:14px; position:relative; }
+  .tl-item::before { content:""; position:absolute; left:-27px; top:6px; width:11px; height:11px; border-radius:50%; background:#2c6e9e; }
+  .tl-date { font-size:12px; color:#8a9bad; font-weight:700; }
+  .tl-title { font-weight:700; }
+  .tl-desc { font-size:13.5px; color:#5a6b7b; }
+  code { background:#eef4fa; padding:1px 6px; border-radius:4px; font-size:12.5px; color:#1e5a8a; }
+  .note { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🐋 DeepSeek 桌宠助手 — 代码架构与引擎开发介绍</h1>
+    <p>一只住在电脑里的 Q 版桌宠：陪聊、干活、主动关心你。PySide6 + DeepSeek API 自研的五套轻引擎。</p>
+    <div class="badges">
+      <span class="badge">MIT License</span><span class="badge">Python 3.10+</span>
+      <span class="badge">PySide6 6.x</span><span class="badge">137 commits</span><span class="badge">v2.0.0 开源版</span>
+    </div>
+  </header>
+
+  <h2>一、项目定位</h2>
+  <div class="card">
+    <p>第三方开源桌面 AI 陪伴助手（与 DeepSeek 公司无关联），双角色（V4 Flash 浅蓝人鱼 / V4 Pro 深蓝鲸鱼娘），基于官方 API。核心卖点是<b>不只是一只宠物，而是一套完整的陪伴系统</b>：长期记忆、情感养成、主动关心、小游戏互动、工具调用。</p>
+  </div>
+
+  <h2>二、代码规模与结构</h2>
+  <div class="card">
+    <table>
+      <tr><th>文件</th><th>行数</th><th>职责</th></tr>
+      <tr><td><code>desktop_pet.py</code></td><td><b>6903</b></td><td>主程序单文件：GUI / AI 核心 / 记忆 / 主动关心 / Live2D（226 个方法，章节注释分区）</td></tr>
+      <tr><td><code>pet_minigames.py</code></td><td><b>1992</b></td><td>小游戏大厅：注册式框架 + 15 款游戏（BaseGame 统一接口）</td></tr>
+      <tr><td><code>plugin_manager.py</code></td><td>302</td><td>插件管理</td></tr>
+      <tr><td><code>affection_engine.py</code></td><td>300</td><td>好感度引擎：双轴养成 / 五阶段进化 / 防刷</td></tr>
+      <tr><td><code>affection_ui.py</code></td><td>213</td><td>关系面板 + 回忆相册 UI</td></tr>
+      <tr><td><code>mcp_bridge.py</code></td><td>168</td><td>MCP 桥接</td></tr>
+      <tr><td><code>memory_events.py</code></td><td>110</td><td>事件记忆（回忆日志，200 条滚动）</td></tr>
+    </table>
+    <div class="note">⚠️ 主程序 6903 行是「单文件巨型化」的典型——所有系统塞在一个类里，优点是免工程化直接跑，缺点是维护靠章节注释分区。后续重构方向是拆模块。</div>
+  </div>
+
+  <h2>三、引擎开发（五套自研轻引擎）</h2>
+  <p>项目没有用 Unity/Godot 等游戏引擎，而是在 PySide6 之上自研了五套「轻引擎」，每套解决一类系统性问题：</p>
+  <div class="grid">
+    <div class="engine">
+      <span class="tag">渲染层</span>
+      <h3>🎭 动画引擎</h3>
+      <p><b>静态模式</b>：呼吸（整图缩放 1%）、眨眼（150ms 局部切换）、呆毛摆动（±8° 旋转）、尾巴（±1.5° 摇摆）；37 状态立绘随情绪切换（[emotion:happy] 标签驱动）。</p>
+      <p><b>Live2D 模式（v6.81）</b>：30fps 连续动画——头部摆动 / 眨眼 / 呼吸 / 视线跟随 / 点击动作，透明 OpenGL 内嵌渲染，模型库自动扫描。</p>
+    </div>
+    <div class="engine">
+      <span class="tag">AI 层</span>
+      <h3>🤖 AI 引擎</h3>
+      <p>DeepSeek API + function calling 工具循环：LLM 输出意图 → 程序执行 → 结果回填。SSE 真流式（reasoning + content 分块渲染），15+ 工具（开程序 / 天气 / 提醒 / 锁屏 / 剪贴板…），危险操作需用户确认。</p>
+    </div>
+    <div class="engine">
+      <span class="tag">数据层</span>
+      <h3>🧠 记忆引擎</h3>
+      <p>三层记忆：对话记忆（角色隔离）+ 事实记忆（memorize 工具，重要度 + 软覆盖 + 遗忘）+ 事件记忆（回忆日志 200 条滚动）。会话摘要滚动压缩，长对话不丢关键信息。</p>
+    </div>
+    <div class="engine">
+      <span class="tag">养成层</span>
+      <h3>💗 好感度引擎</h3>
+      <p>双轴：好感度 0~200 + XP/等级/6 称号。五阶段人设进化（初见→灵魂伴侣），system prompt 随好感度动态注入。事件驱动纯积累制（零衰减零惩罚），三重防刷（冷却/日上限/封顶）。</p>
+    </div>
+    <div class="engine">
+      <span class="tag">调度层</span>
+      <h3>⏰ 主动关心引擎</h3>
+      <p>链式唤醒：AI 自调度下次唤醒（10~360 分钟钳制）+ 轻量打扰判断（空闲检测 + 深夜静默）。回访机制：对话中提到重要事件 → 定时回访主动关心（带状态感知）。</p>
+    </div>
+  </div>
+  <div class="card">
+    <h3>🎮 小游戏引擎（第 6 套）</h3>
+    <p>注册式框架 <code>pet_minigames.py</code>：BaseGame 统一接口（难度下拉 / 规则说明 / 暂停保存 / 结果回调），15 款游戏（五子棋 / Farkle 骰子 / 数独 / 俄罗斯方块 / 21 点…），高分里程碑联动好感度与回忆日志。</p>
+  </div>
+
+  <h2>四、总体架构</h2>
+  <div class="arch">
+    <div class="layer">
+      <div class="lname">🎨 PySide6 GUI 层</div>
+      <div class="ldesc">透明置顶悬浮窗（FramelessWindowHint + WA_TranslucentBackground）· 立绘动画 · 聊天面板（Markdown 渲染 / 流式打字机）· 右键菜单 · 托盘 · 全局热键</div>
+    </div>
+    <div class="arrow">▲ 信号/槽（Signal-Slot，多线程安全）</div>
+    <div class="layer">
+      <div class="lname">🧩 AI 核心层</div>
+      <div class="ldesc">system prompt（身份/性格/记忆/好感度/待办/规则）→ 工具循环（意图 JSON → 执行 → 回填）→ SSE 流式输出 · 15+ 工具 · 安全校验</div>
+    </div>
+    <div class="arrow">▲</div>
+    <div class="layer">
+      <div class="lname">💾 数据层</div>
+      <div class="ldesc">memory.json（角色隔离记忆）· affection.json（好感度）· memories.json（回忆日志）· chat_memory.json（对话历史）· api_stats.json（API 用量）· config.json</div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>并发模型</h3>
+    <p>三线程架构：<b>主线程</b>（Qt UI）· <b>AI 请求线程</b>（DeepSeek API + SSE 解析）· <b>心跳/唤醒线程</b>（主动关心调度）。跨线程一律走 Signal/Slot + QTimer.singleShot 转发，避免 Qt 跨线程崩溃。</p>
+  </div>
+
+  <h2>五、开发历程</h2>
+  <div class="timeline">
+    <div class="tl-item">
+      <div class="tl-date">2026-08-02 起 · 137 次提交 · 约 1 个月</div>
+      <div class="tl-title">v1.x — 骨架期</div>
+      <div class="tl-desc">透明窗口 + 双角色立绘 + 打字机对话 + 工具调用体系 + 主动消息机制</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-title">v2.0.0 — 陪伴系统成型</div>
+      <div class="tl-desc">好感度双轴养成 + 五阶段人设进化 + 三层记忆 + 15 款小游戏 + 37 状态动作素材</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-title">v6.40 流式体验升级</div>
+      <div class="tl-desc">SSE 真流式（思考可见 + 参数可配）+ 思考并入回复卡片（AutoClaw 风格）+ emotion 标签泄漏全路径修复</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-title">v6.81 — 当前</div>
+      <div class="tl-desc">Live2D 双模式渲染 + API 用量自监控悬浮窗 + 模型库自动扫描</div>
+    </div>
+  </div>
+
+  <h2>六、源码地图（学习入口）</h2>
+  <div class="card">
+    <table>
+      <tr><th>想了解</th><th>搜索标记</th></tr>
+      <tr><td>工具调用体系</td><td><code># ===== 工具</code> / <code>def _call_</code></td></tr>
+      <tr><td>记忆系统</td><td><code># ===== 记忆</code> / <code>def _save_memory</code></td></tr>
+      <tr><td>主动关心/唤醒</td><td><code># ===== 主动</code> / <code>def _chain_wake</code></td></tr>
+      <tr><td>Live2D 渲染</td><td><code># ===== Live2D</code> / <code>def _create_l2d</code></td></tr>
+      <tr><td>语义搜索</td><td><code># ===== 语义</code> / <code>def _smart_find_app</code></td></tr>
+      <tr><td>界面交互</td><td><code>def _build_menu</code> / <code>def _open_chat_panel</code></td></tr>
+      <tr><td>双语国际化</td><td><code>_TEXT_ZH</code> / <code>_TEXT_EN</code> 字典</td></tr>
+    </table>
+  </div>
+
+  <footer>DeepSeek 桌宠助手 · 代码架构介绍 · 生成于 2026-08-30</footer>
+</div>
+</body>
+</html>

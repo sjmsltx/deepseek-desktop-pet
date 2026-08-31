@@ -47,11 +47,26 @@ AI_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "edit_own_code",
-            "description": "直接修改桌宠自己的源代码（desktop_pet.py）。优先用【按行编辑】：先用 read_file 带 start_line/end_line 读目标行（输出带行号），再传 start_line/end_line + new_text 精确替换该行（可靠，推荐）；也可用 old_text/new_text 精确匹配。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘）。修改后提示用户重启生效。注意：UI 颜色/样式不要改源码——用主题系统（set_theme 切换或 install_plugin 装 theme 插件）。只改 desktop_pet.py，其他文件用其他方式。",
+            "name": "search_code",
+            "description": "在桌宠项目源码中搜索关键词（所有 .py 模块），返回 文件:行号:代码行 列表。改代码前先定位：不知道功能在哪个文件、想找函数/变量的实现位置时用本工具，避免猜路径读错文件。",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词（函数名/变量名/类名/中文注释片段等）"}
+                },
+                "required": ["keyword"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_own_code",
+            "description": "直接修改桌宠自己的源代码（支持任意模块，默认 desktop_pet.py）。流程：先用 search_code 定位关键词所在文件与行号 → read_file 带 start_line/end_line 读目标行（输出带行号）→ 本工具传 file（模块文件名，如 affection_engine.py）+ start_line/end_line + new_text 精确替换。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘 + backup 备份）。修改后提示用户重启生效。注意：UI 颜色/样式不要改源码——用主题系统（set_theme 切换或 install_plugin 装 theme 插件）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string", "description": "要修改的模块文件名（如 desktop_pet.py / memory_engine.py / affection_engine.py），默认 desktop_pet.py"},
                     "old_text": {"type": "string", "description": "要替换的原文（匹配模式用；按行模式可省略）"},
                     "new_text": {"type": "string", "description": "替换后的新代码（按行模式=整行新内容，含缩进；匹配模式=替换文本）"},
                     "start_line": {"type": "integer", "description": "按行编辑：起始行号（从 1 开始）"},

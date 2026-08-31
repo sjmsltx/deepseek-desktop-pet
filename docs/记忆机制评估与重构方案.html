@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌宠记忆机制 · 评估与重构方案</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.7; padding:32px 16px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a5f,#2c6e9e); color:#fff; border-radius:16px; padding:28px 36px; margin-bottom:24px; }
+  header h1 { font-size:25px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:20px; margin:28px 0 12px; padding-left:12px; border-left:4px solid #2c6e9e; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13.5px; }
+  th { background:#eef4fa; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #ecf0f3; vertical-align:top; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:14px 0; }
+  .metric { background:#fff; border-radius:10px; padding:14px 18px; text-align:center; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .metric b { font-size:24px; color:#2c6e9e; display:block; }
+  .metric span { font-size:12.5px; color:#8a9bad; }
+  .phase { border-left:5px solid; border-radius:8px; padding:14px 18px; margin:12px 0; background:#fff; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .p1 { border-color:#2e9e5b; } .p2 { border-color:#2c6e9e; } .p3 { border-color:#8a5cc0; }
+  .phase h3 { font-size:16px; margin-bottom:6px; }
+  .tag { display:inline-block; border-radius:4px; padding:1px 8px; font-size:12px; margin-right:6px; }
+  .tag-green { background:#e3f5ea; color:#1e7a44; }
+  .tag-blue { background:#e8f1fa; color:#1e5a8a; }
+  .tag-red { background:#fde3e0; color:#a03c1e; }
+  .warn { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>桌宠记忆机制 · 现状评估与重新架构方案</h1>
+    <p>四层 Agentic Memory 框架 + Mem0/Letta/Zep 高星项目借鉴 + 桌面应用可行性约束（2026-08-31）</p>
+  </header>
+
+  <h2>一、现状评估：轻量在哪、痛点在哪</h2>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><b>28</b><span>事实记忆条数</span></div>
+      <div class="metric"><b>13</b><span>事件回忆条数</span></div>
+      <div class="metric"><b>1000</b><span>prompt 注入字符预算</span></div>
+      <div class="metric"><b>0</b><span>语义检索能力</span></div>
+    </div>
+    <table>
+      <tr><th>层</th><th>现状</th><th>缺陷</th></tr>
+      <tr><td>对话记忆<br>(工作)</td><td>chat_history 每角色独立，30 条上下文 + 摘要压缩</td><td>摘要只压最近 10 条为 1-2 句，无分层；细节易丢（如日程安排）</td></tr>
+      <tr><td>事实记忆<br>(语义)</td><td>memory.json 28 条，memorize 工具写，重要度+软覆盖+50条遗忘</td><td><b>全量线性注入</b>（1000 字符预算裁剪）；无检索无语义；靠 AI 主动调 memorize，漏记</td></tr>
+      <tr><td>事件记忆<br>(情景)</td><td>memories.json 回忆日志 13 条（里程碑/事件）</td><td>只记大事件，普通对话不沉淀；无自动抽取</td></tr>
+    </table>
+    <div class="warn">核心痛点（用户实测触发）：「下午上课」这类对话信息——<b>不主动调 memorize 就不沉淀</b>，沉淀了也<b>无法语义检索</b>（问「我下午干什么」匹配不到「下午上课」）。</div>
+  </div>
+
+  <h2>二、GitHub 高星项目借鉴（业界 2026 共识）</h2>
+  <div class="card">
+    <table>
+      <tr><th>项目</th><th>定位</th><th>可借鉴点</th></tr>
+      <tr><td><b>mem0</b>（~40k★）</td><td>通用记忆层：add 自动抽取 + 向量/图双通道 + search API</td><td>① <b>自动抽取</b>（LLM 从对话提炼事实，faithful 原则）② 记忆链接/去重合并 ③ add/search 接口设计</td></tr>
+      <tr><td><b>Letta/MemGPT</b>（~14k★）</td><td>Agent 自管理上下文：core memory + archival + recall 分层</td><td>① <b>分层预算</b>：核心常驻 / 归档检索 / 对话回忆 ② 记忆自我编辑</td></tr>
+      <tr><td><b>Zep/Graphiti</b>（~5k★）</td><td>时序知识图谱：动态关系 + 时间线</td><td>① 时间戳 + recency 加权 ② 实体关系（图太重，桌宠不引入）</td></tr>
+    </table>
+    <p>业界框架（Futurum Research 2026-05 四层模型）：<b>工作记忆 / 情景记忆 / 语义记忆 / 程序记忆</b>。BEAM 基准结论：长上下文窗口不能替代记忆系统——检索质量随上下文积累退化。</p>
+  </div>
+
+  <h2>三、重新架构：桌宠版四层记忆</h2>
+  <div class="card">
+    <table>
+      <tr><th>层</th><th>职责</th><th>存储</th><th>注入方式</th></tr>
+      <tr><td><b>工作记忆</b></td><td>当前对话上下文</td><td>chat_history_{role}.json</td><td>最近 N 条 + 摘要（保留，优化摘要粒度）</td></tr>
+      <tr><td><b>情景记忆</b></td><td>对话中的事件/经历</td><td>memories.json（升级）</td><td>最近事件 top-k + 按日期分组</td></tr>
+      <tr><td><b>语义记忆</b></td><td>用户长期事实（画像）</td><td>memory.json（升级）</td><td><b>core 常驻（重要度+recency）</b> + <b>检索 top-k</b></td></tr>
+      <tr><td><b>程序记忆</b></td><td>行为偏好规则</td><td>facts 中 role=behavior 类</td><td>随 core 常驻（如「用户不懂英语」→ 规则）</td></tr>
+    </table>
+    <h3>三大核心升级</h3>
+    <table>
+      <tr><th>升级</th><th>做法</th><th>借鉴</th></tr>
+      <tr><td>① 检索注入</td><td>问话触发：<b>关键词检索（BM25 纯 Python 零依赖）→ LLM 重排 top-3</b>，替代全量注入</td><td>mem0.search</td></tr>
+      <tr><td>② 自动抽取</td><td>对话结束后低频（每 N 轮/空闲时）：LLM 从对话提炼「值得记住的事实/事件」→ 写入语义/情景层</td><td>mem0.add + Letta 自我编辑</td></tr>
+      <tr><td>③ 分层预算</td><td>core（用户画像 ≤400 字符常驻）+ 检索注入（≤600）+ 情景（最近 3 条）；recency 加权</td><td>Letta core/archival/recall</td></tr>
+    </table>
+  </div>
+
+  <h2>四、可行性评估（桌面应用约束）</h2>
+  <div class="card">
+    <table>
+      <tr><th>方案</th><th>可行性</th><th>说明</th></tr>
+      <tr><td>关键词检索 BM25</td><td class="tag-green">✅ 立即可行</td><td>纯 Python 实现（词频+逆文档频率），零依赖零成本，对中文可做分词简化（n-gram）</td></tr>
+      <tr><td>LLM 重排序</td><td class="tag-green">✅ 立即可行</td><td>复用 deepseek_client，候选 5-8 条让 LLM 选 top-3，每次 +0.5-1k tokens</td></tr>
+      <tr><td>本地 embedding</td><td class="tag-red">⚠️ 环境受限</td><td>fastembed/onnxruntime 在 Python 3.14 无预编译包（rembg 教训）；需等支持或换 3.10 环境做独立服务</td></tr>
+      <tr><td>自动抽取</td><td class="tag-green">✅ 立即可行</td><td>复用 deepseek_client；低频批量（积 5 轮对话或空闲时抽一次），成本可控</td></tr>
+      <tr><td>向量数据库</td><td class="tag-red">❌ 不引入</td><td>chroma 等太重；数据量几百条，numpy 余弦足够</td></tr>
+      <tr><td>知识图谱</td><td class="tag-red">❌ 暂缓</td><td>Zep 图引擎太重；关系可用「标签字段」轻量替代</td></tr>
+    </table>
+    <div class="warn">关键约束：Python 3.14 装不了 onnxruntime → 本地 embedding 受阻。<b>降级路径</b>：Phase1 用 BM25 + LLM 重排（不依赖 embedding 也能显著改善检索），Phase2 等 onnxruntime 支持 3.14 再上 embedding。</div>
+  </div>
+
+  <h2>五、分期实施路径</h2>
+  <div class="phase p1">
+    <h3>Phase 1 · 检索 + 自动抽取 <span class="tag tag-green">低风险 · 核心收益</span></h3>
+    <p>memory_engine.py 独立模块：BM25 索引（memory.json 构建）→ 问话时检索 top-k → LLM 重排；对话后自动抽取事实/事件（低频批量）；分层注入（core + 检索 + 情景）。</p>
+    <p><b>效果</b>：「我下午干什么」→ 检索命中「下午上课」→ AI 回答。事实再多也不全塞 prompt。</p>
+  </div>
+  <div class="phase p2">
+    <h3>Phase 2 · 语义增强 <span class="tag tag-blue">中风险 · 环境依赖</span></h3>
+    <p>本地 embedding（fastembed，待 onnxruntime 支持 3.14）替换/补充 BM25；recency 加权；记忆去重合并（mem0 linking）。</p>
+  </div>
+  <div class="phase p3">
+    <h3>Phase 3 · 关系与反思（可选）</h3>
+    <p>实体关系（桃片→合川→老家→西南大学）；定期记忆反思（LLM 整合重复事实）；记忆可视化面板。</p>
+  </div>
+
+  <h2>六、成本与风险</h2>
+  <div class="card">
+    <table>
+      <tr><th>项</th><th>评估</th></tr>
+      <tr><td>API 成本</td><td>自动抽取每次 +0.5-2k tokens（约 ¥0.005-0.02/次，低频可忽略）；LLM 重排 +0.5-1k tokens/问话</td></tr>
+      <tr><td>代码风险</td><td>memory_engine 独立模块，不碰现有存储结构（加字段兼容）；旧数据零迁移</td></tr>
+      <tr><td>复杂度</td><td>记忆引擎从「存储+注入」升级为「抽取+索引+检索+注入」四步，代码量 +400-600 行（独立模块可单测）</td></tr>
+    </table>
+  </div>
+
+  <footer>桌宠记忆机制评估与重构方案 · 2026-08-31</footer>
+</div>
+</body>
+</html>

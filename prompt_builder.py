@@ -73,6 +73,25 @@ def build_todo_block(todos):
     return '\n'.join(lines)
 
 
+MODULE_MAP = (
+    '【项目结构（模块化，改代码流程：search_code 定位 → read_file 读行号 → edit_own_code 指定 file 修改）】\n'
+    'desktop_pet.py — 主程序：UI/聊天面板/AI工作流(_ai_worker)/动画/工具分发(_execute_tool)\n'
+    'deepseek_client.py — DeepSeek API 网络层（非流式/SSE 流式/重试）\n'
+    'tools_registry.py — 28 个 AI 工具 schema 定义（AI_TOOLS/TOOL_STATUS）\n'
+    'tools_executor.py — 纯逻辑工具实现（时间/计算/锁屏/天气/选项解析）\n'
+    'prompt_builder.py — system prompt 构建（build_system_prompt）\n'
+    'memory_engine.py — 记忆检索引擎（BM25/自动抽取/LLM重排）\n'
+    'memory_store.py — 记忆数据层（load/save/remember_fact）\n'
+    'chat_render.py — Markdown 解析（split_rich_blocks/md_to_html）\n'
+    'chat_cards.py — 代码/表格卡片组件（CodeCard/TableCard）\n'
+    'api_stats.py — API 用量统计；care_engine.py — 主动关心网络层\n'
+    'code_checker.py — Python 语法检查；pet_sysutils.py — 剪贴板/PowerShell/音量/热键\n'
+    'pet_storage.py — JSON 原子持久化；affection_engine.py — 好感度引擎\n'
+    'memory_events.py — 回忆日志；affection_ui.py — 关系面板/回忆相册\n'
+    'pet_minigames.py — 15 款小游戏；plugin_manager.py — 插件系统；mcp_bridge.py — MCP 桥接\n'
+)
+
+
 def build_system_prompt(char_name, current, cur_model, personality, style_hint, lang_hint,
                         mem_hint, todo_hint, mem_rule, plugin_rules_hint, affection_hint):
     """组装 AI system prompt（拆自 _ai_worker，纯字符串拼接；各 hint 由调用方按状态生成）"""
@@ -100,6 +119,7 @@ def build_system_prompt(char_name, current, cur_model, personality, style_hint, 
         '回复开头可带情绪标签[emotion:xxx]（可选），可选：happy(开心)/thinking(思考)/sleep(困倦)/shy(害羞)/'
         'angry(生气)/sad(委屈)/excited(兴奋)/calm(平静)。例如"[emotion:happy]今天好开心！"。'
         f'{plugin_rules_hint}{affection_hint}'
+        + '\n\n' + MODULE_MAP
         + '\n\n【桌宠自身能力（重要，不要改源码）】桌宠有完整的插件系统/主题系统/MCP 扩展能力：\n'
         + '1. 用户要求"改颜色/换主题/换皮肤/护眼模式"→ 先用 list_plugins 看已装主题，用 set_theme 切换；'
         '没有合适主题就用 install_plugin 装 theme 类型插件（theme 字段直接填颜色对象，如 '
@@ -107,11 +127,11 @@ def build_system_prompt(char_name, current, cur_model, personality, style_hint, 
         + '2. 用户要求"装个XX插件/加个XX功能"→ 用 install_plugin（type=tool 加工具）。\n'
         + '3. 用户要求"一键周报/一键XX流程"→ 用 skill_run（先 list_plugins 看可用技能）。\n'
         + '4. 用户要求"接入外部服务/用XX能力"→ 桌宠支持 MCP 服务器（mcp_ 开头的工具可直接用）。\n'
-        + '5. read_file 的 path 是相对桌宠项目目录（desktop-pet-dev）的相对路径，不是当前工作目录。\n'
+        + '5. read_file 的 path 是相对桌宠项目目录的路径（项目已模块化，共 14+ 个 .py 文件，见上方【项目结构】），不是当前工作目录；不确定文件时用 search_code 搜关键词定位。\n'
         + '6. UI 样式（面板背景/文字/气泡/滚动条/输入框等所有颜色）都在主题系统里（默认 DEFAULT_THEME 变量 + theme 插件覆盖），'
         '改颜色永远用 set_theme 切换或 install_plugin 装/更新 theme 插件，禁止用 edit_own_code 修改源码里的颜色。\n'
-        + '7. 若确需用 edit_own_code 改代码：先用 read_file 带 start_line/end_line 精确读目标行（输出带行号），'
-        '再用 start_line/end_line + new_text 按行替换，不要凭记忆写 old_text。\n'
+        + '7. 若确需用 edit_own_code 改代码：先用 search_code 定位关键词所在文件与行号，再 read_file 带 start_line/end_line '
+        '精确读目标行（输出带行号），最后 edit_own_code 指定 file（目标模块名，默认 desktop_pet.py）+ start_line/end_line + new_text 按行替换。\n'
         + '8. 主题变量速查（改颜色时直接用）：panel_bg=面板背景、text=正文文字、input_bg=输入框、'
         'user_bubble=用户消息气泡、ai_bubble=桌宠消息气泡、name_user/name_ai=名字颜色、'
         'scroll_bg=滚动条轨道、scroll_handle=滚动条滑块、accent=强调色。示例：用户说"滑动条调亮到100%白"→ '
