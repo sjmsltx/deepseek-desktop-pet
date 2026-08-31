@@ -66,6 +66,7 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
                 reasoning_buf = []
                 content_buf = []
                 tool_calls = {}
+                usage = None  # stream_options.include_usage 时，末尾 chunk 携带 usage
                 for chunk in resp:
                     buffer += chunk
                     while b'\n' in buffer:
@@ -79,6 +80,9 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
                         try:
                             obj = _json.loads(payload)
                         except Exception:
+                            continue
+                        if obj.get('usage'):
+                            usage = obj['usage']
                             continue
                         try:
                             delta = obj['choices'][0].get('delta', {})
@@ -106,6 +110,7 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
                     'content': ''.join(content_buf),
                     'reasoning_content': ''.join(reasoning_buf),
                     'tool_calls': list(tool_calls.values()) if tool_calls else None,
+                    'usage': usage,
                 }
                 yield ('done', full)
                 return

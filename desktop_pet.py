@@ -1757,6 +1757,9 @@ class PetWidget(QWidget):
             )
 
         try:
+            # v6.40 fix：用户消息立即入历史并保存（AI 回复中断/进程退出也不丢用户说的话）
+            self.chat_history_msgs.append({'role': 'user', 'content': text})
+            self._save_chat_memory()
             # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
             self._summarize_old()
             # 意图预判：秒出状态提示（猜测，工具确认后覆盖）
@@ -1813,6 +1816,7 @@ class PetWidget(QWidget):
                     'tools': AI_TOOLS + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas(),  # v6.20/21 动态合并 MCP+插件工具
                     'max_tokens': getattr(self, 'max_tokens', 1000),
                     'stream': True,
+                    'stream_options': {'include_usage': True},  # v6.40 fix：流式返回 usage（api_stats 统计）
                     'temperature': getattr(self, 'temperature', 1.0),
                 }).encode()
                 self.stream_done_signal.emit()  # 上一轮流式收尾（防残留）
@@ -1826,7 +1830,12 @@ class PetWidget(QWidget):
                         full = val
                 if full is None:
                     raise RuntimeError('流式响应为空')
-                # 记录 API 用量（流式响应无 usage 字段，跳过；保留非流式路径的统计）
+                # 记录 API 用量（v6.40 fix：stream_options.include_usage 后流式响应带 usage）
+                if full.get('usage'):
+                    try:
+                        self._record_api_usage({'usage': full['usage']})
+                    except Exception:
+                        pass
                 msg = {
                     'role': 'assistant',  # v6.40 fix：缺 role 导致工具调用后第二轮请求 400（DeepSeek 报 role 错误）
                     'content': full.get('content') or '',
@@ -1895,9 +1904,8 @@ class PetWidget(QWidget):
                 if not final_reply:
                     final_reply = '（刚才分析到一半走神了，换个问法再试一次？）'
 
-            # 保存到对话记忆（占位/错误回复不存，避免污染后续上下文）
+            # 保存到对话记忆（占位/错误回复不存；user 消息已在开头保存，此处只存 assistant）
             if final_reply and not final_reply.startswith('（'):
-                self.chat_history_msgs.append({'role': 'user', 'content': text})
                 # v6.40 fix：上下文存剥标签后的回复（原始含[emotion:xxx]会污染上下文+被AI模仿输出）
                 self.chat_history_msgs.append({'role': 'assistant', 'content': self._strip_emotion_tags(final_reply)[0]})
             # v6.30 好感度：对话完成事件（占位/错误回复不计）
