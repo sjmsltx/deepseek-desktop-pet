@@ -48,3 +48,8 @@ cut_actions.py
 assets/new_actions/
 
 games_save/
+
+# AI 自改备份与临时产物
+backup/
+视频介绍/
+chat_memory*.json
