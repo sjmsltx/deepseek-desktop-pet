@@ -1637,7 +1637,7 @@ class PetWidget(QWidget):
             # 1. 提交基线（确保可回滚）
             _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
             _subprocess.run(['git', 'commit', '-m', 'AI self-edit: 修改前基线'], cwd=BASE_DIR,
-                            capture_output=True, timeout=60)
+                            capture_output=True, timeout=120)
             # 1.5 额外备份一份到 backup/（双保险，防 git 异常时无回退点）
             try:
                 bdir = os.path.join(BASE_DIR, 'backup')
@@ -1691,7 +1691,7 @@ class PetWidget(QWidget):
             # 4. 提交修改（可回滚）
             _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
             _subprocess.run(['git', 'commit', '-m', f'AI self-edit: {old_text.strip()[:40]}'],
-                            cwd=BASE_DIR, capture_output=True, timeout=60)
+                            cwd=BASE_DIR, capture_output=True, timeout=120)
             return '✅ 已修改并提交（git 可回滚）。请重启桌宠生效（回复说"重启桌宠"即可）；如果重启后异常，对我说"回滚桌宠修改"我会用 git 恢复。'
         except Exception as e:
             return f'（修改失败：{e}）'
@@ -4380,7 +4380,7 @@ class PetWidget(QWidget):
         try:
             r = _subprocess.run(
                 ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', OCR_PS1, path],
-                capture_output=True, timeout=60)
+                capture_output=True, timeout=120)
             if r.returncode != 0:
                 return ''
             return r.stdout.decode('utf-8', errors='ignore').strip()
