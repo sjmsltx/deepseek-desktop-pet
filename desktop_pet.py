@@ -2285,6 +2285,11 @@ class PetWidget(QWidget):
 
     def _display_ai_reply(self, reply):
         """主线程槽：显示 AI 回复（解析情绪标签切换立绘）"""
+        # v6.42 fix：任何回复路径先清状态行（工具轮耗尽/超时后的非流式回复会残留 ⏳）
+        try:
+            self._remove_status_line()
+        except Exception:
+            pass
         if getattr(self, '_stream_rendered', False) and reply:
             # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复打字机
             self._stream_rendered = False
