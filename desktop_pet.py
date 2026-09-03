@@ -1686,21 +1686,16 @@ class PetWidget(QWidget):
                 f.write(new_src)
             r = _subprocess.run(
                 [sys.executable, '-c',
-                 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', tmp],
+                 'import ast,sys; s = open(sys.argv[1], encoding="utf-8-sig").read(); ast.parse(s)', tmp],
                 capture_output=True, timeout=30)
             if r.returncode != 0:
                 os.remove(tmp)
                 return f'（语法验证失败，未修改：{(r.stderr or b"").decode(errors="replace")[-200:]}）'
             os.replace(tmp, path)
-            # 4. 提交修改（可回滚；v6.42：git fsync 已项目级关闭，commit 从 ~20s 降到 <1s）
-            try:
-                _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
-                _subprocess.run(['git', 'commit', '-m', f'AI self-edit: {old_text.strip()[:40]}'],
-                                cwd=BASE_DIR, capture_output=True, timeout=30)
-            except Exception:
-                pass
-            rollback = f'git reset --hard {base_hash}' if base_hash else '可用 backup/ 备份文件恢复'
-            return f'✅ 已修改并提交（回滚：{rollback}）。请重启桌宠生效；若异常对我说"回滚桌宠修改"。'
+            # 4. 回滚保障（v6.42：不 git commit——E盘 commit 实测 60s+ 会卡死 AI；改后文件留为工作区改动，
+            #    回滚用 git restore 直接从对象库恢复 HEAD 版本 + backup/ 文件双保险）
+            rollback = f'git restore {fname}' if base_hash else '可用 backup/ 备份文件恢复'
+            return f'✅ 已修改（回滚：{rollback} 或 backup/ 备份）。修改会在下次 git 提交时入库；请重启桌宠生效，若异常对我说"回滚桌宠修改"。'
         except Exception as e:
             return f'（修改失败：{e}）'
 
