@@ -48,7 +48,8 @@ from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFon
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QMenu, QGraphicsOpacityEffect,
     QVBoxLayout, QHBoxLayout, QPushButton, QFrame, QSizePolicy,
-    QSystemTrayIcon, QTextBrowser, QTextEdit, QLineEdit, QInputDialog, QScrollArea
+    QSystemTrayIcon, QTextBrowser, QTextEdit, QLineEdit, QInputDialog, QScrollArea,
+    QListWidget, QListWidgetItem, QAbstractItemView
 )
 from mcp_bridge import McpBridge  # v6.20 MCP 桥接（外部 MCP server 工具接入）
 from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules/theme/skill）
@@ -508,8 +509,47 @@ class PetWidget(QWidget):
         self.chat_history_layout.setSpacing(8)
         self.chat_history_layout.addStretch(1)  # 底部弹簧：消息从顶部排、滚动贴底
         self.chat_history_scroll.setWidget(self.chat_history_container)
-        chat_layout.addWidget(self.chat_history_scroll, 1)
         self._status_widget = None  # 当前状态行（⏳/思考中）
+
+        # ===== v6.43b 任务侧栏：FCFS 队列 + 可收缩 + 拖拽调优先级 =====
+        self._task_queue = []
+        self._cur_task_text = None
+        self.chat_task_sidebar = QFrame(self.chat_panel)
+        self.chat_task_sidebar.setStyleSheet(
+            'QFrame{background:rgba(18,26,44,.5);border-radius:8px;}'
+            'QLabel{color:#8aa;font-size:10px;} QListWidget{background:rgba(12,18,32,.6);'
+            'color:#dce3f0;border:none;font-size:11px;}')
+        _tsv = QVBoxLayout(self.chat_task_sidebar)
+        _tsv.setContentsMargins(6, 6, 6, 6)
+        _tsv.setSpacing(4)
+        _tsh = QHBoxLayout()
+        _tsh.setSpacing(4)
+        _tsh.addWidget(QLabel('📋 任务', self.chat_task_sidebar))
+        _tsh.addStretch(1)
+        self.task_collapse_btn = QPushButton('◀', self.chat_task_sidebar)
+        self.task_collapse_btn.setFixedSize(18, 18)
+        self.task_collapse_btn.setCursor(Qt.PointingHandCursor)
+        self.task_collapse_btn.setToolTip('收缩/展开任务侧栏')
+        self.task_collapse_btn.clicked.connect(self._toggle_task_sidebar)
+        _tsh.addWidget(self.task_collapse_btn)
+        _tsv.addLayout(_tsh)
+        self.task_list = QListWidget(self.chat_task_sidebar)
+        self.task_list.setFixedWidth(178)
+        self.task_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.task_list.setDefaultDropAction(Qt.MoveAction)
+        self.task_list.itemDoubleClicked.connect(self._cancel_queued_task)
+        try:
+            self.task_list.model().rowsMoved.connect(self._on_task_reorder)
+        except Exception:
+            pass
+        _tsv.addWidget(self.task_list, 1)
+        _tip = QLabel('拖拽排序 · 双击取消排队\n/stop 紧急停止当前', self.chat_task_sidebar)
+        _tsv.addWidget(_tip)
+        chat_body = QHBoxLayout()
+        chat_body.setSpacing(6)
+        chat_body.addWidget(self.chat_history_scroll, 1)
+        chat_body.addWidget(self.chat_task_sidebar, 0)
+        chat_layout.addLayout(chat_body, 1)
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
         self.chat_input = _DropChatEdit(self._insert_dropped_paths, self.chat_panel)
@@ -682,6 +722,92 @@ class PetWidget(QWidget):
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
         return getattr(self, 'model_flash', 'deepseek-v4-flash')
 
+    def _run_task(self, text):
+        """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）"""
+        import threading as _th
+        self._ai_generation = getattr(self, '_ai_generation', 0) + 1
+        self._cur_task_text = text
+        self._ai_busy = True
+        try:
+            self._refresh_task_sidebar()
+        except Exception:
+            pass
+        _th.Thread(target=self._ai_worker, args=(text,), daemon=True).start()
+
+    def _enqueue_task(self, text):
+        """v6.43b：任务入队（FCFS）"""
+        import time as _time
+        self._task_queue.append({'text': text, 'ts': _time.time()})
+        try:
+            self._refresh_task_sidebar()
+        except Exception:
+            pass
+
+    def _next_task(self):
+        """v6.43b：空闲时执行队列下一个任务（先来先到）"""
+        try:
+            if self._task_queue and not getattr(self, '_ai_busy', False):
+                t = self._task_queue.pop(0)
+                self._run_task(t['text'])
+            else:
+                if not self._task_queue:
+                    self._cur_task_text = None
+                try:
+                    self._refresh_task_sidebar()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _refresh_task_sidebar(self):
+        """v6.43b：刷新任务侧栏（首行=执行中，其后排队可拖拽）"""
+        try:
+            self.task_list.clear()
+            if self._cur_task_text:
+                it = QListWidgetItem('⏳ ' + str(self._cur_task_text)[:13])
+                it.setFlags(it.flags() & ~Qt.ItemIsDropEnabled & ~Qt.ItemIsDragEnabled)
+                self.task_list.addItem(it)
+            for i, t in enumerate(self._task_queue):
+                it = QListWidgetItem(f'⏸ {i + 1}. ' + str(t.get('text', ''))[:13])
+                it.setData(Qt.UserRole, t)
+                self.task_list.addItem(it)
+        except Exception:
+            pass
+
+    def _toggle_task_sidebar(self):
+        """v6.43b：收缩/展开任务侧栏"""
+        try:
+            vis = self.chat_task_sidebar.isVisible()
+            self.chat_task_sidebar.setVisible(not vis)
+            self.task_collapse_btn.setText('▶' if vis else '◀')
+            if hasattr(self, '_sync_window_to_panel'):
+                self._sync_window_to_panel()
+        except Exception:
+            pass
+
+    def _cancel_queued_task(self, item):
+        """v6.43b：双击排队任务取消（执行中任务用 /stop）"""
+        try:
+            t = item.data(Qt.UserRole)
+            if t in self._task_queue:
+                self._task_queue.remove(t)
+                self._refresh_task_sidebar()
+        except Exception:
+            pass
+
+    def _on_task_reorder(self, parent, start, end, destination, row):
+        """v6.43b：拖拽后按新顺序重建队列（跳过执行中行）"""
+        try:
+            new_q = []
+            for r in range(self.task_list.count()):
+                t = self.task_list.item(r).data(Qt.UserRole)
+                if isinstance(t, dict) and t in self._task_queue:
+                    new_q.append(t)
+            if new_q:
+                self._task_queue = new_q
+        except Exception:
+            pass
+
     def _stop_ai(self):
         """v6.43：强制停止当前 AI 任务（突发卡死/工具失控时用）。
         代次 +1 使旧线程失效 → 清理状态 → 闭合悬空任务防复活"""
@@ -694,6 +820,8 @@ class PetWidget(QWidget):
                 pass
             self._close_pending_user_msg()
             self._save_chat_memory()
+            # v6.43b：紧急停止只停当前任务，队列继续（先来先到）
+            self._next_task()
         except Exception:
             pass
 
@@ -714,12 +842,12 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', '还没配置 AI 呢！在 config.json 里加 deepseek_api_key 就能和我聊天了')
             return
         if getattr(self, '_ai_busy', False):
-            # v6.43：上轮卡住/未完成 → 强制停止旧任务，立即处理新消息
-            self._stop_ai()
-            self._append_chat('桌宠', '⏹ 已强制停止上一条未完成任务，现在处理你的新消息')
-        import threading
-        self._ai_generation = getattr(self, '_ai_generation', 0) + 1  # v6.43 任务代次：旧线程检查到代次变化即退出
-        self._ai_busy = True
+            # v6.43b：忙碌 → 加入 FCFS 任务队列（先来先到；侧栏可拖拽调优先级、双击取消排队）
+            self._enqueue_task(text)
+            self._append_chat('桌宠',
+                              f'📋 已加入任务队列（第 {len(self._task_queue)} 位，当前完成后自动执行；/stop 紧急停止当前）')
+            return
+        # v6.43b：流式重置 + 启动任务（_run_task 内分配代次/置 busy/起线程）
         # v6.40 fix：新对话重置流式状态（工具调用轮次由续用逻辑接管，避免正文渲染进孤儿气泡）
         self._chat_type_bubble = None
         self._thinking_label = None
@@ -730,7 +858,7 @@ class PetWidget(QWidget):
         self._stream_pending = ''
         self._thinking_pending = ''
         self._stream_rendered = False
-        threading.Thread(target=self._ai_worker, args=(text,), daemon=True).start()
+        self._run_task(text)
 
     # ---------- 智能本地应用检索（v6.36） ----------
     COMMON_ALIASES = {
@@ -2117,9 +2245,15 @@ class PetWidget(QWidget):
             except Exception:
                 self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
-            # v6.43：仅当代任务允许清 busy（旧线程被取代后不清，避免误清新任务状态）
+            # v6.43b：仅当代任务清 busy，然后自动执行队列下一任务（FCFS）
             if getattr(self, '_ai_generation', 0) == getattr(self, '_cur_gen', -1):
                 self._ai_busy = False
+                self._cur_task_text = None
+                try:
+                    self._refresh_task_sidebar()
+                except Exception:
+                    pass
+                self._next_task()
 
     EMOTION_STATE_MAP = {
         'happy': 'happy', 'excited': 'excited', 'calm': 'idle',
