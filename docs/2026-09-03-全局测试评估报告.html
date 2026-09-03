@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桌宠全局测试与评估报告 · 2026-09-03</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","Segoe UI",sans-serif; background:#f4f6fb; color:#2c3e50; line-height:1.75; padding:32px 16px; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a5f,#2c6e9e); color:#fff; border-radius:16px; padding:28px 36px; margin-bottom:24px; }
+  header h1 { font-size:26px; margin-bottom:8px; }
+  header p { opacity:.92; font-size:14px; }
+  h2 { font-size:21px; margin:28px 0 12px; padding-left:12px; border-left:4px solid #2c6e9e; }
+  .card { background:#fff; border-radius:12px; padding:18px 22px; margin-bottom:14px; box-shadow:0 2px 8px rgba(30,58,95,.08); }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:14px 0; }
+  .metric { background:#fff; border-radius:10px; padding:14px 18px; text-align:center; box-shadow:0 2px 6px rgba(30,58,95,.06); }
+  .metric b { font-size:28px; color:#1e7a44; display:block; }
+  .metric span { font-size:12.5px; color:#8a9bad; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13.5px; }
+  th { background:#eef4fa; text-align:left; padding:8px 12px; }
+  td { padding:8px 12px; border-bottom:1px solid #ecf0f3; vertical-align:top; }
+  .pass { color:#1e7a44; font-weight:700; }
+  .manual { color:#b06a00; font-weight:700; }
+  .warn { background:#fff8e6; border-left:4px solid #e6a817; border-radius:6px; padding:12px 16px; font-size:13.5px; margin:12px 0; }
+  footer { text-align:center; color:#8a9bad; font-size:12px; margin-top:36px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>DeepSeek 桌宠 · 全局测试与评估报告</h1>
+    <p>模块化重构 + 记忆引擎 + AI 自我修改 + 流式修复后的全量回归（2026-09-03）</p>
+  </header>
+
+  <h2>一、执行摘要</h2>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><b>18/18</b><span>自动化回归通过</span></div>
+      <div class="metric"><b>5984</b><span>主文件行数</span></div>
+      <div class="metric"><b>23</b><span>功能模块（27 个 .py）</span></div>
+      <div class="metric"><b>2</b><span>本次新发现并修复</span></div>
+    </div>
+    <p><b>结论：核心链路健康。</b>流式渲染、记忆检索、AI 自改工具、小游戏存档、纯逻辑工具六大系统全部通过自动化回归。测试中发现并修复 1 个历史顽疾（BOM 在 git 历史扎根导致 restore 反复恢复），回归脚本已固化为 <code>regression_test.py</code> 可随时重跑。</p>
+  </div>
+
+  <h2>二、自动化回归结果（18 项全通过）</h2>
+  <div class="card">
+    <table>
+      <tr><th>组</th><th>测试项</th><th>结果</th></tr>
+      <tr><td rowspan="3">A 模块与构造</td><td>A1 PetWidget 构造 + 模块链 import</td><td class="pass">✅</td></tr>
+      <tr><td>A2 工具注册表完整性（28+ 工具 / 状态表 13）</td><td class="pass">✅</td></tr>
+      <tr><td>A3 全模块语法 + 无 BOM</td><td class="pass">✅（本次根治）</td></tr>
+      <tr><td rowspan="6">B 流式渲染</td><td>B1 emotion 标签过滤（切碎 chunk）</td><td class="pass">✅</td></tr>
+      <tr><td>B2 思考区过滤 + 同卡片</td><td class="pass">✅</td></tr>
+      <tr><td>B3 多气泡思考折叠独立</td><td class="pass">✅</td></tr>
+      <tr><td>B4 状态行清除（占位回复路径）</td><td class="pass">✅</td></tr>
+      <tr><td>B5 富文本重渲染保留思考区</td><td class="pass">✅</td></tr>
+      <tr><td>B6 选项支流式触发渲染</td><td class="pass">✅</td></tr>
+      <tr><td rowspan="3">C 记忆引擎</td><td>C1 BM25 检索命中</td><td class="pass">✅</td></tr>
+      <tr><td>C2 remember_fact 增改删</td><td class="pass">✅</td></tr>
+      <tr><td>C3 system prompt（模块地图/无过时目录名）</td><td class="pass">✅</td></tr>
+      <tr><td rowspan="3">D AI 自改工具</td><td>D1 search_code 定位</td><td class="pass">✅</td></tr>
+      <tr><td>D2 edit 白名单拦截</td><td class="pass">✅</td></tr>
+      <tr><td>D3 edit 语法拦截 + 文件不变</td><td class="pass">✅</td></tr>
+      <tr><td>E 小游戏</td><td>E1 手动保存按钮 + 退出不自动存</td><td class="pass">✅</td></tr>
+      <tr><td rowspan="2">F 工具</td><td>F1 tools_executor 纯函数</td><td class="pass">✅</td></tr>
+      <tr><td>F2 _execute_tool 分发 + 未知工具兜底</td><td class="pass">✅</td></tr>
+    </table>
+  </div>
+
+  <h2>三、本次发现并修复</h2>
+  <div class="card">
+    <table>
+      <tr><th>问题</th><th>影响</th><th>修复</th></tr>
+      <tr><td><b>.py 文件 BOM 历史扎根</b>（memory_engine.py 多版本带 \ufeff）</td><td>① 语法验证误报（AI 改文件失败 =「操作不了」根因之一）② git restore 会反复恢复出 BOM 版本</td><td>验证改 utf-8-sig 读取 + 清理全部 .py BOM 并提交根治</td></tr>
+      <tr><td>edit_own_code 两次 git commit（E 盘 commit 60s+）</td><td>AI 改代码卡 1-2 分钟（9-3 已修，本次回归确认 0.2s）</td><td>hash 记录 + git restore 回滚（9-3 提交，回归验证）</td></tr>
+    </table>
+    <div class="warn">E1 初测失败为历史残留存档所致（非代码 bug），测试前置清理后通过——回归脚本已固化为标准流程。</div>
+  </div>
+
+  <h2>四、架构健康度</h2>
+  <div class="card">
+    <table>
+      <tr><th>指标</th><th>数值</th><th>评估</th></tr>
+      <tr><td>主文件 desktop_pet.py</td><td>5984 行</td><td>可接受（PySide6 主窗口类正常体量）</td></tr>
+      <tr><td>功能模块数</td><td>23 个（网络/存储/检索/工具/渲染/养成分治）</td><td>架构清晰，单一职责</td></tr>
+      <tr><td>总代码量</td><td>11470 行</td><td>中等规模桌面应用</td></tr>
+      <tr><td>git 健康</td><td>全部修复已提交，工作区干净</td><td>可回滚</td></tr>
+    </table>
+  </div>
+
+  <h2>五、需人工验证项（自动化无法覆盖）</h2>
+  <div class="card">
+    <table>
+      <tr><th>项</th><th>验证方法</th><th>状态</th></tr>
+      <tr><td>真实 API 对话流（SSE 流式/工具调用端到端）</td><td>重启桌宠真实对话：查天气 → 工具 → 正文</td><td class="manual">待用户实测</td></tr>
+      <tr><td>AI 自我修改端到端（让 AI 真改一句问候语）</td><td>「把打招呼的话改热情点」→ search_code→read→edit→重启生效</td><td class="manual">待用户实测</td></tr>
+      <tr><td>自动记忆抽取真实沉淀</td><td>聊几句 → 30 分钟后查 memory.json 新事实</td><td class="manual">8-31 已验证过 ✅</td></tr>
+      <tr><td>主动关心定时触发</td><td>空闲 10+ 分钟观察</td><td class="manual">待观察</td></tr>
+      <tr><td>摄像头/UI 视觉效果</td><td>录微课场景目测</td><td class="manual">用户进行中</td></tr>
+    </table>
+  </div>
+
+  <h2>六、遗留风险与建议</h2>
+  <div class="card">
+    <table>
+      <tr><th>风险</th><th>说明</th><th>建议</th></tr>
+      <tr><td>E 盘 git commit 慢（~20-60s）</td><td>fsync 关闭无效，疑为磁盘性能/杀毒扫描；不影响日常（手动 commit 频率低）</td><td>如需加速可考虑将仓库迁移至 C 盘或排查 Defender 排除项</td></tr>
+      <tr><td>AI（flash 模型）工具调用稳定性</td><td>参数格式/路径偶尔出错</td><td>靠 search_code 引导 + git 保护兜底；重要修改前可让用户确认</td></tr>
+      <tr><td>回归脚本未覆盖真实 API</td><td>offscreen 无网络/无 UI</td><td>关键版本发布前做一次人工冒烟（对话+工具+小游戏）</td></tr>
+    </table>
+    <p><b>建议节奏</b>：每周跑一次 <code>python regression_test.py</code>（约 1 分钟），大改动后必跑。</p>
+  </div>
+
+  <footer>桌宠全局测试与评估报告 · 2026-09-03 · 回归脚本已固化</footer>
+</div>
+</body>
+</html>
