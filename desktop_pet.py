@@ -682,6 +682,31 @@ class PetWidget(QWidget):
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
         return getattr(self, 'model_flash', 'deepseek-v4-flash')
 
+    def _stop_ai(self):
+        """v6.43：强制停止当前 AI 任务（突发卡死/工具失控时用）。
+        代次 +1 使旧线程失效 → 清理状态 → 闭合悬空任务防复活"""
+        try:
+            self._ai_generation = getattr(self, '_ai_generation', 0) + 1
+            self._ai_busy = False
+            try:
+                self._remove_status_line()
+            except Exception:
+                pass
+            self._close_pending_user_msg()
+            self._save_chat_memory()
+        except Exception:
+            pass
+
+    def _close_pending_user_msg(self):
+        """v6.43：若历史最后一条是悬空 user（AI 未回复=任务中断），补一条中断说明。
+        防止下次对话 AI 把旧任务当待办继续执行"""
+        try:
+            msgs = self.chat_history_msgs
+            if msgs and msgs[-1].get('role') == 'user':
+                msgs.append({'role': 'assistant', 'content': '（上轮任务已中断取消，如需继续请重新说明）'})
+        except Exception:
+            pass
+
     def ask_ai(self, text):
         """调用 DeepSeek API 对话（线程执行，不卡 UI）"""
         self._load_ai_config()  # 热加载：每次聊天前刷新 config.json（改配置无需重启）
@@ -689,9 +714,11 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', '还没配置 AI 呢！在 config.json 里加 deepseek_api_key 就能和我聊天了')
             return
         if getattr(self, '_ai_busy', False):
-            self._append_chat('桌宠', '⏳ 还在想上一条呢，稍等一下～')
-            return
+            # v6.43：上轮卡住/未完成 → 强制停止旧任务，立即处理新消息
+            self._stop_ai()
+            self._append_chat('桌宠', '⏹ 已强制停止上一条未完成任务，现在处理你的新消息')
         import threading
+        self._ai_generation = getattr(self, '_ai_generation', 0) + 1  # v6.43 任务代次：旧线程检查到代次变化即退出
         self._ai_busy = True
         # v6.40 fix：新对话重置流式状态（工具调用轮次由续用逻辑接管，避免正文渲染进孤儿气泡）
         self._chat_type_bubble = None
@@ -1892,6 +1919,11 @@ class PetWidget(QWidget):
             )
 
         try:
+            # v6.43：记录本次任务代次（用于强制停止判断）
+            self._cur_gen = getattr(self, '_ai_generation', 0)
+            # v6.43 fix：闭合悬空任务——上次中断遗留的 user 无 assistant 回复，
+            # 不闭合则下次对话 AI 会误继续执行旧任务（如：卡住的"找文件夹"在你说 evening 时复活）
+            self._close_pending_user_msg()
             # v6.40 fix：用户消息立即入历史并保存（AI 回复中断/进程退出也不丢用户说的话）
             self.chat_history_msgs.append({'role': 'user', 'content': text})
             self._save_chat_memory()
@@ -1951,6 +1983,9 @@ class PetWidget(QWidget):
             final_reply = None
             empty_retries = 0
             for _ in range(5):
+                # v6.43：被新任务取代或 /stop → 静默退出（不 emit 内容）
+                if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
+                    return
                 # 请求阶段：覆盖预判为确定状态；v6.40 真流式（SSE）
                 self.ai_status_signal.emit('正在思考…' if getattr(self, 'language', 'zh') != 'en' else 'Thinking…')
                 data = jsonlib.dumps({
@@ -2057,6 +2092,8 @@ class PetWidget(QWidget):
                     self._handle_affection(self.affection.trigger(self.current, 'chat'))
                 except Exception:
                     pass
+            if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
+                return  # v6.43：已被新任务取代，静默丢弃本次回复
             self.ai_reply_signal.emit(final_reply)
             # v6.41 自动记忆抽取（低频：间隔 30 分钟且 ≥4 轮对话）
             try:
@@ -2080,7 +2117,9 @@ class PetWidget(QWidget):
             except Exception:
                 self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
-            self._ai_busy = False
+            # v6.43：仅当代任务允许清 busy（旧线程被取代后不清，避免误清新任务状态）
+            if getattr(self, '_ai_generation', 0) == getattr(self, '_cur_gen', -1):
+                self._ai_busy = False
 
     EMOTION_STATE_MAP = {
         'happy': 'happy', 'excited': 'excited', 'calm': 'idle',
@@ -4751,6 +4790,10 @@ class PetWidget(QWidget):
         self._append_chat('我', text)
         low = text.lower()
 
+        if low == '/stop':
+            self._stop_ai()
+            self._append_chat('桌宠', '⏹ 已停止当前任务并取消未完成任务')
+            return
         if low == '/clear':
             self._clear_chat_memory()
             self._append_chat('桌宠', '聊天记录已清空')
