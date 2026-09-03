@@ -236,17 +236,18 @@ print('===== E. 小游戏存档 =====')
 
 
 def t_e1():
+    import os as _os
     from pet_minigames import Minesweeper
     g = Minesweeper(lambda *a, **k: None)
     assert hasattr(g, '_save_btn') and g._save_btn.text() == '💾 保存'
+    sp = g._save_path()
+    if _os.path.exists(sp):
+        _os.remove(sp)  # 清历史残留存档
     g.started = True
     g._plant(0, 0)
     g.close()
     # closeEvent 不自动保存
-    import os as _os
-    assert not _os.path.exists(g._save_path()) if _os.path.exists(g._save_path()) else True
-    if _os.path.exists(g._save_path()):
-        _os.remove(g._save_path())
+    assert not _os.path.exists(sp), 'closeEvent 仍自动保存！'
 
 
 test('E1 手动保存按钮 + 退出不自动存', t_e1)
