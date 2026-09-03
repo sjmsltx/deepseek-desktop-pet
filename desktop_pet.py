@@ -1634,10 +1634,14 @@ class PetWidget(QWidget):
                                 capture_output=True, timeout=15)
             if r.returncode != 0:
                 return '（不是 git 仓库，拒绝自改——需要版本保护）'
-            # 1. 提交基线（确保可回滚）
-            _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
-            _subprocess.run(['git', 'commit', '-m', 'AI self-edit: 修改前基线'], cwd=BASE_DIR,
-                            capture_output=True, timeout=120)
+            # 1. 记录基线 hash（v6.42：不再 commit 基线——E盘fsync慢导致两次commit让AI卡1分钟+；改hash记录+backup双保险）
+            base_hash = ''
+            try:
+                r0 = _subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=BASE_DIR, capture_output=True, timeout=15)
+                if r0.returncode == 0:
+                    base_hash = (r0.stdout or b'').decode().strip()
+            except Exception:
+                pass
             # 1.5 额外备份一份到 backup/（双保险，防 git 异常时无回退点）
             try:
                 bdir = os.path.join(BASE_DIR, 'backup')
@@ -1688,11 +1692,15 @@ class PetWidget(QWidget):
                 os.remove(tmp)
                 return f'（语法验证失败，未修改：{(r.stderr or b"").decode(errors="replace")[-200:]}）'
             os.replace(tmp, path)
-            # 4. 提交修改（可回滚）
-            _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
-            _subprocess.run(['git', 'commit', '-m', f'AI self-edit: {old_text.strip()[:40]}'],
-                            cwd=BASE_DIR, capture_output=True, timeout=120)
-            return '✅ 已修改并提交（git 可回滚）。请重启桌宠生效（回复说"重启桌宠"即可）；如果重启后异常，对我说"回滚桌宠修改"我会用 git 恢复。'
+            # 4. 提交修改（可回滚；v6.42：git fsync 已项目级关闭，commit 从 ~20s 降到 <1s）
+            try:
+                _subprocess.run(['git', 'add', '-A'], cwd=BASE_DIR, capture_output=True, timeout=30)
+                _subprocess.run(['git', 'commit', '-m', f'AI self-edit: {old_text.strip()[:40]}'],
+                                cwd=BASE_DIR, capture_output=True, timeout=30)
+            except Exception:
+                pass
+            rollback = f'git reset --hard {base_hash}' if base_hash else '可用 backup/ 备份文件恢复'
+            return f'✅ 已修改并提交（回滚：{rollback}）。请重启桌宠生效；若异常对我说"回滚桌宠修改"。'
         except Exception as e:
             return f'（修改失败：{e}）'
 
