@@ -545,9 +545,19 @@ class PetWidget(QWidget):
         _tsv.addWidget(self.task_list, 1)
         _tip = QLabel('拖拽排序 · 双击取消排队\n/stop 紧急停止当前', self.chat_task_sidebar)
         _tsv.addWidget(_tip)
+        # v6.43b fix：常驻任务把手（侧栏收缩后仍可见，点击展开；收缩按钮◀在侧栏内，侧栏藏了它也会藏）
+        self.task_toggle_tab = QPushButton('📋', self.chat_panel)
+        self.task_toggle_tab.setFixedSize(22, 40)
+        self.task_toggle_tab.setCursor(Qt.PointingHandCursor)
+        self.task_toggle_tab.setToolTip('展开/收缩任务队列')
+        self.task_toggle_tab.setStyleSheet(
+            'QPushButton{background:rgba(18,26,44,.4);color:#9ec;border:none;border-radius:6px;font-size:11px;}'
+            'QPushButton:hover{background:rgba(40,60,90,.7);}')
+        self.task_toggle_tab.clicked.connect(self._toggle_task_sidebar)
         chat_body = QHBoxLayout()
         chat_body.setSpacing(6)
         chat_body.addWidget(self.chat_history_scroll, 1)
+        chat_body.addWidget(self.task_toggle_tab, 0)
         chat_body.addWidget(self.chat_task_sidebar, 0)
         chat_layout.addLayout(chat_body, 1)
 
