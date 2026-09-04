@@ -292,6 +292,7 @@ DEFAULT_THEME = {
     'scroll_bg': 'rgba(255,255,255,0.08)',
     'scroll_handle': '#ffffff',
     'scroll_handle_hover': 'rgba(255,255,255,0.65)',
+    'bubble_text': '#eee',  # v6.44 气泡内文字颜色（主题化：白底气泡需配深色文字）
 }
 
 
@@ -2345,7 +2346,7 @@ class PetWidget(QWidget):
         self._stream_label = QLabel('')
         self._stream_label.setWordWrap(True)
         self._stream_label.setTextFormat(Qt.PlainText)
-        self._stream_label.setStyleSheet('color:#dce3f0; font-size:14px;')
+        self._stream_label.setStyleSheet(f'color:{self.theme.get("bubble_text", "#eee")}; font-size:14px;')
         self._chat_type_content.addWidget(self._stream_label)
         self._chat_scroll_bottom()
         self._stream_active = True
@@ -2377,7 +2378,7 @@ class PetWidget(QWidget):
                     self._stream_label = QLabel('')
                     self._stream_label.setWordWrap(True)
                     self._stream_label.setTextFormat(Qt.PlainText)
-                    self._stream_label.setStyleSheet('color:#dce3f0; font-size:14px;')
+                    self._stream_label.setStyleSheet(f'color:{self.theme.get("bubble_text", "#eee")}; font-size:14px;')
                     self._chat_type_content.addWidget(self._stream_label)
                 else:
                     self._chat_type_stream_begin()
@@ -4070,7 +4071,8 @@ class PetWidget(QWidget):
         lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
         bg = self.theme.get('user_bubble') if is_user else self.theme.get('ai_bubble')
         lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
-        lbl.setStyleSheet(f'color:#eee; font-size:12px; background:{bg}; border-radius:8px; padding:6px 10px;')
+        lbl.setStyleSheet(f'color:{self.theme.get("bubble_text", "#eee")}; font-size:12px; background:{bg};'
+                          f' border-radius:8px; padding:6px 10px;')
         return lbl
 
     def _copy_message_text(self, text):
