@@ -15,8 +15,6 @@ import json
 import os
 import threading
 
-from model_registry import BUILTIN_PROFILES
-
 
 class ApiStats:
     """API 调用自监控：解析响应 usage，统计模型/token/缓存/费用，持久化"""
@@ -65,16 +63,12 @@ class ApiStats:
             if not isinstance(overrides, dict):
                 return
             touched = False
-            if not overrides and self.registry is not None:
-                # 空对象 = 恢复出厂价：把档案价格重置为内置默认
-                for p in self.registry.profiles():
-                    for b in BUILTIN_PROFILES:
-                        if b['key'] == p.key:
-                            p.price = dict(b['price'])
-                            touched = True
-                            break
-                if touched:
-                    self.registry.save()
+            if not overrides:
+                # 空 api_prices = 用户没设任何覆盖 → 完全不动档案里的价格。
+                # 档案是价格的唯一来源，启动流程绝不能清掉用户对 models.json 的改动；
+                # 「恢复出厂价」应由设置界面显式触发，而不是靠「配置为空」隐式推断。
+                ApiStats.PRICES.clear()
+                ApiStats.PRICES.update({k: dict(v) for k, v in ApiStats.DEFAULT_PRICES.items()})
                 return
             for k, v in overrides.items():
                 if not isinstance(v, dict):

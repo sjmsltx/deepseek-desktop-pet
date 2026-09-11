@@ -497,6 +497,32 @@ def t_h11():
 
 test('H11 菜单角色项由档案动态生成', t_h11)
 
+
+def t_h12():
+    """空 api_prices 不得清掉档案里的价格（启动流程不能覆盖用户改动）"""
+    import tempfile
+    import api_stats as _as
+    from model_registry import ModelRegistry
+    d = tempfile.mkdtemp()
+    mp = os.path.join(d, 'models.json')
+    cfgp = os.path.join(d, 'config.json')
+    reg = ModelRegistry(mp)
+    assert reg.set_price('flash', {'input': 9.9, 'cache': 9.9, 'output': 9.9})
+    assert reg.save()
+    with io.open(cfgp, 'w', encoding='utf-8') as f:
+        json.dump({'api_prices': '{}'}, f)          # 旧配置里就是这种空字符串
+    _as.ApiStats(os.path.join(d, 'api_stats.json'), config_path=cfgp, registry=reg)
+    assert reg.get('flash').price['output'] == 9.9, '空 api_prices 不应重置档案价格'
+    with io.open(cfgp, 'w', encoding='utf-8') as f:
+        json.dump({'api_prices': {'deepseek-flash': {'output': 7.7}}}, f)
+    st = _as.ApiStats(os.path.join(d, 'api_stats.json'), config_path=cfgp, registry=reg)
+    st.reload_prices()
+    assert reg.get('flash').price['output'] == 7.7, '非空覆盖应写进档案'
+    assert reg.get('flash').price['input'] == 9.9, '未覆盖的字段应保持不变'
+
+
+test('H12 空 api_prices 不清档案价 / 非空才写档', t_h12)
+
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)
 passed = sum(1 for _, s, _ in RESULTS if s == 'PASS')
