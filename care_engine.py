@@ -14,7 +14,10 @@ import json
 import re
 import urllib.request
 
-API_URL = 'https://api.deepseek.com/chat/completions'
+from model_registry import DEFAULT_ENDPOINT
+
+# 全项目唯一的接口地址默认值定义在 model_registry；实际请求地址由调用方从模型档案传入。
+API_URL = DEFAULT_ENDPOINT
 
 
 def user_idle_minutes():
@@ -34,9 +37,9 @@ def user_idle_minutes():
         return 0.0
 
 
-def judge_wakeup(api_key, model, state, char_name, record_cb=None):
+def judge_wakeup(api_key, model, state, char_name, record_cb=None, endpoint=None):
     """链式唤醒判断：轻量请求 AI 决定 是否主动找用户 + 下次唤醒间隔（独立上下文，不污染主对话）。
-    返回解析后的 JSON dict，失败返回 None。"""
+    返回解析后的 JSON dict，失败返回 None。endpoint 为 None 时用模块默认地址。"""
     try:
         prompt = (f'{state}。你是桌宠{char_name}。请判断现在要不要主动找用户说句话。'
                   f'规则：用户空闲超过30分钟、或深夜(23:00-8:00)、或用户明显在忙时不打扰；'
@@ -44,7 +47,7 @@ def judge_wakeup(api_key, model, state, char_name, record_cb=None):
                   f'只返回 JSON：{{"act":"yes"或"no","message":"要说话时的1-2句自然关心语(act=yes时)","next_minutes":下次唤醒间隔分钟数(10-360)}}')
         data = json.dumps({'model': model,
                            'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 200}).encode()
-        req = urllib.request.Request(API_URL, data=data,
+        req = urllib.request.Request(endpoint or API_URL, data=data,
             headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'})
         with urllib.request.urlopen(req, timeout=25) as resp:
             r = json.loads(resp.read().decode())
@@ -59,7 +62,7 @@ def judge_wakeup(api_key, model, state, char_name, record_cb=None):
     return None
 
 
-def followup_message(api_key, model, state, topic, char_name, record_cb=None):
+def followup_message(api_key, model, state, topic, char_name, record_cb=None, endpoint=None):
     """回访机制：对话中安排的回访到点 → 主动生成关心消息（带状态感知 v6.18）。返回消息文本或 None。"""
     try:
         prompt = (f'{state}。用户之前提到：{topic}。作为{char_name}，'
@@ -68,7 +71,7 @@ def followup_message(api_key, model, state, topic, char_name, record_cb=None):
                   f'空闲不到10分钟→语气可以亲近自然。可带[emotion:xxx]。')
         data = json.dumps({'model': model,
                            'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 150}).encode()
-        req = urllib.request.Request(API_URL, data=data,
+        req = urllib.request.Request(endpoint or API_URL, data=data,
             headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'})
         with urllib.request.urlopen(req, timeout=25) as resp:
             r = json.loads(resp.read().decode())

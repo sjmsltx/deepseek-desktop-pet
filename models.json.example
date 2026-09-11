@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "_comment": "模型档案：模型身份的唯一来源。显示名/模型 ID/接口地址/参数/价格/外观/人设均可改。",
+  "profiles": [
+    {
+      "key": "flash",
+      "display_name": "V4 Flash",
+      "model_id": "deepseek-flash",
+      "aliases": [
+        "deepseek-v4-flash"
+      ],
+      "endpoint": "https://api.deepseek.com/chat/completions",
+      "api_key_field": "deepseek_api_key",
+      "params": {
+        "temperature": 1.0,
+        "max_tokens": 128000,
+        "reasoning": true
+      },
+      "price": {
+        "input": 1.5,
+        "cache": 0.05,
+        "output": 4.5
+      },
+      "appearance": {
+        "color": "#B0C4DE",
+        "portrait": "",
+        "sub": "浅蓝和服 · 快言快语"
+      },
+      "persona": {
+        "greetings": [
+          "我在呢！有什么要帮忙的？",
+          "Flash 模式，快问快答～",
+          "今天也是效率满满的一天！",
+          "要不要试试 V4 Pro 大哥？它想事情更细。",
+          "别急，我打字很快的！",
+          "你盯着我看好久了，我害羞了啦！",
+          "今天天气不错，适合写代码！",
+          "诶？你发现我在摸鱼了？"
+        ],
+        "happy_lines": [
+          "耶！你戳我！(*≧▽≦)",
+          "嘻嘻，痒痒的～",
+          "今天心情超好！"
+        ],
+        "think_lines": [
+          "嗯…这个问题让我想想。",
+          "正在高速运转中…",
+          "我的小脑瓜快冒烟啦！"
+        ],
+        "greetings_en": [
+          "Here! Need any help?",
+          "Flash mode, quick Q&A～",
+          "Another productive day!",
+          "Want to try V4 Pro? It thinks deeper.",
+          "No worries, I type fast!",
+          "You have been staring at me… I am blushing!",
+          "Nice weather today, good for coding!"
+        ],
+        "happy_lines_en": [
+          "Yay! You poked me! (*≧▽≦)",
+          "Hee hee, that tickles～",
+          "Feeling great today!"
+        ],
+        "think_lines_en": [
+          "Hmm… let me think about this.",
+          "Processing at full speed…",
+          "My little brain is smoking!"
+        ]
+      }
+    },
+    {
+      "key": "pro",
+      "display_name": "V4 Pro",
+      "model_id": "deepseek-v4-pro",
+      "aliases": [],
+      "endpoint": "https://api.deepseek.com/chat/completions",
+      "api_key_field": "deepseek_api_key",
+      "params": {
+        "temperature": 1.0,
+        "max_tokens": 128000,
+        "reasoning": true
+      },
+      "price": {
+        "input": 4.5,
+        "cache": 0.15,
+        "output": 13.5
+      },
+      "appearance": {
+        "color": "#2E4A8E",
+        "portrait": "",
+        "sub": "深蓝女仆 · 深思熟虑"
+      },
+      "persona": {
+        "greetings": [
+          "我在。有什么需要仔细思考的吗？",
+          "已经帮你推演了三套方案。",
+          "V4 Pro 模式，专注深度分析。",
+          "别急，我把每一条都查证过再回答。",
+          "这个需求需要拆解一下，我先列个提纲。",
+          "嗯…这个问题值得深入想一想。",
+          "数据都核对过了，可以放心用。",
+          "要不要我帮你做个误差分析？"
+        ],
+        "happy_lines": [
+          "能被你信任是我的荣幸。",
+          "分析完成，一切尽在掌握。"
+        ],
+        "think_lines": [
+          "让我先梳理一下逻辑链。",
+          "推演中…排除所有可能干扰项。",
+          "这个问题有三层因果关系。"
+        ],
+        "scared_lines": [
+          "啊！别戳了别戳了！",
+          "饶命！我这就认真思考！",
+          "冷静！我先梳理一下逻辑！"
+        ],
+        "greetings_en": [
+          "I am here. Anything that needs deep thought?",
+          "Already worked out three approaches for you.",
+          "V4 Pro mode, focused deep analysis.",
+          "No rush — I verify every detail before answering.",
+          "This needs breaking down; let me outline it first.",
+          "Hmm… this deserves deeper thought.",
+          "All data cross-checked, safe to use.",
+          "Want me to run an error analysis?"
+        ],
+        "happy_lines_en": [
+          "Being trusted by you is my honor.",
+          "Analysis complete, all under control."
+        ],
+        "think_lines_en": [
+          "Let me sort out the logic chain first.",
+          "Reasoning… eliminating all possible interferences.",
+          "This problem has three layers of causality."
+        ],
+        "scared_lines_en": [
+          "Ah! Stop poking me!",
+          "Mercy! I will think seriously!",
+          "Calm down! Let me sort out the logic first!"
+        ]
+      }
+    }
+  ]
+}

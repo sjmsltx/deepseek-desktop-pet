@@ -48,10 +48,12 @@
 ### 🎭 双角色系统
 | 角色 | 模型 | 特征 |
 |------|------|------|
-| **V4 Flash** ⚡ | `deepseek-v4-flash` | 浅蓝和服人鱼 · 快言快语 · 效率优先 |
+| **V4 Flash** ⚡ | `deepseek-flash` | 浅蓝和服人鱼 · 快言快语 · 效率优先 |
 | **V4 Pro** 🐋 | `deepseek-v4-pro` | 深蓝女仆鲸鱼娘 · 深思熟虑 · 深度分析 |
 
 每个角色独立模型、独立对话历史、独立长期记忆。
+
+**模型身份完全可配置**（`models.json`）：显示名、模型 ID、接口地址、温度/思考开关/token 上限、价格、外观与人设，全部写在档案里而非代码里——官方改名或出新模型时改配置即可，不用动源码。右键菜单的“角色”与“模型”列表也由档案动态生成，加一条档案就多一个角色。
 
 ### 🤖 AI 能力（function calling）
 - **15+ 工具**：打开程序 / 查天气 / 设提醒 / 锁屏 / 音量 / 进程管理 / 文件搜索 / 剪贴板读写 / 待办清单 / 记忆管理等
@@ -120,22 +122,57 @@ python desktop_pet.py
 
 首次运行后也可以用 GUI 配置：右键桌宠 → ⚙️ 设置 → 🔑 API 设置。
 
-> ⚠️ **需要自备 DeepSeek API Key**（https://platform.deepseek.com 申请，模型 `deepseek-v4-flash` / `deepseek-v4-pro`）。
+> ⚠️ **需要自备 DeepSeek API Key**（https://platform.deepseek.com 申请，模型 `deepseek-flash` / `deepseek-v4-pro`）。
 
 ## ⚙️ 配置
 
-`config.json`（参考 `config.example.json`）：
+配置分两份文件，职责分开：
+
+### `config.json`（参考 `config.example.json`）—— 本机/账号级设置
 
 | 字段 | 说明 |
 |------|------|
 | `deepseek_api_key` | DeepSeek API Key（必填） |
-| `model_flash` / `model_pro` | 两个角色各自的模型 ID |
 | `personality` | 性格（温柔/傲娇/吐槽/元气/高冷，或自定义） |
 | `reply_style` | 回复风格（short/normal/detailed） |
-| `max_tokens` | 单次回复 token 上限（256-64000） |
 | `city` | 默认天气城市 |
 | `active_chat` | 主动关心开关 |
 | `app_aliases` | 自定义应用快捷别名 |
+| `search_api_key` | Tavily 联网搜索 Key（可选） |
+| `api_prices` | 价格覆盖（可选；有模型档案时会写进档案，避免两处各存一份） |
+
+### `models.json`（参考 `models.json.example`）—— 模型身份
+
+首次运行自动生成（会从旧 `config.json` 的 `model_flash`/`model_pro` 等字段迁移）。每个模型一条**档案**：
+
+```json
+{
+  "version": 1,
+  "profiles": [{
+    "key": "flash",                          // 内部键（角色键）
+    "display_name": "V4 Flash",              // 界面显示名（窗口标题/菜单/prompt 身份都用它）
+    "model_id": "deepseek-flash",            // 实际请求的 model
+    "aliases": ["deepseek-v4-flash"],        // 旧 ID 别名（价格查询/改名兼容用）
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "api_key_field": "deepseek_api_key",      // 复用哪个 key 字段（不存 Key 本体）
+    "params": { "temperature": 1.0, "max_tokens": 128000, "reasoning": true },
+    "price": { "input": 1.5, "cache": 0.05, "output": 4.5 },
+    "appearance": { "color": "#B0C4DE", "sub": "浅蓝和服 · 快言快语" },
+    "persona": { "greetings": ["…"], "happy_lines": ["…"] }
+  }]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `display_name` | 界面显示名。改它 → 窗口标题/右键菜单/prompt 身份同步变 |
+| `model_id` | 实际发给 API 的模型 ID |
+| `endpoint` | 接口地址（可指向中转/代理；全项目只此一处配置） |
+| `params` | `temperature` / `max_tokens`（256-384000） / `reasoning` 思考开关 |
+| `price` | 每百万 token 单价，费用统计用；官方调价时改这里 |
+| `appearance` / `persona` | 颜色、副标题、问候语、台词 |
+
+> 旧版 `config.json` 里的 `model_flash` / `model_pro` / `reasoning` / `temperature` / `max_tokens` 已降为迁移来源：首次生成 `models.json` 时会被读入，之后以档案为准。
 
 ## 🏗️ 技术架构
 
@@ -161,13 +198,17 @@ python desktop_pet.py
 
 ```
 desktop-pet/
-├── desktop_pet.py              # 主程序（单文件 ~4000 行，章节注释分区）
+├── desktop_pet.py              # 主程序（UI/聊天/AI 工作流/动画/工具分发）
+├── model_registry.py           # 模型档案注册表（models.json 的加载/兜底/迁移/价格查询）
+├── deepseek_client.py          # DeepSeek 网络层（非流式 / SSE 流式 / 重试）
 ├── requirements.txt            # 依赖清单（PySide6 + 可选 live2d）
 ├── pyproject.toml              # 项目元数据 / ruff 配置
-├── config.example.json         # 配置模板
+├── config.example.json         # 配置模板（API Key 等）
+├── models.json.example         # 模型档案模板（显示名/模型 ID/接口地址/价格）
 ├── 启动桌宠.bat                # Windows 一键启动
 ├── tests/
-│   └── smoke_test.py           # 冒烟测试（导入/构造/核心函数）
+│   ├── smoke_test.py           # 冒烟测试（导入/构造/核心函数）
+│   └── test_model_registry.py  # 模型档案单测（迁移/兜底/价格/兼容层）
 ├── assets/                     # 素材目录
 │   ├── flash/                  # V4 Flash 状态立绘
 │   ├── pro/                    # V4 Pro 状态立绘

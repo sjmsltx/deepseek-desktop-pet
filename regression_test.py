@@ -275,6 +275,228 @@ def t_f2():
 
 test('F2 _execute_tool 分发 + 未知工具兜底', t_f2)
 
+print('===== H. 模型档案（模型身份配置化）=====')
+
+
+def t_h1():
+    import desktop_pet
+    reg = desktop_pet.MODEL_REGISTRY
+    assert len(reg) >= 2, '至少应有 flash/pro 两份档案'
+    for k in reg.keys():
+        p = reg.get(k)
+        assert k in desktop_pet.CHARACTERS, f'档案 {k} 未进入角色表'
+        assert desktop_pet.CHARACTERS[k]['name'] == p.display_name, f'{k} 显示名应来自档案'
+        assert desktop_pet.CHARACTERS[k]['color'].isValid(), f'{k} 颜色应为有效 QColor'
+        assert desktop_pet.CHARACTERS[k]['greetings'], f'{k} 人设台词不应为空'
+
+
+test('H1 角色表由模型档案构建（显示名/颜色/台词）', t_h1)
+
+
+def t_h2():
+    """加一条档案就多一个角色——改造前必须改源码"""
+    import tempfile
+    import desktop_pet
+    from model_registry import ModelRegistry
+    d = tempfile.mkdtemp()
+    reg = ModelRegistry(os.path.join(d, 'models.json'))
+    n0 = len(reg)
+    assert reg.add_profile('turbo', display_name='V4 Turbo', model_id='deepseek-turbo')
+    chars = desktop_pet.build_characters(reg)
+    assert len(chars) == n0 + 1
+    assert chars['turbo']['name'] == 'V4 Turbo'
+    assert chars['turbo']['greetings'], '新档案应继承到人设'
+
+
+test('H2 新增档案即多一个角色（无需改代码）', t_h2)
+
+
+def t_h3():
+    import desktop_pet
+    reg = desktop_pet.MODEL_REGISTRY
+    saved = W.current
+    try:
+        for k in reg.keys():
+            W.current = k
+            assert W._current_model() == reg.get(k).model_id, f'{k} 的模型 ID 应取自档案'
+            assert W._current_endpoint() == reg.get(k).endpoint, f'{k} 的接口地址应取自档案'
+    finally:
+        W.current = saved
+    assert W._current_model(), '模型 ID 不得为空'
+    assert W._current_endpoint().startswith('https://')
+
+
+test('H3 _current_model / _current_endpoint 取自档案', t_h3)
+
+
+def t_h4():
+    """官方已把 deepseek-v4-flash 重命名——源码里不得再写死它"""
+    src = io.open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    bad = [l.strip() for l in src.splitlines()
+           if 'deepseek-v4-flash' in l and not l.strip().startswith('#')]
+    assert not bad, f'仍写死已被重命名的旧 ID：{bad[:3]}'
+
+
+test('H4 源码不再写死已重命名的模型 ID', t_h4)
+
+
+def t_h5():
+    from model_registry import MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS, clamp_tokens
+    assert MAX_OUTPUT_TOKENS == 384000, '上限应对齐官方输出上限'
+    assert clamp_tokens(128000) == 128000, '128000 不应再被夹到 64000'
+    assert clamp_tokens(999999) == MAX_OUTPUT_TOKENS
+    assert clamp_tokens(1) == MIN_OUTPUT_TOKENS
+    assert clamp_tokens('abc') == 128000, '非法值应回落默认'
+    src = io.open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    assert 'min(int(value), 128000)' not in src, 'AI 工具仍写死 128000 上限'
+    assert "min(int(cfg.get('max_tokens', 1000)), 64000)" not in src, '配置读取仍在夹 64000'
+
+
+test('H5 输出上限统一（128000 不再被压回 64000）', t_h5)
+
+
+def t_h6():
+    """_summarize_old 原先引用未定义的 cur_model，NameError 被 except 吞掉，
+    导致摘要从不生成、历史从不裁剪。本项直接验行为，不只看代码。"""
+    saved = (list(W.chat_history_msgs), list(W.memory_summaries),
+             W._save_memory, W._extract_chat, W.ai_enabled)
+    try:
+        W.ai_enabled = True
+        W.chat_history_msgs = [{'role': 'user' if i % 2 == 0 else 'assistant',
+                                'content': f'第{i}条测试消息内容'} for i in range(30)]
+        W.memory_summaries = []
+        W._save_memory = lambda: None
+        W._extract_chat = lambda msgs, mt: '测试摘要'
+        W._summarize_old()
+        assert len(W.chat_history_msgs) == 20, \
+            f'应裁剪到 20 条，实际 {len(W.chat_history_msgs)}（旧版会静默跳过）'
+        assert W.memory_summaries and W.memory_summaries[-1]['content'] == '测试摘要'
+    finally:
+        (W.chat_history_msgs, W.memory_summaries,
+         W._save_memory, W._extract_chat, W.ai_enabled) = saved
+
+
+test('H6 滚动摘要生效（原 NameError 静默失效已修）', t_h6)
+
+
+def t_h7():
+    """官方重命名后响应里的 model 与请求写的 ID 不同——价格查询必须归一化后才命中"""
+    import tempfile
+    import api_stats as _as
+    import desktop_pet
+    d = tempfile.mkdtemp()
+    st = _as.ApiStats(os.path.join(d, 'api_stats.json'),
+                      registry=desktop_pet.MODEL_REGISTRY)
+    st.record({'prompt_tokens': 1000, 'completion_tokens': 1000}, 'deepseek-v4-flash')
+    e1 = st.calls[-1]
+    assert e1['model'] == 'deepseek-flash', f'旧别名应归一化为规范 ID，实际 {e1["model"]!r}'
+    assert not e1.get('price_unknown'), '别名应命中价格'
+    st.record({'prompt_tokens': 1000, 'completion_tokens': 1000}, 'deepseek-flash')
+    assert abs(st.calls[-1]['cost'] - e1['cost']) < 1e-9, '同一模型费用应一致'
+    st.record({'prompt_tokens': 1000, 'completion_tokens': 1000}, 'deepseek-v4-pro')
+    assert st.calls[-1]['cost'] > e1['cost'] * 2, 'Pro 单价应显著高于 Flash'
+    st.record({'prompt_tokens': 100, 'completion_tokens': 100}, 'no-such-model-9999')
+    assert st.calls[-1].get('price_unknown') is True, '未知模型应显式标记价格未知'
+
+
+test('H7 费用按响应模型归一化命中 + 未知价显式标记', t_h7)
+
+
+def t_h8():
+    import inspect
+    import tempfile
+    import api_stats as _as
+    import desktop_pet
+    src = inspect.getsource(desktop_pet.PetWidget._ai_worker)
+    assert 'fallback_model=cur_model' in src, '流式记账应传 fallback_model'
+    saved = W.api_stats
+    try:
+        W.api_stats = _as.ApiStats(os.path.join(tempfile.mkdtemp(), 'api_stats.json'),
+                                   registry=desktop_pet.MODEL_REGISTRY)
+        W._record_api_usage({'usage': {'prompt_tokens': 10, 'completion_tokens': 10}},
+                            fallback_model='deepseek-v4-pro')
+        assert W.api_stats.calls[-1]['model'] == 'deepseek-v4-pro', '空 model 应被 fallback 补上'
+    finally:
+        W.api_stats = saved
+
+
+test('H8 流式记账补传模型名（fallback_model 生效）', t_h8)
+
+
+def t_h9():
+    import tempfile
+    from model_registry import ModelRegistry
+    d = tempfile.mkdtemp()
+    cfgp = os.path.join(d, 'config.json')
+    with io.open(cfgp, 'w', encoding='utf-8') as f:
+        json.dump({'model_flash': 'deepseek-v4-flash', 'model_pro': 'deepseek-v4-pro',
+                   'max_tokens': 128000}, f)
+    reg = ModelRegistry(os.path.join(d, 'models.json'), cfgp)
+    assert reg.get('flash').model_id == 'deepseek-flash', '迁移应把已重命名的旧 ID 升级'
+    assert reg.get('pro').model_id == 'deepseek-v4-pro', '自定义 ID 应原样保留'
+    assert reg.get('flash').max_tokens == 128000, '128000 不应被夹'
+    mp = os.path.join(d, 'models.json')
+    with io.open(mp, 'w', encoding='utf-8') as f:
+        f.write('{broken')
+    reg2 = ModelRegistry(mp)
+    assert reg2.loaded_from == 'recovered' and len(reg2) == 2, '损坏时应回退出厂默认而非崩溃'
+
+
+test('H9 旧配置迁移（改名升级）+ 损坏兜底', t_h9)
+
+
+def t_h10():
+    import desktop_pet
+    raw = io.open(os.path.join(BASE, 'models.json'), encoding='utf-8-sig').read()
+    assert 'sk-' not in raw, 'models.json 不得含 API Key'
+    assert 'deepseek_api_key' in raw, '应只存 key 的引用字段名'
+    assert len(desktop_pet.MODEL_REGISTRY) >= 2
+
+
+test('H10 模型档案不含密钥（只存引用字段名）', t_h10)
+
+
+def t_h11():
+    """右键菜单的「角色」项由档案动态生成——加档案即多一项（改造前写死两项）"""
+    import desktop_pet
+    reg = desktop_pet.MODEL_REGISTRY
+    menu, acts = W._build_context_menu()
+    assert acts, '应返回可点击项字典'
+    # 注：PySide6 的 QMenu 包装器不能跳迭代长期持有（会报 already deleted），
+    # 所以拿到子菜单后立即把要校验的文本取成字符串
+    keep = [menu]              # 全程持有，防被 GC
+    role_labels = None
+    model_labels = None
+    top_names = []
+    for a in menu.actions():
+        top_names.append(a.text())
+        sub = a.menu()
+        if sub is None:
+            continue
+        keep.append(sub)
+        if '角色' in a.text() or 'Role' in a.text():
+            role_labels = [x.text() for x in sub.actions()]
+        for b in sub.actions():
+            sm = b.menu()
+            if sm is None:
+                continue
+            keep.append(sm)
+            if '模型' in b.text() or 'Model' in b.text():
+                model_labels = [x.text() for x in sm.actions() if x.text()]
+    assert role_labels is not None, f'未找到角色子菜单：{top_names}'
+    assert len(role_labels) == len(reg), \
+        f'角色项数应与档案数一致（{len(reg)}）：{role_labels}'
+    for k in reg.keys():
+        assert reg.get(k).display_name in role_labels, \
+            f'角色菜单缺 {reg.get(k).display_name}：{role_labels}'
+    assert model_labels is not None, '未找到 设置→角色模型 子菜单'
+    for k in reg.keys():
+        assert any(reg.get(k).display_name in t for t in model_labels), \
+            f'模型菜单缺 {k}：{model_labels}'
+
+
+test('H11 菜单角色项由档案动态生成', t_h11)
+
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)
 passed = sum(1 for _, s, _ in RESULTS if s == 'PASS')

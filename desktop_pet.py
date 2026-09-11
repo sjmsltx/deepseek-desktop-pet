@@ -41,6 +41,8 @@ from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
 from code_checker import check_python_blocks
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
+from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
+                            MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
 from tools_registry import AI_TOOLS, TOOL_STATUS
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
@@ -72,6 +74,7 @@ OCR_PS1 = os.path.join(BASE_DIR, 'ocr_helper.ps1')
 LIVE2D_MODEL = os.path.join(BASE_DIR, 'assets', 'live2d', 'mao', 'Mao.model3.json')
 ASSETS = os.path.join(BASE_DIR, 'assets')
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
+MODELS_PATH = os.path.join(BASE_DIR, 'models.json')   # 模型档案（模型身份的唯一来源）
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
 TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
 AFFECTION_PATH = os.path.join(BASE_DIR, 'affection.json')   # v6.30 好感度
@@ -159,68 +162,28 @@ UI_EN = {
     'todo_placeholder': 'Enter todo, press Enter to add…', 'todo_empty': 'No todos',
 }
 
-# ============ 角色配置 ============
-CHARACTERS = {
-    'flash': {
-        'name': 'V4 Flash',
-        'sub': '浅蓝和服 · 快言快语',
-        'color': QColor(176, 196, 222),
-        'greetings': [
-            '我在呢！有什么要帮忙的？',
-            'Flash 模式，快问快答～',
-            '今天也是效率满满的一天！',
-            '要不要试试 V4 Pro 大哥？它想事情更细。',
-            '别急，我打字很快的！',
-            '你盯着我看好久了，我害羞了啦！',
-            '今天天气不错，适合写代码！',
-            '诶？你发现我在摸鱼了？',
-        ],
-        'happy_lines': ['耶！你戳我！(*≧▽≦)', '嘻嘻，痒痒的～', '今天心情超好！'],
-        'think_lines': ['嗯…这个问题让我想想。', '正在高速运转中…', '我的小脑瓜快冒烟啦！'],
-        'greetings_en': [
-            'Here! Need any help?',
-            'Flash mode, quick Q&A～',
-            'Another productive day!',
-            'Want to try V4 Pro? It thinks deeper.',
-            'No worries, I type fast!',
-            'You have been staring at me… I am blushing!',
-            'Nice weather today, good for coding!',
-        ],
-        'happy_lines_en': ['Yay! You poked me! (*≧▽≦)', 'Hee hee, that tickles～', 'Feeling great today!'],
-        'think_lines_en': ['Hmm… let me think about this.', 'Processing at full speed…', 'My little brain is smoking!'],
-    },
-    'pro': {
-        'name': 'V4 Pro',
-        'sub': '深蓝女仆 · 深思熟虑',
-        'color': QColor(46, 74, 142),
-        'greetings': [
-            '我在。有什么需要仔细思考的吗？',
-            '已经帮你推演了三套方案。',
-            'V4 Pro 模式，专注深度分析。',
-            '别急，我把每一条都查证过再回答。',
-            '这个需求需要拆解一下，我先列个提纲。',
-            '嗯…这个问题值得深入想一想。',
-            '数据都核对过了，可以放心用。',
-            '要不要我帮你做个误差分析？',
-        ],
-        'happy_lines': ['能被你信任是我的荣幸。', '分析完成，一切尽在掌握。'],
-        'think_lines': ['让我先梳理一下逻辑链。', '推演中…排除所有可能干扰项。', '这个问题有三层因果关系。'],
-        'scared_lines': ['啊！别戳了别戳了！', '饶命！我这就认真思考！', '冷静！我先梳理一下逻辑！'],
-        'greetings_en': [
-            'I am here. Anything that needs deep thought?',
-            'Already worked out three approaches for you.',
-            'V4 Pro mode, focused deep analysis.',
-            'No rush — I verify every detail before answering.',
-            'This needs breaking down; let me outline it first.',
-            'Hmm… this deserves deeper thought.',
-            'All data cross-checked, safe to use.',
-            'Want me to run an error analysis?',
-        ],
-        'happy_lines_en': ['Being trusted by you is my honor.', 'Analysis complete, all under control.'],
-        'think_lines_en': ['Let me sort out the logic chain first.', 'Reasoning… eliminating all possible interferences.', 'This problem has three layers of causality.'],
-        'scared_lines_en': ['Ah! Stop poking me!', 'Mercy! I will think seriously!', 'Calm down! Let me sort out the logic first!'],
-    },
-}
+# ============ 模型档案（模型身份配置化）============
+# models.json 是模型身份的唯一来源：显示名 / 模型 ID / 接口地址 / 参数 / 价格 / 外观 / 人设。
+# 原先写死在这里的 CHARACTERS 字典已整体迁入档案（见 model_registry.BUILTIN_PROFILES），
+# 本处改为运行时从档案构建，结构与旧字典完全兼容（下游用法无需改动）。
+MODEL_REGISTRY = ModelRegistry(MODELS_PATH, CONFIG_PATH)
+
+
+def build_characters(registry=None):
+    """由模型档案构建角色表（color 由档案里的 hex 转 QColor）"""
+    reg = registry or MODEL_REGISTRY
+    out = {}
+    for ckey, conf in reg.characters().items():
+        conf = dict(conf)
+        try:
+            conf['color'] = QColor(conf.get('color') or '#B0C4DE')
+        except Exception:
+            conf['color'] = QColor(176, 196, 222)
+        out[ckey] = conf
+    return out
+
+
+CHARACTERS = build_characters()
 
 GREET_INTERVAL = (20 * 60 * 1000, 40 * 60 * 1000)
 
@@ -408,7 +371,8 @@ class PetWidget(QWidget):
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
         self.display_msgs = []
-        self.api_stats = ApiStats(os.path.join(BASE_DIR, 'api_stats.json'), config_path=CONFIG_PATH)  # v6.18 API 自监控
+        self.api_stats = ApiStats(os.path.join(BASE_DIR, 'api_stats.json'), config_path=CONFIG_PATH,
+                                  registry=MODEL_REGISTRY)  # v6.18 API 自监控（价格表改读模型档案）
         self._api_stats_win = None
         self.mcp = McpBridge(CONFIG_PATH)  # v6.20 MCP 桥接：后台连接配置的 MCP server
         self.mcp.connect_all()
@@ -702,7 +666,8 @@ class PetWidget(QWidget):
         return d.get(key, UI_ZH.get(key, key))
 
     def _load_ai_config(self):
-        """从 config.json 读取 DeepSeek API 配置"""
+        """读取 AI 配置：模型身份（模型 ID/显示名/参数）取自 models.json 档案，其余取自 config.json"""
+        global CHARACTERS
         try:
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -710,28 +675,59 @@ class PetWidget(QWidget):
                 key = cfg.get('deepseek_api_key', '')
                 if key:
                     self.ai_key = key
-                    self.model_flash = cfg.get('model_flash', 'deepseek-v4-flash')
-                    self.model_pro = cfg.get('model_pro', 'deepseek-v4-pro')
-                    self.ai_model = self._current_model()
                     self.ai_enabled = True
                 self.search_api_key = cfg.get('search_api_key', '')  # Tavily 联网搜索 key（可选）
                 self.pet_city = cfg.get('city', '重庆')
                 self.personality = cfg.get('personality', '温柔')
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
                 self.language = cfg.get('language', 'zh')  # zh/en
-                self.max_tokens = max(256, min(int(cfg.get('max_tokens', 1000)), 64000))
-                self.reasoning_enabled = cfg.get('reasoning', True)   # v6.40 思考模式开关
-                self.temperature = float(cfg.get('temperature', 1.0)) # v6.40 采样温度
                 self.display_mode = cfg.get('display_mode', 'static')  # static/live2d
                 self.live2d_model = cfg.get('live2d_model', 'mao')  # Live2D 模型目录名
+                # 模型档案是模型身份的唯一来源：角色表每次从档案重建
+                # （改 models.json 即可改显示名/台词，无需动代码）
+                CHARACTERS = build_characters()
+                if CHARACTERS and getattr(self, 'current', 'flash') not in CHARACTERS:
+                    self.current = MODEL_REGISTRY.first_key()
+                prof = self._current_profile()
+                p_flash, p_pro = MODEL_REGISTRY.get('flash'), MODEL_REGISTRY.get('pro')
+                if p_flash is not None:
+                    self.model_flash = p_flash.model_id
+                if p_pro is not None:
+                    self.model_pro = p_pro.model_id
+                self.ai_model = self._current_model()
+                # 输出上限/思考开关/温度统一由档案提供
+                # （原先只看 config.json、菜单里没有入口，且上限三处互相矛盾）
+                if prof is not None:
+                    self.max_tokens = prof.max_tokens
+                    self.reasoning_enabled = prof.reasoning
+                    self.temperature = prof.temperature
+                else:
+                    self.max_tokens = clamp_tokens(cfg.get('max_tokens', 1000))
+                    self.reasoning_enabled = cfg.get('reasoning', True)
+                    self.temperature = float(cfg.get('temperature', 1.0))
         except Exception:
             pass
 
+    def _current_profile(self):
+        """当前角色对应的模型档案（档案缺失时回退第一份 / None）"""
+        prof = MODEL_REGISTRY.get(getattr(self, 'current', 'flash'))
+        if prof is None and len(MODEL_REGISTRY):
+            prof = MODEL_REGISTRY.profiles()[0]
+        return prof
+
+    def _current_endpoint(self):
+        """当前角色使用的接口地址（由档案提供，不再每个模块各写一份）"""
+        prof = self._current_profile()
+        return prof.endpoint if prof is not None else DEFAULT_ENDPOINT
+
     def _current_model(self):
-        """按当前角色返回对应模型（Flash→flash模型，Pro→pro模型）"""
+        """按当前角色返回实际请求的模型 ID（取自档案；档案不可用时才回退旧字段）"""
+        prof = MODEL_REGISTRY.get(getattr(self, 'current', 'flash'))
+        if prof is not None and prof.model_id:
+            return prof.model_id
         if self.current == 'pro':
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
-        return getattr(self, 'model_flash', 'deepseek-v4-flash')
+        return getattr(self, 'model_flash', 'deepseek-flash')
 
     def _run_task(self, text):
         """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）"""
@@ -1298,7 +1294,6 @@ class PetWidget(QWidget):
         if len(self.chat_history_msgs) <= 20 or not self.ai_enabled:
             return
         try:
-            import urllib.request, json as _j
             old = self.chat_history_msgs[:10]
             texts = []
             for m in old:
@@ -1308,17 +1303,13 @@ class PetWidget(QWidget):
             if not texts:
                 self.chat_history_msgs = self.chat_history_msgs[10:]
                 return
-            data = _j.dumps({
-                'model': cur_model,
-                'messages': [{'role': 'user', 'content': f'把下面的对话压缩成 1-2 句中文摘要（≤120字），只留关键信息：\n' + '\n'.join(texts[-8:])}],
-                'max_tokens': 200,
-            }).encode()
-            req = urllib.request.Request('https://api.deepseek.com/chat/completions', data=data,
-                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.ai_key}'})
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                r = _j.loads(resp.read().decode())
-            self._record_api_usage(r)
-            summary = (r['choices'][0]['message'].get('content') or '').strip()
+            # 复用抽取用的 LLM 调用：模型与接口地址均取自模型档案。
+            # 原实现裸写 URL 并引用了本作用域不存在的 cur_model，抛出的 NameError
+            # 被下方 except 吞掉 → 摘要从不生成、最旧 10 条从不裁剪。
+            summary = (self._extract_chat(
+                [{'role': 'user',
+                  'content': f'把下面的对话压缩成 1-2 句中文摘要（≤120字），只留关键信息：\n' + '\n'.join(texts[-8:])}],
+                200) or '').strip()
             if summary:
                 self.memory_summaries.append({'content': summary, 'time': __import__('datetime').datetime.now().isoformat(timespec='seconds')})
                 if len(self.memory_summaries) > 6:
@@ -1684,7 +1675,7 @@ class PetWidget(QWidget):
         # 值类型校验
         if key in ('max_tokens', 'sedentary_minutes'):
             try:
-                value = str(max(256, min(int(value), 128000)) if key == 'max_tokens' else max(5, min(int(value), 240)))
+                value = str(clamp_tokens(value) if key == 'max_tokens' else max(5, min(int(value), 240)))
             except ValueError:
                 return '（需要数字）'
         if key == 'reply_style' and value not in ('short', 'normal', 'detailed'):
@@ -1700,7 +1691,7 @@ class PetWidget(QWidget):
             try:
                 parsed = json.loads(value)
             except Exception:
-                return '（api_prices 需要合法 JSON，如 {"deepseek-v4-flash":{"input":1,"output":2}}）'
+                return '（api_prices 需要合法 JSON，如 {"deepseek-flash":{"input":1,"output":2}}）'
             if not isinstance(parsed, dict):
                 return '（api_prices 需要 JSON 对象）'
             for k, v in parsed.items():
@@ -1725,21 +1716,9 @@ class PetWidget(QWidget):
                 elif key == 'display_mode':
                     QTimer.singleShot(0, lambda v=value: self._set_display_mode(v))  # GUI 回主线程（v6.25.1）
                 elif key == 'api_prices':
-                    # 热加载价格覆盖（空对象 → 恢复出厂默认价）
-                    try:
-                        parsed = json.loads(value)
-                        if isinstance(parsed, dict):
-                            if not parsed:
-                                ApiStats.PRICES.clear()
-                                ApiStats.PRICES.update({k: dict(v) for k, v in ApiStats.DEFAULT_PRICES.items()})
-                            else:
-                                for k, v in parsed.items():
-                                    if isinstance(v, dict):
-                                        base = dict(ApiStats.PRICES.get(k, ApiStats.DEFAULT_PRICE))
-                                        base.update({kk: float(vv) for kk, vv in v.items() if kk in ('input', 'cache', 'output')})
-                                        ApiStats.PRICES[k] = base
-                    except Exception:
-                        pass
+                    # 热加载价格（空对象 = 恢复出厂价）；经 api_stats 统一处理，
+                    # 有模型档案时写进档案，避免与内置表各存一份
+                    self.api_stats.reload_prices()
                 elif key == 'live2d_model':
                     self._set_live2d_model(value)
                 elif key == 'sedentary_minutes':
@@ -2044,6 +2023,7 @@ class PetWidget(QWidget):
                 self.ai_key, data,
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
+                endpoint=self._current_endpoint(),
             )
             self._record_api_usage(resp)
             return resp
@@ -2055,6 +2035,7 @@ class PetWidget(QWidget):
                 self.ai_key, data,
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
+                endpoint=self._current_endpoint(),
             )
 
         try:
@@ -2150,7 +2131,7 @@ class PetWidget(QWidget):
                 # 记录 API 用量（v6.40 fix：stream_options.include_usage 后流式响应带 usage）
                 if full.get('usage'):
                     try:
-                        self._record_api_usage({'usage': full['usage']})
+                        self._record_api_usage({'usage': full['usage']}, fallback_model=cur_model)
                     except Exception:
                         pass
                 msg = {
@@ -3873,8 +3854,11 @@ class PetWidget(QWidget):
             self._show_idle()
 
     # ---------- 聊天窗口 ----------
-    def _record_api_usage(self, resp):
-        """从 API 响应解析 usage 并记录（v6.18 自监控）"""
+    def _record_api_usage(self, resp, fallback_model=''):
+        """从 API 响应解析 usage 并记录（v6.18 自监控）
+
+        fallback_model：流式响应体不带 model 字段时，用本次实际请求的模型补上
+        （原先流式只传 usage → model 为空串 → 费用一律按兜底价算）"""
         try:
             dbg = os.path.join(BASE_DIR, '_apistats_debug.log')
             with open(dbg, 'a', encoding='utf-8') as _f:
@@ -3889,7 +3873,7 @@ class PetWidget(QWidget):
             usage = resp.get('usage')
             if not usage:
                 return
-            model = resp.get('model') or ''
+            model = resp.get('model') or fallback_model or ''
             cost = self.api_stats.record(usage, model)
             if cost:
                 self.cost_bubble_signal.emit(cost)  # v6.30 费用气泡
@@ -5031,10 +5015,11 @@ class PetWidget(QWidget):
         from PySide6.QtWidgets import QInputDialog
         is_en = getattr(self, 'language', 'zh') == 'en'
         text, ok = QInputDialog.getText(self, self._t('dlg_tokens'),
-            '输入 token 上限（256-128000，越大回复越长）：' if not is_en else 'Enter token limit (256-128000, higher = longer replies):',
+            f'输入 token 上限（{MIN_OUTPUT_TOKENS}-{MAX_OUTPUT_TOKENS}，越大回复越长）：' if not is_en
+            else f'Enter token limit ({MIN_OUTPUT_TOKENS}-{MAX_OUTPUT_TOKENS}, higher = longer replies):',
             text=str(getattr(self, 'max_tokens', 1000)))
         if ok and text.strip().isdigit():
-            val = max(256, min(int(text.strip()), 128000))
+            val = clamp_tokens(text.strip())
             if self._save_cfg_value('max_tokens', val):
                 self._append_chat('桌宠', f'回复长度上限：{val} token' if not is_en else f'Reply length limit: {val} tokens')
 
@@ -5090,15 +5075,20 @@ class PetWidget(QWidget):
         """弹窗设置指定角色的模型 ID"""
         from PySide6.QtWidgets import QInputDialog
         is_en = getattr(self, 'language', 'zh') == 'en'
+        prof = MODEL_REGISTRY.get(role)
         key = 'model_flash' if role == 'flash' else 'model_pro'
-        cur = getattr(self, key, 'deepseek-v4-flash' if role == 'flash' else 'deepseek-v4-pro')
-        label = 'Flash' if role == 'flash' else 'Pro'
+        cur = (prof.model_id if prof is not None else '') or getattr(self, key, '')
+        label = prof.display_name if prof is not None else role
         text, ok = QInputDialog.getText(self, f'{label} {self._t("dlg_model")}',
-            (f'输入 {label} 角色使用的模型 ID（如 deepseek-v4-{role}）：' if not is_en else f'Enter model ID for {label} (e.g. deepseek-v4-{role}):'), text=cur)
+            (f'输入「{label}」使用的模型 ID（如 deepseek-flash）：' if not is_en
+             else f'Enter model ID for {label} (e.g. deepseek-flash):'), text=cur)
         if ok and text.strip():
-            if self._save_cfg_value(key, text.strip()):
-                self.ai_model = self._current_model()
-                self._append_chat('桌宠', f'{label} 角色模型：{text.strip()}（当前角色生效）' if not is_en else f'{label} model: {text.strip()} (active for current character)')
+            # 档案是模型身份的唯一来源：只改档案并落盘，不再往 config.json 写重复字段
+            MODEL_REGISTRY.set_field(role, 'model_id', text.strip())
+            MODEL_REGISTRY.save()
+            self._load_ai_config()      # 热加载：刷新 ai_model / 角色表
+            self._append_chat('桌宠', f'{label} 模型 ID：{text.strip()}（当前角色生效）' if not is_en
+                              else f'{label} model: {text.strip()} (active for current character)')
 
     def _set_personality_dialog(self):
         """弹窗自定义性格"""
@@ -5486,13 +5476,14 @@ class PetWidget(QWidget):
         self.tray.setToolTip('DeepSeek 桌宠助手')
         tray_menu = QMenu()
         show_act = tray_menu.addAction('🏠 显示桌宠' if getattr(self, 'language', 'zh') != 'en' else '🏠 Show pet')
-        flash_act = tray_menu.addAction('⚡ Flash')
-        pro_act = tray_menu.addAction('🐋 Pro')
+        # 角色项由模型档案生成（新增档案即出现，无需改代码）
+        for _pk in MODEL_REGISTRY.keys():
+            _prof = MODEL_REGISTRY.get(_pk)
+            _act = tray_menu.addAction(_prof.display_name if _prof else _pk)
+            _act.triggered.connect(lambda checked=False, k=_pk: self.switch_char(k))
         tray_menu.addSeparator()
         quit_act = tray_menu.addAction('✕ 退出' if getattr(self, 'language', 'zh') != 'en' else '✕ Exit')
         show_act.triggered.connect(self.show_pet)
-        flash_act.triggered.connect(lambda: self.switch_char('flash'))
-        pro_act.triggered.connect(lambda: self.switch_char('pro'))
         quit_act.triggered.connect(self.quit_app)
         self.tray.setContextMenu(tray_menu)
         self.tray.activated.connect(self._tray_activated)
@@ -5662,6 +5653,7 @@ class PetWidget(QWidget):
                 self.ai_key, self._current_model(), state,
                 CHARACTERS[self.current]['name'],
                 record_cb=self._record_api_usage,
+                endpoint=self._current_endpoint(),
             )
         except Exception:
             return None
@@ -5710,6 +5702,7 @@ class PetWidget(QWidget):
                     self.ai_key, self._current_model(), state, topic,
                     CHARACTERS[self.current]['name'],
                     record_cb=self._record_api_usage,
+                    endpoint=self._current_endpoint(),
                 )
                 if msg:
                     self.wakeup_signal.emit(msg)
@@ -5964,11 +5957,9 @@ class PetWidget(QWidget):
         dlg = MemoriesDialog(self.memories, self.current, CHARACTERS[self.current]['name'], self)
         dlg.exec()
 
-    def contextMenuEvent(self, event):
-        # 扒边贴边状态：右键 = 弹出（锁定其他功能）
-        if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
-            self._popup_from_dock()
-            return
+    def _build_context_menu(self):
+        """构建右键菜单，返回 (menu, acts)。
+        拆成独立方法是为了能单独校验菜单内容（menu.exec 会阻塞，无法直接测）。"""
         T = self._t
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { font-size: 13px; }")
@@ -5976,10 +5967,13 @@ class PetWidget(QWidget):
 
         # 1. 角色切换（子菜单）
         cmenu = menu.addMenu(T('menu_role'))
-        act_flash = cmenu.addAction('⚡ V4 Flash')
-        act_flash.triggered.connect(lambda: self.switch_char('flash'))
-        act_pro = cmenu.addAction('🐋 V4 Pro')
-        act_pro.triggered.connect(lambda: self.switch_char('pro'))
+        # 角色项由模型档案生成（新增档案即出现，无需改代码）
+        for _pk in MODEL_REGISTRY.keys():
+            _prof = MODEL_REGISTRY.get(_pk)
+            _ra = cmenu.addAction(_prof.display_name if _prof else _pk)
+            _ra.setCheckable(True)
+            _ra.setChecked(_pk == self.current)
+            _ra.triggered.connect(lambda checked=False, k=_pk: self.switch_char(k))
 
         # 2. 常用：和 AI 聊天（顶级）
         acts['chat'] = menu.addAction(T('menu_chat'))
@@ -6046,8 +6040,10 @@ class PetWidget(QWidget):
         smenu = menu.addMenu(T('menu_settings'))
         smenu.addAction(T('api_setting')).triggered.connect(self._set_api_key_dialog)
         mdlmenu = smenu.addMenu(T('model_menu'))
-        mdlmenu.addAction('⚡ Flash 模型…').triggered.connect(lambda: self._set_model_dialog('flash'))
-        mdlmenu.addAction('🐋 Pro 模型…').triggered.connect(lambda: self._set_model_dialog('pro'))
+        for _pk in MODEL_REGISTRY.keys():
+            _prof = MODEL_REGISTRY.get(_pk)
+            mdlmenu.addAction(f'{_prof.display_name if _prof else _pk}…').triggered.connect(
+                lambda checked=False, k=_pk: self._set_model_dialog(k))
         mdlmenu.addSeparator()
         mdlmenu.addAction(f'{T("current")}：{self._current_model()}（{CHARACTERS[self.current]["name"]}）').setEnabled(False)
         smenu.addSeparator()
@@ -6128,7 +6124,14 @@ class PetWidget(QWidget):
         acts['hide'] = menu.addAction(T('hide_tray'))
         menu.addSeparator()
         acts['exit'] = menu.addAction(T('exit'))
+        return menu, acts
 
+    def contextMenuEvent(self, event):
+        # 扒边贴边状态：右键 = 弹出（锁定其他功能）
+        if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
+            self._popup_from_dock()
+            return
+        menu, acts = self._build_context_menu()
         chosen = menu.exec(event.globalPos())
         if chosen == acts['chat']:
             self._chat_with_ai()

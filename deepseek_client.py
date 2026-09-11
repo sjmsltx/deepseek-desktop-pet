@@ -14,15 +14,21 @@ import time
 import urllib.request
 import urllib.error
 
-API_URL = 'https://api.deepseek.com/chat/completions'
+from model_registry import DEFAULT_ENDPOINT
+
+# 全项目唯一的接口地址默认值（定义在 model_registry）。实际请求地址由调用方
+# 从模型档案（models.json）传入 endpoint；此常量仅作丢参时的兵底。
+API_URL = DEFAULT_ENDPOINT
 RETRY_CODES = (429, 500, 502, 503)
 
 
-def chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', is_en=False):
+def chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', is_en=False,
+                     endpoint=None):
     """非流式 API 请求：503/429/500/502 服务繁忙自动重试（等 5 秒，最多 2 次）。
-    返回解析后的 JSON 响应。"""
+    返回解析后的 JSON 响应。
+    endpoint：接口地址（由调用方从模型档案传入）；None 时用模块默认地址。"""
     req = urllib.request.Request(
-        API_URL,
+        endpoint or API_URL,
         data=data,
         headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
     )
@@ -51,11 +57,12 @@ def chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', 
             raise
 
 
-def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', is_en=False):
+def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', is_en=False,
+                            endpoint=None):
     """SSE 流式请求：yield ('reasoning', chunk) / ('content', chunk) / ('done', full)。
-    重试逻辑与 chat_completions 一致。"""
+    重试逻辑与 chat_completions 一致；endpoint 语义同上。"""
     req = urllib.request.Request(
-        API_URL,
+        endpoint or API_URL,
         data=data,
         headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
     )

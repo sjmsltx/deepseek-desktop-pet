@@ -96,7 +96,7 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "write_config",
-            "description": "修改桌宠配置（白名单字段，立即生效）。可改：personality(性格)/reply_style(回复风格:short,normal,detailed)/max_tokens(回复长度)/city(城市)/language(zh,en)/active_chat(主动关心true,false)/display_mode(static,live2d)/live2d_model(模型名)/sedentary_minutes(久坐分钟)/api_prices(API价格表，JSON对象，每百万token单价，格式如 {\"deepseek-v4-flash\":{\"input\":1,\"cache\":0.02,\"output\":2}}，用于API费用统计)。改UI外观、立绘、性格、以及用户提到deepseek/API价格调整/费用统计不准时（先web_search查最新官方价，再用api_prices更新）使用。",
+            "description": "修改桌宠配置（白名单字段，立即生效）。可改：personality(性格)/reply_style(回复风格:short,normal,detailed)/max_tokens(回复长度)/city(城市)/language(zh,en)/active_chat(主动关心true,false)/display_mode(static,live2d)/live2d_model(模型名)/sedentary_minutes(久坐分钟)/api_prices(API价格表，JSON对象，每百万token单价，格式如 {\"deepseek-flash\":{\"input\":1,\"cache\":0.02,\"output\":2}}，用于API费用统计)。改UI外观、立绘、性格、以及用户提到deepseek/API价格调整/费用统计不准时（先web_search查最新官方价，再用api_prices更新）使用。",
             "parameters": {
                 "type": "object",
                 "properties": {

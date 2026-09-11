@@ -5,6 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-09-11
+
+模型身份配置化：把写死在代码里的模型 ID / 显示名 / 接口地址 / 参数 / 价格
+收敛成一份用户可编辑的模型档案。
+
+### 新增
+- **模型档案 `models.json`**（`model_registry.py`）：每个模型一条档案，含显示名、模型 ID、别名、接口地址、温度/输出上限/思考开关、价格、外观与人设。首次运行自动生成，并从旧 `config.json` 的 `model_flash`/`model_pro`/`reasoning`/`temperature`/`max_tokens` 迁移
+- **模型身份单一来源**：`CHARACTERS` 改为运行时从档案构建（结构与旧字典完全兼容，下游 15 处用法无需改动）；右键菜单/托盘的“角色”与“模型”列表也由档案生成——**加一条档案就多一个角色，不用改代码**
+- **接口地址统一**：原先 `deepseek_client.py` / `care_engine.py` / `desktop_pet.py` 三处各写一份 URL，现均从档案的 `endpoint` 取（全项目只剩一个默认值定义）
+- **价格未知显式标记**：查不到价格的模型在统计条目里带 `price_unknown`，不再静默套用兜底价
+- `tests/test_model_registry.py`：档案注册表 18 项单测（首次生成 / 迁移 / 改名升级 / 损坏回退 / 价格 / 兼容层 / 增删 / 落盘往返）
+- `models.json.example`：档案模板（供开源使用者参考）
+
+### 修复
+- **滚动摘要从来不执行**（`_summarize_old`）：函数内引用了另一个作用域才有的 `cur_model`，抛出的 `NameError` 被 `except Exception: pass` 吞掉——导致对话摘要从不生成、最旧 10 条从不裁剪、上下文无限增长。改为复用 `_extract_chat`，顺带少一份裸写 URL
+- **Pro 用量按 Flash 价计费**：流式路径记录用量时未传模型名（`model=''`），一律落到兜底价；两者单价差 3 倍。补上 `fallback_model`
+- **价格表因官方重命名失效**：官方将 `deepseek-v4-flash` 重命名为 `deepseek-flash` 后，响应的 `model` 字段与请求写的 ID 不一致，而价格表以请求 ID 为键 → 查不到、静默落兜底价。现按模型档案的规范 ID + 别名归一化后查询
+- **输出上限三处互相矛盾**：读取时夾 64000、菜单写 128000、AI 工具写 128000，导致“选 128000 → 存进去 → 重载被压回 64000”，菜单勾选态也对不上。统一为 `model_registry.MAX_OUTPUT_TOKENS`（384000，对齐官方输出上限）
+
+### 变更
+- 模型设置弹窗改为写模型档案（不再往 `config.json` 写重复字段），菜单名改按档案显示名展示
+- `reasoning`（思考开关）/ `temperature`（采样温度）改由档案提供（原先只从 config.json 读、右键菜单无入口）
+- `.gitignore` 新增 `models.json`（本机配置，含个人模型/接口设置）
+
 ## [2.0.0] - 2026-08-29
 
 重大版本：好感度与成长系统 + 15 款小游戏大厅 + 动作素材扩充。
