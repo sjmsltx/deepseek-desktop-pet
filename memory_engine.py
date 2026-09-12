@@ -115,8 +115,10 @@ def search_memory(facts, query, top_k=3, rerank=None):
               'updated_at': active[i].get('updated_at', '')} for i, _ in hits]
     if rerank is None:
         # 无重排：按 (BM25分, 重要度, 新旧) 综合取 top_k
+        # v6.51：注释里承诺的"新旧"此前根本没实现（score_recency 写了却零调用），现在接上
         picked = cands[:top_k]
-        picked.sort(key=lambda c: -float(c.get('importance', 3)))
+        picked.sort(key=lambda c: (-float(c.get('importance', 3)),
+                                   -score_recency(c.get('updated_at'))))
         return picked
     try:
         picked_ids = rerank(query, cands)
@@ -191,7 +193,8 @@ def build_core_block(facts, current, budget=400):
     fs = [f for f in facts
           if f.get('status', 'active') == 'active'
           and (f.get('roles', 'both') == 'both' or f.get('roles') == current)]
-    fs.sort(key=lambda x: (-float(x.get('importance', 3)), str(x.get('updated_at', ''))))
+    # v6.51：同重要度时优先"新"记忆——原先按 updated_at 字符串升序排列等于优先最旧的，方向反了
+    fs.sort(key=lambda x: (-float(x.get('importance', 3)), -score_recency(x.get('updated_at'))))
     for f in fs:
         text = f.get('content', '').strip()
         if not text:

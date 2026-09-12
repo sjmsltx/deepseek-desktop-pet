@@ -265,6 +265,29 @@ def t_f1():
     assert parse_choices(['A', {'text': 'B', 'affect': 3}])[1]['affect'] == 3
 
 
+def t_c4():
+    """记忆时效加权：同重要度时新记忆优先（v6.51 接上 score_recency）"""
+    from memory_engine import score_recency, build_core_block, search_memory
+    old = '2026-01-01T00:00:00'
+    new = '2026-09-12T00:00:00'
+    assert score_recency(new) > score_recency(old), '新记忆权重要高于旧记忆'
+    # 同重要度 → 新记忆排在前面
+    facts = [
+        {'id': 'a', 'content': '旧记忆内容', 'importance': 3, 'status': 'active',
+         'roles': 'both', 'updated_at': old},
+        {'id': 'b', 'content': '新记忆内容', 'importance': 3, 'status': 'active',
+         'roles': 'both', 'updated_at': new},
+    ]
+    block = build_core_block(facts, 'flash', budget=200)
+    assert block.index('新记忆内容') < block.index('旧记忆内容'), 'core 块应先列新记忆'
+    # 检索无重排路径也应按 (重要度, 新旧) 排序且不报错
+    hits = search_memory(facts, '记忆', top_k=2)
+    assert len(hits) == 2 and hits[0]['id'] == 'b', '检索结果应新记忆在前'
+
+
+test('C4 记忆时效加权（同重要度优先新记忆）', t_c4)
+
+
 test('F1 tools_executor 纯函数', t_f1)
 
 

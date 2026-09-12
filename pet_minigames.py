@@ -73,27 +73,14 @@ class BaseGame(QDialog):
             if data is None:
                 QMessageBox.information(self, '保存', '该游戏暂不支持保存进度')
                 return
-            import json as _json
-            with open(self._save_path(), 'w', encoding='utf-8') as f:
-                _json.dump(data, f, ensure_ascii=False)
+            # v6.51：改用原子写——原先直接 open('w') 会先截断原文件，存到一半崩溃/断电就丢档
+            from pet_storage import atomic_write_json
+            atomic_write_json(self._save_path(), data)
             QMessageBox.information(self, '保存', '✅ 进度已保存，下次打开可选择继续')
         except Exception as e:
             QMessageBox.information(self, '保存', f'保存失败：{e}')
 
-    def _save_progress(self):
-        """关闭时自动保存未完成局（仅游戏进行中）"""
-        try:
-            if getattr(self, 'over', False):
-                return
-            data = self._state_to_save()
-            if data is None:
-                return
-            import json as _json
-            with open(self._save_path(), 'w', encoding='utf-8') as f:
-                _json.dump(data, f, ensure_ascii=False)
-        except Exception:
-            pass
-
+    # v6.51：删掉 _save_progress（v6.40 起 closeEvent 不再自动保存，此方法零调用）
     def _save_path(self):
         import os as _os
         return _os.path.join(self._save_dir(), self._save_key() + '.json')
