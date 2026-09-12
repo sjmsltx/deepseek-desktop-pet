@@ -132,7 +132,11 @@ table.rich-table tr:last-child td{border-bottom-color:rgba(255,255,255,.16)}
 <li><a href="#sec-10-33">第三批：工程卫生（P0 9）</a></li>
 <li><a href="#sec-10-34">验证</a></li>
 <li><a href="#sec-10-35">第四批：结构性重构（2026-09-12 下午追加）</a></li>
-<li><a href="#sec-11">附：本次取底方法与证据</a></li></ol>
+<li><a href="#sec-11">十、进度快照（2026-09-12 20:15）</a></li>
+<li><a href="#sec-11-36">10.1 已完成：19 项</a></li>
+<li><a href="#sec-11-37">10.2 未完成：3 项 + 一批零散</a></li>
+<li><a href="#sec-11-38">10.3 建议的下一步顺序</a></li>
+<li><a href="#sec-12">附：本次取底方法与证据</a></li></ol>
   </aside>
   <main><hr class="rule">
 <h2 id="sec-1"><span class="folio">01</span>摘要</h2>
@@ -304,7 +308,27 @@ git count-objects -vH</code></pre>
 <h3 id="sec-10-35">第四批：结构性重构（2026-09-12 下午追加）</h3>
 <div class="tw"><table class="rich-table"><thead><tr><th>事项</th><th>结果</th></tr></thead><tbody><tr><td><code>_execute_tool</code> 工具分发<strong>注册表化</strong></td><td><strong>169 行 / 29 个 if-elif 分支 → 16 行入口 + 29 个 <code>_tool_xxx</code> 方法 + <code>_TOOL_HANDLERS</code> 注册表</strong>；MCP(<code>mcp_*</code>) 与插件工具的前缀转发原样保留在最前面</td></tr><tr><td>重构的验证方式</td><td><strong>黄金基线</strong>：把 29 个工具的外部副作用全部打桩，重构前后各跑一遍并逐条比对返回值 —— 完全一致（唯一差异是 <code>get_time</code> 返回的实时秒数）。另加"跑完比对源码哈希"确保工具没有真的改文件</td></tr><tr><td>注册表契约测试</td><td>新增 <code>tests/test_tool_registry.py</code>：<code>AI_TOOLS</code> 声明 ↔ 注册表实现<strong>双向一致</strong>（防"AI 调了却没有处理函数"与孤儿死代码）</td></tr><tr><td>设置窗口控件不回填</td><td>回复长度 / 温度的非预设值改为临时插项显示（原先 <code>setCurrentText</code> 对不可编辑下拉无效 → 显示空白）；贴边模式由「切换」按钮改成<strong>有状态下拉</strong>，可看到当前处于哪种模式</td></tr><tr><td>小游戏存档原子写</td><td>改 <code>atomic_write_json</code>（原先 <code>open('w')</code> 先截断原文件，存到一半崩溃/断电就丢档）</td></tr><tr><td>记忆时效加权真正接上</td><td><code>score_recency</code> 从"零调用"接进检索排序；修正 core 块同重要度时按字符串升序<strong>优先最旧记忆</strong>的反向错误</td></tr><tr><td>文档/OCR 解析<strong>搬出宿主类</strong></td><td>新增 <code>pet_docs.py</code>：<code>read_docx_text</code> / <code>read_pdf_text</code> / <code>read_xlsx_text</code> / <code>read_pptx_text</code> / <code>ocr_image(path, ps1_path)</code> / <code>read_own_file(rel_path, base_dir, …)</code> + <code>TEXT_BY_KIND</code> 分发表。六个方法从 <code>PetWidget</code> 删除、8 处调用点改到模块函数，<strong>宿主类 6342 → 6225 行</strong>（正文按原文程序化搬迁，不手抄）</td></tr><tr><td>搬迁的验证方式</td><td><strong>搬迁前后黄金对照 16 项 100% 一致</strong>（现场构造 docx/xlsx/pptx zip 样本 + 手写最小 PDF + 目录/敏感文件/越界等分支）；并新增 <code>tests/test_pet_docs.py</code> 把样本固化成单测，<strong>不再需要 Qt 就能测解析逻辑</strong></td></tr></tbody></table></div>
 <div class="tw"><table class="rich-table"><thead><tr><th>统一日志</th><th>新增 <code>pet_log.py</code>（<code>logs/pet.log</code> 滚动）；<code>memory_store</code>/<code>care_engine</code>/<code>api_stats</code> 共 10 处静默 <code>except: pass</code> 改为留痕</th></tr></thead><tbody><tr><td>流式重试语义修正</td><td>只在"尚未吐出任何分块"时重试；SSE <code>error</code> 上抛不再变空回复；<code>[DONE]</code> 真正终止读取；重试码补 504</td></tr><tr><td>死代码清理</td><td>删除零调用的 <code>_save_progress</code></td></tr></tbody></table></div>
-<h2 id="sec-11"><span class="folio">11</span>附：本次取底方法与证据</h2>
+<h2 id="sec-11"><span class="folio">11</span>十、进度快照（2026-09-12 20:15）</h2>
+<p>第七章那份清单共 <strong>22 项</strong>，逐条对账如下（"完成"以提交进仓库 + 有验证依据为准）。</p>
+<h3 id="sec-11-36">10.1 已完成：19 项</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>批次</th><th>条目</th><th>验证依据</th></tr></thead><tbody><tr><td>P0 ×9</td><td>安全门白名单化 / 命令拼接参数化 / <code>eval</code>→AST / <code>models.json</code> 容错 / <code>role_anchor</code> 拼回 / 小游戏假保存按钮 / 粘贴图覆盖 / 表格转义 / 依赖与版本号</td><td>回归 39→40 项全绿、安全门单测 105 项、逐条实测</td></tr><tr><td>P1 ×8</td><td>仓库清理（8.71 GiB → 223 MiB）/ 立绘压缩（248.3 → 93.5 MB）/ 流式重试与 SSE 错误 / 静默异常日志（10 处）/ 扒边气泡+主题入口+多屏 / 工具分发改注册表 / 小游戏存档原子写 / 安全与解析单测</td><td>黄金基线对照、<code>fsck</code> rc=0、感知质量 RMSE&lt;0.7、模拟 SSE 5 用例</td></tr><tr><td>P2 ×2</td><td>附件/文档解析搬出（<code>pet_docs.py</code>）/ <code>score_recency</code> 接入排序</td><td>搬迁前后黄金对照 16 项一致、<code>tests/test_pet_docs.py</code> 18 组断言</td></tr></tbody></table></div>
+<p>计划外但顺手做掉的：<strong>仓库报错的真正根因</strong>（提交触发 <code>git maintenance</code> 与前台操作抢 multi-pack-index）、统一日志模块 <code>pet_log.py</code>、工具注册表契约测试、设置窗口两处不回填。</p>
+<h3 id="sec-11-37">10.2 未完成：3 项 + 一批零散</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>#</th><th>事项</th><th>为什么还没做</th><th>预估</th></tr></thead><tbody><tr><td>18</td><td><strong>回归测试与私有属性解耦</strong>（加 <code>snapshot()</code> 窄接口）</td><td>是下面两项搬模块的前置条件：现在回归测试直接读写宿主私有属性，不先解耦就搬会大面积返工</td><td>1–1.5 h</td></tr><tr><td>19·余</td><td><strong>自身代码读写搬出</strong>（<code>edit_own_code</code>/回滚/备份约 175 行）</td><td>附件解析那半已搬（P2-19 前一半完成）；这半牵涉 git 操作与备份策略，要单独设计接口</td><td>1.5 h</td></tr><tr><td>20</td><td><strong>主题 token 化</strong>：把 100+ 处硬编码色值收进主题表（含小游戏 100 处独立配色）</td><td>跨 6 个文件，每处都要视觉验证，改错就是"界面变丑"而非报错，需要逐屏截图核对</td><td>2–3 h</td></tr><tr><td>22</td><td><strong>小游戏基类上收公共能力</strong>（<code>over</code>×14 / <code>_apply_difficulty</code>×7 / <code>_finish</code>×32）</td><td>15 款游戏逐个改动，要靠 E1 类测试兜底</td><td>1.5–2 h</td></tr><tr><td>—</td><td><strong>状态机动画搬出</strong>（367 行）</td><td>UI 耦合最深的一块（定时器/立绘/扒边状态机交织），必须先做 #18</td><td>2–3 h</td></tr><tr><td>—</td><td><strong>气泡与 Markdown 渲染搬出</strong>（289 行）</td><td>同上；气泡是窗口子控件，与扒边/主题联动</td><td>2 h</td></tr><tr><td>17·余</td><td><code>pet_sysutils</code> 其余函数单测（剪贴板 / <code>run_ps</code> / 音量 / 热键）</td><td>安全门与表达式计算已覆盖；这几个依赖真实系统调用，需打桩</td><td>0.5 h</td></tr><tr><td>—</td><td>零散 UI 细节：小游戏窗口无滚动区 / 气泡字号偏小 / 长历史无虚拟化 / 小游戏图标重复</td><td>都是小改，随时可做</td><td>1 h</td></tr></tbody></table></div>
+<p><strong>合计剩余约 12–15 小时</strong>，其中真正影响"以后加功能成本"的是 18 →（状态机、气泡渲染、自身代码读写）三块搬出。</p>
+<h3 id="sec-11-38">10.3 建议的下一步顺序</h3>
+<ol>
+<li><strong>#18 回归解耦</strong>（前置，做完才能安全搬 UI 相关的块）</li>
+<ol>
+<li><strong>自身代码读写搬出</strong>（175 行，比 UI 那两块独立）</li>
+<ol>
+<li><strong>状态机动画搬出</strong>（367 行，宿主类最大单块）</li>
+<ol>
+<li><strong>气泡/Markdown 渲染搬出</strong>（289 行）</li>
+<ol>
+<li><strong>主题 token 化</strong> 与 <strong>小游戏基类上收</strong>（纯清理，可并行排在最后）</li>
+<hr class="rule">
+<h2 id="sec-12"><span class="folio">12</span>附：本次取底方法与证据</h2>
 <ul>
 <li>量化脚本与原始输出：工作区 <code>desktop-pet-审查/</code>（<code>_pet_scan*.py</code> + 同名 <code>.txt</code>；本报告 HTML 由同目录 <code>_report_html.py</code> 生成）</li>
 <li>复验方式：直接 <code>import</code> 目标模块并喂异常输入（<code>float('abc')</code>、<code>check_dangerous</code> 12 条样本、<code>score_recency</code> 调用计数），<strong>不采信转述</strong></li>
