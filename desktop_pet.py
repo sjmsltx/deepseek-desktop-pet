@@ -6096,7 +6096,7 @@ class PetWidget(QWidget):
         # 5. 工具（子菜单：API 统计 / 网络搜索等工具类功能）
         tmenu = menu.addMenu('🔧 工具')
         tmenu.addAction('📊 API 统计').triggered.connect(lambda: self._toggle_api_stats_window())
-        tmenu.addAction('🌐 ' + T('search_setting')).triggered.connect(self._set_search_key_dialog)
+        tmenu.addAction(T('search_setting')).triggered.connect(self._set_search_key_dialog)
         tmenu.addSeparator()
         tmenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
         tmenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)

@@ -739,6 +739,8 @@ def t_h19():
         if sub is not None:
             names += [x.text() for x in sub.actions()]
     assert any('按模型统计' in x for x in names), '工具菜单缺按模型统计：%s' % names
+    assert not any('🌐 🌐' in x for x in names), \
+        '菜单文案 emoji 重复：%s' % [x for x in names if '🌐' in x]
 
 
 test('H19 按模型统计（累计/排序/未知价/持久化/菜单）', t_h19)
