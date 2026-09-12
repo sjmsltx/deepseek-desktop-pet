@@ -11,3 +11,12 @@ PySide6>=6.5
 #   mcp     —— Model Context Protocol 客户端（外部工具接入）
 
 mcp>=2.0
+
+# 可选依赖（图片 / 文档解析）：代码里是懒加载，没装时只降级对应功能并提示，不影响启动
+#   Pillow —— 拖入/粘贴图片转 PNG 后走 Windows OCR
+#   pypdf  —— 读取 PDF 文本（前 15 页）
+Pillow>=10.0
+pypdf>=4.0
+
+# 可选依赖（开发工具）：
+#   rembg —— 立绘自动抠图（cut_actions.py 用）

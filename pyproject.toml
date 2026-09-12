@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepseek-desktop-pet"
-version = "1.0.0"
+version = "2.5.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）
 description = "一只住在你电脑里的 Q 版桌宠：陪你聊天、帮你干活、主动关心你。"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,7 +22,12 @@ dependencies = [
 
 [project.optional-dependencies]
 live2d = ["live2d-py", "pyopengl"]
-dev = ["pytest", "ruff"]
+# 图片 / 文档解析：代码里是懒加载（import 在 try 内），没装只降级对应功能并给出提示
+parse = ["Pillow>=10.0", "pypdf>=4.0"]
+# MCP 扩展（外部工具接入）
+mcp = ["mcp>=2.0"]
+# 开发用：rembg 是立绘自动抠图脚本 cut_actions.py 的依赖
+dev = ["pytest", "ruff", "rembg"]
 
 [tool.setuptools]
 py-modules = ["desktop_pet"]

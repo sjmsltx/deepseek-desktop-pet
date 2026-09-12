@@ -176,14 +176,19 @@ class BaseGame(QDialog):
             self._combo.currentIndexChanged.connect(lambda _: self._apply_difficulty())
             row.addWidget(self._combo)
         row.addStretch(1)
-        self._save_btn = QPushButton('💾 保存')
-        self._save_btn.setStyleSheet(
-            'QPushButton { background:#2a3a55; color:#9ec; border:none;'
-            ' border-radius:6px; padding:4px 10px; font-size:12px; }'
-            'QPushButton:hover { background:#35507a; }')
-        self._save_btn.setCursor(Qt.PointingHandCursor)
-        self._save_btn.clicked.connect(self._manual_save)
-        row.addWidget(self._save_btn)
+        # v6.51：只有真正实现了存档的游戏才显示「保存」按钮。
+        # 原先对所有游戏无条件加按钮，但 15 款里只有扫雷实现了 _state_to_save，
+        # 点下去只弹「该游戏暂不支持保存进度」——按钮是假的，还会让人误以为进度存住了。
+        self._save_btn = None
+        if type(self)._state_to_save is not BaseGame._state_to_save:
+            self._save_btn = QPushButton('💾 保存')
+            self._save_btn.setStyleSheet(
+                'QPushButton { background:#2a3a55; color:#9ec; border:none;'
+                ' border-radius:6px; padding:4px 10px; font-size:12px; }'
+                'QPushButton:hover { background:#35507a; }')
+            self._save_btn.setCursor(Qt.PointingHandCursor)
+            self._save_btn.clicked.connect(self._manual_save)
+            row.addWidget(self._save_btn)
         lay.insertLayout(0, row)
         self._apply_difficulty()
 

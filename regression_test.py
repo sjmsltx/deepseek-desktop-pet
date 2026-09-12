@@ -258,7 +258,9 @@ print('===== F. 纯逻辑工具 =====')
 def t_f1():
     from tools_executor import calculate_expr, get_time_str, parse_choices
     assert '= 7' in calculate_expr('1+2*3')
-    assert '非法' in calculate_expr('import os')
+    # v6.50：裸 eval → AST 白名单，错误文案随之改变；这里断言“必须被拒绝”而不是具体措辞
+    for bad in ('import os', '__import__("os").system("calc")', '9**9**9', '1/0', '"a"*999'):
+        assert '=' not in calculate_expr(bad), '危险表达式未被拒绝：' + bad
     assert '2026' in get_time_str() or '2027' in get_time_str()
     assert parse_choices(['A', {'text': 'B', 'affect': 3}])[1]['affect'] == 3
 

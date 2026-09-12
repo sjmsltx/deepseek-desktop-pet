@@ -30,6 +30,11 @@ from pet_sysutils import (
     run_ps as _run_ps,
     volume_ps as _volume_ps,
     hotkey_filter_factory as _hotkey_filter_factory,
+    quote_ps_single as _ps_quote,
+    open_shell_target as _open_shell_target,
+    open_url as _open_url,
+    open_search_url as _open_search_url,
+    is_safe_process_name as _is_safe_process_name,
 )
 from pet_storage import atomic_write_json as _atomic_write_json_impl
 from api_stats import ApiStats
@@ -1106,10 +1111,10 @@ class PetWidget(QWidget):
                     if exe_found:
                         os.startfile(exe_found)
                     else:
-                        os.system(f'start "" "{display}" 2>nul')
+                        _open_shell_target(display)
                 else:
                     # 只有名字没有路径（如 UWP）：尝试 start
-                    os.system(f'start "" "{display}" 2>nul')
+                    _open_shell_target(display)
                 return f'已打开 {display}'
             except Exception as e:
                 return f'打开 {display} 失败：{e}'
@@ -1124,7 +1129,7 @@ class PetWidget(QWidget):
                 elif os.path.exists(target):
                     os.startfile(target)
                 else:
-                    subprocess.Popen(['cmd', '/c', 'start', target])
+                    _open_shell_target(target)
                 return f'已打开 {app}（{target}）'
             except Exception as e:
                 return f'打开 {app} 失败：{e}'
@@ -1143,7 +1148,7 @@ class PetWidget(QWidget):
         if key in appmap:
             target = appmap[key]
             if target is None:  # 浏览器 → 打开主页
-                subprocess.Popen(['cmd', '/c', 'start', 'http://www.baidu.com'])
+                _open_url('http://www.baidu.com')
                 return f'已打开浏览器'
             try:
                 subprocess.Popen([target])
@@ -1163,14 +1168,14 @@ class PetWidget(QWidget):
             # 网站类应用：直接浏览器打开，不尝试 start（避免错误弹窗）
             site_map = {'bilibili': 'https://www.bilibili.com', 'wechat': 'https://weixin.qq.com'}
             if target in site_map:
-                os.system(f'start {site_map[target]}')
+                _open_url(site_map[target])
                 return f'已用浏览器打开 {app}'
             # 桌面应用：尝试 start（查找 PATH / 关联）
-            result = os.system(f'start "" {target} 2>nul')
+            result = 1 if _open_shell_target(target) else 0
             if result == 0:
                 return f'已尝试打开 {app}'
             # 失败则用浏览器兜底
-            os.system(f'start https://www.bing.com/search?q={app}')
+            _open_search_url(app)
             return f'已尝试打开 {app}，若失败已用浏览器搜索'
 
         # 3. 检查是否含网址关键词 → 浏览器打开
@@ -1179,7 +1184,7 @@ class PetWidget(QWidget):
             url = app
             if not app.startswith('http'):
                 url = f'https://www.{app}.com' if '.' not in app else f'https://{app}'
-            os.system(f'start {url}')
+            _open_url(url)
             return f'已用浏览器打开 {app}'
 
         # 4. 尝试 where 查找命令
@@ -1199,7 +1204,7 @@ class PetWidget(QWidget):
 
         # 6. 尝试开始菜单搜索（shell:AppsFolder 或直接 start 尝试）
         try:
-            result = os.system(f'start "" "{app}" 2>nul')
+            result = _open_shell_target(app)
             if result == 0:
                 return f'已尝试打开 {app}'
         except Exception:
@@ -1931,10 +1936,7 @@ class PetWidget(QWidget):
             elif name == 'write_config':
                 return self._write_config_tool(args.get('key', ''), args.get('value', ''))
             elif name == 'calculate':
-                expr = args.get('expr', '').replace(' ', '')
-                if all(ch in '0123456789+-*/().%' for ch in expr):
-                    return f'{expr} = {eval(expr)}'
-                return '表达式含非法字符'
+                return calculate_expr(args.get('expr', ''))
             elif name == 'set_reminder':
                 sec = max(1, min(int(args.get('seconds', 60)), 86400))
                 text = args.get('text', '提醒')
@@ -2001,7 +2003,14 @@ class PetWidget(QWidget):
                 protected = {'system', 'svchost', 'explorer', 'winlogon', 'csrss', 'services', 'dwm', 'pythonw', 'python', 'autoclaw'}
                 if proc.lower() in protected:
                     return f'{proc} 是系统/关键进程，已保护，不能结束'
-                return _run_ps(f'Get-Process -Name {proc} -ErrorAction SilentlyContinue | Stop-Process; if ($?) {{ "已结束进程 {proc}" }} else {{ "未找到进程 {proc}" }}')
+                if not _is_safe_process_name(proc):
+                    return f'进程名 {proc} 含非法字符，已拒绝（防命令注入）'
+                # skip_check：进程名已过白名单校验（仅字母数字._- 空格），
+                # 且 Stop-Process 是本工具的既定行为，不是 AI 自由拼串
+                return _run_ps('Get-Process -Name ' + _ps_quote(proc) +
+                               ' -ErrorAction SilentlyContinue | Stop-Process; '
+                               f'if ($?) {{ "已结束进程 {proc}" }} else {{ "未找到进程 {proc}" }}',
+                               skip_check=True)
             elif name == 'control_volume':
                 action = (args.get('action') or '').lower()
                 if action == 'set':
@@ -2021,9 +2030,10 @@ class PetWidget(QWidget):
                 fpath = (args.get('path') or os.path.expanduser('~')).strip()
                 if not fname:
                     return '请提供文件名关键词'
-                cmd = (f'[Console]::OutputEncoding=[Text.Encoding]::UTF8; '
-                       f'Get-ChildItem -Path "{fpath}" -Recurse -Filter "*{fname}*" -File -ErrorAction SilentlyContinue '
-                       f'| Select-Object -First 10 FullName | Out-String -Width 200')
+                cmd = ('Get-ChildItem -LiteralPath ' + _ps_quote(fpath) +
+                       ' -Recurse -Filter ' + _ps_quote('*' + fname + '*') +
+                       ' -File -ErrorAction SilentlyContinue '
+                       '| Select-Object -First 10 FullName | Out-String -Width 200')
                 result = _run_ps(cmd, timeout=12)
                 if '（' in result and 'Error' in result:
                     return result
@@ -4589,13 +4599,14 @@ class PetWidget(QWidget):
                 return False
         except Exception:
             return False
-        path = os.path.join(BASE_DIR, '_pasted_ocr.png')
+        # v6.51：文件名带毫秒时间戳——原先固定名 _pasted_ocr.png，连粘两张图时
+        # 两个附件卡片会指向同一文件，先粘的那张内容被覆盖（OCR/送模型全错）
+        path = os.path.join(BASE_DIR, '_pasted_ocr_%d.png' % int(time.time() * 1000))
         try:
             img.save(path, 'PNG')
         except Exception:
             return False
         self._add_attachment(path)
-        return True
         return True
 
     def _ocr_image(self, path):
@@ -4843,8 +4854,10 @@ class PetWidget(QWidget):
 
     def _on_ocr_result(self, text):
         """OCR 完成：识别内容显示为消息并发送给 AI"""
-        for tmp in ('_pasted_ocr.png', '_dropped_img.png'):
-            p = os.path.join(BASE_DIR, tmp)
+        # v6.51：粘贴图文件名带时间戳了，这里用通配清理（旧固定名也一并清掉）
+        import glob as _glob
+        for p in (_glob.glob(os.path.join(BASE_DIR, '_pasted_ocr*.png')) +
+                  _glob.glob(os.path.join(BASE_DIR, '_dropped_img*.png'))):
             if os.path.exists(p):
                 try:
                     os.remove(p)
@@ -4985,14 +4998,8 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             return
         if low.startswith('/calc '):
-            expr = low[6:].replace(' ', '')
-            try:
-                if all(ch in '0123456789+-*/().%' for ch in expr):
-                    self._append_chat('桌宠', f'{expr} = {eval(expr)}')
-                else:
-                    self._append_chat('桌宠', '表达式含非法字符')
-            except Exception as e:
-                self._append_chat('桌宠', f'计算失败：{e}')
+            # 复用 tools_executor.calculate_expr（AST 白名单，不再用 eval）
+            self._append_chat('桌宠', calculate_expr(low[6:]))
             return
         if low == '/weather':
             self.ask_ai(f'帮我查一下{self.pet_city}现在的天气')
@@ -5643,9 +5650,9 @@ class PetWidget(QWidget):
                 workdir = BASE_DIR
             ps = (
                 f"$ws = New-Object -ComObject WScript.Shell; "
-                f"$s = $ws.CreateShortcut('{path}'); "
-                f"$s.TargetPath = '{target}'; "
-                f"$s.WorkingDirectory = '{workdir}'; "
+                f"$s = $ws.CreateShortcut({_ps_quote(path)}); "
+                f"$s.TargetPath = {_ps_quote(target)}; "
+                f"$s.WorkingDirectory = {_ps_quote(workdir)}; "
                 f"$s.Description = 'DeepSeek Pet'; "
                 f"$s.Save()"
             )

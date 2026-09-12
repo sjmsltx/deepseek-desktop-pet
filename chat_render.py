@@ -129,6 +129,12 @@ def md_to_html(text):
     return t
 
 
+def _esc(t):
+    """HTML 转义（表格单元格等拼进富文本前必须转义）"""
+    return (str(t).replace('&', '&amp;').replace('<', '&lt;')
+            .replace('>', '&gt;').replace('"', '&quot;'))
+
+
 def md_table(m):
     """Markdown 表格块 → HTML table（第二行 --- 为分隔符时视为表头）"""
     lines = [l.strip() for l in m.group(1).strip().splitlines() if l.strip().startswith('|')]
@@ -140,9 +146,9 @@ def md_table(m):
     body = rows[2:] if has_sep else rows  # 无表头时所有行都是数据
     html = '<table style="border-collapse:collapse;margin:4px 0;font-size:12px;max-width:100%">'
     if header:
-        html += '<tr>' + ''.join(f'<th style="border:1px solid #3a4152;padding:3px 8px;background:#2a3142">{c}</th>' for c in header) + '</tr>'
+        html += '<tr>' + ''.join(f'<th style="border:1px solid #3a4152;padding:3px 8px;background:#2a3142">{_esc(c)}</th>' for c in header) + '</tr>'
     for r in body:
-        html += '<tr>' + ''.join(f'<td style="border:1px solid #3a4152;padding:3px 8px">{c}</td>' for c in r) + '</tr>'
+        html += '<tr>' + ''.join(f'<td style="border:1px solid #3a4152;padding:3px 8px">{_esc(c)}</td>' for c in r) + '</tr>'
     if not body and not header:
         return m.group(1)
     return html + '</table>'

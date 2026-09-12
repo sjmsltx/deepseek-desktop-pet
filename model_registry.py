@@ -169,6 +169,22 @@ def validate_profile_fields(display_name, model_id, endpoint, color,
     return (not errs), errs
 
 
+def _safe_float(value, default=0.0):
+    """容错取数：非数字 / NaN / Inf 一律回退默认值。
+
+    v6.51：models.json 是用户可手编的文件，原先 ModelProfile 里直接 float() 解析，
+    写一个 temperature=abc 就会抛 ValueError 让桌宠起不来——而旁边
+    validate_profile_fields() 本就写好了校验，只是从没被复用。
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    if v != v or v in (float('inf'), float('-inf')):
+        return default
+    return v
+
+
 class ModelProfile:
     """一个模型的全部身份（对应 models.json 里的一条档案）"""
 
@@ -181,12 +197,18 @@ class ModelProfile:
         self.endpoint = str(d.get('endpoint') or DEFAULT_ENDPOINT)
         self.api_key_field = str(d.get('api_key_field') or 'deepseek_api_key')
         prm = d.get('params') or {}
-        self.temperature = float(prm.get('temperature', 1.0))
+        # 温度走容错 + 夹到合法区间（0.0~2.0），非法值回退出厂 1.0
+        self.temperature = min(2.0, max(0.0, _safe_float(prm.get('temperature', 1.0), 1.0)))
         self.max_tokens = clamp_tokens(prm.get('max_tokens', DEFAULT_MAX_TOKENS))
         self.reasoning = bool(prm.get('reasoning', True))
         price = d.get('price') or {}
-        self.price = ({k: float(v) for k, v in price.items() if k in ('input', 'cache', 'output')}
-                      if isinstance(price, dict) else {})
+        # 价格只收有效数字：非法项直接丢弃，price_known 才能如实反映"价格未知"
+        self.price = {}
+        if isinstance(price, dict):
+            for _k in ('input', 'cache', 'output'):
+                _v = _safe_float(price.get(_k), None)
+                if _v is not None and _v >= 0:      # 负价无意义（统计会算出负费用），丢弃
+                    self.price[_k] = _v
         app = d.get('appearance') or {}
         self.color = str(app.get('color') or '#B0C4DE')
         self.portrait = str(app.get('portrait') or '')
@@ -244,7 +266,15 @@ class ModelRegistry:
             self.loaded_from = 'builtin' if not os.path.exists(self.path) else 'recovered'
             self.save()
         else:
-            self._profiles = [ModelProfile(p) for p in raw['profiles'] if isinstance(p, dict)]
+            built = []
+            for p in raw['profiles']:
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    built.append(ModelProfile(p))
+                except Exception as e:                   # 单条档案损坏不该拖垮整个启动
+                    self.last_error = str(e)
+            self._profiles = built
             if not self._profiles:                       # 全是非法条目
                 self._profiles = self._build_default()
                 self.loaded_from = 'recovered'

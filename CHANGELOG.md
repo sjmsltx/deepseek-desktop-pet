@@ -5,6 +5,42 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.6.0] - 2026-09-12
+
+安全加固与健壮性修复（基于全局代码审查）——重点修掉「AI 能执行的命令基本没设防」
+和「配置文件写坏就起不来」两类问题。**不改变任何功能行为，只把口子堵上。**
+
+### 安全
+
+- **命令安全门重写**：`check_dangerous` 从「危险关键词黑名单」改为
+  「破坏性硬拒绝 + 只读白名单 + 默认拒绝」三层判定。旧黑名单实测放行
+  `Stop-Computer` / `rd /s /q` / `cmd /c del` / `icacls` / `taskkill /f`，
+  还误拦 `Remove-Item -Recurse -Force`；新规则已用 105 项断言固定（`tests/test_command_gate.py`）。
+- **表达式计算去掉裸 eval**：`calculate_expr` 改 AST 白名单求值，
+  并加长度 / 幂次 / 位宽上限（原先 `9**9**9` 会把进程算到卡死）。
+- **命令拼接不再裸拼字符串**：`open_app` 的 8 处 `os.system('start ...')` 改为
+  `os.startfile` / `webbrowser.open`（URL 仅允许 http/https）；
+  `search_files` 的路径与关键字改用 PowerShell 单引号转义；
+  `kill_process` 的进程名加白名单校验；自启快捷方式脚本的三个插值变量同样转义。
+- **聊天表格渲染补 HTML 转义**：`chat_render.md_table` 原先把单元格原文直插
+  `<td>`，AI 回复或文件内容里的 `<img src="file:///...">` 会被当富文本渲染。
+
+### 修复
+
+- `models.json` 里写一个 `temperature: "abc"` 曾让桌宠起不来（裸 `float()`）：
+  改容错取数 + 温度夹到 0.0~2.0 + 非法价格丢弃；单条档案损坏不再拖垮启动。
+- `role_anchor`（"回答你是谁"的角色规则）在 `build_system_prompt` 里算出来却从未拼进
+  prompt，现已接上（system prompt 3073 → 3200 字符）。
+- 小游戏「💾 保存」按钮曾是假按钮：15 款里只有扫雷实现了存档，其余点击只弹
+  「该游戏暂不支持保存进度」。现在只有真正支持存档的游戏才显示该按钮。
+- 连续粘贴多张截图会互相覆盖（固定文件名 `_pasted_ocr.png`）→ 文件名加毫秒时间戳，
+  清理逻辑改通配匹配。
+
+### 变更
+
+- `pyproject.toml` 版本号 `1.0.0` → `2.5.0`（此前落后 CHANGELOG 十个版本）；
+  补齐 `Pillow` / `pypdf` / `mcp` 的依赖声明（代码里是懒加载，声明此前缺失）。
+
 ## [2.5.0] - 2026-09-12
 
 设置整合与右键菜单精简（Phase 5）：把「动作」和「配置」分开。

@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DeepSeek 桌宠 · 全局评估与模块深挖报告</title>
+<style>
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:#0f1113;color:#e6e6e3;
+  font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+  font-size:16px;line-height:1.65;font-weight:400;}
+.shell{max-width:1360px;margin:0 auto;padding:0 40px;display:grid;
+  grid-template-columns:216px minmax(0,1fr);gap:56px;align-items:start}
+.cover{max-width:1360px;margin:0 auto;padding:104px 40px 56px}
+.kicker{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;color:#8d8d88;margin-bottom:28px}
+h1{font-size:52px;line-height:1.06;letter-spacing:-.025em;margin:0 0 26px;font-weight:600;max-width:820px}
+.lede{font-size:18px;color:#a9a9a4;max-width:60ch;margin:0 0 30px}
+.metabar{display:flex;flex-wrap:wrap;gap:0 28px;border-top:1px solid rgba(255,255,255,.10);
+  border-bottom:1px solid rgba(255,255,255,.10);padding:14px 0;
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;color:#8d8d88}
+.meta-item{white-space:nowrap}
+.meta-item .k{color:#d1813a}
+.toc{position:sticky;top:48px;padding-top:8px;font-size:13px}
+.toc .toc-h{font-family:ui-monospace,Consolas,monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:#6f6f6a;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.10);margin-bottom:14px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t;margin-bottom:9px;line-height:1.35}
+.toc li::before{content:counter(t,decimal-leading-zero);font-family:ui-monospace,Consolas,monospace;
+  font-size:10px;color:#6f6f6a;margin-right:9px}
+.toc a{color:#b9b9b4;text-decoration:none;border-bottom:1px solid transparent}
+.toc a:hover{color:#e6e6e3;border-bottom-color:#d1813a}
+main{padding-bottom:96px;min-width:0}
+h2{font-size:30px;line-height:1.16;letter-spacing:-.02em;font-weight:600;
+  margin:64px 0 0;padding-top:26px;border-top:1px solid rgba(255,255,255,.14)}
+h2 .folio{display:block;font-family:ui-monospace,Consolas,monospace;font-size:11px;
+  letter-spacing:.16em;color:#d1813a;margin-bottom:10px;font-weight:400}
+h3{font-size:19px;line-height:1.3;font-weight:600;margin:40px 0 12px;color:#f0f0ed}
+h4{font-size:15px;font-weight:600;margin:28px 0 10px;color:#c9c9c4}
+p{max-width:72ch;margin:14px 0}
+main ul,main ol{max-width:72ch;padding-left:20px}
+li{margin:7px 0}
+strong{font-weight:600;color:#f2f2ef}
+em{font-style:normal;color:#c9c9c4}
+a{color:#d1813a;text-decoration:none;border-bottom:1px solid rgba(209,129,58,.4)}
+a:hover{border-bottom-color:#d1813a}
+code{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:.9em;
+  background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;color:#dcdcd6}
+pre{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.09);
+  padding:16px 18px;overflow:auto;margin:20px 0;max-width:100%}
+pre code{background:none;padding:0;font-size:12.5px;line-height:1.6;color:#cfcfc9}
+.rule{border:0;border-top:1px solid rgba(255,255,255,.10);margin:48px 0;max-width:340px}
+.tw{overflow-x:auto;max-width:100%;margin:22px 0}
+table.rich-table{border-collapse:collapse;width:100%;font-size:13.5px}
+table.rich-table th,table.rich-table td{text-align:left;padding:10px 14px 10px 0;
+  border-bottom:1px solid rgba(255,255,255,.09);vertical-align:top}
+table.rich-table th{font-family:ui-monospace,Consolas,monospace;font-size:11px;
+  letter-spacing:.1em;text-transform:uppercase;color:#8d8d88;font-weight:400;
+  border-bottom-color:rgba(255,255,255,.20)}
+table.rich-table th,table.rich-table td{text-align:left;padding:10px 14px 10px 0;
+  border-bottom:1px solid rgba(255,255,255,.09);vertical-align:top}
+table.rich-table th.num,table.rich-table td.num{text-align:right;padding-right:18px}
+table.rich-table tr:last-child td{border-bottom-color:rgba(255,255,255,.16)}
+.sev{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-size:10px;
+  letter-spacing:.08em;padding:1px 6px;border-radius:3px;vertical-align:1px;white-space:nowrap}
+.sev1{color:#ffd9cf;background:rgba(198,74,42,.55)}
+.sev2{color:#f6e3c4;background:rgba(168,116,32,.5)}
+.sev3{color:#d5e6dd;background:rgba(66,110,92,.5)}
+.ok{color:#9dc4b0;font-weight:600}
+.warn{color:#d1813a;font-weight:600}
+.note{border-left:0;border-top:1px solid rgba(255,255,255,.10);
+  border-bottom:1px solid rgba(255,255,255,.10);padding:14px 0;margin:22px 0;
+  color:#a9a9a4;font-size:14.5px;max-width:72ch}
+.colophon{max-width:1360px;margin:0 auto;padding:36px 40px 80px;
+  border-top:1px solid rgba(255,255,255,.10);
+  font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#6f6f6a;line-height:1.8}
+@media (max-width:1000px){.shell{grid-template-columns:1fr;gap:0;padding:0 24px}
+  .toc{position:static;margin-bottom:8px}
+  .cover{padding:64px 24px 40px}h1{font-size:34px}.shell{max-width:100%}
+  .colophon{padding:28px 24px 64px}}
+</style></head><body>
+<header class="cover">
+  <div class="kicker">Code Review · DeepSeek Desktop Pet</div>
+  <h1>DeepSeek 桌宠 · 全局评估与模块深挖报告</h1>
+  <p class="lede">按「全局结构 → 单模块深挖 → 仓库体检 → 安全边界」四层自查，并用三路独立审查交叉验证。所有结论附文件行号与实测输出。</p>
+  <div class="metabar"><span class="meta-item"><span class="k">日期</span> 2026-09-12</span><span class="meta-item"><span class="k">对象</span> `E:\ai工作站\desktop-pet`（v6.43b / CHANGELOG 2.5.0）</span><span class="meta-item"><span class="k">方法</span> 静态通读 + 只读量化取底 + 异常输入实测 + 三方独立审查交叉验证</span></div>
+</header>
+<div class="shell">
+  <aside class="toc">
+    <div class="toc-h">Contents</div>
+    <ol><li><a href="#sec-1">摘要</a></li>
+<li><a href="#sec-2">一、全局评估</a></li>
+<li><a href="#sec-2-1">1.1 真实规模</a></li>
+<li><a href="#sec-2-2">1.2 分层现状（已明显拆过的部分）</a></li>
+<li><a href="#sec-2-3">1.3 依赖与版本（小问题，但会劝退用户）</a></li>
+<li><a href="#sec-2-4">1.4 测试与质量门</a></li>
+<li><a href="#sec-2-5">1.5 工程卫生</a></li>
+<li><a href="#sec-3">二、仓库体检：8.78 GB 里有 8.5 GB 是孤儿 pack</a></li>
+<li><a href="#sec-3-6">2.1 事实</a></li>
+<li><a href="#sec-3-7">2.2 另一笔账：182 MB 立绘资产</a></li>
+<li><a href="#sec-3-8">2.3 安全扫描（决定能否公开/分享）</a></li>
+<li><a href="#sec-3-9">2.4 建议动作（需你确认后我再执行）</a></li>
+<li><a href="#sec-4">三、模块深挖：<code>desktop_pet.py</code> / <code>PetWidget</code></a></li>
+<li><a href="#sec-4-10">3.1 规模</a></li>
+<li><a href="#sec-4-11">3.2 四个巨型方法</a></li>
+<li><a href="#sec-4-12">3.3 封装泄漏</a></li>
+<li><a href="#sec-4-13">3.4 关注点混合度（<code>PetWidget</code> 内部直接做的底层动作）</a></li>
+<li><a href="#sec-4-14">3.5 可提取模块（按方法名前缀聚类后人工核对）</a></li>
+<li><a href="#sec-4-15">3.6 重构建议（分三步，别一次动刀）</a></li>
+<li><a href="#sec-5">四、核心链路层审查发现</a></li>
+<li><a href="#sec-5-16">4.1 <span class="sev sev1">SEV-1</span> 严重</a></li>
+<li><a href="#sec-5-17">4.2 <span class="sev sev2">SEV-2</span> 中等</a></li>
+<li><a href="#sec-5-18">4.3 <span class="sev sev3">SEV-3</span> 低</a></li>
+<li><a href="#sec-6">五、数据存储与工具执行层：安全边界是最大短板</a></li>
+<li><a href="#sec-6-19">5.1 <span class="sev sev1">SEV-1</span> 严重（安全）</a></li>
+<li><a href="#sec-6-20">5.2 <span class="sev sev2">SEV-2</span> 中等</a></li>
+<li><a href="#sec-6-21">5.3 <span class="sev sev3">SEV-3</span> 低</a></li>
+<li><a href="#sec-6-22">5.4 建议的收敛路径（顺序很重要）</a></li>
+<li><a href="#sec-7">六、界面与交互层</a></li>
+<li><a href="#sec-7-23">6.1 量化取底</a></li>
+<li><a href="#sec-7-24">6.2 <span class="sev sev1">SEV-1</span> 严重（已逐条核对原始代码确认）</a></li>
+<li><a href="#sec-7-25">6.3 <span class="sev sev2">SEV-2</span> 中等</a></li>
+<li><a href="#sec-7-26">6.4 <span class="sev sev3">SEV-3</span> 值得优化</a></li>
+<li><a href="#sec-7-27">6.5 UI 层做得好的地方</a></li>
+<li><a href="#sec-8">七、优先级清单</a></li>
+<li><a href="#sec-8-28">P0 — 建议尽快修（都是小改动，收益大）</a></li>
+<li><a href="#sec-8-29">P1 — 值得排期</a></li>
+<li><a href="#sec-8-30">P2 — 结构性收益</a></li>
+<li><a href="#sec-9">八、做得好的地方（别只盯着问题）</a></li>
+<li><a href="#sec-10">附：本次取底方法与证据</a></li></ol>
+  </aside>
+  <main><hr class="rule">
+<h2 id="sec-1"><span class="folio">01</span>摘要</h2>
+<p>项目<strong>结构已经成型、可继续扩展</strong>，但有一批"不致命、却持续放血"的问题：仓库白占 8.5 GB、安全边界形同虚设、人设规则静默丢失、宿主类开始变重。按优先级排序，最重的五项是：</p>
+<div class="tw"><table class="rich-table"><thead><tr><th class="num">#</th><th>问题</th><th>性质</th><th>代价</th></tr></thead><tbody><tr><td class="num">1</td><td>仓库 8.78 GB 中约 <strong>8.5 GB 是 42 份近似重复的 pack</strong></td><td>工程卫生</td><td>每次 gc 报错、clone/备份极慢</td></tr><tr><td class="num">2</td><td>AI 可执行命令的<strong>黑名单可被大量绕过</strong>；<code>eval</code> 可被一次表达式打挂</td><td>安全</td><td>提示注入 → 执行任意命令</td></tr><tr><td class="num">3</td><td><code>model_registry</code> 用裸 <code>float()</code> 解析用户可编辑的 <code>models.json</code></td><td>稳定性</td><td>手滑一个字段 → 桌宠起不来</td></tr><tr><td class="num">4</td><td><code>prompt_builder</code> 的 <code>role_anchor</code> 是<strong>死代码</strong></td><td>功能静默回归</td><td>"你是谁"人设规则一直没生效</td></tr><tr><td class="num">5</td><td><code>desktop_pet.py</code> 一个类 5,889 行 / 252 方法 / 402 个 self 属性</td><td>架构</td><td>加功能的边际成本快速上升</td></tr></tbody></table></div>
+<p>前四项都是<strong>几行到几十行就能修</strong>的，第五项需要分阶段拆。</p>
+<hr class="rule">
+<h2 id="sec-2"><span class="folio">02</span>一、全局评估</h2>
+<h3 id="sec-2-1">1.1 真实规模</h3>
+<p>排除 <code>tests/</code>、<code>backup/</code>、<code>release_build/</code>、<code>输出/</code>、<code>assets/</code> 后，真源码 <strong>29 个 <code>.py</code> / 13,977 行</strong>——规模健康，不是"屎山"量级。</p>
+<div class="tw"><table class="rich-table"><thead><tr><th>文件</th><th class="num">行数</th><th class="num">占比</th></tr></thead><tbody><tr><td><code>desktop_pet.py</code></td><td class="num">6,199</td><td class="num">44.4%</td></tr><tr><td><code>pet_minigames.py</code></td><td class="num">2,020</td><td class="num">14.5%</td></tr><tr><td><code>regression_test.py</code></td><td class="num">864</td><td class="num">6.2%</td></tr><tr><td><code>model_registry.py</code></td><td class="num">484</td><td class="num">3.5%</td></tr><tr><td><code>tools_registry.py</code></td><td class="num">426</td><td class="num">3.0%</td></tr><tr><td><code>model_manager_ui.py</code></td><td class="num">402</td><td class="num">2.9%</td></tr><tr><td><code>settings_ui.py</code></td><td class="num">375</td><td class="num">2.7%</td></tr><tr><td><code>plugin_manager.py</code></td><td class="num">303</td><td class="num">2.2%</td></tr><tr><td><code>affection_engine.py</code></td><td class="num">301</td><td class="num">2.2%</td></tr><tr><td><code>pet_sysutils.py</code></td><td class="num">220</td><td class="num">1.6%</td></tr><tr><td>其余 19 个文件</td><td class="num">2,383</td><td class="num">17.1%</td></tr></tbody></table></div>
+<aside class="note">注意：工作区里的 <code>release_build/</code> 是 PyInstaller 产物，<strong>幸好已被 <code>.gitignore</code></strong>（未跟踪），但它会污染一切本地统计——本次取底已把它排除。</aside>
+<h3 id="sec-2-2">1.2 分层现状（已明显拆过的部分）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>层</th><th>模块</th><th>评价</th></tr></thead><tbody><tr><td>存储</td><td><code>pet_storage</code>、<code>chat_memory</code>、<code>personal_memory</code>、<code>memory_store</code>、<code>memory_events</code></td><td>已有 <code>atomic_write_json</code> 原子写，方向正确</td></tr><tr><td>引擎</td><td><code>affection_engine</code>、<code>care_engine</code>、<code>memory_engine</code></td><td>纯逻辑与副作用基本分离，可单测</td></tr><tr><td>网络</td><td><code>deepseek_client</code>、<code>api_stats</code></td><td>流式/重试/计费齐全，边界处理有欠缺</td></tr><tr><td>工具</td><td><code>tools_executor</code>、<code>tools_registry</code>、<code>pet_sysutils</code>、<code>plugin_manager</code>、<code>code_checker</code></td><td>功能全，<strong>安全边界是最大短板</strong></td></tr><tr><td>界面</td><td><code>settings_ui</code>、<code>model_manager_ui</code>、<code>affection_ui</code>、<code>chat_render</code></td><td>拆出来了，但与宿主仍有耦合</td></tr><tr><td>宿主</td><td><code>desktop_pet.py</code>、<code>pet_minigames.py</code></td><td>44% + 14.5% 代码仍集中在这两个文件</td></tr></tbody></table></div>
+<h3 id="sec-2-3">1.3 依赖与版本（小问题，但会劝退用户）</h3>
+<ul>
+<li><code>requirements.txt</code> 与 <code>pyproject.toml</code> <strong>都没声明 <code>PIL</code>(pillow)、<code>pypdf</code>、<code>rembg</code></strong>——按文档装完直接跑会 <code>ImportError</code>。</li>
+<li>版本号有三套：<code>pyproject.toml</code> = <strong>1.0.0</strong>、<code>CHANGELOG.md</code> = <strong>2.5.0</strong>、<code>README.md</code> = <strong>v6.30 / v6.81</strong>。</li>
+<li><code>.gitignore</code> 内有重复条目；<code>backup/</code> 明明已被忽略，却有 1 个文件被跟踪。</li>
+</ul>
+<h3 id="sec-2-4">1.4 测试与质量门</h3>
+<ul>
+<li><code>regression_test.py</code>（864 行，39 项）+ <code>tests/</code>（单测 18 项）。39 项回归我这边跑过，<strong>39/39 通过</strong>。</li>
+<li><strong>但</strong>：回归测试大量<strong>直接读写 <code>PetWidget</code> 的私有属性</strong>——<code>_choices_requested</code>、<code>_stream_text</code>、<code>_thinking_label</code>、<code>_status_widget</code>、<code>_on_stream</code>、<code>chat_history_msgs</code> 等。这意味着：<strong>任何重构都会让回归大面积返工</strong>，这正是宿主类难拆的根本原因。</li>
+<li>数字要客观：29 个模块里只有约一半有对应测试，<code>tools_executor</code>、<code>pet_sysutils</code>、<code>care_engine</code> 这类易错模块反而没测试。</li>
+</ul>
+<h3 id="sec-2-5">1.5 工程卫生</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>项</th><th class="num">数量</th><th>说明</th></tr></thead><tbody><tr><td><code>except: pass</code> / <code>except Exception: pass</code></td><td class="num">122（95 在 <code>desktop_pet.py</code>）</td><td>故障不可见，"出问题难定位"</td></tr><tr><td>硬编码盘符路径</td><td class="num">13</td><td>换机器/换盘即失效</td></tr><tr><td><code>TODO</code> / <code>FIXME</code></td><td class="num">0</td><td>这个反而说明注释纪律不错</td></tr><tr><td><code>eval</code></td><td class="num">3</td><td>数学表达式且带字符白名单，<strong>实际安全</strong></td></tr><tr><td>子进程 / <code>os.system</code></td><td class="num">23</td><td>其中 4 处有注入面（见四、五章）</td></tr><tr><td><code>QTimer</code> 创建 / <code>.stop()</code></td><td class="num">16 / 8</td><td>需逐个人工核对是否有未 stop 的重复触发</td></tr></tbody></table></div>
+<hr class="rule">
+<h2 id="sec-3"><span class="folio">03</span>二、仓库体检：8.78 GB 里有 8.5 GB 是孤儿 pack</h2>
+<h3 id="sec-3-6">2.1 事实</h3>
+<pre><code>.git 总占用                    8.78 GB
+.git/objects/pack             8.71 GB
+  .pack 42 个（每个 ≈223 MB）
+  .idx  42 个（每个 0.02–0.03 MB）
+  .rev  42 个 + multi-pack-index 1 个</code></pre>
+<p>三个独立口径互相矛盾，指向同一真相：</p>
+<div class="tw"><table class="rich-table"><thead><tr><th>口径</th><th>数值</th></tr></thead><tbody><tr><td><code>git count-objects -vH</code> → <code>in-pack</code></td><td>35,581 个对象条目</td></tr><tr><td><code>git cat-file --batch-all-objects</code> → <strong>唯一对象</strong></td><td><strong>985 个</strong></td></tr><tr><td><code>git rev-list --objects --all</code> → 可达对象</td><td>981 行</td></tr><tr><td>跟踪文件总体积</td><td>189.2 MB</td></tr><tr><td><code>git fsck</code></td><td>rc=0，仅 1 个游离 blob，<strong>无 <code>.keep</code> 文件</strong></td></tr></tbody></table></div>
+<p><strong>推断</strong>：<code>count-objects</code> 是把 42 个索引里的对象<strong>累加</strong>（42 × ≈847 ≈ 35,581），而按 SHA 去重后只有 985 个——也就是<strong>同一份历史被复制了约 36 遍</strong>。这与你一直看到的 <code>could not write multi-pack-index</code> / <code>failed to perform geometric repack</code> 是同一个病灶：多 pack 写出来了，旧 pack 没删掉，一次一次叠成了 8.7 GB。</p>
+<h3 id="sec-3-7">2.2 另一笔账：182 MB 立绘资产</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>目录</th><th>体积</th><th class="num">文件数</th></tr></thead><tbody><tr><td><code>assets/</code></td><td><strong>182.16 MB</strong></td><td class="num">112（PNG）</td></tr><tr><td><code>screenshots/</code></td><td>6.33 MB</td><td class="num">19</td></tr><tr><td>全部跟踪文件</td><td>189.2 MB</td><td class="num">215</td></tr></tbody></table></div>
+<p>单张立绘 <strong>2.4–3.9 MB</strong>（最大的 <code>assets/pro/pro_sing.png</code> = 3.85 MB）。桌宠立绘在屏幕上最多显示几百像素，这个体积是<strong>10 倍冗余</strong>；而且每改一次图，历史里就再存一份完整副本——这是 pack 能到 223 MB 的直接原因。建议 <code>pngquant</code>/<code>oxipng</code> 压缩或按显示尺寸缩放（通常能降到 200–400 KB），若不想改历史可先做增量优化。</p>
+<h3 id="sec-3-8">2.3 安全扫描（决定能否公开/分享）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>检查项</th><th>结果</th></tr></thead><tbody><tr><td>跟踪文件中的 API Key（<code>sk-*</code>/<code>api_key</code>/<code>Bearer</code>）</td><td><strong>0 命中</strong></td></tr><tr><td>真实邮箱 / 中文姓名</td><td><strong>0 命中</strong></td></tr><tr><td>个人绝对路径 <code><用户目录></code></td><td><strong>0 命中</strong>（跟踪文件）</td></tr><tr><td>游离（不可达）blob</td><td>1 个，内含 <code><用户目录></code>（是 <code>启动桌宠.bat</code> 的历史版本）——<strong>未跟踪、不会被推送</strong></td></tr><tr><td>remote</td><td><code>git@github.com:sjmsltx/deepseek-desktop-pet.git</code></td></tr></tbody></table></div>
+<p>结论：<strong>当前 HEAD 干净、可安全公开</strong>；历史里那个 <code>.bat</code> 已经被 <code>.gitignore</code> 挡在跟踪之外。</p>
+<h3 id="sec-3-9">2.4 建议动作（需你确认后我再执行）</h3>
+<pre><code># 0. 先备份 .git（8.8 GB，务必先备份再动）
+# 1. 合并所有 pack，删除冗余旧 pack
+git repack -ad
+# 2. 清掉已打包的松散对象
+git prune-packed
+# 3. 校验：对象数、历史条数、回归测试
+git fsck --no-progress
+git count-objects -vH      # 预期 size-pack 从 8.71 GiB 降到 ~0.23 GiB</code></pre>
+<p>风险提示：若这些 pack 的索引有损坏（<code>git verify-pack</code> 对它们报 <code>bad</code>），<code>repack</code> 可能中途失败；<strong>失败不要紧，因为对象齐全（fsck 通过）</strong>，届时改用手工保留最新 pack 的方式清理。这一步我不会擅自执行——<strong>要不要清、什么时候清，你定</strong>。</p>
+<hr class="rule">
+<h2 id="sec-4"><span class="folio">04</span>三、模块深挖：<code>desktop_pet.py</code> / <code>PetWidget</code></h2>
+<p>这是全项目最重的一块，也是"以后还能不能愉快加功能"的关键。</p>
+<h3 id="sec-4-10">3.1 规模</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>指标</th><th class="num">数值</th></tr></thead><tbody><tr><td>文件行数</td><td class="num">6,199</td></tr><tr><td><code>PetWidget</code> 类行数</td><td class="num">5,889</td></tr><tr><td>类中方法数</td><td class="num">252</td></tr><tr><td>方法体总行数</td><td class="num">5,542</td></tr><tr><td><code>__init__</code> 里写入的实例属性</td><td class="num">96</td></tr><tr><td>全类出现过的 <code>self.&lt;attr&gt;</code>（去重）</td><td class="num"><strong>402</strong></td></tr></tbody></table></div>
+<h3 id="sec-4-11">3.2 四个巨型方法</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>方法</th><th class="num">行数</th><th class="num"><code>if</code></th><th class="num"><code>try</code></th><th class="num">循环</th><th>调用次数（种类）</th><th class="num">调用的本类方法</th></tr></thead><tbody><tr><td><code>__init__</code></td><td class="num">311</td><td class="num">4</td><td class="num">4</td><td class="num">0</td><td>194（91）</td><td class="num">16</td></tr><tr><td><code>_ai_worker</code></td><td class="num">235</td><td class="num">20</td><td class="num">10</td><td class="num">3</td><td>103（43）</td><td class="num">17</td></tr><tr><td><code>_execute_tool</code></td><td class="num">166</td><td class="num"><strong>49</strong></td><td class="num">1</td><td class="num">1</td><td>133（50）</td><td class="num">12</td></tr><tr><td><code>_on_chat_input</code></td><td class="num">152</td><td class="num">31</td><td class="num">6</td><td class="num">2</td><td>96（40）</td><td class="num">18</td></tr></tbody></table></div>
+<p><code>_execute_tool</code> 的 49 个 <code>if</code> 就是"工具分发大 if-else 链"——工具注册表（<code>tools_registry.py</code>，426 行）已经存在，但<strong>分发还是靠 <code>_execute_tool</code> 里手写分支</strong>，新增工具要改宿主。这是最该先收敛的一处：把分支表变成注册表驱动的 <code>dict[工具名] → handler</code>。</p>
+<h3 id="sec-4-12">3.3 封装泄漏</h3>
+<p><strong>69 个 <code>PetWidget</code> 属性被其他模块直接读写</strong>。最大"越界客户"是 <code>regression_test.py</code>（读了 9 个私有属性），另有 <code>affection_ui.py</code>（<code>memories</code>）、<code>settings_ui.py</code>（<code>active_chat_enabled</code>）、<code>pet_minigames.py</code>（<code>timer</code>）。</p>
+<p>这不只是"不好看"：它意味着<strong>改内部状态 = 可能悄悄改坏测试和其他模块</strong>。拆宿主类之前，必须先把测试从私有属性解耦（给宿主加只读快照接口，如 <code>pet.snapshot()</code>）。</p>
+<h3 id="sec-4-13">3.4 关注点混合度（<code>PetWidget</code> 内部直接做的底层动作）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>动作</th><th class="num">次数</th></tr></thead><tbody><tr><td>线程 / 定时器（<code>QTimer</code>/<code>QThread</code>）</td><td class="num">43</td></tr><tr><td>文件读写（<code>open</code>/<code>read</code>/<code>write</code>）</td><td class="num">26</td></tr><tr><td>子进程 / <code>os.system</code></td><td class="num">23</td></tr><tr><td>JSON 读写</td><td class="num">17</td></tr><tr><td>Markdown / HTML 生成</td><td class="num">9</td></tr><tr><td>网络请求（<code>urllib</code>）</td><td class="num">8</td></tr></tbody></table></div>
+<h3 id="sec-4-14">3.5 可提取模块（按方法名前缀聚类后人工核对）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>可提取模块</th><th class="num">方法数</th><th class="num">行数</th><th class="num">占 <code>PetWidget</code></th></tr></thead><tbody><tr><td>状态机与动画（<code>_get_state_img</code>/<code>_render_frame</code>/<code>say_plain</code>/<code>play_scene</code>/<code>toggle_sleep</code>…）</td><td class="num">28</td><td class="num">367</td><td class="num">7%</td></tr><tr><td>气泡渲染与 Markdown（<code>_new_bubble</code>/<code>_md_*</code>/<code>_render_md_into</code>）</td><td class="num">21</td><td class="num">289</td><td class="num">5%</td></tr><tr><td>附件与文档解析（<code>_attach*</code>/<code>_ocr_image</code>/`_read_docx</td><td class="num">pdf</td><td class="num">xlsx</td><td class="num">pptx_text`）</td><td>12</td><td>205</td><td>4%</td></tr><tr><td>自身代码读写（<code>_read_own_file</code>/<code>_write_file_tool</code>/<code>_edit_own_code</code>）</td><td class="num">5</td><td class="num">175</td><td class="num">3%</td></tr><tr><td>天气 / 问候 / 主动报告</td><td class="num">9</td><td class="num">124</td><td class="num">2%</td></tr><tr><td>待办与提醒</td><td class="num">10</td><td class="num">106</td><td class="num">2%</td></tr><tr><td>任务队列</td><td class="num">8</td><td class="num">94</td><td class="num">2%</td></tr><tr><td><strong>小计</strong></td><td class="num"><strong>93</strong></td><td class="num"><strong>1,360</strong></td><td class="num"><strong>≈24%</strong></td></tr><tr><td>剩余（聊天管线 / 菜单 / 事件 / 配置）</td><td class="num">159</td><td class="num">4,182</td><td class="num">75%</td></tr></tbody></table></div>
+<h3 id="sec-4-15">3.6 重构建议（分三步，别一次动刀）</h3>
+<ol>
+<li><strong>先立接口，不搬代码</strong>：给 <code>PetWidget</code> 加只读快照（<code>snapshot()</code>）与几个窄接口（<code>say()</code>、<code>append_chat()</code>、<code>refresh_*()</code>），把 <code>regression_test.py</code> 和其他 UI 模块从 402 个属性里解放出来。</li>
+<ol>
+<li><strong>再搬 24%</strong>：优先搬<strong>附件解析</strong>（205 行，最独立、零耦合）和<strong>自身代码读写</strong>（175 行，安全敏感，单独一个模块更好加校验）。搬完立即跑 39 项回归。</li>
+<ol>
+<li><strong>最后收口</strong>：把 <code>_execute_tool</code> 的 49 个 <code>if</code> 换成注册表分发；<code>_ai_worker</code>（235 行）抽出「请求→流式→工具循环→落记忆」四段，每段一个函数。</li>
+<hr class="rule">
+<h2 id="sec-5"><span class="folio">05</span>四、核心链路层审查发现</h2>
+<p>（<code>deepseek_client</code> / <code>model_registry</code> / <code>api_stats</code> / <code>prompt_builder</code> / <code>memory_engine</code>；以下 <span class="sev sev1">SEV-1</span> 项我已独立复验）</p>
+<h3 id="sec-5-16">4.1 <span class="sev sev1">SEV-1</span> 严重</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>位置</th><th>问题</th><th>证据 / 复验</th></tr></thead><tbody><tr><td><code>model_registry.py:184,188,247</code></td><td>损坏的 <code>models.json</code> 直接让桌宠启动崩溃</td><td>实测 <code>ModelProfile({'params':{'temperature':'abc'}})</code> → <code>ValueError: could not convert string to float: 'abc'</code>；<code>load()</code> 未包 try。<strong>复验确认 <code>validate_profile_fields</code> 没有被 <code>__init__</code> 调用</strong>——写好的校验就在旁边没用</td></tr><tr><td><code>prompt_builder.py:98</code></td><td><code>role_anchor</code> 计算后从未拼入 system prompt</td><td><code>role_anchor</code> 在源码中<strong>只出现 1 次</strong>（赋值行）；<code>build_system_prompt</code> 输出 3,073 字符中不含"你是谁"。人设规则静默丢失</td></tr><tr><td><code>deepseek_client.py</code> stream 重试段</td><td>流式中途重试会把已 yield 的内容再发一遍</td><td>重试在 <code>yield</code> 之后触发，已发分块无法撤回 → 用户看到重复回复</td></tr></tbody></table></div>
+<h3 id="sec-5-17">4.2 <span class="sev sev2">SEV-2</span> 中等</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>位置</th><th>问题</th><th>建议</th></tr></thead><tbody><tr><td><code>prompt_builder.py:44,56</code></td><td><code>build_memory_block</code> 传 <code>None</code> 崩溃（<code>summaries[-3:]</code>）</td><td>加 <code>facts or []</code> / <code>summaries or []</code></td></tr><tr><td><code>deepseek_client.py:93-97</code></td><td>SSE 的 <code>{"error":...}</code> 被 <code>continue</code> 静默吞掉，用户只看到空回复</td><td>检出 <code>error</code> 字段并上报</td></tr><tr><td><code>memory_engine.py:116-120</code></td><td>无重排路径只按 <code>importance</code> 排序，与 docstring 不符</td><td>按 BM25 × 重要度 × 新旧加权</td></tr><tr><td><code>memory_engine.py:174</code></td><td><code>score_recency</code> 是死代码</td><td><strong>复验：全项目 0 次调用</strong>。"新记忆优先"从未生效</td></tr><tr><td><code>api_stats.py:204</code></td><td><code>_save()</code> 在锁外调用，与并发 <code>record()</code> 竞态</td><td>移入锁内</td></tr></tbody></table></div>
+<h3 id="sec-5-18">4.3 <span class="sev sev3">SEV-3</span> 低</h3>
+<p><code>RETRY_CODES</code> 缺 504 且 <code>time.sleep</code> 会冻结调用线程；<code>model_registry</code> 与 <code>prompt_builder</code> 的记忆块构建逻辑重复；中文分词只覆盖基本区 + 2-gram（单字/专名检索会失效）；<code>api_stats</code> 多处 <code>except: pass</code> + 类属性 <code>PRICES</code> 无锁共享。</p>
+<hr class="rule">
+<h2 id="sec-6"><span class="folio">06</span>五、数据存储与工具执行层：安全边界是最大短板</h2>
+<h3 id="sec-6-19">5.1 <span class="sev sev1">SEV-1</span> 严重（安全）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>位置</th><th>问题</th><th>我的复验原始输出</th></tr></thead><tbody><tr><td><code>pet_sysutils.py:18-25</code></td><td>危险命令<strong>黑名单可被大量绕过</strong>，且误拦正常操作</td><td><code>Stop-Computer</code> → <strong>放行</strong>；<code>rd /s /q C:\temp</code> → <strong>放行</strong>；<code>cmd /c del a.txt</code> → <strong>放行</strong>；<code>icacls x /grant</code> → <strong>放行</strong>；<code>taskkill /f /im x.exe</code> → <strong>放行</strong>；<code>echo hi &gt; a.txt</code> → <strong>放行</strong>；<code>tee a.txt</code> → <strong>放行</strong>。反而 <code>Remove-Item -Recurse -Force</code> 和 <code>New-Item</code> 被拦</td></tr><tr><td><code>tools_executor.py:30</code></td><td><code>calculate_expr</code> 裸 <code>eval</code> 且无长度/复杂度限制</td><td>子 Agent 实测 <code>calculate_expr('9**9**9')</code> <strong>直接把进程卡死</strong>（需 kill）；<code>'2**10'</code> 正常</td></tr><tr><td><code>desktop_pet.py:2004,2027</code></td><td><code>kill_process</code> / <code>search_files</code> 把 AI 可控字符串裸拼进 PowerShell</td><td><code>f'Get-Process -Name {proc} ...'</code>、<code>f'Get-ChildItem -Path "{fpath}" ... *{fname}*'</code>——<code>"</code> 或 <code>;</code> 可逃逸</td></tr><tr><td><code>desktop_pet.py:1107,1125,1146,1149,1173,1182</code></td><td><code>open_app</code> 用 <code>os.system(f'start {url}')</code> 裸拼，且全程无用户确认</td><td>实测上下文已确认；<code>&amp;</code>/`</td><td>` 可注入</td></tr><tr><td><code>memory_store.py:26,39</code></td><td><code>load/save</code> 用裸 <code>except: pass</code></td><td>文件损坏/磁盘满 → 记忆<strong>静默丢失</strong>，无任何日志</td></tr></tbody></table></div>
+<h3 id="sec-6-20">5.2 <span class="sev sev2">SEV-2</span> 中等</h3>
+<p><code>remember_fact</code> 用毫秒时间戳做 ID（同毫秒撞车，第二条会覆盖第一条）；<code>feed</code> 用存储的静态 <code>satiety</code> 而非衰减值（久不喂一次回满）；原子写在 <code>affection_engine</code>/<code>memory_events</code>/小游戏<strong>各写一遍</strong>，而小游戏存档<strong>压根不是原子写</strong>；<code>care_engine.judge_wakeup</code> 裸 <code>except: pass</code>（网络故障与"AI 不想打扰"无法区分）；<code>run_ps(skip_check=True)</code> 路径完全无校验。</p>
+<h3 id="sec-6-21">5.3 <span class="sev sev3">SEV-3</span> 低</h3>
+<p><code>code_checker</code> 临时文件名固定（并发互相覆盖 + 崩溃残留）；<code>memory_events</code> 回忆 ID 取模约 166 分钟回绕一次；<code>read_clipboard</code> 把剪贴板内容送入模型上下文且无隐私提示。</p>
+<h3 id="sec-6-22">5.4 建议的收敛路径（顺序很重要）</h3>
+<pre><code>1. 把 check_dangerous 从黑名单改成白名单（只放行只读查询类 cmdlet）
+2. 三处裸拼 shell 改为参数化调用：subprocess.Popen([...], shell=False)
+   open_app 用 webbrowser.open(url) / os.startfile(path)，并校验 scheme ∈ {http, https}
+3. calculate_expr 改用 ast 白名单求值 + 指数上限 + 长度上限
+4. 兜底：所有工具执行前，把「将要执行的原样命令」展示给用户确认（现在只有一个工具走确认）</code></pre>
+<hr class="rule">
+<h2 id="sec-7"><span class="folio">07</span>六、界面与交互层</h2>
+<h3 id="sec-7-23">6.1 量化取底</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>文件</th><th class="num">硬编码颜色</th><th class="num">纯白/纯黑</th><th class="num"><code>setStyleSheet</code></th><th class="num">emoji 字面量</th></tr></thead><tbody><tr><td><code>desktop_pet.py</code></td><td class="num">53</td><td class="num">2</td><td class="num">30</td><td class="num">243</td></tr><tr><td><code>pet_minigames.py</code></td><td class="num">107</td><td class="num">3</td><td class="num">16</td><td class="num">83</td></tr><tr><td><code>affection_ui.py</code></td><td class="num">21</td><td class="num">2</td><td class="num">6</td><td class="num">9</td></tr><tr><td><code>settings_ui.py</code></td><td class="num">6</td><td class="num">1</td><td class="num">7</td><td class="num">15</td></tr><tr><td><code>chat_render.py</code></td><td class="num">6</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr><tr><td><code>model_manager_ui.py</code></td><td class="num">2</td><td class="num">0</td><td class="num">2</td><td class="num">18</td></tr></tbody></table></div>
+<p><strong>深色主题下的漏网之鱼</strong>：<code>desktop_pet.py</code>、<code>settings_ui.py</code> 各 1 处、<code>affection_ui.py</code>、<code>pet_minigames.py</code> 各 2 处仍写死 <code>#fff</code>——上次样式表修复只解决了"整表失效"，<strong>没有解决"局部写死浅色"</strong>，这是同一类问题的残留。</p>
+<p><strong>定时器</strong>：<code>desktop_pet.py</code> 创建 <code>QTimer</code> 16 次、调用 <code>.stop()</code> 只有 8 次（另有 12 次 <code>singleShot</code>）。需要逐个人工核对哪些是常驻定时器（未 stop 会导致重复触发/动画叠加）。</p>
+<h3 id="sec-7-24">6.2 <span class="sev sev1">SEV-1</span> 严重（已逐条核对原始代码确认）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>位置</th><th>问题</th><th>证据</th></tr></thead><tbody><tr><td><code>desktop_pet.py:4592</code></td><td><strong>连续粘贴多张截图互相覆盖</strong></td><td>截图固定写到 <code>_pasted_ocr.png</code>（同一个文件名），附件卡片只存路径引用 → 连粘两张时两张卡片指向同一文件，先粘的那张内容已被覆盖，OCR 与送模型的内容全错</td></tr><tr><td><code>desktop_pet.py:428,3736,5333</code></td><td><strong>扒边时气泡被窗口裁掉半截</strong></td><td>气泡是窗口的子控件（<code>self.bubble = QLabel(self)</code>）；左右扒边时 <code>_enter_dock</code> 把窗口缩到 <code>self.pet_size</code> 宽 × 340 高；而 <code>_place_bubble</code> 只做 <code>bx = max(0, (self.width() - bw) // 2)</code>，<strong>不缩气泡宽度</strong> → 长句在 260px 宽的窗口里被硬裁。隐藏模式（窗口移到屏外）更极端</td></tr><tr><td><code>pet_minigames.py:179</code></td><td><strong>小游戏「保存」按钮对 14/15 款是假的，进度静默丢失</strong></td><td>通用 <code>_add_difficulty</code> 给<strong>所有</strong>游戏都加了保存按钮，但全项目只有 <code>Minesweeper</code> 实现了 <code>_state_to_save</code>（<code>:711</code>，基类 <code>:58</code> 是兜底），点击只弹「该游戏暂不支持保存进度」（<code>:74</code>）；同时 <code>closeEvent</code> 已不再自动保存，<code>_save_progress</code> 只剩定义、<strong>零调用</strong></td></tr></tbody></table></div>
+<p>对应修法都很小：粘贴文件名加时间戳；<code>_place_bubble</code> 加一句 <code>bw = min(bw, self.width() - 8)</code> 并在进扒边时 <code>bubble.hide()</code>；小游戏改为「子类没重写 <code>_state_to_save</code> 就不生成保存按钮」。</p>
+<h3 id="sec-7-25">6.3 <span class="sev sev2">SEV-2</span> 中等</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th>位置</th><th>问题</th></tr></thead><tbody><tr><td><code>chat_render.py:132-148</code></td><td><strong>表格渲染绕过 HTML 转义</strong>：<code>md_table</code> 把单元格原文直插 <code>&lt;td&gt;{c}&lt;/td&gt;</code>，而 <code>md_to_html</code>(<code>:96</code>) 是做了 <code>&amp;&lt;&gt;</code> 转义的 → AI 回复或文件内容里的 <code>&lt;img src="file:///…"&gt;</code> 会被当富文本渲染，样式错乱且可能加载本地图片。该表样式还写死 <code>#3a4152</code>/<code>#2a3142</code>，不跟主题</td></tr><tr><td><code>desktop_pet.py:4380,433</code></td><td>主题切换只刷聊天面板，<strong>顶部气泡背景在建构造时写死</strong> <code>rgba(255,255,255,0.92)</code> → 深色主题下永久白底刺眼</td></tr><tr><td><code>desktop_pet.py:1890</code></td><td><strong>主题切换没有用户入口</strong>：只有 AI 工具 <code>set_theme</code> 能切，右键菜单与设置窗口 6 页都没入口 → 已装的主题插件用户根本用不到</td></tr><tr><td><code>desktop_pet.py:614-628</code></td><td><strong>多显示器被拉回主屏</strong>：<code>_restore_position</code> 用 <code>primaryScreen().geometry()</code> 判界，<code>if x &lt; 0 ...</code> 一律视为越界 → 副屏在左侧（x 恒为负）时每次启动都被拖回主屏</td></tr><tr><td><code>desktop_pet.py:5434</code> 附近</td><td>隐藏贴边「彻底离开即退出贴边」分支实际不可达：窗口仍贴边 → 自由态判定必然再次进入扒边，每 33ms 重设一次窗口尺寸/位置，退出逻辑形同虚设</td></tr><tr><td><code>desktop_pet.py:5480</code></td><td>pro 角色三连击「吓到」立绘未设 <code>self.state</code> → 在途的眨眼/<code>_blend_end</code> 会提前把它覆盖回待机；普通角色分支设了 <code>state='happy'</code>，<strong>行为不一致</strong></td></tr><tr><td><code>pet_minigames.py:173</code></td><td>键盘类游戏（俄罗斯方块/贪吃蛇/2048）点过难度下拉后，方向键被 <code>QComboBox</code> 吞掉（改的是难度而不是移动）</td></tr><tr><td><code>settings_ui.py</code></td><td>部分控件不回填当前状态：贴边模式是动作按钮（无状态显示）；token 为非预设值时下拉<strong>显示空白</strong></td></tr></tbody></table></div>
+<h3 id="sec-7-26">6.4 <span class="sev sev3">SEV-3</span> 值得优化</h3>
+<ul>
+<li>小游戏 <strong>100 处硬编码深色 hex</strong>，与主界面主题系统完全脱节；<code>GameWindow</code> 15 行按钮无滚动区、固定宽 300，小屏易超出。</li>
+<li>基类能力没上收：<code>self.over = False</code> 重复 14 处、<code>_apply_difficulty</code> 重写 7 处、<code>_finish</code> 调用 32 处，可上收为 <code>BaseGame</code> 协议。</li>
+<li>气泡字号 12–13px 偏小；长历史（300 条）无虚拟化。</li>
+<li>浅色残留（见 6.1）：四处写死 <code>#fff</code>，深色主题下会刺眼。</li>
+</ul>
+<h3 id="sec-7-27">6.5 UI 层做得好的地方</h3>
+<ul>
+<li><code>say_plain</code> / <code>_append_chat</code> 在非主线程会<strong>自动转发回主线程</strong>——正确规避 Qt 跨线程崩溃。</li>
+<li>气泡操作按钮 hover 显示；复制/存图不污染对话历史。</li>
+<li>流式渲染把思考区折叠进同一张卡片；状态行删旧加新，不留残留。</li>
+<li><code>BaseGame.closeEvent</code> 统一 <code>findChildren(QTimer).stop()</code>，防关闭后定时器仍触发。</li>
+<li>附件 / 拖放 / 剪贴板三个入口统一收敛到 <code>_add_attachment</code>。</li>
+<li>输入框高度自适应、聊天面板边缘拖拽带屏幕钳制。</li>
+</ul>
+<hr class="rule">
+<h2 id="sec-8"><span class="folio">08</span>七、优先级清单</h2>
+<h3 id="sec-8-28">P0 — 建议尽快修（都是小改动，收益大）</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th class="num">#</th><th>事项</th><th>预计工作量</th></tr></thead><tbody><tr><td class="num">1</td><td><code>check_dangerous</code> 黑名单 → 白名单</td><td>30 分钟</td></tr><tr><td class="num">2</td><td>三处裸拼 shell → 参数化调用 + URL scheme 校验</td><td>1 小时</td></tr><tr><td class="num">3</td><td><code>calculate_expr</code> 改 <code>ast</code> 白名单 + 上限</td><td>30 分钟</td></tr><tr><td class="num">4</td><td><code>model_registry</code> 的 <code>float()</code> 加 try/兜底（复用现成的 <code>validate_profile_fields</code>）</td><td>20 分钟</td></tr><tr><td class="num">5</td><td><code>role_anchor</code> 拼进 system prompt</td><td>10 分钟</td></tr><tr><td class="num">6</td><td>小游戏保存按钮：子类未重写 <code>_state_to_save</code> 就不显示（止住进度静默丢失）</td><td>30 分钟</td></tr><tr><td class="num">7</td><td>粘贴截图文件名加时间戳（止住连粘覆盖）</td><td>10 分钟</td></tr><tr><td class="num">8</td><td><code>chat_render.md_table</code> 单元格补 HTML 转义（这是一处注入面）</td><td>10 分钟</td></tr><tr><td class="num">9</td><td>补 <code>requirements.txt</code>/<code>pyproject.toml</code> 的 <code>PIL</code>/<code>pypdf</code>/<code>rembg</code>，统一版本号</td><td>20 分钟</td></tr></tbody></table></div>
+<h3 id="sec-8-29">P1 — 值得排期</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th class="num">#</th><th>事项</th></tr></thead><tbody><tr><td class="num">10</td><td>仓库清理（备份 → <code>repack -ad</code>），回收 ~8.4 GB</td></tr><tr><td class="num">11</td><td>立绘资产压缩（182 MB → 预计 20 MB 量级）</td></tr><tr><td class="num">12</td><td>流式重试不再重复回显；SSE 错误上报</td></tr><tr><td class="num">13</td><td>静默异常加日志（先给 <code>memory_store</code>/<code>care_engine</code>/<code>api_stats</code>）</td></tr><tr><td class="num">14</td><td>扒边气泡裁切 + 主题切换入口 + 多显示器位置判定</td></tr><tr><td class="num">15</td><td><code>_execute_tool</code> 的 49 个 <code>if</code> 改为注册表分发</td></tr><tr><td class="num">16</td><td>小游戏存档改原子写；统一复用 <code>pet_storage.atomic_write_json</code></td></tr><tr><td class="num">17</td><td>给 <code>pet_sysutils</code>/<code>tools_executor</code> 补单测（安全相关，必须有测试兜底）</td></tr></tbody></table></div>
+<h3 id="sec-8-30">P2 — 结构性收益</h3>
+<div class="tw"><table class="rich-table"><thead><tr><th class="num">#</th><th>事项</th></tr></thead><tbody><tr><td class="num">18</td><td>先加 <code>snapshot()</code>/窄接口，把回归测试从私有属性解耦</td></tr><tr><td class="num">19</td><td>搬出附件解析（205 行）与自身代码读写（175 行）两块</td></tr><tr><td class="num">20</td><td>主题 token 化：把 100+ 处硬编码色值收进主题表</td></tr><tr><td class="num">21</td><td><code>score_recency</code> 要么接入排序、要么删掉（别留承诺不兑现的死代码）</td></tr><tr><td class="num">22</td><td>小游戏基类上收公共能力（<code>over</code>/难度/结束结算），减少 53 处重复</td></tr></tbody></table></div>
+<hr class="rule">
+<h2 id="sec-9"><span class="folio">09</span>八、做得好的地方（别只盯着问题）</h2>
+<ul>
+<li><strong>模块化拆分是真做了</strong>：13,977 行里只有 44% 还留在宿主类，存储/引擎/网络/工具/UI 五层边界清晰，<code>pet_storage.atomic_write_json</code> 这种基础件已经有了。</li>
+<li><strong><code>plugin_manager</code> 写了危险模式黑名单</strong>（检测 <code>eval(</code>/<code>exec(</code>/<code>compile(</code>）——方向对，说明安全意识存在于项目里，只是没贯彻到 <code>pet_sysutils</code>。</li>
+<li><strong>39 项回归测试能跑通</strong>，且覆盖了气泡、流式、情感、记忆等关键路径；<code>docs/</code> 里有 10 份方案/评估文档，<code>知识索引锚点.md</code>、<code>CONTRIBUTING.md</code>、<code>SECURITY.md</code>、<code>CODE_OF_CONDUCT.md</code>、<code>.github/</code> 模板齐全——开源要素比多数个人项目完整。</li>
+<li><strong>隐私纪律好</strong>：<code>config.json</code>（含 API Key、聊天记忆）<strong>从未进入过任何一次提交</strong>，历史扫描 0 命中。</li>
+<li><strong>代码里 0 个 TODO/FIXME</strong>，说明没留"以后再说"的坑。</li>
+</ul>
+<hr class="rule">
+<h2 id="sec-10"><span class="folio">10</span>附：本次取底方法与证据</h2>
+<ul>
+<li>量化脚本与原始输出：工作区 <code>desktop-pet-审查/</code>（<code>_pet_scan*.py</code> + 同名 <code>.txt</code>；本报告 HTML 由同目录 <code>_report_html.py</code> 生成）</li>
+<li>复验方式：直接 <code>import</code> 目标模块并喂异常输入（<code>float('abc')</code>、<code>check_dangerous</code> 12 条样本、<code>score_recency</code> 调用计数），<strong>不采信转述</strong></li>
+<li>三方独立审查：核心链路 / 数据与工具 / UI（UI 层因额度中断重派中）</li>
+<li>未联网核实项：<code>deepseek-flash</code>、<code>deepseek-v4-pro</code> 的价格数值与缓存价是否与官方一致（属数据维护，非代码问题）</li>
+</ul></main>
+</div>
+<div class="colophon">
+  单文件自包含 HTML · Native editorial · 无外链资源 · 无脚本<br>
+  量化取底与逐项复验由 AutoClaw 完成；deepseek-flash / v4-pro 价格未联网核实
+</div>
+</body></html>

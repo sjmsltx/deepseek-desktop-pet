@@ -98,6 +98,8 @@ def build_system_prompt(char_name, current, cur_model, personality, style_hint, 
     role_anchor = (f'你是{char_name}（角色：{current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{current}）；'
                    f'如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。')
     content = (
+        # v6.51：role_anchor 原先算出来却从没拼进 prompt（"回答你是谁"的规则一直静默丢失）
+        f'{role_anchor}'
         f'你是{char_name}，一只Q版桌宠，用中文。当前性格：{personality}。{style_hint}{lang_hint}'
         '你运行在 Windows 电脑上，可以调用工具帮用户操作电脑：打开程序/时间/计算/提醒/锁屏/天气，'
         '还能用 PowerShell 查询系统信息、进程、网络（危险操作如删除/关机/格式化需要用户确认后才会执行，不要反复尝试）。'
