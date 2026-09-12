@@ -457,42 +457,54 @@ test('H10 模型档案不含密钥（只存引用字段名）', t_h10)
 
 
 def t_h11():
-    """右键菜单：角色项由档案生成；设置里有模型管理入口与思考/温度开关"""
+    """右键菜单：一级 6 项；角色归入「形象」；配置收进「设置…」；用量与关系归入「状态」"""
     import desktop_pet
     reg = desktop_pet.MODEL_REGISTRY
     menu, acts = W._build_context_menu()
-    assert acts, '应返回可点击项字典'
-    # 注：PySide6 的 QMenu 包装器不能跨迭代长期持有（会报 already deleted），
-    # 所以拿到子菜单后立即把要校验的文本取成字符串
-    role_labels = None
-    settings_texts = []
-    top_names = []
+    # 当场把文本取成字符串（PySide6 的 QMenu 包装器不能跨迭代长期持有）
+    top, subs = [], {}
     for a in menu.actions():
-        top_names.append(a.text())
-        sub = a.menu()
-        if sub is None:
+        if a.isSeparator():
             continue
-        sub_names = [x.text() for x in sub.actions()]
-        if '角色' in a.text() or 'Role' in a.text():
-            role_labels = sub_names
-        if '设置' in a.text() or 'Settings' in a.text():
-            settings_texts += sub_names
-            for b in sub.actions():
-                sm = b.menu()
-                if sm is not None:
-                    settings_texts += [x.text() for x in sm.actions()]
-    assert role_labels is not None, '未找到角色子菜单：%s' % top_names
-    assert len(role_labels) == len(reg), '角色项数应与档案数一致（%d）：%s' % (len(reg), role_labels)
+        top.append(a.text())
+        sub = a.menu()
+        if sub is not None:
+            subs[a.text()] = [x.text() for x in sub.actions()]
+    first = [t for t in top if not t.startswith(('🏠', '✕'))]
+    assert len(first) == 6, '一级应为 6 项：%s' % first
+    assert '⚙️ 设置…' in first, first
+    assert acts.get('settings') is not None, '设置项未登记'
+    for want in ('💬', '🎭 形象', '📊 状态'):
+        assert any(want in t for t in first), '缺 %s：%s' % (want, first)
+    # 形象：角色由档案生成 + 性格 + 立绘模式
+    role = next((v for k, v in subs.items() if '形象' in k), None)
+    assert role is not None, '缺形象子菜单：%s' % list(subs)
     for k in reg.keys():
-        assert reg.get(k).display_name in role_labels, \
-            '角色菜单缺 %s：%s' % (reg.get(k).display_name, role_labels)
-    joined = ' | '.join(settings_texts)
-    assert '模型管理' in joined or 'Model Manager' in joined, '设置里缺模型管理入口：%s' % joined
-    assert '思考模式' in joined or 'Thinking' in joined, '设置里缺思考模式：%s' % joined
-    assert '采样温度' in joined or 'Temperature' in joined, '设置里缺采样温度：%s' % joined
+        assert reg.get(k).display_name in role, '形象里缺角色 %s：%s' % (k, role)
+    assert any('性格' in x for x in role), role
+    assert not any('menu_settings' in t for t in first)
+    # 互动：场景动作合并成一层（数量 = SCENE_ACTIONS）
+    short = None
+    for a in menu.actions():
+        s1 = a.menu()
+        if s1 is None:
+            continue
+        for b in s1.actions():
+            s2 = b.menu()
+            if s2 is not None and '场景动作' in b.text():
+                short = [x.text() for x in s2.actions()]
+    assert short is not None, '未找到场景动作子菜单'
+    assert len(short) == len(desktop_pet.SCENE_ACTIONS), \
+        '场景动作应合并成一层：%d vs %d' % (len(short), len(desktop_pet.SCENE_ACTIONS))
+    # 状态：关系 + API 用量
+    st = next((v for k, v in subs.items() if '状态' in k), None)
+    assert st and any('关系' in x for x in st) and any('API 用量' in x for x in st), st
+    # 菜单文案无重复 emoji
+    allt = ' | '.join(sum(subs.values(), []) + top)
+    assert '🌐 🌐' not in allt, '菜单文案 emoji 重复'
 
 
-test('H11 菜单角色项由档案生成 + 模型管理入口', t_h11)
+test('H11 右键菜单结构（一级 6 项 / 形象 / 状态 / 场景动作合并）', t_h11)
 
 
 def t_h12():
@@ -731,16 +743,21 @@ def t_h19():
     st2 = _as.ApiStats(os.path.join(d, 'api_stats.json'), registry=desktop_pet.MODEL_REGISTRY)
     assert {r['model']: r['count'] for r in st2.model_breakdown()}['deepseek-flash'] == 2, \
         '按模型累计应持久化'
-    # 菜单入口
-    menu, acts = W._build_context_menu()
-    names = []
-    for a in menu.actions():
-        sub = a.menu()
-        if sub is not None:
-            names += [x.text() for x in sub.actions()]
-    assert any('按模型统计' in x for x in names), '工具菜单缺按模型统计：%s' % names
-    assert not any('🌐 🌐' in x for x in names), \
-        '菜单文案 emoji 重复：%s' % [x for x in names if '🌐' in x]
+    # 菜单入口（递归收集：统计项现在在 状态 › API 用量 下）
+    def _collect(m, acc, depth=0):
+        if depth > 3:
+            return acc
+        for a in m.actions():
+            acc.append(a.text())
+            s2 = a.menu()
+            if s2 is not None:
+                _collect(s2, acc, depth + 1)
+        return acc
+
+    names = _collect(W._build_context_menu()[0], [])
+    assert any('按模型统计' in x for x in names), '菜单缺按模型统计：%s' % names
+    assert any('统计悬浮窗' in x or 'API 统计' in x for x in names), '菜单缺统计入口'
+    assert not any('🌐 🌐' in x for x in names), '菜单文案 emoji 重复'
 
 
 test('H19 按模型统计（累计/排序/未知价/持久化/菜单）', t_h19)
@@ -799,6 +816,42 @@ def t_h20():
 
 
 test('H20 每档案独立 key 字段（多服务商/中转）', t_h20)
+
+def t_h21():
+    """统一设置窗口：六个分类 + 控件回填 + 改动回写 + 按钮齐备"""
+    import desktop_pet
+    from settings_ui import SettingsDialog
+    from PySide6.QtWidgets import QPushButton
+    dlg = SettingsDialog(W, desktop_pet.MODEL_REGISTRY)
+    assert dlg.nav.count() == dlg.stack.count() == 6
+    names = [dlg.nav.item(i).text() for i in range(6)]
+    assert names == ['通用', '对话', '外观', '模型与 API', '记忆与数据', '系统'], names
+    for i in range(6):
+        dlg.nav.setCurrentRow(i)
+        assert dlg.stack.currentIndex() == i
+    # 控件回填应等于宿主状态
+    assert dlg.cb_lang.currentData() == getattr(W, 'language', 'zh')
+    assert dlg.cb_char.currentData() == getattr(W, 'current', '')
+    assert dlg.cb_tokens.currentData() == int(getattr(W, 'max_tokens', 0) or 0)
+    assert dlg.lb_model.text() == W._current_model()
+    # 改动回写（改完还原）
+    old = int(W.max_tokens or 0)
+    try:
+        tgt = 32000 if old != 32000 else 16000
+        dlg.cb_tokens.setCurrentIndex(dlg.cb_tokens.findData(tgt))
+        assert int(W.max_tokens) == tgt, '回复长度未回写到宿主'
+    finally:
+        dlg.cb_tokens.setCurrentIndex(dlg.cb_tokens.findData(old))
+    assert int(W.max_tokens) == old, '未还原'
+    # 按钮齐备（原设置子菜单的能力都搬进来了）
+    btns = [b.text() for b in dlg.findChildren(QPushButton)]
+    for need in ('关闭', '🎯 模型管理…', '🔑 修改 API Key…', '🌐 修改联网搜索 Key…',
+                 '🧠 管理窗口…', '⏰ 提醒管理', '📋 待办管理', '📤 导出聊天记录',
+                 '📦 存档并清空对话', '打开 Live2D 调试窗口', '自定义性格…'):
+        assert need in btns, '缺按钮 %s：%s' % (need, btns)
+
+
+test('H21 统一设置窗口（六分类 / 回填 / 回写 / 按钮齐备）', t_h21)
 
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)

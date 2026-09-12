@@ -44,6 +44,7 @@ from care_engine import user_idle_minutes, judge_wakeup, followup_message
 from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
                             MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
 from model_manager_ui import ModelManagerDialog  # Phase 2 模型管理对话框
+from settings_ui import SettingsDialog  # Phase 5 统一设置窗口
 from tools_registry import AI_TOOLS, TOOL_STATUS
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
@@ -6039,28 +6040,33 @@ class PetWidget(QWidget):
         dlg = MemoriesDialog(self.memories, self.current, CHARACTERS[self.current]['name'], self)
         dlg.exec()
 
+    def _open_settings(self, page=0):
+        """打开统一设置窗口（page 指定初始分类）"""
+        dlg = SettingsDialog(self, MODEL_REGISTRY, parent=self)
+        try:
+            if 0 <= int(page) < dlg.nav.count():
+                dlg.nav.setCurrentRow(int(page))
+        except Exception:
+            pass
+        dlg.exec()
+        self._load_ai_config()      # 关掉后再热加载一次，菜单/角色表立即反映改动
+
     def _build_context_menu(self):
         """构建右键菜单，返回 (menu, acts)。
-        拆成独立方法是为了能单独校验菜单内容（menu.exec 会阻塞，无法直接测）。"""
+        拆成独立方法是为了能单独校验菜单内容（menu.exec 会阻塞，无法直接测）。
+
+        Phase 5 重构：一级从 10 项压到 6 项——「动作」留在互动、「配置」收进设置窗口、
+        角色/性格/立绘合并为「形象」、关系与用量合并为「状态」。
+        功能一个不删，设置窗口里都能找到。"""
         T = self._t
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { font-size: 13px; }")
         acts = {}
 
-        # 1. 角色切换（子菜单）
-        cmenu = menu.addMenu(T('menu_role'))
-        # 角色项由模型档案生成（新增档案即出现，无需改代码）
-        for _pk in MODEL_REGISTRY.keys():
-            _prof = MODEL_REGISTRY.get(_pk)
-            _ra = cmenu.addAction(_prof.display_name if _prof else _pk)
-            _ra.setCheckable(True)
-            _ra.setChecked(_pk == self.current)
-            _ra.triggered.connect(lambda checked=False, k=_pk: self.switch_char(k))
-
-        # 2. 常用：和 AI 聊天（顶级）
+        # 1. 和 AI 聊天（最高频，置顶）
         acts['chat'] = menu.addAction(T('menu_chat'))
 
-        # 3. 互动（子菜单，含场景动作）
+        # 2. 互动：只放「做一件事」（动作 / 玩法 / 开关）
         imenu = menu.addMenu(T('menu_interact'))
         imenu.addAction(T('say')).triggered.connect(lambda: self.say_random())
         imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
@@ -6070,154 +6076,78 @@ class PetWidget(QWidget):
         imenu.addAction('🎮 小游戏').triggered.connect(self._open_games)
         imenu.addSeparator()
         imenu.addAction(T('sleep')).triggered.connect(lambda: self.toggle_sleep())
-        imenu.addSeparator()
         imenu.addAction(T('toggle_chat')).triggered.connect(lambda: self.toggle_chat_panel())
         imenu.addSeparator()
-        imenu.addAction(T('l2d_preview')).triggered.connect(self._open_live2d_preview)
-        imenu.addAction(T('archive')).triggered.connect(lambda: self._archive_and_clear())
-        act_active = imenu.addAction(T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
-        act_active.triggered.connect(lambda: self.toggle_active_chat())
+        # 场景动作：原先「常用 5 个 + 更多动作 7 个」两级嵌套，合并成一层 12 项
+        scene_menu = imenu.addMenu('🎬 场景动作')
+        for sk, (label, _desc) in SCENE_ACTIONS.items():
+            scene_menu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
         imenu.addSeparator()
-        # v6.30 动作分组：常用直接显示，其余收进「更多动作」子菜单（防臃肿）
-        scene_items = list(SCENE_ACTIONS.items())
-        COMMON_SCENE = {'eating', 'typing', 'reading', 'music', 'hug_whale'}
-        shown = [it for it in scene_items if it[0] in COMMON_SCENE]
-        rest = [it for it in scene_items if it[0] not in COMMON_SCENE]
-        for sk, (label, _desc) in shown:
-            imenu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
-        if rest:
-            more_menu = imenu.addMenu('🎬 更多动作')
-            for sk, (label, _desc) in rest:
-                more_menu.addAction(label).triggered.connect(lambda checked, k=sk: self.play_scene(k))
+        act_active = imenu.addAction(
+            T('active_care') + (T('on') if self.active_chat_enabled else T('off')))
+        act_active.setCheckable(True)
+        act_active.setChecked(bool(self.active_chat_enabled))
+        act_active.triggered.connect(lambda: self.toggle_active_chat())
 
-        # 4. 贴边模式（顶级开关）
-        acts['edgemode'] = menu.addAction(T('edge_mode') + (T('edge_hidden') if self._edge_mode == 'peek' else T('edge_peek')))
-
-        # 5. 工具（子菜单：API 统计 / 网络搜索等工具类功能）
-        tmenu = menu.addMenu('🔧 工具')
-        tmenu.addAction('📊 API 统计').triggered.connect(lambda: self._toggle_api_stats_window())
-        tmenu.addAction(T('search_setting')).triggered.connect(self._set_search_key_dialog)
-        tmenu.addSeparator()
-        tmenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
-        tmenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)
-        # v6.22 插件菜单项（menu 类插件）
-        plugin_menu_items = self.plugin_mgr.menu_items()
-        if plugin_menu_items:
-            tmenu.addSeparator()
-            for label, cmd, _pname in plugin_menu_items:
-                tmenu.addAction(f'{label}').triggered.connect(
-                    lambda checked, c=cmd: self._run_plugin_menu(c))
-
-        # 5.5 好感度关系面板（v6.30）
-        menu.addSeparator()
-        rmenu = menu.addMenu('❤️ 关系')
-        rmenu.addAction(f'📊 {CHARACTERS[self.current]["name"]} 的关系').triggered.connect(self._open_relation)
-        rmenu.addAction('📖 回忆相册').triggered.connect(self._open_memories)
-
-        # 6. 性格切换（子菜单）
-        pmenu = menu.addMenu(T('menu_personality'))
-        for pk, pl in [('温柔', 'person_gentle'), ('傲娇', 'person_tsundere'), ('吐槽', 'person_sarcastic'), ('元气', 'person_energetic'), ('高冷', 'person_cold')]:
-            pmenu.addAction(T(pl)).triggered.connect(lambda checked, pp=pk: self._set_personality(pp))
-
-        # 7. 设置（子菜单）
-        smenu = menu.addMenu(T('menu_settings'))
-        smenu.addAction(T('api_setting')).triggered.connect(self._set_api_key_dialog)
-        smenu.addAction(T('model_mgr')).triggered.connect(self._open_model_manager)
-        smenu.addSeparator()
-        # 思考模式 / 采样温度（原先只藏在 config.json 里，菜单没有入口）
-        think_act = smenu.addAction('🧠 ' + T('thinking') + '：' + (T('on') if getattr(self, 'reasoning_enabled', True) else T('off')))
-        think_act.setCheckable(True)
-        think_act.setChecked(getattr(self, 'reasoning_enabled', True))
-        think_act.triggered.connect(self._toggle_reasoning)
-        tmenu2 = smenu.addMenu('🌡 ' + T('temperature'))
-        for tv in (0.3, 0.7, 1.0, 1.3):
-            ta2 = tmenu2.addAction(str(tv))
-            ta2.setCheckable(True)
-            ta2.setChecked(abs(getattr(self, 'temperature', 1.0) - tv) < 1e-6)
-            ta2.triggered.connect(lambda checked=False, v=tv: self._set_temperature(v))
-        tmenu2.addSeparator()
-        tmenu2.addAction(T('custom')).triggered.connect(self._set_temperature_dialog)
-        smenu.addAction(f'{T("current")}：{self._current_model()}（{CHARACTERS[self.current]["name"]}）').setEnabled(False)
-        smenu.addSeparator()
-        rsmenu = smenu.addMenu(T('style_menu'))
-        for key, val in [('style_short', 'short'), ('style_normal', 'normal'), ('style_detailed', 'detailed')]:
-            ra = rsmenu.addAction(T(key))
-            ra.setCheckable(True)
-            ra.setChecked(getattr(self, 'reply_style', 'normal') == val)
-            ra.triggered.connect(lambda checked, v=val, k=key: self._set_reply_style(v, T(k)))
-        tmmenu = smenu.addMenu(T('token_menu'))
-        cur_tok = getattr(self, 'max_tokens', 1000)
-        for key, val in [('tok_short', 500), ('tok_normal', 1000), ('tok_long', 2000), ('tok_xlong', 4000),
-                         ('tok_max', 16000), ('tok_big', 32000), ('tok_huge', 64000), ('tok_xhuge', 128000)]:
-            ta = tmmenu.addAction(T(key))
-            ta.setCheckable(True)
-            ta.setChecked(cur_tok == val)
-            ta.triggered.connect(lambda checked, v=val, k=key: self._set_max_tokens(v, T(k)))
-        tmmenu.addSeparator()
-        tmmenu.addAction(T('custom')).triggered.connect(self._set_max_tokens_dialog)
-        smenu.addSeparator()
-        # 显示模式：静态立绘 / Live2D
-        modemenu = smenu.addMenu(T('mode_menu'))
-        ma_static = modemenu.addAction(T('mode_static'))
+        # 3. 形象：角色 / 立绘 / 性格（合并原「角色」「性格切换」与立绘模式）
+        fmenu = menu.addMenu('🎭 形象')
+        # 角色项由模型档案生成（新增档案即出现，无需改代码）
+        for _pk in MODEL_REGISTRY.keys():
+            _prof = MODEL_REGISTRY.get(_pk)
+            _ra = fmenu.addAction(_prof.display_name if _prof else _pk)
+            _ra.setCheckable(True)
+            _ra.setChecked(_pk == self.current)
+            _ra.triggered.connect(lambda checked=False, k=_pk: self.switch_char(k))
+        fmenu.addSeparator()
+        ma_static = fmenu.addAction(T('mode_static'))
         ma_static.setCheckable(True)
         ma_static.setChecked(getattr(self, 'display_mode', 'static') != 'live2d')
         ma_static.triggered.connect(lambda: self._set_display_mode('static'))
-        ma_l2d = modemenu.addAction(T('mode_live2d'))
+        ma_l2d = fmenu.addAction(T('mode_live2d'))
         ma_l2d.setCheckable(True)
         ma_l2d.setChecked(getattr(self, 'display_mode', 'static') == 'live2d')
         ma_l2d.triggered.connect(lambda: self._set_display_mode('live2d'))
-        # Live2D 模型库：扫描 assets/live2d/，用户放入 model3.json 文件夹即可选用
-        l2dmm = modemenu.addMenu(T('l2d_model_menu'))
-        l2d_models = self._scan_live2d_models()
-        if l2d_models:
-            cur_model = getattr(self, 'live2d_model', 'mao')
-            for mname in sorted(l2d_models):
-                ma = l2dmm.addAction(mname)
-                ma.setCheckable(True)
-                ma.setChecked(mname == cur_model)
-                ma.triggered.connect(lambda checked, n=mname: self._set_live2d_model(n))
-        else:
-            l2dmm.addAction(T('l2d_no_model')).setEnabled(False)
-        smenu.addSeparator()
-        smenu.addAction(T('city')).triggered.connect(self._set_city_dialog)
-        smenu.addAction(T('custom_personality')).triggered.connect(self._set_personality_dialog)
-        smenu.addSeparator()
-        mmmenu = smenu.addMenu(T('memory_menu'))
-        mmmenu.addAction(T('mem_mgr')).triggered.connect(self._open_memory_manager)
-        mmmenu.addSeparator()
-        mmmenu.addAction(T('view_memory')).triggered.connect(self._show_memory)
-        mmmenu.addAction(T('delete_memory')).triggered.connect(self._delete_memory_dialog)
-        mmmenu.addAction(T('clear_memory')).triggered.connect(self._clear_memory_confirm)
-        mmmenu.addSeparator()
-        mmmenu.addAction(T('mem_backup')).triggered.connect(self._export_memory_backup)
-        mmmenu.addAction(T('mem_import')).triggered.connect(self._import_memory_backup)
-        smenu.addAction(T('reminder_menu')).triggered.connect(self._open_reminder_manager)
-        smenu.addAction(T('todo_menu')).triggered.connect(self._open_todo_manager)
-        smenu.addSeparator()
-        smenu.addAction(T('export_chat')).triggered.connect(self._export_chat)
-        smenu.addSeparator()
-        autostart_act = smenu.addAction(T('autostart') + (T('on') if self.is_autostart_enabled() else T('off')))
-        autostart_act.setCheckable(True)
-        autostart_act.setChecked(self.is_autostart_enabled())
-        autostart_act.triggered.connect(self.toggle_autostart)
-        smenu.addSeparator()
-        # 语言切换
-        langmenu = smenu.addMenu(T('language_menu'))
-        act_zh = langmenu.addAction('中文')
-        act_zh.setCheckable(True)
-        act_zh.setChecked(getattr(self, 'language', 'zh') == 'zh')
-        act_zh.triggered.connect(lambda: self._set_language('zh'))
-        act_en = langmenu.addAction('English')
-        act_en.setCheckable(True)
-        act_en.setChecked(getattr(self, 'language', 'zh') == 'en')
-        act_en.triggered.connect(lambda: self._set_language('en'))
+        fmenu.addSeparator()
+        pmenu = fmenu.addMenu(T('menu_personality'))
+        for pk, pl in [('温柔', 'person_gentle'), ('傲娇', 'person_tsundere'),
+                       ('吐槽', 'person_sarcastic'), ('元气', 'person_energetic'),
+                       ('高冷', 'person_cold')]:
+            pmenu.addAction(T(pl)).triggered.connect(lambda checked, pp=pk: self._set_personality(pp))
+        fmenu.addSeparator()
+        fmenu.addAction('🎯 更多形象设置…').triggered.connect(lambda: self._open_settings(2))
+
+        # 4. 贴边模式（状态开关，留在一级）
+        acts['edgemode'] = menu.addAction(
+            T('edge_mode') + (T('edge_hidden') if self._edge_mode == 'peek' else T('edge_peek')))
+
+        # 5. 状态：关系 + 用量统计（合并原「关系」与「工具」里的统计项）
+        stmenu = menu.addMenu('📊 状态')
+        stmenu.addAction('❤️ 与 %s 的关系' % CHARACTERS[self.current]['name']).triggered.connect(
+            self._open_relation)
+        stmenu.addAction('📖 回忆相册').triggered.connect(self._open_memories)
+        stmenu.addSeparator()
+        umenu = stmenu.addMenu('📈 API 用量')
+        umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())
+        umenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)
+        umenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
+
+        # 6. 设置…（统一设置窗口，替代原来的 40+ 项设置子菜单）
+        acts['settings'] = menu.addAction('⚙️ 设置…')
+        acts['settings'].triggered.connect(self._open_settings)
+
+        # 7. 插件（有 menu 类插件时才出现，避免空项占位）
+        plugin_menu_items = self.plugin_mgr.menu_items()
+        if plugin_menu_items:
+            plmenu = menu.addMenu('🔌 插件')
+            for label, cmd, _pname in plugin_menu_items:
+                plmenu.addAction('%s' % label).triggered.connect(
+                    lambda checked, c=cmd: self._run_plugin_menu(c))
 
         menu.addSeparator()
         acts['hide'] = menu.addAction(T('hide_tray'))
         menu.addSeparator()
         acts['exit'] = menu.addAction(T('exit'))
         return menu, acts
-
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
