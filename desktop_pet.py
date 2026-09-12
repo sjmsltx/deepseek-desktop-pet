@@ -38,6 +38,8 @@ from pet_sysutils import (
 )
 from pet_storage import atomic_write_json as _atomic_write_json_impl
 from pet_log import get_logger
+from pet_docs import (read_docx_text, read_pdf_text, read_xlsx_text, read_pptx_text,
+                        ocr_image, read_own_file, TEXT_BY_KIND)
 
 log = get_logger('ui')
 from api_stats import ApiStats
@@ -1657,51 +1659,6 @@ class PetWidget(QWidget):
         total = len(hits)
         return '\n'.join(hits[:max_results]) + (f'\n…（共 {total} 处，仅显示前 {max_results} 条）' if total > max_results else '')
 
-    def _read_own_file(self, rel_path, start_line=None, end_line=None):
-        """AI 读自己的文件（限项目目录内，防穿越；v6.25 支持行号范围，带行号输出方便精确引用）"""
-        try:
-            full = os.path.normpath(os.path.join(BASE_DIR, rel_path or ''))
-            if not full.startswith(os.path.normpath(BASE_DIR)):
-                return '（路径越界，拒绝读取）'
-            if not os.path.isfile(full):
-                # v6.41：目录 → 返回文件列表（AI 可浏览项目结构）
-                if os.path.isdir(full):
-                    _lines = []
-                    for _f in sorted(os.listdir(full)):
-                        _fp = os.path.join(full, _f)
-                        if os.path.isfile(_fp):
-                            try:
-                                _n = sum(1 for _ in open(_fp, encoding='utf-8', errors='ignore'))
-                            except Exception:
-                                _n = 0
-                            _lines.append(f'{_f} ({_n} 行)')
-                        elif os.path.isdir(_fp):
-                            _lines.append(f'{_f}/')
-                    return '（目录内容）\n' + '\n'.join(_lines[:60]) if _lines else '（空目录）'
-                return f'（文件不存在：{rel_path}）'
-            # 敏感文件禁止读取（API key/隐私数据，防止泄露给 AI）
-            _low = full.lower()
-            if any(_s in _low for _s in ('config.json', 'api_stats.json', 'affection.json',
-                                         'memories.json', 'chat_memory', '.env', 'api_key', 'private_key')):
-                return '（敏感文件拒绝读取：包含 API 密钥/隐私数据）'
-            if _low.endswith(('.py', '.md', '.txt', '.json', '.bat', '.ps1', '.html')):
-                with open(full, encoding='utf-8', errors='ignore') as f:
-                    content = f.read()  # 行号模式需读全文件（v6.25）
-                if start_line is not None:
-                    try:
-                        lines = content.splitlines()
-                        s = max(0, int(start_line) - 1)
-                        e = len(lines) if end_line is None else min(len(lines), int(end_line))
-                        sel = lines[s:e]
-                        content = '\n'.join(f'{s + i + 1}: {ln}' for i, ln in enumerate(sel))
-                    except Exception:
-                        pass
-                else:
-                    content = content[:8000]
-                return content
-            return f'（不支持读取该类型文件：{rel_path}）'
-        except Exception as e:
-            return f'（读取失败：{e}）'
 
     def _write_config_tool(self, key, value):
         """AI 修改白名单配置（敏感字段禁止，改完热加载）"""
@@ -1984,7 +1941,7 @@ class PetWidget(QWidget):
         return self._search_code(args.get('keyword', ''))
 
     def _tool_read_file(self, args):
-        return self._read_own_file(args.get('path', ''), args.get('start_line'), args.get('end_line'))
+        return read_own_file(args.get('path', ''), BASE_DIR, args.get('start_line'), args.get('end_line'))
 
     def _tool_edit_own_code(self, args):
         return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''),
@@ -4725,19 +4682,6 @@ class PetWidget(QWidget):
         self._add_attachment(path)
         return True
 
-    def _ocr_image(self, path):
-        """Windows 自带 OCR（PowerShell WinRT，零依赖），返回识别文本"""
-        try:
-            r = _subprocess.run(
-                ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', OCR_PS1, path],
-                capture_output=True, timeout=120)
-            if r.returncode != 0:
-                return ''
-            return r.stdout.decode('utf-8', errors='ignore').strip()
-        except Exception:
-            return ''
-
-    # ---------- 文件附件（拖放进聊天框） ----------
     def _insert_dropped_paths(self, urls):
         """拖放文件 → 路径插入输入框（用户可继续输入需求）"""
         from PySide6.QtCore import QUrl
@@ -4768,70 +4712,9 @@ class PetWidget(QWidget):
         else:
             super().dropEvent(e)
 
-    def _read_docx_text(self, path):
-        """docx 文本提取：zip + XML，纯标准库（docx 本质是 zip 包）"""
-        import zipfile
-        import re as _re
-        try:
-            with zipfile.ZipFile(path) as z:
-                xml = z.read('word/document.xml').decode('utf-8', errors='ignore')
-            # 按段落拆（</w:p>），逐段提取 <w:t> 文本，段落间换行
-            paras = []
-            for seg in xml.split('</w:p>'):
-                ts = _re.findall(r'<w:t[^>]*>(.*?)</w:t>', seg, _re.S)
-                if ts:
-                    paras.append(''.join(ts))
-            return '\n'.join(paras).strip()
-        except Exception as e:
-            return f'（docx 解析失败：{e}）'
 
-    def _read_pdf_text(self, path):
-        """pdf 文本提取（需 pypdf：pip install pypdf）"""
-        try:
-            from pypdf import PdfReader
-        except ImportError:
-            return '（PDF 解析需要 pypdf：pip install pypdf，安装后重启桌宠即可读取）'
-        try:
-            reader = PdfReader(path)
-            pages = []
-            for i, page in enumerate(reader.pages[:15]):
-                pages.append(page.extract_text() or '')
-            return '\n'.join(pages).strip()
-        except Exception as e:
-            return f'（PDF 解析失败：{e}）'
 
-    def _read_xlsx_text(self, path):
-        """xlsx 文本提取：zip + sharedStrings（纯标准库）"""
-        import zipfile
-        import re as _re
-        try:
-            with zipfile.ZipFile(path) as z:
-                names = z.namelist()
-                parts = []
-                if 'xl/sharedStrings.xml' in names:
-                    xml = z.read('xl/sharedStrings.xml').decode('utf-8', errors='ignore')
-                    parts.append('\n'.join(_re.findall(r'<t[^>]*>(.*?)</t>', xml, _re.S)))
-                return '\n'.join(p for p in parts if p).strip() or '（空表格）'
-        except Exception as e:
-            return f'（xlsx 解析失败：{e}）'
 
-    def _read_pptx_text(self, path):
-        """pptx 文本提取：zip + 各 slide 的 <a:t>（纯标准库）"""
-        import zipfile
-        import re as _re
-        try:
-            with zipfile.ZipFile(path) as z:
-                slides = sorted(n for n in z.namelist()
-                                if n.startswith('ppt/slides/slide') and n.endswith('.xml'))
-                parts = []
-                for s in slides:
-                    xml = z.read(s).decode('utf-8', errors='ignore')
-                    texts = _re.findall(r'<a:t[^>]*>(.*?)</a:t>', xml, _re.S)
-                    if texts:
-                        parts.append(''.join(texts))
-                return '\n'.join(parts).strip() or '（空演示文稿）'
-        except Exception as e:
-            return f'（pptx 解析失败：{e}）'
 
     def _add_attachment(self, path):
         """加入待发附件（统一暂存，显示卡片）"""
@@ -4953,7 +4836,7 @@ class PetWidget(QWidget):
                 Image.open(path).convert('RGB').save(dst, 'PNG')
                 self._append_chat('桌宠', '🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing text…')
                 import threading
-                threading.Thread(target=lambda: self.ocr_signal.emit(self._ocr_image(dst)), daemon=True).start()
+                threading.Thread(target=lambda: self.ocr_signal.emit(ocr_image(dst, OCR_PS1)), daemon=True).start()
             except Exception as e:
                 self._append_chat('桌宠', f'图片处理失败：{e}' if not is_en else f'Image error: {e}')
         elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
@@ -5000,7 +4883,7 @@ class PetWidget(QWidget):
             import threading
             def worker():
                 try:
-                    self.ocr_signal.emit(self._ocr_image(path))
+                    self.ocr_signal.emit(ocr_image(path, OCR_PS1))
                 except Exception:
                     pass
             threading.Thread(target=worker, daemon=True).start()
@@ -5040,25 +4923,25 @@ class PetWidget(QWidget):
                             except Exception:
                                 parts.append(f'【{a["name"]}】（读取失败）')
                         elif a['kind'] == 'docx':
-                            content = self._read_docx_text(a['path'])
+                            content = read_docx_text(a['path'])
                             if len(content) > 8000:
                                 parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
                             else:
                                 parts.append(f'【{a["name"]}】\n{content}')
                         elif a['kind'] == 'pdf':
-                            content = self._read_pdf_text(a['path'])
+                            content = read_pdf_text(a['path'])
                             if len(content) > 8000:
                                 parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
                             else:
                                 parts.append(f'【{a["name"]}】\n{content}')
                         elif a['kind'] == 'xlsx':
-                            content = self._read_xlsx_text(a['path'])
+                            content = read_xlsx_text(a['path'])
                             if len(content) > 8000:
                                 parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
                             else:
                                 parts.append(f'【{a["name"]}】\n{content}')
                         elif a['kind'] == 'pptx':
-                            content = self._read_pptx_text(a['path'])
+                            content = read_pptx_text(a['path'])
                             if len(content) > 8000:
                                 parts.append(f'【{a["name"]}】（共 {len(content)} 字符，仅读取前 8000 字符）\n{content[:8000]}')
                             else:
@@ -5068,7 +4951,7 @@ class PetWidget(QWidget):
                     if images:
                         for a in images:
                             try:
-                                ocr_text = self._ocr_image(a['path'])
+                                ocr_text = ocr_image(a['path'], OCR_PS1)
                                 parts.append(f'【图片 {a["name"]} OCR】\n{ocr_text}')
                             except Exception:
                                 parts.append(f'【图片 {a["name"]}】（OCR 失败）')
