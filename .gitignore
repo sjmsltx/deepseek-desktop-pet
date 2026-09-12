@@ -14,6 +14,7 @@ todos.json
 
 # 打包产物
 release_build/
+logs/
 build/
 dist/
 *.spec

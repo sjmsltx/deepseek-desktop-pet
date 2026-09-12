@@ -19,6 +19,10 @@ from model_registry import DEFAULT_ENDPOINT
 # 全项目唯一的接口地址默认值定义在 model_registry；实际请求地址由调用方从模型档案传入。
 API_URL = DEFAULT_ENDPOINT
 
+from pet_log import get_logger  # noqa: E402
+
+_log = get_logger('care_engine')
+
 
 def user_idle_minutes():
     """用户空闲分钟数（GetLastInputInfo，纯 ctypes）"""
@@ -57,8 +61,8 @@ def judge_wakeup(api_key, model, state, char_name, record_cb=None, endpoint=None
         m = re.search(r'\{[^{}]*\}', content, re.S)
         if m:
             return json.loads(m.group(0))
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug('唤醒判定返回内容无法解析为 JSON（按不唤醒处理）：%s', e)
     return None
 
 
@@ -78,5 +82,6 @@ def followup_message(api_key, model, state, topic, char_name, record_cb=None, en
         if record_cb:
             record_cb(r)
         return (r['choices'][0]['message'].get('content') or '').strip() or None
-    except Exception:
+    except Exception as e:
+        _log.warning('回访消息生成失败（本轮跳过关心）：%s', e)
         return None

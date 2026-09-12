@@ -37,6 +37,9 @@ from pet_sysutils import (
     is_safe_process_name as _is_safe_process_name,
 )
 from pet_storage import atomic_write_json as _atomic_write_json_impl
+from pet_log import get_logger
+
+log = get_logger('ui')
 from api_stats import ApiStats
 from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
@@ -263,6 +266,10 @@ DEFAULT_THEME = {
     'scroll_handle': '#ffffff',
     'scroll_handle_hover': 'rgba(255,255,255,0.65)',
     'bubble_text': '#eee',  # v6.44 气泡内文字颜色（主题化：白底气泡需配深色文字）
+    # v6.51 顶部说话气泡（say_plain）的配色——此前写死在控件里，换深色主题后仍是刺眼白底
+    'say_bg': 'rgba(255,255,255,0.92)',
+    'say_text': '#333',
+    'say_border': '#ccc',
 }
 
 
@@ -623,22 +630,26 @@ class PetWidget(QWidget):
                     cfg = json.load(f)
                 x, y = cfg.get('x'), cfg.get('y')
                 if x is not None and y is not None:
-                    # 屏幕边界保护：坐标在屏幕外则移回屏幕内
-                    screen = QApplication.primaryScreen()
-                    if screen:
-                        avail = screen.geometry()
-                        if x < 0 or x > avail.right() - 100:
-                            x = avail.right() - self.width() - 40
-                        if y < 0 or y > avail.bottom() - 100:
-                            y = avail.bottom() - self.height() - 60
-                    self.move(x, y)
-                    self.base_x, self.base_y = x, y
-                    return
+                    # v6.51 多显示器修正：原先只拿 primaryScreen 判界、且把 x<0 一律当越界，
+                    # 副屏在主屏左侧时（x 恒为负）每次启动都被强行拉回主屏。
+                    # 现在先问"这个坐标落在哪块屏幕"，再在该屏工作区内钳制窗口。
+                    scr = None
+                    try:
+                        scr = QApplication.screenAt(QPoint(int(x), int(y)))
+                    except Exception:
+                        scr = None
+                    if scr is not None:
+                        avail = scr.availableGeometry()
+                        x = max(avail.left() - 4, min(int(x), avail.right() - self.width() + 8))
+                        y = max(avail.top() - 4, min(int(y), avail.bottom() - self.height() + 8))
+                        self.move(x, y)
+                        self.base_x, self.base_y = x, y
+                        return
         except Exception:
             pass
         screen = QApplication.primaryScreen()
         if screen:
-            avail = screen.geometry()
+            avail = screen.availableGeometry()   # v6.51：改用工作区，避免压到任务栏
             self.move(avail.right() - self.width() - 40, avail.bottom() - self.height() - 60)
             self.base_x, self.base_y = self.x(), self.y()
 
@@ -1898,11 +1909,8 @@ class PetWidget(QWidget):
                 available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
                 if tname not in available:
                     return f'（可用主题：{"、".join(available)}）'
-                self.current_theme = tname
-                # 数据部分（线程安全）立即更新
-                self.theme = dict(DEFAULT_THEME)
-                if tname != 'default':
-                    self.theme.update(self.plugin_mgr.theme_vars(tname))
+                # 数据部分（线程安全）立即更新（与右键菜单入口共用同一方法）
+                self._set_theme_data(tname)
                 # GUI 部分回主线程执行（QTimer.singleShot 线程安全）
                 QTimer.singleShot(0, self._apply_theme)
                 self._save_cfg_value('theme', tname)
@@ -3741,7 +3749,10 @@ class PetWidget(QWidget):
     def _place_bubble(self):
         """气泡悬浮在窗口顶部（pet_label 上方区域）"""
         self.bubble.raise_()  # 置顶：防止被 pet_label（后创建，z-order 更高）遮挡
-        bw = min(max(self.bubble.sizeHint().width(), 40), 380)
+        # v6.51：气泡是窗口的子控件，而扒边/隐藏模式会把窗口缩窄（左右扒边缩到 pet_size 宽），
+        # 原先只做居中、不缩气泡宽度 → 长句被窗口硬裁掉半截。这里按窗口实际宽度夹一下。
+        avail = max(40, self.width() - 8)
+        bw = min(max(self.bubble.sizeHint().width(), 40), 380, avail)
         bh = self.bubble.sizeHint().height()
         bx = max(0, (self.width() - bw) // 2)
         by = 6
@@ -4387,12 +4398,51 @@ class PetWidget(QWidget):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """
 
+    def _set_theme_data(self, tname):
+        """只更新主题数据（不碰 GUI）——可在后台线程调用，与 apply_theme_named 共用"""
+        self.current_theme = tname
+        self.theme = dict(DEFAULT_THEME)
+        if tname != 'default':
+            self.theme.update(self.plugin_mgr.theme_vars(tname))
+
+    def apply_theme_named(self, tname):
+        """切换主题（右键菜单「形象 → 主题」入口；AI 工具 set_theme 共用数据逻辑）。
+
+        v6.51：此前只有 AI 工具能切主题，右键菜单与设置窗口都没入口——装了主题插件的
+        用户自己反而用不上。这里补上入口，并让气泡一起跟随主题。
+        """
+        try:
+            available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
+        except Exception:
+            available = ['default']
+        if tname not in available:
+            return False
+        self._set_theme_data(tname)
+        self._apply_theme()
+        self._save_cfg_value('theme', tname)
+        self.say_plain(('已切换主题：%s' % tname) if tname != 'default' else '已切回默认主题')
+        return True
+
+    def _apply_bubble_theme(self):
+        """说话气泡跟随主题（v6.51）：颜色取自主题，缺键时回退原来的浅色外观"""
+        try:
+            t = self.theme or {}
+            self.bubble.setStyleSheet(
+                'QLabel { background-color: %s; color: %s; border: 2px solid %s;'
+                ' border-radius: 10px; padding: 8px 12px; font-size: 13px; }' % (
+                    t.get('say_bg', 'rgba(255,255,255,0.92)'),
+                    t.get('say_text', '#333'),
+                    t.get('say_border', '#ccc')))
+        except Exception as e:
+            log.debug('气泡主题应用失败：%s', e)
+
     def _apply_theme(self):
-        """把当前主题应用到面板（v6.25.1 必须主线程调用——修复 AI 后台线程跨线程 setStyleSheet 崩溃）"""
+        """把当前主题应用到面板与气泡（v6.25.1 必须主线程调用——修复 AI 后台线程跨线程 setStyleSheet 崩溃）"""
         try:
             self.chat_panel.setStyleSheet(self._panel_qss())
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('主题样式应用失败：%s', e)
+        self._apply_bubble_theme()
 
     def _sync_window_to_panel(self):
         """窗口尺寸跟随面板（保持立绘+空隙差值 320），并钳制在屏幕工作区内——
@@ -5333,6 +5383,9 @@ class PetWidget(QWidget):
         if self.chat_panel.isVisible():
             self._chat_hidden_for_dock = True
             self.chat_panel.hide()
+        # v6.51：扒边后窗口只剩立绘宽，气泡显示出来也是被裁的残句，直接收起来
+        if getattr(self, 'bubble', None) is not None and self.bubble.isVisible():
+            self.bubble.hide()
         if self._edge_mode == 'peek':
             # 扒边模式：窗口贴边缘，显示对应方向的扒边立绘（坐标保护：窗口完全在屏幕内）
             if side in ('left', 'right'):
@@ -5485,10 +5538,14 @@ class PetWidget(QWidget):
 
     def _special_reaction(self):
         if self.current == 'pro':
+            # v6.51：补上 state——原先只换立绘不设状态，若此刻有眨眼在途，
+            # _blend_end 会按 state=='idle' 把立绘提前刷回待机（与普通角色分支行为不一致）
+            self.state = 'scared'
+            self.phase = 0
             self._show_state_image('scared')
             lines = self._char_lines('scared_lines')
             self.say_plain(random.choice(lines) if lines else 'Ah!')
-            QTimer.singleShot(2500, self._render_frame)
+            QTimer.singleShot(2500, lambda: self._end_state('scared'))
         else:
             self.state = 'happy'
             self.phase = 0
@@ -6120,6 +6177,19 @@ class PetWidget(QWidget):
                        ('吐槽', 'person_sarcastic'), ('元气', 'person_energetic'),
                        ('高冷', 'person_cold')]:
             pmenu.addAction(T(pl)).triggered.connect(lambda checked, pp=pk: self._set_personality(pp))
+        fmenu.addSeparator()
+        # v6.51：主题切换入口（此前只有 AI 工具 set_theme 能切，用户自己没有入口）
+        thmenu = fmenu.addMenu('🎨 主题')
+        _cur_theme = str(getattr(self, 'current_theme', 'default') or 'default')
+        try:
+            _theme_names = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
+        except Exception:
+            _theme_names = ['default']
+        for _tn in _theme_names:
+            _ta = thmenu.addAction('默认（深色）' if _tn == 'default' else _tn)
+            _ta.setCheckable(True)
+            _ta.setChecked(_tn == _cur_theme)
+            _ta.triggered.connect(lambda checked=False, t=_tn: self.apply_theme_named(t))
         fmenu.addSeparator()
         fmenu.addAction('🎯 更多形象设置…').triggered.connect(lambda: self._open_settings(2))
 

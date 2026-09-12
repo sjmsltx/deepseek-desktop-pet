@@ -14,6 +14,9 @@ import json
 import os
 
 from pet_storage import atomic_write_json
+from pet_log import get_logger
+
+_log = get_logger('memory_store')
 
 
 def load_memory(path):
@@ -23,8 +26,9 @@ def load_memory(path):
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             return (data.get('facts', []) or [], data.get('summaries', []) or [])
-    except Exception:
-        pass
+    except Exception as e:
+        # 原先静默 pass：记忆文件坏了用户只会觉得"它怎么不记得了"
+        _log.warning('memory.json 读取失败，本次按"无记忆"启动：%s', e)
     return ([], [])
 
 
@@ -36,8 +40,9 @@ def save_memory(path, facts, summaries):
             'summaries': summaries,
             'updated_at': datetime.datetime.now().isoformat(),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        # 记忆写入失败 = 用户说的话白说了，必须留痕
+        _log.error('memory.json 写入失败，本次记忆修改已丢失：%s', e)
 
 
 def remember_fact(facts, action, content='', importance=3, fid='', role='both'):

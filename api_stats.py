@@ -15,6 +15,10 @@ import json
 import os
 import threading
 
+from pet_log import get_logger
+
+_log = get_logger('api_stats')
+
 
 class ApiStats:
     """API 调用自监控：解析响应 usage，统计模型/token/缓存/费用，持久化"""
@@ -94,8 +98,8 @@ class ApiStats:
                     ApiStats.PRICES[k] = base
             if touched:
                 self.registry.save()
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning('价格表同步/保存失败：%s', e)
 
     def reload_prices(self):
         """重新应用 config.json 的 api_prices（write_config 改价后热加载）"""
@@ -116,8 +120,8 @@ class ApiStats:
                     self.today = data.get('today', self.today)
                 else:
                     self.today['date'] = today
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning('用量统计文件读取失败，本次从零开始：%s', e)
 
     def _save(self):
         try:
@@ -127,8 +131,8 @@ class ApiStats:
                            'by_model': self.by_model,
                            'calls': self.calls[-200:]}, f,
                           ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.error('用量统计保存失败：%s', e)
 
     def _price_for(self, model):
         """查价格：优先模型档案（模型身份的唯一来源），退回内置表。
@@ -153,7 +157,8 @@ class ApiStats:
             return (cache_miss / 1e6 * float(p['input'])
                     + cache_hit / 1e6 * float(p.get('cache', p['input']))
                     + (completion or 0) / 1e6 * float(p['output'])), unknown
-        except Exception:
+        except Exception as e:
+            _log.debug('费用计算失败（按 0 计并标记未知价）：%s', e)
             return 0.0, True
 
     def record(self, usage, model='?'):

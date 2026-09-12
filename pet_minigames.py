@@ -171,6 +171,9 @@ class BaseGame(QDialog):
         if len(difficulties) >= 2:
             row.addWidget(QLabel('难度'))
             self._combo = QComboBox()
+            # v6.51：难度下拉别抢焦点——否则俄罗斯方块/贪吃蛇/2048 里点过它之后，
+            # 方向键会变成"切难度"，游戏操作直接失效
+            self._combo.setFocusPolicy(Qt.NoFocus)
             for name in difficulties:
                 self._combo.addItem(name)
             self._combo.currentIndexChanged.connect(lambda _: self._apply_difficulty())
