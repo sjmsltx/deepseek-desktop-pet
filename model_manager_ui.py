@@ -125,14 +125,18 @@ class ModelManagerDialog(QDialog):
         self.btn_pull = QPushButton('🔍 拉取官方模型列表')
         self.btn_probe = QPushButton('🩺 连通性自检')
         self.btn_reset = QPushButton('↩ 恢复出厂')
+        self.btn_export = QPushButton('📤 导出')
+        self.btn_import = QPushButton('📥 导入')
         self.btn_save = QPushButton('💾 保存')
         self.btn_close = QPushButton('关闭')
         self.btn_pull.clicked.connect(self._on_pull)
         self.btn_probe.clicked.connect(self._on_probe)
         self.btn_reset.clicked.connect(self._on_reset)
+        self.btn_export.clicked.connect(self._on_export)
+        self.btn_import.clicked.connect(self._on_import)
         self.btn_save.clicked.connect(self._on_save)
         self.btn_close.clicked.connect(self.reject)
-        for b in (self.btn_pull, self.btn_probe, self.btn_reset):
+        for b in (self.btn_pull, self.btn_probe, self.btn_reset, self.btn_export, self.btn_import):
             bar.addWidget(b)
         bar.addStretch(1)
         bar.addWidget(self.btn_save)
@@ -150,6 +154,8 @@ class ModelManagerDialog(QDialog):
         self.lst.blockSignals(False)
         keys = self.registry.keys()
         want = keep or self._cur or (keys[0] if keys else None)
+        if want not in keys:
+            want = keys[0] if keys else None      # 导入/删除后原选中项可能已不存在
         if want in keys:
             self.lst.setCurrentRow(keys.index(want))
         self.lbl_src.setText('档案来源：models.json（%s）' % self.registry.path)
@@ -345,3 +351,33 @@ class ModelManagerDialog(QDialog):
                 self.lbl_status.setText('✓ 通了（%.2f 秒）  响应模型：%s' % (dt, real or mid))
         else:
             self.lbl_status.setText('✗ 不通：%s' % err)
+
+    # ---------- 导出 / 导入档案 ----------
+    def _on_export(self):
+        """把全部档案导出成一个可分享的 JSON（不含密钥）"""
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, '导出模型档案', 'models-export.json',
+                                              'JSON 文件 (*.json)')
+        if not path:
+            return
+        ok, msg = self.registry.export_to(path)
+        self.lbl_status.setText(('✓ ' if ok else '✗ ') + msg)
+
+    def _on_import(self):
+        """从导出文件导入档案（合并 / 整体替换）"""
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, '导入模型档案', '', 'JSON 文件 (*.json)')
+        if not path:
+            return
+        ans = QMessageBox.question(self, '导入方式',
+                                   '「是」= 合并（同名档案被覆盖，其余保留）\n'
+                                   '「否」= 整体替换（现有档案全部丢弃）',
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        mode = 'merge' if ans == QMessageBox.Yes else 'replace'
+        ok, msg = self.registry.import_from(path, mode)
+        if ok:
+            self.registry.save()
+            self._cur = None
+            self._reload_list()
+            self.saved.emit()
+        self.lbl_status.setText(('✓ ' if ok else '✗ ') + msg)

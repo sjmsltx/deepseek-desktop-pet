@@ -3893,7 +3893,8 @@ class PetWidget(QWidget):
         if not calls:
             lines.append('（暂无调用记录——发消息后自动统计）')
         for c in calls:
-            lines.append(f"{c['time']} {c['model']} in{c['prompt']} out{c['completion']} 缓存{c['cache_hit']}hit {c['cost']:.4f}元")
+            flag = ' ⚠价格未知' if c.get('price_unknown') else ''
+            lines.append(f"{c['time']} {c['model']} in{c['prompt']} out{c['completion']} 缓存{c['cache_hit']}hit {c['cost']:.4f}元{flag}")
         QMessageBox.information(self, 'API 统计历史', '\n'.join(lines))
 
     def _toggle_api_stats_window(self):
@@ -3962,8 +3963,9 @@ class PetWidget(QWidget):
                 today = dict(st.today)
                 total = dict(st.total)
             if last:
+                warn = '  ⚠ 价格未知（按兵底价估算）' if last.get('price_unknown') else ''
                 l_last.setText(f"最近: {last['model']} {_fmt(last['prompt'])}in/{_fmt(last['completion'])}out "
-                               f"{last['cost']:.4f}元")
+                               f"{last['cost']:.4f}元{warn}")
             hit = today.get('cache_hit', 0) or 0
             miss = today.get('cache_miss', 0) or 0
             l_cache.setText(f"缓存: {_fmt(hit)} 命中 / {_fmt(miss)} 未命中")

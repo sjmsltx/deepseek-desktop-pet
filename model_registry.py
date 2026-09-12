@@ -378,3 +378,52 @@ class ModelRegistry:
             return False
         self._profiles.remove(p)
         return True
+
+    # ---------- 导出 / 导入（换机、分享配置） ----------
+    def export_to(self, path, include_persona=True):
+        """把全部档案导出成可分享的 JSON（不含任何密钥，只留 key 的引用字段名）。
+        返回 (是否成功, 提示文本)。"""
+        try:
+            data = {
+                'version': SCHEMA_VERSION,
+                'exported_by': 'deepseek-desktop-pet',
+                'profiles': [p.to_dict() for p in self._profiles],
+            }
+            if not include_persona:
+                for d in data['profiles']:
+                    d['persona'] = {}
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True, '已导出 %d 份档案 → %s' % (len(self._profiles), path)
+        except Exception as e:
+            return False, '导出失败：%s' % e
+
+    def import_from(self, path, mode='merge'):
+        """从导出文件导入档案。
+        mode='merge'：同名 key 覆盖、其余保留；mode='replace'：整体替换。
+        返回 (是否成功, 提示文本)。
+        注：写盘由调用方负责（先让人确认导入结果再 save）。"""
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+        except Exception as e:
+            return False, '读不了这个文件：%s' % e
+        if not isinstance(data, dict) or not isinstance(data.get('profiles'), list) or not data['profiles']:
+            return False, '文件格式不对（需要含 profiles 数组）'
+        incoming = [p for p in data['profiles'] if isinstance(p, dict) and p.get('key')]
+        if not incoming:
+            return False, '文件里没有可用的档案（缺 key）'
+        if mode == 'replace':
+            self._profiles = [ModelProfile(p) for p in incoming]
+            self.loaded_from = 'import'
+            return True, '整体替换为 %d 份档案' % len(self._profiles)
+        added = updated = 0
+        for d in incoming:
+            cur = self.get(d['key'])
+            if cur is None:
+                self._profiles.append(ModelProfile(d))
+                added += 1
+            else:
+                self._profiles[self._profiles.index(cur)] = ModelProfile(d)
+                updated += 1
+        return True, '合并导入：新增 %d 份、覆盖 %d 份' % (added, updated)

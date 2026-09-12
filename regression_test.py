@@ -573,6 +573,101 @@ def t_h14():
 
 test('H14 官方模型列表地址推导（兼容中转/代理）', t_h14)
 
+
+def t_h15():
+    """档案导出 / 导入：导出不含密钥、合并与整体替换都可用、坏文件被拒"""
+    import tempfile
+    from model_registry import ModelRegistry
+    d = tempfile.mkdtemp()
+    reg = ModelRegistry(os.path.join(d, 'models.json'))
+    reg.set_field('flash', 'display_name', '小蓝')
+    exp = os.path.join(d, 'exp.json')
+    ok, msg = reg.export_to(exp)
+    assert ok, msg
+    raw = io.open(exp, encoding='utf-8').read()
+    assert 'sk-' not in raw, '导出文件不得含密钥'
+    assert '小蓝' in raw
+    # 另一份档案：新增一份 + 覆盖同名
+    other = ModelRegistry(os.path.join(tempfile.mkdtemp(), 'models.json'))
+    other.set_field('flash', 'display_name', '别人家的 Flash')
+    assert other.add_profile('turbo', display_name='Turbo', model_id='deepseek-turbo')
+    exp2 = os.path.join(d, 'exp2.json')
+    assert other.export_to(exp2)[0]
+    ok, msg = reg.import_from(exp2, 'merge')
+    assert ok, msg
+    assert 'turbo' in reg.keys(), '合并应新增 turbo'
+    assert reg.get('flash').display_name == '别人家的 Flash', '同名应被覆盖'
+    # 整体替换
+    ok, msg = reg.import_from(exp, 'replace')
+    assert ok, msg
+    assert reg.keys() == ['flash', 'pro'], '整体替换后只剩导入文件里的'
+    assert reg.get('flash').display_name == '小蓝'
+    # 坏文件
+    bad = os.path.join(d, 'bad.json')
+    with io.open(bad, 'w', encoding='utf-8') as f:
+        f.write('{"nope": 1}')
+    ok, msg = reg.import_from(bad)
+    assert not ok and '格式' in msg
+    with io.open(bad, 'w', encoding='utf-8') as f:
+        f.write('{ not json')
+    assert not reg.import_from(bad)[0]
+    # 导出文件可被重新加载，且不携带旧键
+    reloaded = ModelRegistry(exp)
+    assert reloaded.keys() == ['flash', 'pro']
+
+
+test('H15 档案导出/导入（不含密钥 / 合并 / 替换 / 坏文件）', t_h15)
+
+
+def t_h16():
+    """价格未知会在统计历史里显式标出来（不再静默按兵底价）"""
+    import tempfile
+    import api_stats as _as
+    import desktop_pet
+    saved_info = QMessageBox.information
+    captured = []
+    QMessageBox.information = staticmethod(lambda *a, **k: captured.append(a[-1] if a else ''))
+    saved_stats = W.api_stats
+    try:
+        W.api_stats = _as.ApiStats(os.path.join(tempfile.mkdtemp(), 'api_stats.json'),
+                                   registry=desktop_pet.MODEL_REGISTRY)
+        W.api_stats.record({'prompt_tokens': 10, 'completion_tokens': 10}, 'no-such-model-9999')
+        W._show_api_stats_history()
+        assert '价格未知' in (captured[-1] if captured else ''), '未知价格应显式标注'
+        W.api_stats.record({'prompt_tokens': 10, 'completion_tokens': 10}, 'deepseek-flash')
+        captured.clear()
+        W._show_api_stats_history()
+        txt = captured[-1] if captured else ''
+        line = next((x for x in txt.split('\n') if 'deepseek-flash' in x), '')
+        assert line and '价格未知' not in line, '已知价格那一行不该出警告：%r' % line
+    finally:
+        W.api_stats = saved_stats
+        QMessageBox.information = saved_info
+
+
+test('H16 价格未知在统计历史里显式提示', t_h16)
+
+
+def t_h17():
+    """配置清理后（config.json 不含 model_flash/model_pro）档案仍产出厂规范 ID"""
+    import tempfile
+    from model_registry import ModelRegistry
+    d = tempfile.mkdtemp()
+    cfgp = os.path.join(d, 'config.json')
+    with io.open(cfgp, 'w', encoding='utf-8') as f:
+        json.dump({'deepseek_api_key': 'sk-x', 'api_prices': {}}, f)
+    reg = ModelRegistry(os.path.join(d, 'models.json'), cfgp)
+    assert reg.get('flash').model_id == 'deepseek-flash'
+    assert reg.get('pro').model_id == 'deepseek-v4-pro'
+    assert reg.get('flash').price_known
+    # 实际 config.json 里不应再出现死键
+    live = json.load(io.open(os.path.join(BASE, 'config.json'), encoding='utf-8'))
+    for dead in ('deepseek_model', 'model_flash', 'model_pro'):
+        assert dead not in live, 'config.json 里还残留死键 %s' % dead
+
+
+test('H17 清理死键后仍能正常生成档案', t_h17)
+
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)
 passed = sum(1 for _, s, _ in RESULTS if s == 'PASS')

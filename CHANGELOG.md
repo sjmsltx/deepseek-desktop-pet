@@ -5,6 +5,19 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.3.0] - 2026-09-12
+
+收尾（Phase 3）：价格未知提示上浮、档案可导出/导入、清掉已迁走的旧配置键。
+
+### 新增
+- **模型档案导出 / 导入**（模型管理对话框底部两个按钮）：导出成可分享的 JSON，**不含任何密钥**（只留 `api_key_field` 字段名）；导入支持「合并」（同名覆盖、其余保留）与「整体替换」两种方式，坏文件被拒且不影响现有档案
+- **价格未知显式提示**：API 统计悬浮窗的「最近」一行、以及「查看统计历史」的每条记录，遇到档案里没配价格的模型会标出 ⚠（原先静默按兵底价算）
+- 回归新增 H15（导出/导入）、H16（价格未知提示）、H17（清键后仍产出厂规范 ID），共 35 项
+
+### 变更
+- **清理 config.json 里的旧键**：`deepseek_model`（代码从未读过）、`model_flash` / `model_pro`（迁移来源，models.json 已在则无意义）已移除；`config.example.json` 同步去掉已迁往 models.json 的 `model_flash`/`model_pro`/`reasoning`/`temperature`/`max_tokens`
+- 旧版配置仍可迁移：首次生成 models.json 时照旧读取 `model_flash`/`model_pro`（没有则用出厂默认）
+
 ## [2.2.0] - 2026-09-12
 
 模型管理界面（Phase 2）：档案可增删改，并能一键拉取官方模型列表、做连通性自检。
