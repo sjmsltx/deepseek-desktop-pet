@@ -17,7 +17,7 @@ import urllib.error
 from model_registry import DEFAULT_ENDPOINT
 
 # 全项目唯一的接口地址默认值（定义在 model_registry）。实际请求地址由调用方
-# 从模型档案（models.json）传入 endpoint；此常量仅作丢参时的兵底。
+# 从模型档案（models.json）传入 endpoint；此常量仅作丢参时的兜底。
 API_URL = DEFAULT_ENDPOINT
 RETRY_CODES = (429, 500, 502, 503)
 

@@ -4,7 +4,7 @@ api_stats.py — API 用量自监控（P1 模块化拆分）
 ==============================================
 从 desktop_pet.py 拆出的 ApiStats 类：
 - 解析响应 usage（prompt/completion/cache）
-- 按模型价格表计算费用（每百万 token 单价；价格来源：模型档案 models.json → config.json api_prices → 内置兵底表）
+- 按模型价格表计算费用（每百万 token 单价；价格来源：模型档案 models.json → config.json api_prices → 内置兜底表）
 - 今日/累计统计 + 最近 200 条调用明细
 - 价格表支持 config.json api_prices 覆盖
 
@@ -18,9 +18,9 @@ import threading
 
 class ApiStats:
     """API 调用自监控：解析响应 usage，统计模型/token/缓存/费用，持久化"""
-    PRICES = {  # 每百万 token 单价（元）——内置兵底表
+    PRICES = {  # 每百万 token 单价（元）——内置兜底表
         # 模型价格的正经来源是模型档案（models.json 的 price 字段），这里只在本模块
-        # 未注入 registry 时兵底。键名改为官方**当前规范 ID**：官方重命名后响应里的
+        # 未注入 registry 时兜底。键名改为官方**当前规范 ID**：官方重命名后响应里的
         # model 与请求写的 ID 不同，旧键（deepseek-v4-flash）会静默落到 DEFAULT_PRICE。
         'deepseek-flash': {'input': 1.5, 'cache': 0.05, 'output': 4.5},
         'deepseek-v4-pro': {'input': 4.5, 'cache': 0.15, 'output': 13.5},
@@ -40,6 +40,7 @@ class ApiStats:
                       'cache_hit': 0, 'cache_miss': 0, 'date': ''}
         self.last = None
         self.calls = []  # 最近调用明细（上限 200）
+        self.by_model = {}  # 按模型累计（终身口径：次数/token/费用/价格未知次数）
         self._load()
         self._load_price_overrides()
 
@@ -109,6 +110,7 @@ class ApiStats:
                     data = json.load(f)
                 self.total = data.get('total', self.total)
                 self.calls = data.get('calls', [])[-200:]
+                self.by_model = data.get('by_model', {})
                 today = datetime.date.today().isoformat()
                 if data.get('date') == today:
                     self.today = data.get('today', self.today)
@@ -122,6 +124,7 @@ class ApiStats:
             with open(self.path, 'w', encoding='utf-8') as f:
                 json.dump({'date': datetime.date.today().isoformat(),
                            'today': self.today, 'total': self.total,
+                           'by_model': self.by_model,
                            'calls': self.calls[-200:]}, f,
                           ensure_ascii=False, indent=2)
         except Exception:
@@ -186,5 +189,24 @@ class ApiStats:
                 agg['cache_miss'] += cache_miss
             self.last = entry
             self.calls.append(entry)
+            # 按模型累计（终身口径）：看哪个模型花了多少、有没有价格未知的
+            bkey = model or '?'
+            mb = self.by_model.get(bkey)
+            if not isinstance(mb, dict):
+                mb = {'count': 0, 'prompt': 0, 'completion': 0, 'cost': 0.0, 'unknown': 0}
+                self.by_model[bkey] = mb
+            mb['count'] += 1
+            mb['prompt'] += prompt
+            mb['completion'] += completion
+            mb['cost'] += cost
+            if entry.get('price_unknown'):
+                mb['unknown'] = mb.get('unknown', 0) + 1
         self._save()
         return cost  # v6.30 返回本次费用（余额气泡用）
+
+    def model_breakdown(self):
+        """按模型汇总（终身口径）：次数 / token / 费用 / 价格未知次数。费用从高到低。"""
+        with self.lock:
+            rows = [dict(model=k, **v) for k, v in self.by_model.items()]
+        rows.sort(key=lambda r: -float(r.get('cost') or 0))
+        return rows

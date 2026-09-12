@@ -673,6 +673,7 @@ class PetWidget(QWidget):
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
+                self._cfg = cfg            # 供 _api_key_for_field 按字段名取 key
                 key = cfg.get('deepseek_api_key', '')
                 if key:
                     self.ai_key = key
@@ -720,6 +721,24 @@ class PetWidget(QWidget):
         """当前角色使用的接口地址（由档案提供，不再每个模块各写一份）"""
         prof = self._current_profile()
         return prof.endpoint if prof is not None else DEFAULT_ENDPOINT
+
+    def _api_key_for_field(self, field):
+        """按字段名从 config.json 取 key。
+
+        档案里的 api_key_field 决定这一份档案用哪把 key，因此同一台机器可以
+        让不同档案分别指向不同的服务商 / 中转（各配各的 key）；
+        该字段没配时回退到主 key deepseek_api_key。"""
+        field = (str(field or '') or 'deepseek_api_key').strip()
+        if field == 'deepseek_api_key':
+            return getattr(self, 'ai_key', '') or ''
+        cfg = getattr(self, '_cfg', None) or {}
+        return str(cfg.get(field) or '').strip() or (getattr(self, 'ai_key', '') or '')
+
+    def _current_api_key(self):
+        """当前角色该用哪把 key：由档案的 api_key_field 决定"""
+        prof = self._current_profile()
+        return self._api_key_for_field(
+            prof.api_key_field if prof is not None else 'deepseek_api_key')
 
     def _current_model(self):
         """按当前角色返回实际请求的模型 ID（取自档案；档案不可用时才回退旧字段）"""
@@ -1208,7 +1227,7 @@ class PetWidget(QWidget):
             data = json.dumps({'model': self._current_model(),
                                'messages': [{'role': 'user', 'content': prompt}],
                                'max_tokens': 30}).encode()
-            resp = chat_completions(self.ai_key, data)
+            resp = chat_completions(self._current_api_key(), data)
             self._record_api_usage(resp)
             nums = [int(n) for n in _re.findall(r'\d+', resp['choices'][0]['message'].get('content') or '')]
             picked = [candidates[i - 1]['id'] for i in nums if 1 <= i <= len(candidates)]
@@ -1236,7 +1255,7 @@ class PetWidget(QWidget):
         try:
             data = json.dumps({'model': self._current_model(),
                                'messages': messages, 'max_tokens': max_tokens}).encode()
-            resp = chat_completions(self.ai_key, data)
+            resp = chat_completions(self._current_api_key(), data)
             self._record_api_usage(resp)
             return resp['choices'][0]['message'].get('content') or ''
         except Exception:
@@ -2021,7 +2040,7 @@ class PetWidget(QWidget):
             """API 请求（网络层已拆至 deepseek_client，此处薄封装：注入 key/语言/状态信号/用量记录）"""
             is_en = getattr(self, 'language', 'zh') == 'en'
             resp = chat_completions(
-                self.ai_key, data,
+                self._current_api_key(), data,
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
                 endpoint=self._current_endpoint(),
@@ -2033,7 +2052,7 @@ class PetWidget(QWidget):
             """SSE 流式（网络层已拆至 deepseek_client，薄封装）"""
             is_en = getattr(self, 'language', 'zh') == 'en'
             yield from stream_chat_completions(
-                self.ai_key, data,
+                self._current_api_key(), data,
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
                 endpoint=self._current_endpoint(),
@@ -3897,6 +3916,29 @@ class PetWidget(QWidget):
             lines.append(f"{c['time']} {c['model']} in{c['prompt']} out{c['completion']} 缓存{c['cache_hit']}hit {c['cost']:.4f}元{flag}")
         QMessageBox.information(self, 'API 统计历史', '\n'.join(lines))
 
+    def _show_model_stats(self):
+        """按模型汇总用量与费用（含价格未知提示）——看清钱花在哪个模型上"""
+        from PySide6.QtWidgets import QMessageBox
+        rows = self.api_stats.model_breakdown()
+        if not rows:
+            QMessageBox.information(self, '按模型统计', '（暂无调用记录——发消息后自动统计）')
+            return
+        lines = ['按模型汇总（终身口径）', '']
+        for r in rows:
+            lines.append('· %s' % r.get('model', '?'))
+            lines.append('    %d 次 · 输入 %s / 输出 %s · 费用 %.4f 元'
+                         % (r.get('count', 0), format(r.get('prompt', 0), ','),
+                            format(r.get('completion', 0), ','), float(r.get('cost') or 0)))
+            if r.get('unknown'):
+                lines.append('    ⚠ 其中 %d 次价格未知（按兜底价估算，去「模型管理」把价格补上）'
+                             % r['unknown'])
+        tot = sum(float(r.get('cost') or 0) for r in rows)
+        unk = sum(int(r.get('unknown') or 0) for r in rows)
+        lines.append('')
+        lines.append('合计 %.4f 元' % tot
+                     + ('；其中 %d 次是价格未知的估算' % unk if unk else ''))
+        QMessageBox.information(self, '按模型统计', '\n'.join(lines))
+
     def _toggle_api_stats_window(self):
         """开关 API 统计悬浮窗（透明置顶小窗，实时刷新 + 缓存命中率图表）"""
         if self._api_stats_win is not None:
@@ -3963,7 +4005,7 @@ class PetWidget(QWidget):
                 today = dict(st.today)
                 total = dict(st.total)
             if last:
-                warn = '  ⚠ 价格未知（按兵底价估算）' if last.get('price_unknown') else ''
+                warn = '  ⚠ 价格未知（按兜底价估算）' if last.get('price_unknown') else ''
                 l_last.setText(f"最近: {last['model']} {_fmt(last['prompt'])}in/{_fmt(last['completion'])}out "
                                f"{last['cost']:.4f}元{warn}")
             hit = today.get('cache_hit', 0) or 0
@@ -5124,7 +5166,7 @@ class PetWidget(QWidget):
     def _open_model_manager(self):
         """打开模型管理对话框：增删档案 / 改显示名与模型 ID / 拉官方列表 / 连通性自检"""
         dlg = ModelManagerDialog(MODEL_REGISTRY,
-                                 api_key_getter=lambda: getattr(self, 'ai_key', ''),
+                                 key_resolver=self._api_key_for_field,
                                  parent=self)
         dlg.saved.connect(self._on_models_saved)
         dlg.exec()
@@ -5690,7 +5732,7 @@ class PetWidget(QWidget):
             if last_chat:
                 state += f'，最近对话：{last_chat}'
             return judge_wakeup(
-                self.ai_key, self._current_model(), state,
+                self._current_api_key(), self._current_model(), state,
                 CHARACTERS[self.current]['name'],
                 record_cb=self._record_api_usage,
                 endpoint=self._current_endpoint(),
@@ -5739,7 +5781,7 @@ class PetWidget(QWidget):
                 if last_chat:
                     state += f'，最近对话：{last_chat}'
                 msg = followup_message(
-                    self.ai_key, self._current_model(), state, topic,
+                    self._current_api_key(), self._current_model(), state, topic,
                     CHARACTERS[self.current]['name'],
                     record_cb=self._record_api_usage,
                     endpoint=self._current_endpoint(),
@@ -6057,6 +6099,7 @@ class PetWidget(QWidget):
         tmenu.addAction('🌐 ' + T('search_setting')).triggered.connect(self._set_search_key_dialog)
         tmenu.addSeparator()
         tmenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
+        tmenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)
         # v6.22 插件菜单项（menu 类插件）
         plugin_menu_items = self.plugin_mgr.menu_items()
         if plugin_menu_items:

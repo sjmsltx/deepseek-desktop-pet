@@ -530,7 +530,7 @@ def t_h13():
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
     d = tempfile.mkdtemp()
     reg = ModelRegistry(os.path.join(d, 'models.json'))
-    dlg = ModelManagerDialog(reg, api_key_getter=lambda: 'sk-test')
+    dlg = ModelManagerDialog(reg, key_resolver=lambda _f: 'sk-test')
     assert dlg.lst.count() == len(reg) == 2
     assert dlg.ed_model.text() == reg.get(dlg._cur).model_id
     dlg.lst.setCurrentRow(reg.keys().index('flash'))
@@ -620,7 +620,7 @@ test('H15 档案导出/导入（不含密钥 / 合并 / 替换 / 坏文件）', 
 
 
 def t_h16():
-    """价格未知会在统计历史里显式标出来（不再静默按兵底价）"""
+    """价格未知会在统计历史里显式标出来（不再静默按兜底价）"""
     import tempfile
     import api_stats as _as
     import desktop_pet
@@ -667,6 +667,136 @@ def t_h17():
 
 
 test('H17 清理死键后仍能正常生成档案', t_h17)
+
+
+def t_h18():
+    """字段校验：非法值被拦、合法值通过（界面与测试共用同一套规则）"""
+    from model_registry import validate_key, validate_profile_fields
+    assert validate_key('turbo_2') and validate_key('a-b')
+    assert not validate_key('') and not validate_key('有中文')
+    assert not validate_key('has space') and not validate_key('x' * 33)
+    ok, errs = validate_profile_fields('名', 'm', 'https://x/chat', '#B0C4DE', 1.0, 128000,
+                                       {'input': 1, 'output': 2})
+    assert ok, errs
+    for bad, want in (
+        (('', 'm', 'https://x', '#B0C4DE', 1.0, 128000, None), '显示名'),
+        (('名', '', 'https://x', '#B0C4DE', 1.0, 128000, None), '模型 ID'),
+        (('名', 'm', 'api.x.com', '#B0C4DE', 1.0, 128000, None), 'http'),
+        (('名', 'm', 'https://x', 'B0C4DE', 1.0, 128000, None), '主题色'),
+        (('名', 'm', 'https://x', '#B0C4DE', 3, 128000, None), '温度'),
+        (('名', 'm', 'https://x', '#B0C4DE', 1.0, 9, None), '输出上限'),
+        (('名', 'm', 'https://x', '#B0C4DE', 1.0, 128000, {'input': -1}), '不能为负数'),
+    ):
+        ok2, e2 = validate_profile_fields(*bad)
+        assert not ok2 and any(want in x for x in e2), '%s 应被拦下：%s' % (want, e2)
+    # 界面保存路径也吃同一套校验（不是只修了函数）
+    import tempfile
+    from model_registry import ModelRegistry
+    from model_manager_ui import ModelManagerDialog
+    saved_warn = QMessageBox.warning
+    warns = []
+    QMessageBox.warning = staticmethod(lambda *a, **k: warns.append(a[-1] if a else ''))
+    try:
+        reg = ModelRegistry(os.path.join(tempfile.mkdtemp(), 'models.json'))
+        dlg = ModelManagerDialog(reg, key_resolver=lambda _f: 'sk-t')
+        dlg.lst.setCurrentRow(0)
+        before = reg.get(dlg._cur).endpoint
+        dlg.ed_endpoint.setText('api.deepseek.com/chat')   # 缺协议头
+        dlg._on_save()
+        assert warns and 'http' in warns[-1], '界面未拦下非法接口地址'
+        assert reg.get(dlg._cur).endpoint == before, '非法值不应写进档案'
+    finally:
+        QMessageBox.warning = saved_warn
+
+
+test('H18 档案字段校验（键/地址/颜色/数值，含界面拦截）', t_h18)
+
+
+def t_h19():
+    """按模型汇总：分模型累计、费用排序、未知价次数、落盘可重载、菜单入口"""
+    import tempfile
+    import api_stats as _as
+    import desktop_pet
+    d = tempfile.mkdtemp()
+    st = _as.ApiStats(os.path.join(d, 'api_stats.json'), registry=desktop_pet.MODEL_REGISTRY)
+    for m in ('deepseek-flash', 'deepseek-flash', 'deepseek-v4-pro', 'no-such-model-9999'):
+        st.record({'prompt_tokens': 1000, 'completion_tokens': 500}, m)
+    rows = st.model_breakdown()
+    assert len(rows) == 3, rows
+    by = {r['model']: r for r in rows}
+    assert by['deepseek-flash']['count'] == 2
+    assert by['deepseek-v4-pro']['count'] == 1
+    assert by['no-such-model-9999']['unknown'] == 1
+    assert rows[0]['model'] == 'deepseek-v4-pro', '应按费用从高到低：%s' % [r['model'] for r in rows]
+    st2 = _as.ApiStats(os.path.join(d, 'api_stats.json'), registry=desktop_pet.MODEL_REGISTRY)
+    assert {r['model']: r['count'] for r in st2.model_breakdown()}['deepseek-flash'] == 2, \
+        '按模型累计应持久化'
+    # 菜单入口
+    menu, acts = W._build_context_menu()
+    names = []
+    for a in menu.actions():
+        sub = a.menu()
+        if sub is not None:
+            names += [x.text() for x in sub.actions()]
+    assert any('按模型统计' in x for x in names), '工具菜单缺按模型统计：%s' % names
+
+
+test('H19 按模型统计（累计/排序/未知价/持久化/菜单）', t_h19)
+
+
+def t_h20():
+    """每份档案可用不同的 key 字段（同一台机器挂多家服务商 / 中转）"""
+    import tempfile
+    import desktop_pet
+    from model_registry import ModelRegistry
+    from model_manager_ui import ModelManagerDialog
+    # 1) 请求路径不再直接读 self.ai_key（统一走 _current_api_key）
+    src = io.open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    left = [l.strip() for l in src.splitlines()
+            if 'self.ai_key' in l and 'self.ai_key =' not in l]
+    assert not left, '仍有请求路径直接读 self.ai_key：%s' % left
+    # 2) 按字段名取 key + 回退
+    saved_cfg = getattr(W, '_cfg', None)
+    saved_key = getattr(W, 'ai_key', '')
+    try:
+        W._cfg = {'deepseek_api_key': 'sk-main', 'other_relay_key': 'sk-relay'}
+        W.ai_key = 'sk-main'
+        assert W._api_key_for_field('deepseek_api_key') == 'sk-main'
+        assert W._api_key_for_field('other_relay_key') == 'sk-relay'
+        assert W._api_key_for_field('') == 'sk-main'
+        assert W._api_key_for_field('not_configured') == 'sk-main', '没配应回退主 key'
+        # 3) 当前角色用哪把 key 跟着档案走
+        reg = desktop_pet.MODEL_REGISTRY
+        saved_field = reg.get('pro').api_key_field
+        saved_cur = W.current
+        try:
+            reg.set_field('pro', 'api_key_field', 'other_relay_key')
+            W.current = 'pro'
+            assert W._current_api_key() == 'sk-relay'
+            W.current = 'flash'
+            assert W._current_api_key() == 'sk-main'
+        finally:
+            reg.set_field('pro', 'api_key_field', saved_field)
+            W.current = saved_cur
+        # 4) 对话框的探测 / 拉列表也用当前档案那把 key
+        seen = []
+        d2 = ModelRegistry(os.path.join(tempfile.mkdtemp(), 'models.json'))
+        dlg = ModelManagerDialog(
+            d2, key_resolver=lambda f: (seen.append(f),
+                                        'sk-relay' if f == 'other_relay_key' else 'sk-main')[1])
+        dlg.lst.setCurrentRow(d2.keys().index('pro'))
+        d2.set_field('pro', 'api_key_field', 'other_relay_key')
+        assert dlg._key() == 'sk-relay'
+        dlg.lst.setCurrentRow(d2.keys().index('flash'))
+        assert dlg._key() == 'sk-main'
+        assert 'other_relay_key' in seen, '对话框应把档案的字段名交给解析器'
+    finally:
+        if saved_cfg is not None:
+            W._cfg = saved_cfg
+        W.ai_key = saved_key
+
+
+test('H20 每档案独立 key 字段（多服务商/中转）', t_h20)
 
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)

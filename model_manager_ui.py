@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, 
                                QVBoxLayout)
 
 from deepseek_client import list_models, probe_model
-from model_registry import BUILTIN_PROFILES, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS
+from model_registry import (BUILTIN_PROFILES, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS,
+                            validate_key, validate_profile_fields)
 
 
 class ModelManagerDialog(QDialog):
@@ -35,10 +36,12 @@ class ModelManagerDialog(QDialog):
     net_done = Signal(object)   # 后台网络操作的结果（回主线程处理）
     saved = Signal()            # 档案已落盘（调用方据此热加载）
 
-    def __init__(self, registry, api_key_getter=None, parent=None):
+    def __init__(self, registry, key_resolver=None, parent=None):
         super().__init__(parent)
         self.registry = registry
-        self.api_key_getter = api_key_getter or (lambda: '')
+        # key_resolver(字段名) → key：探测 / 拉列表要用「当前档案指定的那把 key」，
+        # 因为不同档案可能指向不同服务商 / 中转
+        self.key_resolver = key_resolver or (lambda _f: '')
         self._cur = None
         self.setWindowTitle('🎯 模型管理')
         self.resize(900, 620)
@@ -187,7 +190,8 @@ class ModelManagerDialog(QDialog):
         return self.ed_endpoint.text().strip() or None
 
     def _key(self):
-        return self.api_key_getter() or ''
+        p = self.registry.get(self._cur) if self._cur else None
+        return self.key_resolver(p.api_key_field if p is not None else 'deepseek_api_key') or ''
 
     # ---------- 保存 ----------
     def _on_save(self):
@@ -198,8 +202,14 @@ class ModelManagerDialog(QDialog):
             return
         name = self.ed_name.text().strip() or self._cur
         mid = self.ed_model.text().strip()
-        if not mid:
-            QMessageBox.warning(self, '模型管理', '模型 ID 不能为空。')
+        ok, errs = validate_profile_fields(
+            name, mid, self.ed_endpoint.text().strip(), self.ed_color.text().strip(),
+            self.sp_temp.value(), self.sp_tokens.value(),
+            {'input': self.sp_pin.value(), 'cache': self.sp_pcache.value(),
+             'output': self.sp_pout.value()})
+        if not ok:
+            QMessageBox.warning(self, '模型管理',
+                                '这几个字段需要改一下：\n\n· ' + '\n· '.join(errs))
             return
         self.registry.set_field(self._cur, 'display_name', name)
         self.registry.set_field(self._cur, 'model_id', mid)
@@ -225,8 +235,12 @@ class ModelManagerDialog(QDialog):
         key = (key or '').strip()
         if not ok or not key:
             return
+        if not validate_key(key):
+            QMessageBox.warning(self, '模型管理',
+                                '内部键只能用 1~32 位字母 / 数字 / 下划线 / 连字符。')
+            return
         if not self.registry.add_profile(key, display_name=key, copy_from=self._cur):
-            QMessageBox.warning(self, '模型管理', '键「%s」已存在或非法。' % key)
+            QMessageBox.warning(self, '模型管理', '键「%s」已存在。' % key)
             return
         self.registry.save()
         self._reload_list(keep=key)
@@ -241,12 +255,16 @@ class ModelManagerDialog(QDialog):
         key = (key or '').strip()
         if not ok or not key:
             return
+        if not validate_key(key):
+            QMessageBox.warning(self, '模型管理',
+                                '内部键只能用 1~32 位字母 / 数字 / 下划线 / 连字符。')
+            return
         if not self.registry.add_profile(
                 key,
                 display_name=(base.display_name + ' 副本') if base else key,
                 model_id=(base.model_id if base else ''),
                 copy_from=self._cur):
-            QMessageBox.warning(self, '模型管理', '键「%s」已存在或非法。' % key)
+            QMessageBox.warning(self, '模型管理', '键「%s」已存在。' % key)
             return
         self.registry.save()
         self._reload_list(keep=key)

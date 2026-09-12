@@ -21,6 +21,7 @@ model_registry.py — 模型档案注册表（模型身份配置化）
 import copy
 import json
 import os
+import re
 
 DEFAULT_ENDPOINT = 'https://api.deepseek.com/chat/completions'
 
@@ -113,6 +114,59 @@ def clamp_tokens(v, default=DEFAULT_MAX_TOKENS):
         return max(MIN_OUTPUT_TOKENS, min(int(v), MAX_OUTPUT_TOKENS))
     except (TypeError, ValueError):
         return default
+
+
+# 档案内部键：1~32 位字母 / 数字 / 下划线 / 连字符
+KEY_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+# 主题色：#RGB 或 #RRGGBB
+COLOR_RE = re.compile(r'^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$')
+
+
+def validate_key(key):
+    """档案内部键是否合法（新增/复制时用）"""
+    return bool(KEY_RE.match(str(key or '').strip()))
+
+
+def validate_profile_fields(display_name, model_id, endpoint, color,
+                            temperature=None, max_tokens=None, price=None):
+    """校验一份档案的字段，返回 (是否通过, 错误说明列表)。
+    纯函数：界面与测试共用同一套规则，避免“填错了静默改成默认值”。"""
+    errs = []
+    if not str(display_name or '').strip():
+        errs.append('显示名不能为空')
+    if not str(model_id or '').strip():
+        errs.append('模型 ID 不能为空')
+    ep = str(endpoint or '').strip()
+    if not ep:
+        errs.append('接口地址不能为空')
+    elif not (ep.startswith('http://') or ep.startswith('https://')):
+        errs.append('接口地址要以 http:// 或 https:// 开头')
+    c = str(color or '').strip()
+    if c and not COLOR_RE.match(c):
+        errs.append('主题色要写成 #RRGGBB（如 #B0C4DE）或 #RGB')
+    if temperature is not None:
+        try:
+            t = float(temperature)
+            if not (0.0 <= t <= 2.0):
+                errs.append('采样温度要在 0.0 ~ 2.0 之间')
+        except (TypeError, ValueError):
+            errs.append('采样温度要是数字')
+    if max_tokens is not None:
+        try:
+            n = int(max_tokens)
+            if not (MIN_OUTPUT_TOKENS <= n <= MAX_OUTPUT_TOKENS):
+                errs.append('输出上限要在 %d ~ %d 之间' % (MIN_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS))
+        except (TypeError, ValueError):
+            errs.append('输出上限要是整数')
+    if price:
+        for k, label in (('input', '输入'), ('cache', '缓存'), ('output', '输出')):
+            if k in price:
+                try:
+                    if float(price[k]) < 0:
+                        errs.append('价格（%s）不能为负数' % label)
+                except (TypeError, ValueError):
+                    errs.append('价格（%s）要是数字' % label)
+    return (not errs), errs
 
 
 class ModelProfile:
@@ -358,7 +412,7 @@ class ModelRegistry:
     def add_profile(self, key, display_name='', model_id='', copy_from=None):
         """新增一份档案（copy_from 可指定从哪个档案复制外观与人设）"""
         key = str(key or '').strip()
-        if not key or self.get(key):
+        if not validate_key(key) or self.get(key):
             return False
         base = self.get(copy_from) if copy_from else (self._profiles[0] if self._profiles else None)
         d = base.to_dict() if base else copy.deepcopy(BUILTIN_PROFILES[0])
