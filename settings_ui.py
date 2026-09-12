@@ -61,6 +61,7 @@ class SettingsDialog(QDialog):
         for fn in (self._page_general, self._page_chat, self._page_appearance,
                    self._page_model, self._page_memory, self._page_system):
             self.stack.addWidget(fn())
+        self._apply_theme()
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
         self._refresh()
@@ -278,6 +279,36 @@ class SettingsDialog(QDialog):
         f.addRow('程序目录', self.lb_ver)
         self._buttons(f, '窗口', [('🏠 最小化到托盘', self.host.hide_to_tray)])
         return p
+
+    # ---------- 主题 ----------
+    def _apply_theme(self):
+        """跟随桌宠主题：新窗口默认吃系统调色板（浅色），这里按主题变量拼一份样式表，
+        让设置窗口与聊天面板同一套观感（颜色全部取自宿主的 theme，不写死）。"""
+        th = dict(getattr(self.host, 'theme', None) or {})
+        fg = th.get('text', '#eee')
+        acc = th.get('accent', '#7fb2ff')
+        inp = th.get('input_bg', 'rgba(255,255,255,0.12)')
+        self.setStyleSheet('''
+            QDialog { background: #14161f; }
+            QLabel { color: %s; }
+            QListWidget { background: rgba(255,255,255,0.05); color: %s;
+                          border: 1px solid rgba(255,255,255,0.10);
+                          border-radius: 6px; padding: 6px; outline: none; }
+            QListWidget::item { padding: 7px 10px; border-radius: 5px; }
+            QListWidget::item:selected { background: rgba(127,178,255,0.20); color: #ffffff; }
+            QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
+                background: %s; color: %s;
+                border: 1px solid rgba(255,255,255,0.14);
+                border-radius: 5px; padding: 4px 8px; }
+            QComboBox QAbstractItemView { background: #1b1e2a; color: %s;
+                selection-background-color: rgba(127,178,255,0.25); }
+            QPushButton { background: rgba(255,255,255,0.08); color: %s;
+                          border: 1px solid rgba(255,255,255,0.14);
+                          border-radius: 5px; padding: 5px 12px; }
+            QPushButton:hover { background: rgba(255,255,255,0.15); border-color: %s; }
+            QCheckBox { color: %s; }
+            QScrollArea { border: none; background: transparent; }
+        ''' % (fg, fg, inp, fg, fg, fg, acc, fg))
 
     # ---------- 刷新 ----------
     def _refresh(self):
