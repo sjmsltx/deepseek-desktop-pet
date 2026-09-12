@@ -128,7 +128,13 @@ class SettingsDialog(QDialog):
         self.ck_active.toggled.connect(self._toggle_active_chat)
         f.addRow('主动关心', self.ck_active)
 
-        self._buttons(f, '贴边模式', [('切换「扒边 / 完全消失」', self.host.toggle_edge_mode)])
+        # v6.51：原先只有一个「切换」动作按钮——用户看不到当前是哪种模式。
+        # 改成两项下拉 + _refresh 回填（与窗口内其他控件一致）
+        self.cb_edge = QComboBox()
+        self.cb_edge.addItem('扒边（露一点，可点开）', 'peek')
+        self.cb_edge.addItem('完全消失（彻底离屏）', 'hidden')
+        self.cb_edge.currentIndexChanged.connect(self._apply_edge_mode)
+        f.addRow('贴边模式', self.cb_edge)
         return p
 
     def _apply_city(self):
@@ -310,6 +316,19 @@ class SettingsDialog(QDialog):
             QScrollArea { border: none; background: transparent; }
         ''' % (fg, fg, inp, fg, fg, fg, acc, fg))
 
+    def _apply_edge_mode(self, *_):
+        """切换贴边模式（v6.51：下拉入口；_building 期间的回填不触发）"""
+        if getattr(self, '_building', False):
+            return
+        want = self.cb_edge.currentData()
+        h = self.host
+        if getattr(h, '_edge_mode', 'peek') == want:
+            return
+        try:
+            h.toggle_edge_mode()      # 宿主只提供 toggle，所以先在"不同"时才调用
+        except Exception:
+            pass
+
     # ---------- 刷新 ----------
     def _refresh(self):
         """从宿主重读状态回填控件（屏蔽信号，避免把回填当成用户操作）"""
@@ -326,14 +345,22 @@ class SettingsDialog(QDialog):
             self.cb_persona.setCurrentIndex(idx if idx >= 0 else 0)
             idx = self.cb_style.findData(getattr(h, 'reply_style', 'normal'))
             self.cb_style.setCurrentIndex(idx if idx >= 0 else 1)
+            # v6.51：非预设值原先走 setCurrentText —— 对不可编辑的 QComboBox 无效，
+            # 下拉会显示空白，用户看不到当前真实值。改为临时插一项再选中。
+            for _i in range(self.cb_tokens.count() - 1, -1, -1):
+                if self.cb_tokens.itemText(_i).endswith('（当前）'):
+                    self.cb_tokens.removeItem(_i)
             tok = int(getattr(h, 'max_tokens', 1000) or 1000)
             idx = self.cb_tokens.findData(tok)
-            self.cb_tokens.setCurrentIndex(idx if idx >= 0 else -1)
             if idx < 0:
-                self.cb_tokens.setCurrentText(str(tok))   # 非预设值就直接显示
+                self.cb_tokens.addItem('%d（当前）' % tok, tok)
+                idx = self.cb_tokens.findData(tok)
+            self.cb_tokens.setCurrentIndex(idx if idx >= 0 else 0)
             # 外观
             idx = self.cb_mode.findData(getattr(h, 'display_mode', 'static'))
             self.cb_mode.setCurrentIndex(idx if idx >= 0 else 0)
+            idx = self.cb_edge.findData(getattr(h, '_edge_mode', 'peek'))
+            self.cb_edge.setCurrentIndex(idx if idx >= 0 else 0)
             self.cb_l2d.clear()
             models = h._scan_live2d_models() or {}
             if models:
@@ -355,11 +382,16 @@ class SettingsDialog(QDialog):
                 self.cb_char.setCurrentIndex(i3 if i3 >= 0 else 0)
             self.lb_model.setText(getattr(h, '_current_model', lambda: '—')() or '—')
             self.ck_reason.setChecked(bool(getattr(h, 'reasoning_enabled', True)))
+            # v6.51：同「回复长度」——温度非预设值时也要能看见当前值
+            for _i in range(self.cb_temp.count() - 1, -1, -1):
+                if self.cb_temp.itemText(_i).endswith('（当前）'):
+                    self.cb_temp.removeItem(_i)
             t = float(getattr(h, 'temperature', 1.0) or 1.0)
             i4 = self.cb_temp.findData(t)
-            self.cb_temp.setCurrentIndex(i4 if i4 >= 0 else -1)
             if i4 < 0:
-                self.cb_temp.setCurrentText(str(t))
+                self.cb_temp.addItem('%s（当前）' % t, t)
+                i4 = self.cb_temp.findData(t)
+            self.cb_temp.setCurrentIndex(i4 if i4 >= 0 else 0)
             # 系统
             try:
                 self.ck_boot.setChecked(bool(h.is_autostart_enabled()))
