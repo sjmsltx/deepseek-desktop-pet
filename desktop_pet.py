@@ -1881,6 +1881,40 @@ class PetWidget(QWidget):
         except Exception as e:
             return f'（修改失败：{e}）'
 
+    # v6.51：工具分发改成注册表——原先 29 个 if/elif 分支串在一个 169 行的方法里，
+    # 加一个工具要读懂整条链子。现在：注册表一行 + 一个 _tool_xxx 小方法。
+    _TOOL_HANDLERS = {
+        'calculate': '_tool_calculate',
+        'control_volume': '_tool_control_volume',
+        'edit_own_code': '_tool_edit_own_code',
+        'get_system_info': '_tool_get_system_info',
+        'get_time': '_tool_get_time',
+        'install_plugin': '_tool_install_plugin',
+        'kill_process': '_tool_kill_process',
+        'list_plugins': '_tool_list_plugins',
+        'list_processes': '_tool_list_processes',
+        'lock_screen': '_tool_lock_screen',
+        'manage_todo': '_tool_manage_todo',
+        'memorize': '_tool_memorize',
+        'offer_choices': '_tool_offer_choices',
+        'open_app': '_tool_open_app',
+        'query_weather': '_tool_query_weather',
+        'read_clipboard': '_tool_read_clipboard',
+        'read_file': '_tool_read_file',
+        'run_powershell': '_tool_run_powershell',
+        'schedule_followup': '_tool_schedule_followup',
+        'search_code': '_tool_search_code',
+        'search_files': '_tool_search_files',
+        'set_reminder': '_tool_set_reminder',
+        'set_theme': '_tool_set_theme',
+        'skill_run': '_tool_skill_run',
+        'uninstall_plugin': '_tool_uninstall_plugin',
+        'web_search': '_tool_web_search',
+        'write_clipboard': '_tool_write_clipboard',
+        'write_config': '_tool_write_config',
+        'write_file': '_tool_write_file',
+    }
+
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本"""
         try:
@@ -1890,165 +1924,197 @@ class PetWidget(QWidget):
             if name in self.plugin_mgr.tool_names():
                 # v6.21 插件工具转发
                 return self.plugin_mgr.handle_tool(name, args)
-            if name == 'install_plugin':
-                # v6.21 AI 自主安装插件（校验+写入+热加载）
-                _, msg = self.plugin_mgr.install(
-                    args.get('name', ''),
-                    args.get('meta') or {},
-                    args.get('entry_content'),
-                    args.get('rules_content'))
-                return msg
-            if name == 'uninstall_plugin':
-                _, msg = self.plugin_mgr.uninstall(args.get('name', ''))
-                return msg
-            if name == 'list_plugins':
-                return self.plugin_mgr.status_text()
-            if name == 'set_theme':
-                # v6.23 主题切换（default / theme 插件名）；v6.25.1 GUI 应用回主线程（防跨线程崩溃）
-                tname = str(args.get('name') or 'default').strip()
-                available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
-                if tname not in available:
-                    return f'（可用主题：{"、".join(available)}）'
-                # 数据部分（线程安全）立即更新（与右键菜单入口共用同一方法）
-                self._set_theme_data(tname)
-                # GUI 部分回主线程执行（QTimer.singleShot 线程安全）
-                QTimer.singleShot(0, self._apply_theme)
-                self._save_cfg_value('theme', tname)
-                return f'✅ 已切换主题：{tname}（样式即将生效）'
-            if name == 'skill_run':
-                # v6.23 复合技能：返回步骤清单，AI 逐步执行
-                sname = str(args.get('name') or '').strip()
-                steps = self.plugin_mgr.skill_steps(sname)
-                if steps is None:
-                    avail = [str(x) for x in self.plugin_mgr.skill_names()]
-                    return f'（未找到技能 {sname}；可用技能：{"、".join(avail) or "无"}）'
-                return steps
-            if name == 'open_app':
-                app = args.get('name', '')
-                return self._smart_open(app)
-            elif name == 'get_time':
-                import datetime
-                return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            elif name == 'web_search':
-                return self._web_search(args.get('query', ''))
-            elif name == 'search_code':
-                return self._search_code(args.get('keyword', ''))
-            elif name == 'read_file':
-                return self._read_own_file(args.get('path', ''), args.get('start_line'), args.get('end_line'))
-            elif name == 'edit_own_code':
-                return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''),
-                                           args.get('start_line'), args.get('end_line'),
-                                           args.get('file', 'desktop_pet.py'))
-            elif name == 'write_file':
-                return self._write_file_tool(args.get('filename', ''), args.get('content', ''))
-            elif name == 'write_config':
-                return self._write_config_tool(args.get('key', ''), args.get('value', ''))
-            elif name == 'calculate':
-                return calculate_expr(args.get('expr', ''))
-            elif name == 'set_reminder':
-                sec = max(1, min(int(args.get('seconds', 60)), 86400))
-                text = args.get('text', '提醒')
-                self._add_reminder(sec, text)
-                return f'已设置 {sec} 秒后提醒：{text}'
-            elif name == 'lock_screen':
-                ctypes.windll.user32.LockWorkStation()
-                return '已锁定屏幕'
-            elif name == 'offer_choices':
-                # v6.30 情感选项：支持字符串或 {text, affect} 对象，返回特殊标记
-                raw = args.get('choices') or []
-                choices = []
-                for c in raw:
-                    if isinstance(c, dict):
-                        t = str(c.get('text') or '').strip()[:20]
-                        if t:
-                            choices.append({'text': t, 'affect': c.get('affect') or c.get('affection')})
-                    else:
-                        t = str(c).strip()[:20]
-                        if t:
-                            choices.append({'text': t, 'affect': None})
-                if len(choices) < 2:
-                    return '需要至少 2 个选项'
-                self._pending_choices = choices[:3]
-                return '__CHOICES__'
-            elif name == 'query_weather':
-                # 真正联网查天气（wttr.in，网络层拆至 tools_executor.query_weather）
-                return query_weather(args.get('city', '') or self.pet_city)
-            elif name == 'run_powershell':
-                cmd = args.get('command', '')
-                blocked = _check_dangerous(cmd)
-                if blocked:
-                    # 危险操作改为询问用户：允许才执行
-                    if self._request_confirm(f'检测到危险操作，是否允许执行？\n\n{cmd}'):
-                        return _run_ps(cmd, skip_check=True)
-                    return '用户拒绝了危险操作，未执行'
-                return _run_ps(cmd)
-            elif name == 'memorize':
-                return self._remember_fact(args.get('action', 'add'), args.get('content', ''), args.get('importance', 3), args.get('id', ''), args.get('role', 'both'))
-            elif name == 'manage_todo':
-                return self._manage_todo(args.get('action', 'list'), args.get('text', ''), args.get('id', ''))
-            elif name == 'schedule_followup':
-                sec = max(600, min(int(args.get('seconds', 3600)), 21600))
-                reason = (args.get('reason', '关心一下') or '').strip()
-                self._add_reminder(sec, reason, rtype='followup')
-                return f'已安排 {sec} 秒后回访：{reason}'
-            elif name == 'read_clipboard':
-                txt = _read_clipboard_text()
-                if txt is None:
-                    return '剪贴板没有文本内容'
-                return f'剪贴板内容（{len(txt)} 字符）：\n{txt[:1000]}' + ('…（过长已截断）' if len(txt) > 1000 else '')
-            elif name == 'write_clipboard':
-                txt = args.get('text', '')
-                if not txt:
-                    return '没有可写入的内容'
-                return '已写入剪贴板，用户可直接粘贴' if _write_clipboard_text(txt) else '剪贴板写入失败'
-            elif name == 'get_system_info':
-                return _run_ps('$os = Get-CimInstance Win32_OperatingSystem; $cpu = Get-CimInstance Win32_Processor; $cs = Get-CimInstance Win32_ComputerSystem; "系统: $($os.Caption) $($os.Version)"; "CPU: $($cpu.Name)"; "内存: $([math]::Round(($os.TotalVisibleMemorySize/1MB),1)) GB 总量, $([math]::Round(($os.FreePhysicalMemory/1MB),1)) GB 可用"; "开机: $($os.LastBootUpTime)"; "用户: $($cs.UserName)"')
-            elif name == 'list_processes':
-                n = int(args.get('n', 10))
-                return _run_ps(f'Get-Process | Sort-Object WS -Descending | Select-Object -First {n} Name, Id, @{{N="内存MB";E={{[math]::Round($_.WS/1MB)}}}} | Format-Table -AutoSize | Out-String -Width 100')
-            elif name == 'kill_process':
-                proc = args.get('name', '').replace('.exe', '')
-                protected = {'system', 'svchost', 'explorer', 'winlogon', 'csrss', 'services', 'dwm', 'pythonw', 'python', 'autoclaw'}
-                if proc.lower() in protected:
-                    return f'{proc} 是系统/关键进程，已保护，不能结束'
-                if not _is_safe_process_name(proc):
-                    return f'进程名 {proc} 含非法字符，已拒绝（防命令注入）'
-                # skip_check：进程名已过白名单校验（仅字母数字._- 空格），
-                # 且 Stop-Process 是本工具的既定行为，不是 AI 自由拼串
-                return _run_ps('Get-Process -Name ' + _ps_quote(proc) +
-                               ' -ErrorAction SilentlyContinue | Stop-Process; '
-                               f'if ($?) {{ "已结束进程 {proc}" }} else {{ "未找到进程 {proc}" }}',
-                               skip_check=True)
-            elif name == 'control_volume':
-                action = (args.get('action') or '').lower()
-                if action == 'set':
-                    pct = int(args.get('percent', 50))
-                    pct = max(0, min(100, pct))
-                    return _volume_ps(f'[Volume]::SetPercent({pct}); "已精确设置音量 {pct}%"')
-                if action in ('mute', 'unmute'):
-                    flag = 'true' if action == 'mute' else 'false'
-                    return _volume_ps(f'[Volume]::SetMuted({flag}); "已{"静音" if action == "mute" else "取消静音"}"')
-                if action in ('up', 'down'):
-                    steps = max(1, min(int(args.get('steps', 5)), 100))
-                    op = '+' if action == 'up' else '-'
-                    return _volume_ps(f'$cur = [Volume]::GetPercent(); $new = [math]::Max(0, [math]::Min(100, $cur {op} {steps})); [Volume]::SetPercent($new); "音量 $cur% → $new%"')
-                return '音量操作只能是 set/up/down/mute/unmute'
-            elif name == 'search_files':
-                fname = (args.get('name') or '').strip()
-                fpath = (args.get('path') or os.path.expanduser('~')).strip()
-                if not fname:
-                    return '请提供文件名关键词'
-                cmd = ('Get-ChildItem -LiteralPath ' + _ps_quote(fpath) +
-                       ' -Recurse -Filter ' + _ps_quote('*' + fname + '*') +
-                       ' -File -ErrorAction SilentlyContinue '
-                       '| Select-Object -First 10 FullName | Out-String -Width 200')
-                result = _run_ps(cmd, timeout=12)
-                if '（' in result and 'Error' in result:
-                    return result
-                return result if result and '（无输出' not in result else f'没找到包含 "{fname}" 的文件'
-            return f'未知工具 {name}'
+            handler = self._TOOL_HANDLERS.get(name)
+            if handler is None:
+                return f'未知工具 {name}'
+            return getattr(self, handler)(args)
         except Exception as e:
             return f'工具执行失败：{e}'
+
+    def _tool_install_plugin(self, args):
+        # v6.21 AI 自主安装插件（校验+写入+热加载）
+        _, msg = self.plugin_mgr.install(
+            args.get('name', ''),
+            args.get('meta') or {},
+            args.get('entry_content'),
+            args.get('rules_content'))
+        return msg
+
+    def _tool_uninstall_plugin(self, args):
+        _, msg = self.plugin_mgr.uninstall(args.get('name', ''))
+        return msg
+
+    def _tool_list_plugins(self, args):
+        return self.plugin_mgr.status_text()
+
+    def _tool_set_theme(self, args):
+        # v6.23 主题切换（default / theme 插件名）；v6.25.1 GUI 应用回主线程（防跨线程崩溃）
+        tname = str(args.get('name') or 'default').strip()
+        available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
+        if tname not in available:
+            return f'（可用主题：{"、".join(available)}）'
+        # 数据部分（线程安全）立即更新（与右键菜单入口共用同一方法）
+        self._set_theme_data(tname)
+        # GUI 部分回主线程执行（QTimer.singleShot 线程安全）
+        QTimer.singleShot(0, self._apply_theme)
+        self._save_cfg_value('theme', tname)
+        return f'✅ 已切换主题：{tname}（样式即将生效）'
+
+    def _tool_skill_run(self, args):
+        # v6.23 复合技能：返回步骤清单，AI 逐步执行
+        sname = str(args.get('name') or '').strip()
+        steps = self.plugin_mgr.skill_steps(sname)
+        if steps is None:
+            avail = [str(x) for x in self.plugin_mgr.skill_names()]
+            return f'（未找到技能 {sname}；可用技能：{"、".join(avail) or "无"}）'
+        return steps
+
+    def _tool_open_app(self, args):
+        app = args.get('name', '')
+        return self._smart_open(app)
+
+    def _tool_get_time(self, args):
+        import datetime
+        return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    def _tool_web_search(self, args):
+        return self._web_search(args.get('query', ''))
+
+    def _tool_search_code(self, args):
+        return self._search_code(args.get('keyword', ''))
+
+    def _tool_read_file(self, args):
+        return self._read_own_file(args.get('path', ''), args.get('start_line'), args.get('end_line'))
+
+    def _tool_edit_own_code(self, args):
+        return self._edit_own_code(args.get('old_text', ''), args.get('new_text', ''),
+                                   args.get('start_line'), args.get('end_line'),
+                                   args.get('file', 'desktop_pet.py'))
+
+    def _tool_write_file(self, args):
+        return self._write_file_tool(args.get('filename', ''), args.get('content', ''))
+
+    def _tool_write_config(self, args):
+        return self._write_config_tool(args.get('key', ''), args.get('value', ''))
+
+    def _tool_calculate(self, args):
+        return calculate_expr(args.get('expr', ''))
+
+    def _tool_set_reminder(self, args):
+        sec = max(1, min(int(args.get('seconds', 60)), 86400))
+        text = args.get('text', '提醒')
+        self._add_reminder(sec, text)
+        return f'已设置 {sec} 秒后提醒：{text}'
+
+    def _tool_lock_screen(self, args):
+        ctypes.windll.user32.LockWorkStation()
+        return '已锁定屏幕'
+
+    def _tool_offer_choices(self, args):
+        # v6.30 情感选项：支持字符串或 {text, affect} 对象，返回特殊标记
+        raw = args.get('choices') or []
+        choices = []
+        for c in raw:
+            if isinstance(c, dict):
+                t = str(c.get('text') or '').strip()[:20]
+                if t:
+                    choices.append({'text': t, 'affect': c.get('affect') or c.get('affection')})
+            else:
+                t = str(c).strip()[:20]
+                if t:
+                    choices.append({'text': t, 'affect': None})
+        if len(choices) < 2:
+            return '需要至少 2 个选项'
+        self._pending_choices = choices[:3]
+        return '__CHOICES__'
+
+    def _tool_query_weather(self, args):
+        # 真正联网查天气（wttr.in，网络层拆至 tools_executor.query_weather）
+        return query_weather(args.get('city', '') or self.pet_city)
+
+    def _tool_run_powershell(self, args):
+        cmd = args.get('command', '')
+        blocked = _check_dangerous(cmd)
+        if blocked:
+            # 危险操作改为询问用户：允许才执行
+            if self._request_confirm(f'检测到危险操作，是否允许执行？\n\n{cmd}'):
+                return _run_ps(cmd, skip_check=True)
+            return '用户拒绝了危险操作，未执行'
+        return _run_ps(cmd)
+
+    def _tool_memorize(self, args):
+        return self._remember_fact(args.get('action', 'add'), args.get('content', ''), args.get('importance', 3), args.get('id', ''), args.get('role', 'both'))
+
+    def _tool_manage_todo(self, args):
+        return self._manage_todo(args.get('action', 'list'), args.get('text', ''), args.get('id', ''))
+
+    def _tool_schedule_followup(self, args):
+        sec = max(600, min(int(args.get('seconds', 3600)), 21600))
+        reason = (args.get('reason', '关心一下') or '').strip()
+        self._add_reminder(sec, reason, rtype='followup')
+        return f'已安排 {sec} 秒后回访：{reason}'
+
+    def _tool_read_clipboard(self, args):
+        txt = _read_clipboard_text()
+        if txt is None:
+            return '剪贴板没有文本内容'
+        return f'剪贴板内容（{len(txt)} 字符）：\n{txt[:1000]}' + ('…（过长已截断）' if len(txt) > 1000 else '')
+
+    def _tool_write_clipboard(self, args):
+        txt = args.get('text', '')
+        if not txt:
+            return '没有可写入的内容'
+        return '已写入剪贴板，用户可直接粘贴' if _write_clipboard_text(txt) else '剪贴板写入失败'
+
+    def _tool_get_system_info(self, args):
+        return _run_ps('$os = Get-CimInstance Win32_OperatingSystem; $cpu = Get-CimInstance Win32_Processor; $cs = Get-CimInstance Win32_ComputerSystem; "系统: $($os.Caption) $($os.Version)"; "CPU: $($cpu.Name)"; "内存: $([math]::Round(($os.TotalVisibleMemorySize/1MB),1)) GB 总量, $([math]::Round(($os.FreePhysicalMemory/1MB),1)) GB 可用"; "开机: $($os.LastBootUpTime)"; "用户: $($cs.UserName)"')
+
+    def _tool_list_processes(self, args):
+        n = int(args.get('n', 10))
+        return _run_ps(f'Get-Process | Sort-Object WS -Descending | Select-Object -First {n} Name, Id, @{{N="内存MB";E={{[math]::Round($_.WS/1MB)}}}} | Format-Table -AutoSize | Out-String -Width 100')
+
+    def _tool_kill_process(self, args):
+        proc = args.get('name', '').replace('.exe', '')
+        protected = {'system', 'svchost', 'explorer', 'winlogon', 'csrss', 'services', 'dwm', 'pythonw', 'python', 'autoclaw'}
+        if proc.lower() in protected:
+            return f'{proc} 是系统/关键进程，已保护，不能结束'
+        if not _is_safe_process_name(proc):
+            return f'进程名 {proc} 含非法字符，已拒绝（防命令注入）'
+        # skip_check：进程名已过白名单校验（仅字母数字._- 空格），
+        # 且 Stop-Process 是本工具的既定行为，不是 AI 自由拼串
+        return _run_ps('Get-Process -Name ' + _ps_quote(proc) +
+                       ' -ErrorAction SilentlyContinue | Stop-Process; '
+                       f'if ($?) {{ "已结束进程 {proc}" }} else {{ "未找到进程 {proc}" }}',
+                       skip_check=True)
+
+    def _tool_control_volume(self, args):
+        action = (args.get('action') or '').lower()
+        if action == 'set':
+            pct = int(args.get('percent', 50))
+            pct = max(0, min(100, pct))
+            return _volume_ps(f'[Volume]::SetPercent({pct}); "已精确设置音量 {pct}%"')
+        if action in ('mute', 'unmute'):
+            flag = 'true' if action == 'mute' else 'false'
+            return _volume_ps(f'[Volume]::SetMuted({flag}); "已{"静音" if action == "mute" else "取消静音"}"')
+        if action in ('up', 'down'):
+            steps = max(1, min(int(args.get('steps', 5)), 100))
+            op = '+' if action == 'up' else '-'
+            return _volume_ps(f'$cur = [Volume]::GetPercent(); $new = [math]::Max(0, [math]::Min(100, $cur {op} {steps})); [Volume]::SetPercent($new); "音量 $cur% → $new%"')
+        return '音量操作只能是 set/up/down/mute/unmute'
+
+    def _tool_search_files(self, args):
+        fname = (args.get('name') or '').strip()
+        fpath = (args.get('path') or os.path.expanduser('~')).strip()
+        if not fname:
+            return '请提供文件名关键词'
+        cmd = ('Get-ChildItem -LiteralPath ' + _ps_quote(fpath) +
+               ' -Recurse -Filter ' + _ps_quote('*' + fname + '*') +
+               ' -File -ErrorAction SilentlyContinue '
+               '| Select-Object -First 10 FullName | Out-String -Width 200')
+        result = _run_ps(cmd, timeout=12)
+        if '（' in result and 'Error' in result:
+            return result
+        return result if result and '（无输出' not in result else f'没找到包含 "{fname}" 的文件'
 
     def _ai_worker(self, text):
         """后台线程：调用 DeepSeek API（支持 function calling 循环）"""
