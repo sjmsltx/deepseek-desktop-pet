@@ -2073,6 +2073,87 @@ class PetWidget(QWidget):
             return result
         return result if result and '（无输出' not in result else f'没找到包含 "{fname}" 的文件'
 
+    # ================= 窄接口（v6.51：为"搬模块"重构解耦测试而加） =================
+    # 回归测试原先直接读写宿主的私有属性（_stream_text / _thinking_label / api_stats /
+    # current …），这会让任何一次内部改名都变成"测试大面积变红"，重构寸步难行。
+    # 这里把测试与外部模块真正需要的状态收敛成五个入口：读用 snapshot()/ui_probe()，
+    # 写用 set_state()（白名单键，写错键名直接报错，避免悄悄写坏内部状态）。
+
+    def snapshot(self):
+        """只读状态快照（对外契约）"""
+        return {
+            'char': self.current,
+            'model': self._current_model(),
+            'endpoint': self._current_endpoint(),
+            'language': getattr(self, 'language', 'zh'),
+            'max_tokens': getattr(self, 'max_tokens', None),
+            'temperature': getattr(self, 'temperature', None),
+            'theme': dict(getattr(self, 'theme', {}) or {}),
+            'current_theme': getattr(self, 'current_theme', 'default'),
+            'edge_mode': getattr(self, '_edge_mode', 'peek'),
+            'display_mode': getattr(self, 'display_mode', 'static'),
+            'personality': getattr(self, 'personality', ''),
+            'reply_style': getattr(self, 'reply_style', 'normal'),
+            'active_care': bool(getattr(self, 'active_chat_enabled', False)),
+            'ai_enabled': bool(getattr(self, 'ai_enabled', False)),
+            'chat_msgs': list(getattr(self, 'chat_history_msgs', []) or []),
+            'memory_summaries': list(getattr(self, 'memory_summaries', []) or []),
+            'api_stats': getattr(self, 'api_stats', None),
+        }
+
+    _SET_STATE_KEYS = {
+        'char': 'current', 'language': 'language', 'max_tokens': 'max_tokens',
+        'temperature': 'temperature', 'theme': 'theme', 'ai_enabled': 'ai_enabled',
+        'ai_key': 'ai_key', 'cfg': '_cfg', 'chat_msgs': 'chat_history_msgs',
+        'memory_summaries': 'memory_summaries', 'api_stats': 'api_stats',
+        'edge_mode': '_edge_mode', 'display_mode': 'display_mode',
+        'choices_requested': '_choices_requested',
+    }
+
+    def set_state(self, **kw):
+        """受控写入口：只接受白名单键（写错立刻报错，不静默写坏状态）"""
+        for k, v in kw.items():
+            attr = self._SET_STATE_KEYS.get(k)
+            if attr is None:
+                raise KeyError('set_state 不支持的键：%s（可用：%s）'
+                               % (k, '、'.join(sorted(self._SET_STATE_KEYS))))
+            setattr(self, attr, v)
+        return self
+
+    def ui_probe(self):
+        """UI 探针（只读）：流式/思考/状态行/选项按钮的可见状态"""
+        def _txt(w):
+            try:
+                return w.text() if w is not None else None
+            except Exception:
+                return None
+        bubble = getattr(self, '_chat_type_bubble', None)
+        btns = []
+        if bubble is not None:
+            try:
+                btns = [b.text() for b in bubble.findChildren(QPushButton)]
+            except Exception:
+                btns = []
+        lbl = getattr(self, '_thinking_label', None)
+        return {
+            'stream_text': getattr(self, '_stream_text', ''),
+            'thinking_text': _txt(lbl),
+            'thinking_hidden': bool(lbl.isHidden()) if lbl is not None else True,
+            'status_widget': getattr(self, '_status_widget', None) is not None,
+            'bubble_text': _txt(bubble),
+            'choice_buttons': btns,
+        }
+
+    def ui_clear_handles(self):
+        """测试用：清空流式/思考区控件句柄（模拟新一轮对话开始前的状态）"""
+        self._chat_type_bubble = None
+        self._thinking_label = None
+        self._stream_label = None
+
+    def ui_thinking_toggle(self):
+        """测试用：思考区折叠按钮句柄（点它验证折叠/展开）"""
+        return getattr(self, '_thinking_toggle', None)
+
     def _ai_worker(self, text):
         """后台线程：调用 DeepSeek API（支持 function calling 循环）"""
         import urllib.request

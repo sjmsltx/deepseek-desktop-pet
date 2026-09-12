@@ -81,8 +81,8 @@ def t_b1():
         W._on_stream(msg[i:i + sz])
         i += sz
     W._on_stream_done()
-    assert '[emotion' not in W._stream_text
-    assert '正文' in W._stream_text
+    assert '[emotion' not in W.ui_probe()['stream_text']
+    assert '正文' in W.ui_probe()['stream_text']
 
 
 test('B1 流式 emotion 过滤（切碎 chunk）', t_b1)
@@ -95,8 +95,8 @@ def t_b2():
         W._on_reasoning(c)
     W._on_stream('正文内容')
     W._on_stream_done()
-    assert 'emotion' not in W._thinking_label.text()
-    assert '思考内容' in W._thinking_label.text()
+    assert 'emotion' not in (W.ui_probe()['thinking_text'] or '')
+    assert '思考内容' in (W.ui_probe()['thinking_text'] or '')
 
 
 test('B2 思考区 emotion 过滤 + 同卡片', t_b2)
@@ -106,14 +106,12 @@ def t_b3():
     # 多气泡折叠独立
     W._chat_type_stream_begin()
     W._on_reasoning('第一轮思考')
-    t1 = W._thinking_toggle
+    t1 = W.ui_thinking_toggle()
     W._on_stream_done()
-    W._chat_type_bubble = None
-    W._thinking_label = None
-    W._stream_label = None
+    W.ui_clear_handles()
     W._chat_type_stream_begin()
     W._on_reasoning('第二轮思考')
-    t2 = W._thinking_toggle
+    t2 = W.ui_thinking_toggle()
     W._on_stream_done()
     t1.click()
     assert t1.text().endswith('▶') and t2.text().endswith('▼')
@@ -125,9 +123,9 @@ test('B3 多气泡思考折叠独立', t_b3)
 def t_b4():
     # 状态行清除（非流式占位回复路径）
     W._update_ai_status('正在整理结果…')
-    assert W._status_widget is not None
+    assert W.ui_probe()['status_widget'] is True
     W._display_ai_reply('（刚才分析到一半走神了，换个问法再试一次？）')
-    assert W._status_widget is None
+    assert W.ui_probe()['status_widget'] is False
 
 
 test('B4 状态行清除（占位回复路径）', t_b4)
@@ -139,8 +137,8 @@ def t_b5():
     W._on_reasoning('思考内容XYZ')
     W._on_stream('正文')
     W._rerender_rich('正文```py\nprint(1)\n```')
-    assert '思考内容XYZ' in W._thinking_label.text()
-    assert not W._thinking_label.isHidden()
+    assert '思考内容XYZ' in (W.ui_probe()['thinking_text'] or '')
+    assert W.ui_probe()['thinking_hidden'] is False
 
 
 test('B5 富文本重渲染保留思考区', t_b5)
@@ -152,10 +150,10 @@ def t_b6():
     W._on_reasoning('思考')
     W._on_stream('正文')
     W._execute_tool('offer_choices', {'choices': ['A选项', {'text': 'B选项', 'affect': 2}]})
-    W._choices_requested = True
+    W.set_state(choices_requested=True)
     W._display_ai_reply('正文')
-    btns = [b for b in W._chat_type_bubble.findChildren(QPushButton)
-            if b.text().startswith(('A.', 'B.', 'C.'))]
+    btns = [x for x in W.ui_probe()['choice_buttons']
+            if x.startswith(('A.', 'B.', 'C.'))]
     assert len(btns) >= 2
 
 
@@ -339,14 +337,14 @@ test('H2 新增档案即多一个角色（无需改代码）', t_h2)
 def t_h3():
     import desktop_pet
     reg = desktop_pet.MODEL_REGISTRY
-    saved = W.current
+    saved = W.snapshot()['char']
     try:
         for k in reg.keys():
-            W.current = k
+            W.set_state(char=k)
             assert W._current_model() == reg.get(k).model_id, f'{k} 的模型 ID 应取自档案'
             assert W._current_endpoint() == reg.get(k).endpoint, f'{k} 的接口地址应取自档案'
     finally:
-        W.current = saved
+        W.set_state(char=saved)
     assert W._current_model(), '模型 ID 不得为空'
     assert W._current_endpoint().startswith('https://')
 
@@ -383,22 +381,23 @@ test('H5 输出上限统一（128000 不再被压回 64000）', t_h5)
 def t_h6():
     """_summarize_old 原先引用未定义的 cur_model，NameError 被 except 吞掉，
     导致摘要从不生成、历史从不裁剪。本项直接验行为，不只看代码。"""
-    saved = (list(W.chat_history_msgs), list(W.memory_summaries),
-             W._save_memory, W._extract_chat, W.ai_enabled)
+    saved = (W.snapshot()['chat_msgs'], W.snapshot()['memory_summaries'],
+             W._save_memory, W._extract_chat, W.snapshot()['ai_enabled'])
     try:
-        W.ai_enabled = True
-        W.chat_history_msgs = [{'role': 'user' if i % 2 == 0 else 'assistant',
-                                'content': f'第{i}条测试消息内容'} for i in range(30)]
-        W.memory_summaries = []
+        W.set_state(ai_enabled=True)
+        W.set_state(chat_msgs=[{'role': 'user' if i % 2 == 0 else 'assistant',
+                                'content': f'第{i}条测试消息内容'} for i in range(30)])
+        W.set_state(memory_summaries=[])
         W._save_memory = lambda: None
         W._extract_chat = lambda msgs, mt: '测试摘要'
         W._summarize_old()
-        assert len(W.chat_history_msgs) == 20, \
-            f'应裁剪到 20 条，实际 {len(W.chat_history_msgs)}（旧版会静默跳过）'
-        assert W.memory_summaries and W.memory_summaries[-1]['content'] == '测试摘要'
+        assert len(W.snapshot()['chat_msgs']) == 20, \
+            f"应裁剪到 20 条，实际 {len(W.snapshot()['chat_msgs'])}（旧版会静默跳过）"
+        _mems = W.snapshot()['memory_summaries']
+        assert _mems and _mems[-1]['content'] == '测试摘要'
     finally:
-        (W.chat_history_msgs, W.memory_summaries,
-         W._save_memory, W._extract_chat, W.ai_enabled) = saved
+        W.set_state(chat_msgs=saved[0], memory_summaries=saved[1], ai_enabled=saved[4])
+        W._save_memory, W._extract_chat = saved[2], saved[3]
 
 
 test('H6 滚动摘要生效（原 NameError 静默失效已修）', t_h6)
@@ -434,15 +433,15 @@ def t_h8():
     import desktop_pet
     src = inspect.getsource(desktop_pet.PetWidget._ai_worker)
     assert 'fallback_model=cur_model' in src, '流式记账应传 fallback_model'
-    saved = W.api_stats
+    saved = W.snapshot()['api_stats']
     try:
-        W.api_stats = _as.ApiStats(os.path.join(tempfile.mkdtemp(), 'api_stats.json'),
-                                   registry=desktop_pet.MODEL_REGISTRY)
+        W.set_state(api_stats=_as.ApiStats(os.path.join(tempfile.mkdtemp(), 'api_stats.json'),
+                                           registry=desktop_pet.MODEL_REGISTRY))
         W._record_api_usage({'usage': {'prompt_tokens': 10, 'completion_tokens': 10}},
                             fallback_model='deepseek-v4-pro')
-        assert W.api_stats.calls[-1]['model'] == 'deepseek-v4-pro', '空 model 应被 fallback 补上'
+        assert W.snapshot()['api_stats'].calls[-1]['model'] == 'deepseek-v4-pro', '空 model 应被 fallback 补上'
     finally:
-        W.api_stats = saved
+        W.set_state(api_stats=saved)
 
 
 test('H8 流式记账补传模型名（fallback_model 生效）', t_h8)
@@ -664,21 +663,21 @@ def t_h16():
     saved_info = QMessageBox.information
     captured = []
     QMessageBox.information = staticmethod(lambda *a, **k: captured.append(a[-1] if a else ''))
-    saved_stats = W.api_stats
+    saved_stats = W.snapshot()['api_stats']
     try:
-        W.api_stats = _as.ApiStats(os.path.join(tempfile.mkdtemp(), 'api_stats.json'),
-                                   registry=desktop_pet.MODEL_REGISTRY)
-        W.api_stats.record({'prompt_tokens': 10, 'completion_tokens': 10}, 'no-such-model-9999')
+        W.set_state(api_stats=_as.ApiStats(os.path.join(tempfile.mkdtemp(), 'api_stats.json'),
+                                           registry=desktop_pet.MODEL_REGISTRY))
+        W.snapshot()['api_stats'].record({'prompt_tokens': 10, 'completion_tokens': 10}, 'no-such-model-9999')
         W._show_api_stats_history()
         assert '价格未知' in (captured[-1] if captured else ''), '未知价格应显式标注'
-        W.api_stats.record({'prompt_tokens': 10, 'completion_tokens': 10}, 'deepseek-flash')
+        W.snapshot()['api_stats'].record({'prompt_tokens': 10, 'completion_tokens': 10}, 'deepseek-flash')
         captured.clear()
         W._show_api_stats_history()
         txt = captured[-1] if captured else ''
         line = next((x for x in txt.split('\n') if 'deepseek-flash' in x), '')
         assert line and '价格未知' not in line, '已知价格那一行不该出警告：%r' % line
     finally:
-        W.api_stats = saved_stats
+        W.set_state(api_stats=saved_stats)
         QMessageBox.information = saved_info
 
 
@@ -803,8 +802,8 @@ def t_h20():
     saved_cfg = getattr(W, '_cfg', None)
     saved_key = getattr(W, 'ai_key', '')
     try:
-        W._cfg = {'deepseek_api_key': 'sk-main', 'other_relay_key': 'sk-relay'}
-        W.ai_key = 'sk-main'
+        W.set_state(cfg={'deepseek_api_key': 'sk-main', 'other_relay_key': 'sk-relay'},
+                    ai_key='sk-main')
         assert W._api_key_for_field('deepseek_api_key') == 'sk-main'
         assert W._api_key_for_field('other_relay_key') == 'sk-relay'
         assert W._api_key_for_field('') == 'sk-main'
@@ -812,16 +811,16 @@ def t_h20():
         # 3) 当前角色用哪把 key 跟着档案走
         reg = desktop_pet.MODEL_REGISTRY
         saved_field = reg.get('pro').api_key_field
-        saved_cur = W.current
+        saved_cur = W.snapshot()['char']
         try:
             reg.set_field('pro', 'api_key_field', 'other_relay_key')
-            W.current = 'pro'
+            W.set_state(char='pro')
             assert W._current_api_key() == 'sk-relay'
-            W.current = 'flash'
+            W.set_state(char='flash')
             assert W._current_api_key() == 'sk-main'
         finally:
             reg.set_field('pro', 'api_key_field', saved_field)
-            W.current = saved_cur
+            W.set_state(char=saved_cur)
         # 4) 对话框的探测 / 拉列表也用当前档案那把 key
         seen = []
         d2 = ModelRegistry(os.path.join(tempfile.mkdtemp(), 'models.json'))
@@ -836,8 +835,8 @@ def t_h20():
         assert 'other_relay_key' in seen, '对话框应把档案的字段名交给解析器'
     finally:
         if saved_cfg is not None:
-            W._cfg = saved_cfg
-        W.ai_key = saved_key
+            W.set_state(cfg=saved_cfg)
+        W.set_state(ai_key=saved_key)
 
 
 test('H20 每档案独立 key 字段（多服务商/中转）', t_h20)
@@ -860,14 +859,14 @@ def t_h21():
     assert dlg.cb_tokens.currentData() == int(getattr(W, 'max_tokens', 0) or 0)
     assert dlg.lb_model.text() == W._current_model()
     # 改动回写（改完还原）
-    old = int(W.max_tokens or 0)
+    old = int(W.snapshot()['max_tokens'] or 0)
     try:
         tgt = 32000 if old != 32000 else 16000
         dlg.cb_tokens.setCurrentIndex(dlg.cb_tokens.findData(tgt))
-        assert int(W.max_tokens) == tgt, '回复长度未回写到宿主'
+        assert int(W.snapshot()['max_tokens']) == tgt, '回复长度未回写到宿主'
     finally:
         dlg.cb_tokens.setCurrentIndex(dlg.cb_tokens.findData(old))
-    assert int(W.max_tokens) == old, '未还原'
+    assert int(W.snapshot()['max_tokens']) == old, '未还原'
     # 按钮齐备（原设置子菜单的能力都搬进来了）
     btns = [b.text() for b in dlg.findChildren(QPushButton)]
     for need in ('关闭', '🎯 模型管理…', '🔑 修改 API Key…', '🌐 修改联网搜索 Key…',
