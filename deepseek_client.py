@@ -139,3 +139,63 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
                 time.sleep(wait)
                 continue
             raise
+
+
+def models_url(endpoint=None):
+    """由 chat 接口地址推出官方的模型列表地址。
+    例：…/chat/completions → …/models（换中转/代理时也跟着走）。"""
+    base = (endpoint or API_URL).strip().rstrip('/')
+    if base.endswith('/chat/completions'):
+        base = base[:-len('/chat/completions')]
+    return base + '/models'
+
+
+def _http_err_text(e):
+    """把 HTTPError 的响应体里那句 error.message 抽出来（失败时退回状态码）"""
+    try:
+        body = _json.loads(e.read().decode())
+        msg = (body.get('error') or {}).get('message') or ''
+        if msg:
+            return msg[:160]
+    except Exception:
+        pass
+    return ''
+
+
+def list_models(api_key, endpoint=None, timeout=20):
+    """拉取官方当前可用模型列表（GET /models）。
+    返回 (模型 ID 列表, 错误文本)；成功时错误文本为空串。"""
+    try:
+        req = urllib.request.Request(
+            models_url(endpoint),
+            headers={'Authorization': f'Bearer {api_key}'},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = _json.loads(resp.read().decode())
+        ids = [m.get('id') for m in (data.get('data') or []) if m.get('id')]
+        return ids, ''
+    except urllib.error.HTTPError as e:
+        return [], f'HTTP {e.code} {_http_err_text(e)}'.strip()
+    except Exception as e:
+        return [], str(e)[:160]
+
+
+def probe_model(api_key, model_id, endpoint=None, timeout=30):
+    """连通性自检：发一个最小请求（max_tokens=1），看能不能通、响应里回的真实模型是谁。
+    返回 (是否成功, 响应里的真实 model, 耗时秒, 错误文本)。"""
+    t0 = time.time()
+    body = _json.dumps({'model': model_id,
+                        'messages': [{'role': 'user', 'content': 'hi'}],
+                        'max_tokens': 1}).encode()
+    try:
+        req = urllib.request.Request(
+            endpoint or API_URL, data=body,
+            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = _json.loads(resp.read().decode())
+        return True, (data.get('model') or ''), time.time() - t0, ''
+    except urllib.error.HTTPError as e:
+        return False, '', time.time() - t0, f'HTTP {e.code} {_http_err_text(e)}'.strip()
+    except Exception as e:
+        return False, '', time.time() - t0, str(e)[:160]

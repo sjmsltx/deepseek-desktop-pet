@@ -55,6 +55,15 @@
 
 **模型身份完全可配置**（`models.json`）：显示名、模型 ID、接口地址、温度/思考开关/token 上限、价格、外观与人设，全部写在档案里而非代码里——官方改名或出新模型时改配置即可，不用动源码。右键菜单的“角色”与“模型”列表也由档案动态生成，加一条档案就多一个角色。
 
+**图形化配置入口**：右键菜单 → ⚙️ 设置 → 🎯 模型管理…——可增删档案、逐项编辑，并带两个应对官方变动的按钮：
+
+| 按钮 | 作用 |
+|------|------|
+| 🔍 拉取官方模型列表 | 调 `GET /models` 拿到当前可用 ID，下拉选择直接填入 |
+| 🩺 连通性自检 | 发一个 `max_tokens=1` 的最小请求，回显「响应里的真实模型 + 耗时」 |
+
+> 为什么要这两个按钮：官方把 `deepseek-v4-flash` 重命名成 `deepseek-flash` 后，旧 ID 仍能当别名调通，但响应里的 `model` 已被归一化。自检能把这种“静默指向”直接摆到眼前。
+
 ### 🤖 AI 能力（function calling）
 - **15+ 工具**：打开程序 / 查天气 / 设提醒 / 锁屏 / 音量 / 进程管理 / 文件搜索 / 剪贴板读写 / 待办清单 / 记忆管理等
 - **PowerShell 安全执行**：危险操作（删除/关机/格式化）需用户确认，超时 + 输出截断
@@ -200,7 +209,8 @@ python desktop_pet.py
 desktop-pet/
 ├── desktop_pet.py              # 主程序（UI/聊天/AI 工作流/动画/工具分发）
 ├── model_registry.py           # 模型档案注册表（models.json 的加载/兜底/迁移/价格查询）
-├── deepseek_client.py          # DeepSeek 网络层（非流式 / SSE 流式 / 重试）
+├── model_manager_ui.py         # 模型管理对话框（增删档案 / 拉官方列表 / 连通性自检）
+├── deepseek_client.py          # DeepSeek 网络层（非流式 / SSE 流式 / 重试 / 模型列表 / 连通性探测）
 ├── requirements.txt            # 依赖清单（PySide6 + 可选 live2d）
 ├── pyproject.toml              # 项目元数据 / ruff 配置
 ├── config.example.json         # 配置模板（API Key 等）

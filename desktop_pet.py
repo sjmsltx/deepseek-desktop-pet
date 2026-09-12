@@ -43,6 +43,7 @@ from code_checker import check_python_blocks
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
 from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
                             MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
+from model_manager_ui import ModelManagerDialog  # Phase 2 模型管理对话框
 from tools_registry import AI_TOOLS, TOOL_STATUS
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
@@ -101,7 +102,7 @@ UI_ZH = {
     'toggle_chat': '💬 隐藏/显示聊天窗口', 'active_care': '💗 主动关心',
     'edge_mode': '📌 贴边模式：', 'edge_hidden': '完全消失', 'edge_peek': '扒边',
     'menu_actions': '🎬 动作', 'menu_personality': '🎭 性格切换', 'menu_settings': '⚙️ 设置',
-    'api_setting': '🔑 API 设置…', 'search_setting': '🌐 联网搜索', 'dlg_search': '联网搜索设置', 'attach_tip': '附加文件', 'model_menu': '🎯 角色模型', 'current': '当前',
+    'api_setting': '🔑 API 设置…', 'search_setting': '🌐 联网搜索', 'dlg_search': '联网搜索设置', 'attach_tip': '附加文件', 'model_menu': '🎯 角色模型', 'current': '当前', 'thinking': '思考模式', 'temperature': '采样温度', 'model_mgr': '🎯 模型管理…',
     'style_menu': '💬 回复风格', 'token_menu': '📝 回复长度', 'custom': '🎯 自定义…',
     'city': '🌆 默认城市…', 'custom_personality': '🎭 自定义性格…',
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
@@ -134,7 +135,7 @@ UI_EN = {
     'toggle_chat': '💬 Show/Hide chat', 'active_care': '💗 Proactive care',
     'edge_mode': '📌 Edge mode: ', 'edge_hidden': 'Hidden', 'edge_peek': 'Peek',
     'menu_actions': '🎬 Actions', 'menu_personality': '🎭 Personality', 'menu_settings': '⚙️ Settings',
-    'api_setting': '🔑 API Settings…', 'search_setting': '🌐 Web Search', 'dlg_search': 'Web Search Settings', 'attach_tip': 'Attach files', 'model_menu': '🎯 Models', 'current': 'Current',
+    'api_setting': '🔑 API Settings…', 'search_setting': '🌐 Web Search', 'dlg_search': 'Web Search Settings', 'attach_tip': 'Attach files', 'model_menu': '🎯 Models', 'current': 'Current', 'thinking': 'Thinking', 'temperature': 'Temperature', 'model_mgr': '🎯 Model Manager…',
     'style_menu': '💬 Reply style', 'token_menu': '📝 Reply length', 'custom': '🎯 Custom…',
     'city': '🌆 Default city…', 'custom_personality': '🎭 Custom personality…',
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
@@ -5071,24 +5072,61 @@ class PetWidget(QWidget):
                 self.search_api_key = text.strip()
                 self._append_chat('桌宠', '✅ 联网搜索已配置，AI 可查询最新信息' if not is_en else '✅ Search configured, AI can browse for latest info')
 
-    def _set_model_dialog(self, role):
-        """弹窗设置指定角色的模型 ID"""
+    def _save_profile_param(self, name, value):
+        """写当前角色的档案参数并落盘（思考开关 / 采样温度等）"""
+        prof = self._current_profile()
+        if prof is None:
+            return False
+        if not MODEL_REGISTRY.set_param(prof.key, name, value):
+            return False
+        MODEL_REGISTRY.save()
+        self._load_ai_config()      # 热加载：参数立即生效 + 菜单勾选态刷新
+        return True
+
+    def _toggle_reasoning(self):
+        """切换思考模式（写进当前角色的模型档案）"""
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        want = not getattr(self, 'reasoning_enabled', True)
+        if not self._save_profile_param('reasoning', want):
+            return
+        msg = ('思考模式已开启' if want else '思考模式已关闭') if not is_en else \
+              ('Thinking on' if want else 'Thinking off')
+        self._append_chat('桌宠', msg + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
+
+    def _set_temperature(self, val):
+        """设置采样温度（写进当前角色的模型档案）"""
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if not self._save_profile_param('temperature', val):
+            return
+        self._append_chat('桌宠', (f'采样温度：{val}' if not is_en else f'Temperature: {val}')
+                          + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
+
+    def _set_temperature_dialog(self):
+        """自定义采样温度"""
         from PySide6.QtWidgets import QInputDialog
         is_en = getattr(self, 'language', 'zh') == 'en'
-        prof = MODEL_REGISTRY.get(role)
-        key = 'model_flash' if role == 'flash' else 'model_pro'
-        cur = (prof.model_id if prof is not None else '') or getattr(self, key, '')
-        label = prof.display_name if prof is not None else role
-        text, ok = QInputDialog.getText(self, f'{label} {self._t("dlg_model")}',
-            (f'输入「{label}」使用的模型 ID（如 deepseek-flash）：' if not is_en
-             else f'Enter model ID for {label} (e.g. deepseek-flash):'), text=cur)
+        text, ok = QInputDialog.getText(self, self._t('temperature'),
+            ('输入 0.0 ~ 2.0（越小越稳，越大越发散）：' if not is_en
+             else 'Enter 0.0 ~ 2.0 (lower = steadier):'),
+            text=str(getattr(self, 'temperature', 1.0)))
         if ok and text.strip():
-            # 档案是模型身份的唯一来源：只改档案并落盘，不再往 config.json 写重复字段
-            MODEL_REGISTRY.set_field(role, 'model_id', text.strip())
-            MODEL_REGISTRY.save()
-            self._load_ai_config()      # 热加载：刷新 ai_model / 角色表
-            self._append_chat('桌宠', f'{label} 模型 ID：{text.strip()}（当前角色生效）' if not is_en
-                              else f'{label} model: {text.strip()} (active for current character)')
+            try:
+                self._set_temperature(max(0.0, min(float(text.strip()), 2.0)))
+            except ValueError:
+                self._append_chat('桌宠', '请输入数字。' if not is_en else 'Please enter a number.')
+
+    def _on_models_saved(self):
+        """模型档案落盘后热加载：刷新角色表 / 模型 ID / 参数"""
+        self._load_ai_config()
+
+    def _open_model_manager(self):
+        """打开模型管理对话框：增删档案 / 改显示名与模型 ID / 拉官方列表 / 连通性自检"""
+        dlg = ModelManagerDialog(MODEL_REGISTRY,
+                                 api_key_getter=lambda: getattr(self, 'ai_key', ''),
+                                 parent=self)
+        dlg.saved.connect(self._on_models_saved)
+        dlg.exec()
+        self._load_ai_config()      # 关闭后再刷一次（覆盖新增/删除档案的情况）
 
     def _set_personality_dialog(self):
         """弹窗自定义性格"""
@@ -6039,13 +6077,22 @@ class PetWidget(QWidget):
         # 7. 设置（子菜单）
         smenu = menu.addMenu(T('menu_settings'))
         smenu.addAction(T('api_setting')).triggered.connect(self._set_api_key_dialog)
-        mdlmenu = smenu.addMenu(T('model_menu'))
-        for _pk in MODEL_REGISTRY.keys():
-            _prof = MODEL_REGISTRY.get(_pk)
-            mdlmenu.addAction(f'{_prof.display_name if _prof else _pk}…').triggered.connect(
-                lambda checked=False, k=_pk: self._set_model_dialog(k))
-        mdlmenu.addSeparator()
-        mdlmenu.addAction(f'{T("current")}：{self._current_model()}（{CHARACTERS[self.current]["name"]}）').setEnabled(False)
+        smenu.addAction(T('model_mgr')).triggered.connect(self._open_model_manager)
+        smenu.addSeparator()
+        # 思考模式 / 采样温度（原先只藏在 config.json 里，菜单没有入口）
+        think_act = smenu.addAction('🧠 ' + T('thinking') + '：' + (T('on') if getattr(self, 'reasoning_enabled', True) else T('off')))
+        think_act.setCheckable(True)
+        think_act.setChecked(getattr(self, 'reasoning_enabled', True))
+        think_act.triggered.connect(self._toggle_reasoning)
+        tmenu2 = smenu.addMenu('🌡 ' + T('temperature'))
+        for tv in (0.3, 0.7, 1.0, 1.3):
+            ta2 = tmenu2.addAction(str(tv))
+            ta2.setCheckable(True)
+            ta2.setChecked(abs(getattr(self, 'temperature', 1.0) - tv) < 1e-6)
+            ta2.triggered.connect(lambda checked=False, v=tv: self._set_temperature(v))
+        tmenu2.addSeparator()
+        tmenu2.addAction(T('custom')).triggered.connect(self._set_temperature_dialog)
+        smenu.addAction(f'{T("current")}：{self._current_model()}（{CHARACTERS[self.current]["name"]}）').setEnabled(False)
         smenu.addSeparator()
         rsmenu = smenu.addMenu(T('style_menu'))
         for key, val in [('style_short', 'short'), ('style_normal', 'normal'), ('style_detailed', 'detailed')]:

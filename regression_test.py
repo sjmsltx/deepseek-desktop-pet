@@ -457,45 +457,42 @@ test('H10 模型档案不含密钥（只存引用字段名）', t_h10)
 
 
 def t_h11():
-    """右键菜单的「角色」项由档案动态生成——加档案即多一项（改造前写死两项）"""
+    """右键菜单：角色项由档案生成；设置里有模型管理入口与思考/温度开关"""
     import desktop_pet
     reg = desktop_pet.MODEL_REGISTRY
     menu, acts = W._build_context_menu()
     assert acts, '应返回可点击项字典'
-    # 注：PySide6 的 QMenu 包装器不能跳迭代长期持有（会报 already deleted），
+    # 注：PySide6 的 QMenu 包装器不能跨迭代长期持有（会报 already deleted），
     # 所以拿到子菜单后立即把要校验的文本取成字符串
-    keep = [menu]              # 全程持有，防被 GC
     role_labels = None
-    model_labels = None
+    settings_texts = []
     top_names = []
     for a in menu.actions():
         top_names.append(a.text())
         sub = a.menu()
         if sub is None:
             continue
-        keep.append(sub)
+        sub_names = [x.text() for x in sub.actions()]
         if '角色' in a.text() or 'Role' in a.text():
-            role_labels = [x.text() for x in sub.actions()]
-        for b in sub.actions():
-            sm = b.menu()
-            if sm is None:
-                continue
-            keep.append(sm)
-            if '模型' in b.text() or 'Model' in b.text():
-                model_labels = [x.text() for x in sm.actions() if x.text()]
-    assert role_labels is not None, f'未找到角色子菜单：{top_names}'
-    assert len(role_labels) == len(reg), \
-        f'角色项数应与档案数一致（{len(reg)}）：{role_labels}'
+            role_labels = sub_names
+        if '设置' in a.text() or 'Settings' in a.text():
+            settings_texts += sub_names
+            for b in sub.actions():
+                sm = b.menu()
+                if sm is not None:
+                    settings_texts += [x.text() for x in sm.actions()]
+    assert role_labels is not None, '未找到角色子菜单：%s' % top_names
+    assert len(role_labels) == len(reg), '角色项数应与档案数一致（%d）：%s' % (len(reg), role_labels)
     for k in reg.keys():
         assert reg.get(k).display_name in role_labels, \
-            f'角色菜单缺 {reg.get(k).display_name}：{role_labels}'
-    assert model_labels is not None, '未找到 设置→角色模型 子菜单'
-    for k in reg.keys():
-        assert any(reg.get(k).display_name in t for t in model_labels), \
-            f'模型菜单缺 {k}：{model_labels}'
+            '角色菜单缺 %s：%s' % (reg.get(k).display_name, role_labels)
+    joined = ' | '.join(settings_texts)
+    assert '模型管理' in joined or 'Model Manager' in joined, '设置里缺模型管理入口：%s' % joined
+    assert '思考模式' in joined or 'Thinking' in joined, '设置里缺思考模式：%s' % joined
+    assert '采样温度' in joined or 'Temperature' in joined, '设置里缺采样温度：%s' % joined
 
 
-test('H11 菜单角色项由档案动态生成', t_h11)
+test('H11 菜单角色项由档案生成 + 模型管理入口', t_h11)
 
 
 def t_h12():
@@ -522,6 +519,59 @@ def t_h12():
 
 
 test('H12 空 api_prices 不清档案价 / 非空才写档', t_h12)
+
+
+def t_h13():
+    """模型管理对话框：编辑→保存落盘、恢复出厂、增删档案、不能删空"""
+    import tempfile
+    from model_registry import ModelRegistry
+    from model_manager_ui import ModelManagerDialog
+    QMessageBox.warning = staticmethod(lambda *a, **k: None)
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    d = tempfile.mkdtemp()
+    reg = ModelRegistry(os.path.join(d, 'models.json'))
+    dlg = ModelManagerDialog(reg, api_key_getter=lambda: 'sk-test')
+    assert dlg.lst.count() == len(reg) == 2
+    assert dlg.ed_model.text() == reg.get(dlg._cur).model_id
+    dlg.lst.setCurrentRow(reg.keys().index('flash'))
+    dlg.ed_name.setText('小蓝')
+    dlg.ed_model.setText('deepseek-flash-turbo')
+    dlg.sp_temp.setValue(0.55)
+    dlg.sp_tokens.setValue(200000)
+    dlg.ck_reason.setChecked(False)
+    dlg._on_save()
+    p = reg.get('flash')
+    assert p.display_name == '小蓝' and p.model_id == 'deepseek-flash-turbo'
+    assert abs(p.temperature - 0.55) < 1e-9 and p.max_tokens == 200000 and p.reasoning is False
+    raw = json.load(io.open(os.path.join(d, 'models.json'), encoding='utf-8'))
+    assert raw['profiles'][0]['display_name'] == '小蓝', '应真的写进了文件'
+    dlg._on_reset()
+    assert reg.get('flash').display_name == 'V4 Flash' and reg.get('flash').model_id == 'deepseek-flash'
+    dlg.ed_model.setText('   ')          # 空模型 ID 不许保存
+    before = reg.get('flash').model_id
+    dlg._on_save()
+    assert reg.get('flash').model_id == before
+    while len(reg) > 1:                  # 至少留一份
+        dlg.lst.setCurrentRow(0)
+        dlg._on_del()
+    dlg.lst.setCurrentRow(0)
+    dlg._on_del()
+    assert len(reg) == 1
+
+
+test('H13 模型管理对话框（保存/恢复出厂/增删/防删空）', t_h13)
+
+
+def t_h14():
+    """接口地址推导：换中转/代理时 /models 也跟着走"""
+    from deepseek_client import models_url
+    assert models_url() == 'https://api.deepseek.com/models'
+    assert models_url('https://api.deepseek.com/chat/completions') == 'https://api.deepseek.com/models'
+    assert models_url('https://proxy.example.com/v1/chat/completions') == 'https://proxy.example.com/v1/models'
+    assert models_url('https://x.com/v1/') == 'https://x.com/v1/models'
+
+
+test('H14 官方模型列表地址推导（兼容中转/代理）', t_h14)
 
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)
