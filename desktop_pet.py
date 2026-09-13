@@ -250,6 +250,7 @@ DEFAULT_THEME = {
     'text': '#eee',
     'input_bg': 'rgba(255,255,255,0.12)',
     'input_focus': 'rgba(255,255,255,0.18)',
+    'input_text': '#fff',  # v6.52 输入框文字色（原先写死在 _panel_qss 里，浅色主题下会看不见）
     'user_bubble': 'rgba(30,88,70,0.80)',
     'ai_bubble': 'rgba(46,54,76,0.80)',
     'name_user': '#6fe3a1',
@@ -4251,7 +4252,7 @@ class PetWidget(QWidget):
         return f"""
             QFrame {{ background-color: {t['panel_bg']}; border-radius: 12px; }}
             QTextBrowser {{ background: transparent; color: {t['text']}; border: none; font-size: 12px; padding: 6px; }}
-            QTextEdit {{ background: {t['input_bg']}; color: #fff; border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px; }}
+            QTextEdit {{ background: {t['input_bg']}; color: {t.get('input_text', '#fff')}; border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px; }}
             QTextEdit:focus {{ background: {t['input_focus']}; }}
             QTextEdit viewport {{ background: transparent; }}
             QScrollArea {{ background: transparent; border: none; }}
