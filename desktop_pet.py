@@ -51,6 +51,7 @@ from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
 from code_checker import check_python_blocks
+import pet_bubble as pb  # 气泡/Markdown 渲染装配层（批 3）
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
 from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
                             MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
@@ -2276,14 +2277,9 @@ class PetWidget(QWidget):
 
     @staticmethod
     def _strip_emotion_tag(text):
-        """剥离文本中的 [emotion:xxx] / [emotion=xxx] 标签，返回 (剥离后的文本, 情绪名或None)"""
-        import re as re_mod
-        m = re_mod.search(r'\[emotion[:=]([a-z_]+)', text or '')
-        if m:
-            cleaned = re_mod.sub(r'\[emotion[:=][a-z_]+\]?\s*', '', text or '').strip()
-            return (cleaned, m.group(1))
-        return (text, None)
-
+        """剥离文本中的 [emotion:xxx] / [emotion=xxx] 标签，返回 (剥离后的文本, 情绪名或None)
+        （实现已搬至 pet_bubble.strip_emotion_tag）"""
+        return pb.strip_emotion_tag(text)
     def _apply_emotion(self, emotion):
         """应用情绪：切立绘 + emoji 气泡 + 定时恢复（10 秒，可重启不叠加）"""
         if self.sleeping:
@@ -2349,21 +2345,9 @@ class PetWidget(QWidget):
         self._stream_active = True
 
     def _strip_emotion_tags(self, combined):
-        """过滤 emotion 控制标签（跨 chunk 安全）。返回 (清理文本, 未闭合尾缀, 提取到的情绪列表)"""
-        import re as _re
-        emotions = []
-        for m in _re.finditer(r'\[emotion:([^\]]+)\]', combined):
-            emotions.append(m.group(1).strip())
-        cleaned = _re.sub(r'\[emotion:[^\]]*\]', '', combined)
-        # 缓存可能是 emotion 标签开头的尾部（标签被切碎成任意 chunk 也能兜住）
-        # 模式：[ 开头 + 字母/冒号/等号/下划线/连字符 到行尾
-        tail = _re.search(r'\[[a-z_:=\-]*$', cleaned)
-        pending = ''
-        if tail:
-            pending = tail.group(0)
-            cleaned = cleaned[:tail.start()]
-        return cleaned, pending, emotions
-
+        """过滤 emotion 控制标签（跨 chunk 安全）。返回 (清理文本, 未闭合尾缀, 提取到的情绪列表)
+        （实现已搬至 pet_bubble.strip_emotion_tags）"""
+        return pb.strip_emotion_tags(combined)
     def _on_stream(self, chunk):
         """主线程槽：流式正文 chunk → 直接渲染（真流式，无卡顿）"""
         try:
@@ -2518,9 +2502,9 @@ class PetWidget(QWidget):
     # ---------- 聊天面板打字机（v6.15 流式显示，按 Markdown 块渲染） ----------
     @staticmethod
     def _split_md_blocks(text):
-        """把 markdown 拆成渲染块（拆至 chat_render.split_md_blocks）"""
-        return split_md_blocks(text)
-
+        """把 markdown 拆成渲染块（拆至 chat_render.split_md_blocks）
+        （实现已搬至 pet_bubble.split_typewriter_blocks）"""
+        return pb.split_typewriter_blocks(text)
     def _chat_type_start(self, text):
         """开始流式显示：拆块预渲染，逐块插入（回复到达时先清掉残留状态行）"""
         text = self._strip_emotion_tags(str(text))[0]  # v6.40 出口统一剥 emotion 标签
@@ -4091,18 +4075,9 @@ class PetWidget(QWidget):
 
     def _bubble_text_label(self, html_text, is_user=False):
         """消息文本标签：富文本（<b>/<i>/<br> 等），自动换行，可选中复制；
-        用户/AI 不同背景色+对齐（v6.19 对比度增强 + v6.23 主题变量）"""
-        lbl = QLabel(html_text)
-        lbl.setWordWrap(True)
-        lbl.setTextFormat(Qt.TextFormat.RichText)
-        lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
-        bg = self.theme.get('user_bubble') if is_user else self.theme.get('ai_bubble')
-        lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
-        lbl.setStyleSheet(f'color:{self.theme.get("bubble_text", "#eee")}; font-size:12px; background:{bg};'
-                          f' border-radius:8px; padding:6px 10px;')
-        return lbl
-
+        用户/AI 不同背景色+对齐（v6.19 对比度增强 + v6.23 主题变量）
+        （实现已搬至 pet_bubble.bubble_text_label）"""
+        return pb.bubble_text_label(html_text, self.theme, is_user=is_user)
     def _copy_message_text(self, text):
         """复制单条消息文本到剪贴板（用气泡提示，不污染对话历史）"""
         try:
@@ -4138,9 +4113,9 @@ class PetWidget(QWidget):
             self.say_plain(f'保存失败：{e}', immediate=True)
 
     def _check_code_blocks(self, text):
-        """自动检查回复中 Python 代码块语法（拆至 code_checker.check_python_blocks）"""
-        return check_python_blocks(text)
-
+        """自动检查回复中 Python 代码块语法（拆至 code_checker.check_python_blocks）
+        （实现已搬至 pet_bubble.check_code_blocks）"""
+        return pb.check_code_blocks(text)
     def _maybe_append_code_warning(self):
         """回复渲染完成后，若有语法错误的代码块，追加黄色提示（不阻止显示，仅提醒）"""
         warns = getattr(self, '_code_check_warning', None)
@@ -4156,31 +4131,23 @@ class PetWidget(QWidget):
         self._chat_scroll_bottom()
 
     def _render_md_into(self, content_layout, text):
-        """把 markdown 文本分块渲染进内容区：代码/表格成卡片，连续文本合为一个段落（v6.17）"""
-        for kind, content in self._split_rich_blocks(text):
-            self._render_one_block(content_layout, kind, content)
-
+        """把 markdown 文本分块渲染进内容区：代码/表格成卡片，连续文本合为一个段落（v6.17）
+        （实现已搬至 pet_bubble.render_md_into）"""
+        return pb.render_md_into(content_layout, text, self.theme)
     @staticmethod
     def _split_rich_blocks(text):
-        """把 markdown 拆成渲染块（拆至 chat_render.split_rich_blocks）"""
-        return split_rich_blocks(text)
-
+        """把 markdown 拆成渲染块（拆至 chat_render.split_rich_blocks）
+        （实现已搬至 pet_bubble.split_blocks）"""
+        return pb.split_blocks(text)
     def _render_one_block(self, content_layout, kind, content):
-        """渲染单个块到内容区（文本/代码卡片/表格卡片）"""
-        if kind == 'code':
-            content_layout.addWidget(_CodeCard(content))
-        elif kind == 'table':
-            content_layout.addWidget(_TableCard(content, self._md_table_from_text(content)))
-        else:
-            content_layout.addWidget(self._bubble_text_label(self._md_to_html(content)))
-
+        """渲染单个块到内容区（文本/代码卡片/表格卡片）
+        （实现已搬至 pet_bubble.render_one_block）"""
+        return pb.render_one_block(content_layout, kind, content, self.theme)
     @staticmethod
     def _md_table_from_text(text):
-        """把纯文本表格块转 HTML（供 _TableCard 使用）"""
-        import re
-        m = re.match(r'((?:^\|.*\|\s*(?:\n|$))+)', text, flags=re.M)
-        return md_table(m) if m else text
-
+        """把纯文本表格块转 HTML（供 _TableCard 使用）
+        （实现已搬至 pet_bubble.md_table_from_text）"""
+        return pb.md_table_from_text(text)
     def _chat_scroll_bottom(self):
         """消息流滚动到底部"""
         sb = self.chat_history_scroll.verticalScrollBar()
@@ -4330,14 +4297,14 @@ class PetWidget(QWidget):
 
     @staticmethod
     def _md_to_html(text):
-        """轻量 Markdown → HTML（拆至 chat_render.md_to_html）"""
-        return md_to_html(text)
-
+        """轻量 Markdown → HTML（拆至 chat_render.md_to_html）
+        （实现已搬至 pet_bubble.to_html）"""
+        return pb.to_html(text)
     @staticmethod
     def _md_table(m):
-        """Markdown 表格块 → HTML table（拆至 chat_render.md_table）"""
-        return md_table(m)
-
+        """Markdown 表格块 → HTML table（拆至 chat_render.md_table）
+        （实现已搬至 pet_bubble.to_table_html）"""
+        return pb.to_table_html(m)
     def _remove_status_line(self):
         """删除状态行 widget（⏳/思考中）"""
         if self._status_widget is not None:
@@ -4401,18 +4368,12 @@ class PetWidget(QWidget):
         return True
 
     def _apply_bubble_theme(self):
-        """说话气泡跟随主题（v6.51）：颜色取自主题，缺键时回退原来的浅色外观"""
+        """说话气泡跟随主题（v6.51）：颜色取自主题，缺键时回退原来的浅色外观
+        （实现已搬至 pet_bubble.apply_say_bubble_theme）"""
         try:
-            t = self.theme or {}
-            self.bubble.setStyleSheet(
-                'QLabel { background-color: %s; color: %s; border: 2px solid %s;'
-                ' border-radius: 10px; padding: 8px 12px; font-size: 13px; }' % (
-                    t.get('say_bg', 'rgba(255,255,255,0.92)'),
-                    t.get('say_text', '#333'),
-                    t.get('say_border', '#ccc')))
+            pb.apply_say_bubble_theme(self.bubble, self.theme)
         except Exception as e:
             log.debug('气泡主题应用失败：%s', e)
-
     def _apply_theme(self):
         """把当前主题应用到面板与气泡（v6.25.1 必须主线程调用——修复 AI 后台线程跨线程 setStyleSheet 崩溃）"""
         try:
