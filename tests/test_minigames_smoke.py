@@ -57,6 +57,13 @@ def run_one(name):
     assert hasattr(g, 'difficulty'), '缺少 difficulty 属性'
     steps.append('构造')
 
+    # 1.5 防裁切（C6）：显示后最小尺寸不得低于布局建议尺寸，否则窗口可被缩到裁切内容
+    g.show()
+    hint_w, hint_h = g.sizeHint().width(), g.sizeHint().height()
+    assert g.minimumWidth() >= hint_w and g.minimumHeight() >= hint_h, \
+        '窗口可被缩到裁切内容：min=(%d,%d) hint=(%d,%d)' % (g.minimumWidth(), g.minimumHeight(), hint_w, hint_h)
+    steps.append('防裁切')
+
     # 2. 难度切换（遍历该游戏声明的所有档位）
     d = getattr(g, '_difficulties', {}) or {}
     combo = getattr(g, '_combo', None)

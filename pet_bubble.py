@@ -92,7 +92,7 @@ def bubble_text_label(html_text, theme, is_user=False):
     lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
     bg = (theme or {}).get('user_bubble') if is_user else (theme or {}).get('ai_bubble')
     lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
-    lbl.setStyleSheet(f'color:{(theme or {}).get("bubble_text", "#eee")}; font-size:12px; background:{bg};'
+    lbl.setStyleSheet(f'color:{(theme or {}).get("bubble_text", "#eee")}; font-size:13px; background:{bg};'
                       f' border-radius:8px; padding:6px 10px;')
     return lbl
 

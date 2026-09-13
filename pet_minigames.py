@@ -129,10 +129,18 @@ class BaseGame(QDialog):
         super().closeEvent(event)
 
     def showEvent(self, event):
-        """窗口显示：焦点抢回游戏本体 + 首次显示检查存档"""
+        """窗口显示：焦点抢回游戏本体 + 首次显示检查存档 + 防止窗口被缩到裁切内容（C6）"""
         super().showEvent(event)
         try:
             self.setFocus()
+        except Exception:
+            pass
+        # C6：最小尺寸不低于布局建议尺寸——否则窗口可以缩得比内容还小，棋盘/按钮会被裁掉
+        # （高分辨率棋盘如高级扫雷 30 列、2048 大棋盘尤其明显）
+        try:
+            hint = self.sizeHint()
+            self.setMinimumSize(max(self.minimumWidth(), hint.width()),
+                                max(self.minimumHeight(), hint.height()))
         except Exception:
             pass
         if not getattr(self, '_restore_checked', False):
@@ -1949,17 +1957,17 @@ class SimonSays(BaseGame):
 # ---------- 游戏注册表 ----------
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
-    '🔢 猜数字': GuessNumber,
+    '🔍 猜数字': GuessNumber,
     '⚫ 五子棋': Gomoku,
     '🔢 2048': Game2048,
     '💣 扫雷': Minesweeper,
     '🐍 贪吃蛇': Snake,
     '🃏 记忆翻牌': MemoryMatch,
-    '⚫ 井字棋': TicTacToe,
+    '⭕ 井字棋': TicTacToe,
     '🎲 Farkle 骰子': Farkle,
     '🎯 打地鼠': WhackAMole,
-    '🃏 21 点': Blackjack,
-    '🔢 数独': Sudoku,
+    '🎴 21 点': Blackjack,
+    '🧮 数独': Sudoku,
     '🧱 俄罗斯方块': Tetris,
     '🧩 华容道': SlidingPuzzle,
     '🎵 西蒙记忆': SimonSays,
