@@ -52,6 +52,8 @@ from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
 from code_checker import check_python_blocks
 import pet_bubble as pb  # 气泡/Markdown 渲染装配层（批 3）
+import pet_anim as anim  # 状态机与动画（低耦合段，批 4）
+from pet_anim import SCENE_ACTIONS  # 场景动作表（批 4）
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
 from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
                             MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
@@ -202,20 +204,7 @@ CHARACTERS = build_characters()
 GREET_INTERVAL = (20 * 60 * 1000, 40 * 60 * 1000)
 
 # 场景动作立绘
-SCENE_ACTIONS = {
-    'lying': ('🛏️ 趴地板', '慵懒趴地翘脚'),
-    'eating': ('🍜 吃面', '抱碗吃面'),
-    'phone': ('📱 玩手机', '低头刷手机'),
-    'hug_whale': ('🐋 抱玩偶', '抱着鲸鱼玩偶蹭蹭'),
-    'typing': ('💻 打字', '认真码字工作'),
-    'reading': ('📖 看书', '沉浸阅读'),
-    'coffee': ('☕ 喝咖啡', '优雅小酌咖啡'),
-    'music': ('🎧 听歌', '戴耳机陶醉'),
-    'exercise': ('💪 健身', '举哑铃锻炼'),
-    'flower': ('🌸 捧花', '害羞捧花'),
-    'gift': ('🎁 礼物', '开心捧礼物'),
-    'umbrella': ('🌂 撑伞', '雨中撑伞漫步'),
-}
+# SCENE_ACTIONS 已搬至 pet_anim（批 4），由下方 import 引入
 
 # ============ AI 工具定义（function calling） ============
 
@@ -1975,25 +1964,12 @@ class PetWidget(QWidget):
             'api_stats': getattr(self, 'api_stats', None),
         }
 
-    _SET_STATE_KEYS = {
-        'char': 'current', 'language': 'language', 'max_tokens': 'max_tokens',
-        'temperature': 'temperature', 'theme': 'theme', 'ai_enabled': 'ai_enabled',
-        'ai_key': 'ai_key', 'cfg': '_cfg', 'chat_msgs': 'chat_history_msgs',
-        'memory_summaries': 'memory_summaries', 'api_stats': 'api_stats',
-        'edge_mode': '_edge_mode', 'display_mode': 'display_mode',
-        'choices_requested': '_choices_requested',
-    }
+    _SET_STATE_KEYS = anim.SET_STATE_KEYS  # 白名单已搬至 pet_anim（批 4）
 
     def set_state(self, **kw):
-        """受控写入口：只接受白名单键（写错立刻报错，不静默写坏状态）"""
-        for k, v in kw.items():
-            attr = self._SET_STATE_KEYS.get(k)
-            if attr is None:
-                raise KeyError('set_state 不支持的键：%s（可用：%s）'
-                               % (k, '、'.join(sorted(self._SET_STATE_KEYS))))
-            setattr(self, attr, v)
-        return self
-
+        """受控写入口：只接受白名单键（写错立刻报错，不静默写坏状态）
+        （实现已搬至 pet_anim.set_state / SET_STATE_KEYS）"""
+        return anim.set_state(self, **kw)
     def ui_probe(self):
         """UI 探针（只读）：流式/思考/状态行/选项按钮的可见状态"""
         def _txt(w):
@@ -3342,18 +3318,9 @@ class PetWidget(QWidget):
         self.cursor_timer.start(100)
 
     def _get_idle_seconds(self):
-        """系统空闲秒数（GetLastInputInfo，零依赖）"""
-        try:
-            class LASTINPUTINFO(ctypes.Structure):
-                _fields_ = [('cbSize', ctypes.c_uint), ('dwTime', ctypes.c_uint)]
-            lii = LASTINPUTINFO()
-            lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
-            if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
-                return (ctypes.windll.kernel32.GetTickCount() - lii.dwTime) / 1000.0
-        except Exception:
-            pass
-        return 0
-
+        """系统空闲秒数（GetLastInputInfo，零依赖）
+        （实现已搬至 pet_anim.idle_seconds）"""
+        return anim.idle_seconds()
     def _check_idle_state(self):
         """每 2s：打盹切换 / 久坐提醒 / 输入唤醒"""
         if self.sleeping:
@@ -3603,12 +3570,9 @@ class PetWidget(QWidget):
         self._render_frame(self.full_idle)
 
     def _restore_display_state(self):
-        """恢复显示状态：睡眠→睡眠立绘，否则→待机（贴边拖出/弹出后用）"""
-        if self.sleeping:
-            self._show_state_image('sleep')
-        else:
-            self._show_idle()
-
+        """恢复显示状态：睡眠→睡眠立绘，否则→待机（贴边拖出/弹出后用）
+        （实现已搬至 pet_anim.restore_display_state）"""
+        return anim.restore_display_state(self)
     def _show_peek(self):
         """扒边立绘（四方向：左右竖条镜像对齐，上下横条；Live2D 模式由模型代替）"""
         if getattr(self, 'display_mode', 'static') == 'live2d':
@@ -3697,15 +3661,9 @@ class PetWidget(QWidget):
             self.pet_label.setPixmap(canvas)
 
     def _show_state_image(self, st):
-        """显示状态立绘（sleep/happy/thinking/scared/...；Live2D 模式由模型代替）"""
-        if getattr(self, 'display_mode', 'static') == 'live2d':
-            return
-        img = self._get_state_img(st)
-        if img is None:
-            self._show_idle()
-            return
-        self._render_frame(img)
-
+        """显示状态立绘（sleep/happy/thinking/scared/...；Live2D 模式由模型代替）
+        （实现已搬至 pet_anim.show_state_image）"""
+        return anim.show_state_image(self, st)
     # ---------- 气泡（预设短台词 ≤20 字，不挡脸） ----------
     def _place_bubble(self):
         """气泡悬浮在窗口顶部（pet_label 上方区域）"""
@@ -3774,14 +3732,8 @@ class PetWidget(QWidget):
         return conf.get(key) or []
 
     def say_random(self):
-        """随机说一句问候（气泡 + 聊天记录）"""
-        if self.sleeping:
-            return
-        lines = self._char_lines('greetings')
-        text = random.choice(lines) if lines else 'Hello!'
-        self.say_plain(text)
-        self._append_chat('桌宠', text)
-
+        """随机说一句问候（实现已搬至 pet_anim.say_random）"""
+        return anim.say_random(self)
     def do_thinking(self):
         """思考状态（3 秒后恢复）"""
         if self.sleeping:
@@ -3806,56 +3758,23 @@ class PetWidget(QWidget):
             self._show_idle()
 
     def _restore_state_after_emotion(self):
-        """情绪立绘结束后恢复待机"""
-        if not self.sleeping:
-            self.state = 'idle'
-            self._show_idle()
-
+        """情绪立绘结束后恢复待机（实现已搬至 pet_anim.restore_after_emotion）"""
+        return anim.restore_after_emotion(self)
     # ---------- 场景动作 ----------
     def play_scene(self, key):
-        """播放场景动作立绘（6 秒后恢复待机）"""
-        if self.sleeping:
-            return
-        img = self._get_scene_img(key)
-        if img is None or img.isNull():
-            self.say_plain('这个动作还没准备好~')
-            return
-        self.state = 'scene'  # 关键：锁定状态，防止 blink/光标跟随在播放期间切回待机
-        self.phase = 0
-        self._render_frame(img)
-        desc = SCENE_ACTIONS[key][1]
-        self.say_plain(desc[:10])
-        QTimer.singleShot(6000, self._end_scene)
-
+        """播放场景动作立绘（6 秒后恢复待机）
+        （实现已搬至 pet_anim.play_scene）"""
+        return anim.play_scene(self, key)
     def _end_scene(self):
-        """场景动作结束：恢复待机"""
-        if not self.sleeping:
-            self.state = 'idle'
-            self._show_idle()
-
+        """场景动作结束：恢复待机（实现已搬至 pet_anim.end_scene）"""
+        return anim.end_scene(self)
     # ---------- 眨眼 ----------
     def _do_blink(self):
-        # 睡眠/拖拽/非待机/贴边时不眨眼
-        if (self.sleeping or self.dragging or self._blinking or self.state != 'idle'
-                or self._edge_side is not None):
-            self.blink_timer.start(random.randint(8000, 15000))
-            return
-        if self.blink_aligned is None:
-            self.blink_timer.start(random.randint(8000, 15000))
-            return
-        self._blinking = True
-        # 缩放渲染（blink 是 2048 原图，必须缩放到 pet_label 尺寸，否则只显示左上角局部）
-        self._render_frame(self.blink_aligned)
-        QTimer.singleShot(1500, self._blend_end)
-        self.blink_timer.start(random.randint(8000, 15000))
-
+        """眨眼定时器回调（实现已搬至 pet_anim.blink_tick）"""
+        return anim.blink_tick(self)
     def _blend_end(self):
-        self._blinking = False
-        if self._edge_side is not None and not self._edge_popped:
-            self._show_peek()
-        elif not self.sleeping and self.state == 'idle':
-            self._show_idle()
-
+        """眨眼结束收尾（实现已搬至 pet_anim.blend_end）"""
+        return anim.blend_end(self)
     # ---------- 聊天窗口 ----------
     def _record_api_usage(self, resp, fallback_model=''):
         """从 API 响应解析 usage 并记录（v6.18 自监控）
@@ -5380,16 +5299,8 @@ class PetWidget(QWidget):
 
     # ---------- 睡眠 ----------
     def toggle_sleep(self):
-        self.sleeping = not self.sleeping
-        if self.sleeping:
-            self.type_timer.stop()
-            self.bubble.hide()
-            self._show_state_image('sleep')
-            self.say_plain('我先睡一会儿，有事叫我…')
-        else:
-            self._render_frame()
-            self.say_plain('醒啦！')
-
+        """睡眠切换（实现已搬至 pet_anim.toggle_sleep）"""
+        return anim.toggle_sleep(self)
     # ---------- 连击 ----------
     def _on_click(self):
         import time
@@ -5419,10 +5330,8 @@ class PetWidget(QWidget):
             QTimer.singleShot(2500, lambda: self._end_state('happy'))
 
     def _end_state(self, st):
-        if not self.sleeping and self.state == st:
-            self.state = 'idle'
-            self._show_idle()
-
+        """临时状态收尾（实现已搬至 pet_anim.end_state）"""
+        return anim.end_state(self, st)
     # ---------- 鼠标 ----------
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
