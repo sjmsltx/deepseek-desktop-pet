@@ -57,12 +57,14 @@ def run_one(name):
     assert hasattr(g, 'difficulty'), '缺少 difficulty 属性'
     steps.append('构造')
 
-    # 1.5 防裁切（C6）：显示后最小尺寸不得低于布局建议尺寸，否则窗口可被缩到裁切内容
+    # 1.5 最小尺寸契约（C6）：显示后最小尺寸不得低于布局建议尺寸
+    #     注：这是**契约式断言**（守住以后的改动），不是"修复了用户可感知缺陷"——
+    #     对照实验显示修复前后窗口可缩下限一致（Qt 本就按布局设置最小尺寸）。
     g.show()
     hint_w, hint_h = g.sizeHint().width(), g.sizeHint().height()
     assert g.minimumWidth() >= hint_w and g.minimumHeight() >= hint_h, \
-        '窗口可被缩到裁切内容：min=(%d,%d) hint=(%d,%d)' % (g.minimumWidth(), g.minimumHeight(), hint_w, hint_h)
-    steps.append('防裁切')
+        '最小尺寸低于布局建议尺寸：min=(%d,%d) hint=(%d,%d)' % (g.minimumWidth(), g.minimumHeight(), hint_w, hint_h)
+    steps.append('最小尺寸契约')
 
     # 2. 难度切换（遍历该游戏声明的所有档位）
     d = getattr(g, '_difficulties', {}) or {}
