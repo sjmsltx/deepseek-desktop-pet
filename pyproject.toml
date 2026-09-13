@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepseek-desktop-pet"
-version = "2.5.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）
+version = "2.7.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）
 description = "一只住在你电脑里的 Q 版桌宠：陪你聊天、帮你干活、主动关心你。"
 readme = "README.md"
 requires-python = ">=3.10"
