@@ -40,6 +40,7 @@ class BaseGame(QDialog):
         self.pet_face = None
         self._closed = False
         self._restore_checked = False
+        self.over = False  # v6.52 上收：各游戏初始化不再各自声明（重开局仍需各自重置）
 
     # ---------- 暂停保存协议（v6.40） ----------
     @staticmethod
@@ -66,7 +67,7 @@ class BaseGame(QDialog):
     def _manual_save(self):
         """手动保存当前进度（v6.40：自选保存按钮触发）"""
         try:
-            if getattr(self, 'over', False):
+            if self.over:
                 QMessageBox.information(self, '保存', '本局已结束，无需保存')
                 return
             data = self._state_to_save()
@@ -350,7 +351,6 @@ class Gomoku(BaseGame):
         super().__init__('⚫ 五子棋', on_result, parent)
         self.board = [[0] * self.SIZE for _ in range(self.SIZE)]  # 0空 1人 2AI
         self.turn = 1
-        self.over = False
         self._board_widget = _BoardWidget(self)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('你执黑先手，连成五子获胜', alignment=Qt.AlignCenter))
@@ -627,7 +627,6 @@ class Minesweeper(BaseGame):
         self.revealed = [[False] * self.W for _ in range(self.H)]
         self.flagged = [[False] * self.W for _ in range(self.H)]
         self.started = False
-        self.over = False
         self._widget = _MineWidget(self)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('左键翻开 · 右键标雷 · 避开地雷', alignment=Qt.AlignCenter))
@@ -704,7 +703,7 @@ class Minesweeper(BaseGame):
 
     # ---------- 暂停保存（v6.40）：中途退出自动存档，重开可恢复 ----------
     def _state_to_save(self):
-        if getattr(self, 'over', False) or not getattr(self, 'started', False):
+        if self.over or not getattr(self, 'started', False):
             return None
         return {
             'W': self.W, 'H': self.H, 'MINES': self.MINES,
@@ -804,7 +803,6 @@ class Snake(BaseGame):
         self.snake = [(10, 10), (9, 10), (8, 10)]
         self.dir = (1, 0)
         self.score = 0
-        self.over = False
         self.food = self._spawn_food()
         self._widget = _SnakeWidget(self)
         self.timer = QTimer(self)
@@ -980,7 +978,6 @@ class TicTacToe(BaseGame):
         self.setMinimumWidth(320)
         self.board = [''] * 9
         self.turn = 'X'  # 玩家 X，AI O
-        self.over = False
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('你执 X，连成一线获胜', alignment=Qt.AlignCenter))
         self._add_difficulty(lay, {'简单': 0, '普通': 1, '困难': 2})
@@ -1099,7 +1096,6 @@ class Farkle(BaseGame):
         self.turn_score = 0
         self.hand = []          # 手中骰子（可继续掷）
         self.selected = set()   # 选中的骰子索引
-        self.over = False
         lay = QVBoxLayout(self)
         row0 = QHBoxLayout()
         row0.addWidget(QLabel('目标分'))
@@ -1421,7 +1417,6 @@ class Blackjack(BaseGame):
         self.deck = []
         self.phand = []
         self.ehand = []
-        self.over = False
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('比 21 点，谁爆谁输，接近者胜', alignment=Qt.AlignCenter))
         self._add_difficulty(lay, {'普通': 17, '高手局': 18})
@@ -1648,7 +1643,6 @@ class Tetris(BaseGame):
         self.board = [[0] * self.W for _ in range(self.H)]
         self.score = 0
         self.lines = 0
-        self.over = False
         self._widget = _TetrisWidget(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
@@ -1769,7 +1763,6 @@ class SlidingPuzzle(BaseGame):
         super().__init__('🧩 华容道', on_result, parent)
         self.setMinimumWidth(340)
         self.steps = 0
-        self.over = False
         self.buttons = []
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('点击数字移动到空格，按顺序排好获胜', alignment=Qt.AlignCenter))
@@ -1864,7 +1857,6 @@ class SimonSays(BaseGame):
         self.replay_idx = 0
         self.playing = False
         self.accept_input = False
-        self.over = False
         lay = QVBoxLayout(self)
         self._add_difficulty(lay, {'4 键': 4, '6 键': 6})
         self.lb = QLabel('看桌宠点亮颜色，然后按顺序复述！', alignment=Qt.AlignCenter)
