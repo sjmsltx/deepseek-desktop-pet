@@ -317,6 +317,14 @@ class PetWidget(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._init_state_and_config()
+        self._init_signals_and_hotkeys()
+        self._init_services_and_data()
+        self._init_ui_tree()
+        self._init_finish()
+
+    def _init_state_and_config(self):
+        """基础状态/定时器 + 读取配置 + 养成·回忆引擎 + 饱食度巡检"""
         self.current = 'flash'
         self.pet_size = 260
         self.dragging = False
@@ -355,6 +363,9 @@ class PetWidget(QWidget):
         # v6.30 饱食度巡检（每 5 分钟，低饱食提示）
         self._satiety_timer = QTimer(self)
         self._satiety_timer.timeout.connect(self._check_satiety)
+
+    def _init_signals_and_hotkeys(self):
+        """跨线程信号连接 + 全局快捷键注册"""
         self._satiety_timer.start(5 * 60 * 1000)
         self.cost_bubble_signal.connect(self._on_cost_bubble)
         self._last_satiety_warn = 0.0
@@ -387,6 +398,9 @@ class PetWidget(QWidget):
                     _silent_log('__init__:386', _exc)   # v6.54
         except Exception:
             self._hotkey_installed = False
+
+    def _init_services_and_data(self):
+        """对话记忆/用量统计/MCP/插件/主题 + 记忆·待办·提醒加载 + 贴边与主动说话"""
         # 对话记忆 + 定时提醒 + 贴边
         self.chat_history_msgs = []
         self.display_msgs = []
@@ -429,6 +443,9 @@ class PetWidget(QWidget):
         self._popup_y = 0
         self._popup_x = 0
         self._chat_hidden_for_dock = False
+
+    def _init_ui_tree(self):
+        """窗口标志 + 布局 + 气泡 + 立绘 + 聊天面板 + 任务侧栏 + 菜单"""
         self._edge_mode = 'peek'   # 'peek'=扒边模式(默认) / 'hidden'=完全消失模式
 
         self.setWindowFlags(
@@ -592,6 +609,9 @@ class PetWidget(QWidget):
         self.chat_panel.mouseMoveEvent = self._chat_panel_move
         self.chat_panel.mouseReleaseEvent = self._chat_panel_release
 
+
+    def _init_finish(self):
+        """动画/问候/眨眼/打盹日报/历史回显/显示模式应用"""
         # 动画定时器 ~30fps
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
@@ -626,6 +646,7 @@ class PetWidget(QWidget):
                 self.bubble.raise_()
             else:
                 self.display_mode = 'static'
+
 
     # ---------- 窗口 ----------
     def _restore_position(self):
