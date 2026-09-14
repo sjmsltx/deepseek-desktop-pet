@@ -104,7 +104,7 @@ def md_to_html(text):
     # ① 结构内容先占位（顺序：代码块 > 行内代码 > 表格）
     t = re.sub(r'```(?:\w*)\n(.*?)```', lambda m: _save('pre', m.group(1)), t, flags=re.S)
     t = re.sub(r'`([^`]+)`', lambda m: _save('code', m.group(1)), t)
-    t = re.sub(r'((?:^\|.*\|\s*(?:\n|$))+)', lambda m: _save('table', md_table(m)), t, flags=re.M)
+    t = re.sub(r'((?:^\|.*\|\s*(?:\n|$))+)', lambda m: _save('table', md_table(m, escape=False)), t, flags=re.M)
 
     # ② 行内样式（粗体/斜体不跨行，避免跨行配对误伤）
     t = re.sub(r'^###\s+(.+)$', r'<b style="font-size:14px">\1</b>', t, flags=re.M)
@@ -135,20 +135,24 @@ def _esc(t):
             .replace('>', '&gt;').replace('"', '&quot;'))
 
 
-def md_table(m):
-    """Markdown 表格块 → HTML table（第二行 --- 为分隔符时视为表头）"""
+def md_table(m, escape=True):
+    """Markdown 表格块 → HTML table（第二行 --- 为分隔符时视为表头）
+
+    v6.53：escape 参数——md_to_html 已在入口对全文做过 HTML 转义，再调本函数时应传 escape=False，
+    否则会双重转义（单元格里的 < 会显示成 &amp;lt;）。直接拿原始文本调用的地方保持默认 True。"""
     lines = [l.strip() for l in m.group(1).strip().splitlines() if l.strip().startswith('|')]
     if not lines:
         return m.group(1)
+    esc = _esc if escape else (lambda x: str(x))
     rows = [[c.strip() for c in l.strip().strip('|').split('|')] for l in lines]
     has_sep = len(rows) >= 2 and all(c and set(c) <= set('-: ') for c in rows[1])
     header = rows[0] if has_sep else []
     body = rows[2:] if has_sep else rows  # 无表头时所有行都是数据
     html = '<table style="border-collapse:collapse;margin:4px 0;font-size:12px;max-width:100%">'
     if header:
-        html += '<tr>' + ''.join(f'<th style="border:1px solid #3a4152;padding:3px 8px;background:#2a3142">{_esc(c)}</th>' for c in header) + '</tr>'
+        html += '<tr>' + ''.join(f'<th style="border:1px solid #3a4152;padding:3px 8px;background:#2a3142">{esc(c)}</th>' for c in header) + '</tr>'
     for r in body:
-        html += '<tr>' + ''.join(f'<td style="border:1px solid #3a4152;padding:3px 8px">{_esc(c)}</td>' for c in r) + '</tr>'
+        html += '<tr>' + ''.join(f'<td style="border:1px solid #3a4152;padding:3px 8px">{esc(c)}</td>' for c in r) + '</tr>'
     if not body and not header:
         return m.group(1)
     return html + '</table>'

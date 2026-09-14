@@ -16,9 +16,19 @@
 """
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+
+def _default_log_dir():
+    """v6.53：冻结（PyInstaller）环境下按 __file__ 定位会落到 _internal 内，
+    实测打包后日志根本写不出来（且初始化失败被静默吞）→ 冻结时改用 exe 同级目录。"""
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(os.path.abspath(sys.executable)), 'logs')
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+
+
+LOG_DIR = _default_log_dir()
 LOG_FILE = os.path.join(LOG_DIR, 'pet.log')
 _LOGGER_NAME = 'pet'
 _inited = False

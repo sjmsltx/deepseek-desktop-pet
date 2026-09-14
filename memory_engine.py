@@ -94,25 +94,56 @@ class BM25Index:
         scores.sort(key=lambda x: -x[1])
         return scores[:top_k]
 
+    def search_detailed(self, query, top_k=8):
+        """v6.53：带命中统计的检索 —— 供“相关性闸门”使用。
+        返回 [{'index','score','matched','coverage'}]；matched=命中的查询词数，
+        coverage=命中词占查询词的比例（0~1）。"""
+        qt = set(tokenize(query))
+        out = []
+        for i, s in self.search(query, top_k=top_k):
+            matched = len(qt & set(self.doc_tokens[i]))
+            out.append({'index': i, 'score': s, 'matched': matched,
+                        'coverage': matched / max(len(qt), 1)})
+        return out
+
 
 # ---------- 检索管线 ----------
 
-def search_memory(facts, query, top_k=3, rerank=None):
-    """检索管线：BM25 粗筛 top-8 → LLM 重排 top-k（rerank 为可调用函数或 None）。
-    facts: [{id, content, importance, roles, status, updated_at, ...}]
-    rerank 签名：rerank(query, candidates: [{id, text}]) -> 选中的 id 列表（有序）
-    返回选中的事实列表（含分数信息）。"""
+# v6.53：注入用相关性闸门（治“记忆过拟合”——原先无阈值，凑不出相关的也硬塞 top-3）
+# 判据用“命中覆盖率”而不是 BM25 绝对分（绝对分受语料库大小/文档长短影响，无法跨库调）
+GATE_MIN_MATCHED = 2      # 至少命中 2 个查询词（2-gram）
+GATE_MIN_COVERAGE = 0.34  # 或：命中词占查询词比例 ≥ 34%（少词查询兼容）
+GATE_KEEP_RATIO = 0.25    # 相对地板：BM25 分低于最佳命中 25% 的丢弃
+
+
+def search_memory(facts, query, top_k=3, rerank=None, min_matched=0, min_coverage=0.0,
+                  keep_ratio=0.0):
+    """检索管线：BM25 粗筛 top-8 → （可选）相关性闸门 → LLM 重排 top-k。
+
+    默认不过闸（min_matched=0/min_coverage=0/keep_ratio=0）—— 保持原有行为兼容；
+    注入场景请用 `search_memory_for_injection`（带闸门）。
+    返回选中的事实列表（含 score / matched / coverage）。"""
     active = [f for f in facts if f.get('status', 'active') == 'active']
     if not active:
         return []
     docs = [{'id': f.get('id', str(i)), 'text': f.get('content', '')} for i, f in enumerate(active)]
     idx = BM25Index(docs)
-    hits = idx.search(query, top_k=8)
-    if not hits:
+    det = idx.search_detailed(query, top_k=8)
+    if not det:
         return []
-    cands = [{'id': active[i].get('id', str(i)), 'text': active[i].get('content', ''),
-              'importance': active[i].get('importance', 3),
-              'updated_at': active[i].get('updated_at', '')} for i, _ in hits]
+    best = det[0]['score']
+    if min_matched or min_coverage:
+        det = [d for d in det
+               if (d['matched'] >= min_matched or d['coverage'] >= min_coverage)
+               and d['score'] >= keep_ratio * best]
+        if not det:
+            return []          # 闸门：没有“够相关”的记忆 → 本轮不注入
+    cands = [{'id': active[d['index']].get('id', str(d['index'])),
+              'text': active[d['index']].get('content', ''),
+              'importance': active[d['index']].get('importance', 3),
+              'updated_at': active[d['index']].get('updated_at', ''),
+              'score': round(d['score'], 4), 'matched': d['matched'],
+              'coverage': round(d['coverage'], 3)} for d in det]
     if rerank is None:
         # 无重排：按 (BM25分, 重要度, 新旧) 综合取 top_k
         # v6.51：注释里承诺的"新旧"此前根本没实现（score_recency 写了却零调用），现在接上
@@ -129,6 +160,14 @@ def search_memory(facts, query, top_k=3, rerank=None):
     except Exception:
         pass
     return cands[:top_k]
+
+
+def search_memory_for_injection(facts, query, top_k=3, rerank=None):
+    """v6.53：**注入专用**检索 —— 带相关性闸门，没命中就返回空表（调用方本轮不注入）。
+    治理目标：不让“勉强相关”的记忆每轮都跑进上下文（记忆过拟合/过依赖）。"""
+    return search_memory(facts, query, top_k=top_k, rerank=rerank,
+                         min_matched=GATE_MIN_MATCHED, min_coverage=GATE_MIN_COVERAGE,
+                         keep_ratio=GATE_KEEP_RATIO)
 
 
 # ---------- 自动抽取 ----------

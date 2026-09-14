@@ -36,7 +36,7 @@ from pet_sysutils import (
     open_search_url as _open_search_url,
     is_safe_process_name as _is_safe_process_name,
 )
-from pet_storage import atomic_write_json as _atomic_write_json_impl
+from pet_storage import atomic_write_json as _atomic_write_json_impl, atomic_write_text as _atomic_write_text
 from pet_log import get_logger
 from pet_docs import (read_docx_text, read_pdf_text, read_xlsx_text, read_pptx_text,
                         ocr_image, read_own_file, TEXT_BY_KIND)
@@ -46,7 +46,7 @@ log = get_logger('ui')
 from api_stats import ApiStats
 from deepseek_client import chat_completions, stream_chat_completions
 from memory_store import load_memory, save_memory, remember_fact
-from memory_engine import search_memory, extract_memories
+from memory_engine import search_memory, search_memory_for_injection, extract_memories
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
@@ -59,7 +59,7 @@ from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
                             MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
 from model_manager_ui import ModelManagerDialog  # Phase 2 模型管理对话框
 from settings_ui import SettingsDialog  # Phase 5 统一设置窗口
-from tools_registry import AI_TOOLS, TOOL_STATUS
+from tools_registry import AI_TOOLS, TOOL_STATUS, tools_for_mode
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
@@ -696,6 +696,8 @@ class PetWidget(QWidget):
                 self.language = cfg.get('language', 'zh')  # zh/en
                 self.display_mode = cfg.get('display_mode', 'static')  # static/live2d
                 self.live2d_model = cfg.get('live2d_model', 'mao')  # Live2D 模型目录名
+                # v6.53：进阶工具模式（默认关 → 只放开 core 的 8 个工具，省 ≈4K token/请求）
+                self.advanced_tools = bool(cfg.get('advanced_tools', False))
                 # 模型档案是模型身份的唯一来源：角色表每次从档案重建
                 # （改 models.json 即可改显示名/台词，无需动代码）
                 CHARACTERS = build_characters()
@@ -770,7 +772,9 @@ class PetWidget(QWidget):
             self._refresh_task_sidebar()
         except Exception:
             pass
-        _th.Thread(target=self._ai_worker, args=(text,), daemon=True).start()
+        # v6.53：保留线程句柄，供 /stop 判断旧线程是否已退出（防抢跑）
+        self._ai_thread = _th.Thread(target=self._ai_worker, args=(text,), daemon=True)
+        self._ai_thread.start()
 
     def _enqueue_task(self, text):
         """v6.43b：任务入队（FCFS）"""
@@ -859,7 +863,13 @@ class PetWidget(QWidget):
             self._close_pending_user_msg()
             self._save_chat_memory()
             # v6.43b：紧急停止只停当前任务，队列继续（先来先到）
-            self._next_task()
+            # v6.53：不抢跑 —— 旧线程可能还在读流/吐字，等它退出后由 _ai_worker 收尾接续队列；
+            #        否则新旧两股输出会交错（就是用户看到的“放飞 / 打转”）
+            th = getattr(self, '_ai_thread', None)
+            if th is not None and th.is_alive():
+                self._pending_resume = True
+            else:
+                self._next_task()
         except Exception:
             pass
 
@@ -2030,11 +2040,14 @@ class PetWidget(QWidget):
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
                 endpoint=self._current_endpoint(),
+                # v6.53：把“该不该停”交给 UI 侧 —— 代次一变立即断流
+                should_cancel=lambda: getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1),
             )
 
         try:
             # v6.43：记录本次任务代次（用于强制停止判断）
             self._cur_gen = getattr(self, '_ai_generation', 0)
+            aborted = False          # v6.53：流内被取消标志（避免后续再发请求）
             # v6.43 fix：闭合悬空任务——上次中断遗留的 user 无 assistant 回复，
             # 不闭合则下次对话 AI 会误继续执行旧任务（如：卡住的"找文件夹"在你说 evening 时复活）
             self._close_pending_user_msg()
@@ -2057,14 +2070,21 @@ class PetWidget(QWidget):
             # 长期记忆注入（v6.41：core + 按问题检索相关记忆）
             mem = self._memory_block()
             try:
-                # BM25 粗筛 + LLM 重排 top-3（memory_engine）
-                rel = search_memory(self.memory_facts, text, top_k=3, rerank=self._rerank_memories)
+                # BM25 粗筛 + 相关性闸门 + LLM 重排 top-3（memory_engine）
+                # v6.53：没过闸门 → 返回空表 → 本轮不注入检索记忆（治记忆过拟合）
+                rel = search_memory_for_injection(self.memory_facts, text, top_k=3,
+                                                  rerank=self._rerank_memories)
                 if rel:
                     rel_block = '\n'.join(f'★{c.get("importance", 3)} {c["text"]}' for c in rel)
                     mem = (rel_block + '\n\n' + mem) if mem else rel_block
             except Exception:
                 pass
-            mem_hint = f'\n\n【你的长期记忆】\n{mem}' if mem else ''
+            # v6.53：记忆只作背景、不做话题（治“问什么都往已记住的事上靠”的过拟合）
+            mem_use_rule = ('\n【记忆的使用方式（重要）】上面这些记忆只是背景参考：'
+                            '仅当用户当前问题与之直接相关时才引用；不要主动把话题引向记忆，'
+                            '不要为了显得“记得”而提及记忆，也不要因为记忆里有某件事'
+                            '就默认用户这次想聊它。')
+            mem_hint = f'\n\n【你的长期记忆】\n{mem}{mem_use_rule}' if mem else ''
             mem_rule = '\n当你发现用户的重要偏好/个人事实/任务目标时，调用 memorize 工具记住它；用户明确说"忘了/不要记住"时用 memorize 删除对应记忆。' if mem else '\n记忆规则：当你发现用户的重要偏好/个人事实/任务目标时，调用 memorize 工具记住它。'
             # 插件规则注入（v6.21：rules 类插件内容拼进 system prompt）
             plugin_rules = self.plugin_mgr.rules_text()
@@ -2099,13 +2119,15 @@ class PetWidget(QWidget):
             for _ in range(5):
                 # v6.43：被新任务取代或 /stop → 静默退出（不 emit 内容）
                 if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
+                    self._log_ai_abort('round-boundary')
                     return
                 # 请求阶段：覆盖预判为确定状态；v6.40 真流式（SSE）
                 self.ai_status_signal.emit('正在思考…' if getattr(self, 'language', 'zh') != 'en' else 'Thinking…')
                 data = jsonlib.dumps({
                     'model': cur_model,
                     'messages': messages,
-                    'tools': AI_TOOLS + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas(),  # v6.20/21 动态合并 MCP+插件工具
+                    # v6.53：工具按模式暴露（默认 core 8 个；MCP/插件工具始终保留）
+                    'tools': tools_for_mode(getattr(self, 'advanced_tools', False)) + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas(),
                     'max_tokens': getattr(self, 'max_tokens', 1000),
                     'stream': True,
                     'stream_options': {'include_usage': True},  # v6.40 fix：流式返回 usage（api_stats 统计）
@@ -2113,13 +2135,21 @@ class PetWidget(QWidget):
                 }).encode()
                 self.stream_done_signal.emit()  # 上一轮流式收尾（防残留）
                 full = None
+                aborted = False
                 for evt, val in _post_stream(data, '正在思考…', 'Thinking…'):
+                    # v6.53：逐块检查代次 —— /stop 或新任务顶替时立刻停止回显
+                    if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
+                        aborted = True
+                        self._log_ai_abort('stream')
+                        break
                     if evt == 'reasoning':
                         self.reasoning_signal.emit(val)
                     elif evt == 'content':
                         self.stream_signal.emit(val)
                     elif evt == 'done':
                         full = val
+                if aborted:
+                    break
                 if full is None:
                     raise RuntimeError('流式响应为空')
                 # 记录 API 用量（v6.40 fix：stream_options.include_usage 后流式响应带 usage）
@@ -2150,7 +2180,7 @@ class PetWidget(QWidget):
                         data2 = jsonlib.dumps({
                             'model': cur_model,
                             'messages': messages[:-1] + [{'role': 'user', 'content': '请用简短中文回复上一条消息（不要调用工具）'}],
-                            'max_tokens': 500,
+                            'max_tokens': min(4096, int(getattr(self, 'max_tokens', 4096) or 4096)),  # v6.53：原先写死 500 会截断
                         }).encode()
                         result2 = _post(data2, '正在思考…', 'Thinking…')
                         final_reply = (result2['choices'][0]['message'].get('content') or '').strip() or '（我刚才卡壳了，换个说法再问我一次？）'
@@ -2180,14 +2210,14 @@ class PetWidget(QWidget):
                 if getattr(self, '_choices_requested', False):
                     break
 
-            if final_reply is None:
+            if final_reply is None and not aborted:
                 # 工具轮次耗尽但没生成文本回复：强制不带工具重试一次
                 self.ai_status_signal.emit('正在整理结果…' if getattr(self, 'language', 'zh') != 'en' else 'Preparing result…')
                 try:
                     data3 = jsonlib.dumps({
                         'model': cur_model,
                         'messages': messages + [{'role': 'user', 'content': '请用简短中文总结一下刚才的处理结果（不要调用工具）'}],
-                        'max_tokens': 300,
+                        'max_tokens': min(4096, int(getattr(self, 'max_tokens', 4096) or 4096)),  # v6.53：原先写死 300 会截断
                     }).encode()
                     result3 = _post(data3, '正在整理结果…', 'Preparing result…')
                     final_reply = (result3['choices'][0]['message'].get('content') or '').strip()
@@ -2232,7 +2262,10 @@ class PetWidget(QWidget):
                 self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
             # v6.43b：仅当代任务清 busy，然后自动执行队列下一任务（FCFS）
-            if getattr(self, '_ai_generation', 0) == getattr(self, '_cur_gen', -1):
+            # v6.53：被 /stop 顶替的旧线程，退出后再接续队列（_stop_ai 只置 _pending_resume）
+            cur_gen_ok = getattr(self, '_ai_generation', 0) == getattr(self, '_cur_gen', -1)
+            if cur_gen_ok or getattr(self, '_pending_resume', False):
+                self._pending_resume = False
                 self._ai_busy = False
                 self._cur_task_text = None
                 try:
@@ -2692,17 +2725,18 @@ class PetWidget(QWidget):
                 self, '导出聊天记录', default_path, '文本文件 (*.txt)')
             if not path:
                 return  # 用户取消保存
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(f'DeepSeek 桌宠聊天记录（导出时间 {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}，共 {len(msgs)} 条）\n')
-                f.write('=' * 40 + '\n')
-                for m in msgs:
-                    who = m.get('who', '桌宠')
-                    c = (m.get('text') or '').strip()
-                    ts = m.get('ts', '')
-                    if c:
-                        import re as _rex
-                        c = _rex.sub(r'\[emotion:[a-z_]+\]?\s*', '', c)
-                        f.write(f'[{ts}] {who}: {c}\n')
+            # v6.53：改为原子写（先写临时文件再替换，防导出中途失败留下半截文件）
+            import re as _rex
+            _buf = [f'DeepSeek 桌宠聊天记录（导出时间 {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}，共 {len(msgs)} 条）\n',
+                    '=' * 40 + '\n']
+            for m in msgs:
+                who = m.get('who', '桌宠')
+                c = (m.get('text') or '').strip()
+                ts = m.get('ts', '')
+                if c:
+                    c = _rex.sub(r'\[emotion:[a-z_]+\]?\s*', '', c)
+                    _buf.append(f'[{ts}] {who}: {c}\n')
+            _atomic_write_text(path, ''.join(_buf))
             self._append_chat('桌宠', f'📤 已导出 {len(msgs)} 条：{path}')
         except Exception as e:
             self._append_chat('桌宠', f'导出失败：{e}')
@@ -3015,15 +3049,18 @@ class PetWidget(QWidget):
             import re as _rex
             fname = f'聊天存档_{self.current}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
             path = os.path.join(BASE_DIR, fname)
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(f'角色: {CHARACTERS[self.current]["name"]}  时间: {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
-                f.write('=' * 40 + '\n')
-                for m in self.chat_history_msgs:
-                    who = '我' if m.get('role') == 'user' else '桌宠'
-                    c = (m.get('content') or '').strip()
-                    if c and not c.startswith('（'):
-                        c = _rex.sub(r'\[emotion[:=][a-z_]+\]?\s*', '', c)
-                        f.write(f'{who}: {c}\n')
+            # v6.53：原子写 + 写成功校验 —— 存档必须先真正落盘，才允许清空对话
+            _buf = [f'角色: {CHARACTERS[self.current]["name"]}  时间: {_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n',
+                    '=' * 40 + '\n']
+            for m in self.chat_history_msgs:
+                who = '我' if m.get('role') == 'user' else '桌宠'
+                c = (m.get('content') or '').strip()
+                if c and not c.startswith('（'):
+                    c = _rex.sub(r'\[emotion[:=][a-z_]+\]?\s*', '', c)
+                    _buf.append(f'{who}: {c}\n')
+            _atomic_write_text(path, ''.join(_buf))
+            if not (os.path.exists(path) and os.path.getsize(path) > 0):
+                raise RuntimeError('存档写入校验失败，已取消清空对话')
             # 清空对话
             self.chat_history_msgs = []
             self._clear_chat_history()
@@ -3450,8 +3487,8 @@ class PetWidget(QWidget):
         is_en = getattr(self, 'language', 'zh') == 'en'
         try:
             path = os.path.join(BASE_DIR, f'记忆备份_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.memory_facts, f, ensure_ascii=False, indent=2)
+            # v6.53：改为原子写（与 memory.json 落盘同一套机制）
+            _atomic_write_json_impl(path, self.memory_facts)
             self._append_chat('桌宠', f'💾 记忆已备份：{path}' if not is_en else f'💾 Memory backed up: {path}')
         except Exception as e:
             self._append_chat('桌宠', f'备份失败：{e}' if not is_en else f'Backup failed: {e}')
@@ -4892,10 +4929,46 @@ class PetWidget(QWidget):
         if self._save_cfg_value('reply_style', val):
             self._append_chat('桌宠', f'回复风格：{label}')
 
+    def _log_ai_abort(self, stage):
+        """v6.53：把“被停止 / 被新任务顶替”记进日志（原先静默 return，出问题无从下手）"""
+        try:
+            from pet_log import get_logger as _gl
+            _gl('pet.ai').warning('AI 任务中断（%s）gen=%s cur=%s busy=%s',
+                                  stage, getattr(self, '_ai_generation', None),
+                                  getattr(self, '_cur_gen', None), getattr(self, '_ai_busy', None))
+        except Exception:
+            pass
+
+    def _set_advanced_tools(self, on):
+        """v6.53：切换「进阶工具模式」——开 = 放开全部工具，关 = 只留 core 8 个"""
+        on = bool(on)
+        self.advanced_tools = on
+        if not self._save_cfg_value('advanced_tools', on):
+            return
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        try:
+            n = len(tools_for_mode(on))
+        except Exception:
+            n = 0
+        self._append_chat('桌宠', (f'工具范围：{"全部 %d 个" % n if on else "常用 %d 个（已收起进阶工具）" % n}'
+                                  if not is_en else
+                                  (f'Tools: all {n} enabled' if on else f'Tools: {n} core tools only')))
+        self._sync_settings_ui()
+
+    def _sync_settings_ui(self):
+        """v6.53：设置窗口开着时，参数改完立即回填（修“存了但界面没变”）"""
+        try:
+            for w in self.findChildren(SettingsDialog):
+                if w.isVisible():
+                    w._refresh()
+        except Exception:
+            pass
+
     def _set_max_tokens(self, val, label):
-        """设置回复 token 上限"""
-        if self._save_cfg_value('max_tokens', val):
+        """设置回复 token 上限（v6.53：改走模型档案 —— 与设置窗口「回复长度」同一份真相）"""
+        if self._save_profile_param('max_tokens', val):
             self._append_chat('桌宠', f'回复长度上限：{label}')
+            self._sync_settings_ui()
 
     def _set_max_tokens_dialog(self):
         """弹窗自定义 token 上限（对齐 DeepSeek API：输出上限 384K，给到 128K 足够日常）"""
@@ -4907,8 +4980,11 @@ class PetWidget(QWidget):
             text=str(getattr(self, 'max_tokens', 1000)))
         if ok and text.strip().isdigit():
             val = clamp_tokens(text.strip())
-            if self._save_cfg_value('max_tokens', val):
-                self._append_chat('桌宠', f'回复长度上限：{val} token' if not is_en else f'Reply length limit: {val} tokens')
+            # v6.53：原先写 config.json（但读的是 models.json 的档案 → 界面没变、实际不生效）
+            if self._save_profile_param('max_tokens', val):
+                self._append_chat('桌宠', f'回复长度上限：{val} token（已写入模型档案）' if not is_en
+                                  else f'Reply length limit: {val} tokens (saved to model profile)')
+                self._sync_settings_ui()
 
     def _set_city_dialog(self):
         """弹窗设置默认城市"""

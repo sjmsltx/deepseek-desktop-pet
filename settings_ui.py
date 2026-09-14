@@ -128,6 +128,11 @@ class SettingsDialog(QDialog):
         self.ck_active.toggled.connect(self._toggle_active_chat)
         f.addRow('主动关心', self.ck_active)
 
+        # v6.53：工具梯级暴露 —— 默认只给陪伴/日常高频工具，省 ≈4K token/请求且人设更稳
+        self.ck_adv = QCheckBox('放开全部工具（进阶模式）')
+        self.ck_adv.toggled.connect(self._toggle_advanced_tools)
+        f.addRow('工具范围', self.ck_adv)
+
         # v6.51：原先只有一个「切换」动作按钮——用户看不到当前是哪种模式。
         # 改成两项下拉 + _refresh 回填（与窗口内其他控件一致）
         self.cb_edge = QComboBox()
@@ -152,6 +157,12 @@ class SettingsDialog(QDialog):
         self.host._append_chat('桌宠', '主动关心已%s' % ('开启' if on else '关闭'))
 
     # ---------- ② 对话 ----------
+    def _toggle_advanced_tools(self, on):
+        """v6.53：进阶工具模式开关（默认关 → 只放开 core 工具）"""
+        if self._building:
+            return
+        self.host._set_advanced_tools(bool(on))
+
     def _page_chat(self):
         p = self._page('对话', '性格、回复风格与回复长度。回复长度按当前角色的模型档案保存。')
         f = p.form
@@ -340,6 +351,7 @@ class SettingsDialog(QDialog):
             self.cb_lang.setCurrentIndex(idx if idx >= 0 else 0)
             self.ed_city.setText(getattr(h, 'pet_city', '') or '')
             self.ck_active.setChecked(bool(getattr(h, 'active_chat_enabled', False)))
+            self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
             # 对话
             idx = self.cb_persona.findData(getattr(h, 'personality', '温柔'))
             self.cb_persona.setCurrentIndex(idx if idx >= 0 else 0)

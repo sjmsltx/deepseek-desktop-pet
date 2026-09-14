@@ -423,3 +423,22 @@ TOOL_STATUS = {
     'lock_screen': ('正在锁定屏幕', 'Locking screen'),
     'control_volume': ('正在调整音量', 'Adjusting volume'),
 }
+
+
+# ---------- 工具梯级（v6.53）----------
+# 背景：29 个工具的 schema 每请求约 11.1K 字符（≈5.5K token），工具说明会挤占人设，
+# 也会诱发“什么事都想去调工具”。方案：默认只暴露 core（陪伴/日常高频 8 个），
+# 其余收进「进阶工具模式」开关（设置窗口可切，随时恢复全部）。
+CORE_TOOLS = (
+    'get_time', 'query_weather', 'set_reminder', 'manage_todo',
+    'memorize', 'offer_choices', 'schedule_followup', 'web_search',
+)
+
+
+def tools_for_mode(advanced=False):
+    """advanced=False → 仅 core 工具 schema；True → 全部工具。
+
+    注意：MCP 与插件提供的动态工具不在此过滤范围（由调用方另行追加）。"""
+    if advanced:
+        return list(AI_TOOLS)
+    return [t for t in AI_TOOLS if t.get('function', {}).get('name') in CORE_TOOLS]

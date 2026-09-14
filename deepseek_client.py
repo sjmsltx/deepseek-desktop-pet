@@ -73,7 +73,7 @@ def chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', 
 
 
 def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', is_en=False,
-                            endpoint=None):
+                            endpoint=None, should_cancel=None):
     """SSE 流式请求：yield ('reasoning', chunk) / ('content', chunk) / ('done', full)。
 
     v6.51 修正两处（原实现的问题）：
@@ -100,6 +100,9 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
                 usage = None  # stream_options.include_usage 时，末尾 chunk 携带 usage
                 finished = False
                 for chunk in resp:
+                    # v6.53：逐块检查取消回调 —— 用户按停止 / 新任务顶替时立刻断流（关连接=停止计费）
+                    if should_cancel is not None and should_cancel():
+                        return
                     buffer += chunk
                     while b'\n' in buffer:
                         line, buffer = buffer.split(b'\n', 1)
