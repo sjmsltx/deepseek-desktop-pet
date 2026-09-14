@@ -96,6 +96,17 @@ TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
 AFFECTION_PATH = os.path.join(BASE_DIR, 'affection.json')   # v6.30 好感度
 MEMORIES_PATH = os.path.join(BASE_DIR, 'memories.json')     # v6.30 回忆日志
 
+# ---------- v6.54：静默异常统一出口 ----------
+# 背景：全面体检发现 122 处 `except ...: pass/continue`——出问题时“它怎么不记得了 / 怎么不动了”
+# 完全无痕。这里提供统一出口：**只记日志**（logs/pet.log，INFO 级），不改变任何行为。
+# 重点覆盖“用户可感知失败”的路径：AI 任务链 / 数据落盘 / 记忆提取 / 工具执行 / 用量统计 / 系统集成。
+def _silent_log(where, exc):
+    try:
+        get_logger('silent').info('%s | %s: %s', where, type(exc).__name__, exc)
+    except Exception:
+        pass          # 日志系统自己不能把主程序拖垮
+
+
 def asset(role, state):
     p = os.path.join(ASSETS, role, f'{role}_{state}.png')
     if os.path.exists(p):
@@ -372,8 +383,8 @@ class PetWidget(QWidget):
                     self._hotkey_installed = True
                 try:
                     ctypes.windll.user32.RegisterHotKey(None, 2, 0x0002 | 0x0001, 0x44)  # Ctrl+Alt+D 截图 OCR
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('__init__:386', _exc)   # v6.54
         except Exception:
             self._hotkey_installed = False
         # 对话记忆 + 定时提醒 + 贴边
@@ -513,8 +524,8 @@ class PetWidget(QWidget):
         self.task_list.itemDoubleClicked.connect(self._cancel_queued_task)
         try:
             self.task_list.model().rowsMoved.connect(self._on_task_reorder)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('__init__:527', _exc)   # v6.54
         _tsv.addWidget(self.task_list, 1)
         _tip = QLabel('拖拽排序 · 双击取消排队\n/stop 紧急停止当前', self.chat_task_sidebar)
         _tsv.addWidget(_tip)
@@ -639,8 +650,8 @@ class PetWidget(QWidget):
                         self.move(x, y)
                         self.base_x, self.base_y = x, y
                         return
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_restore_position:653', _exc)   # v6.54
         screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()   # v6.51：改用工作区，避免压到任务栏
@@ -665,8 +676,8 @@ class PetWidget(QWidget):
             cfg['x'] = self.x()
             cfg['y'] = self.y()
             self._atomic_write_json(CONFIG_PATH, cfg)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_save_position:679', _exc)   # v6.54
 
     def _schedule_greet(self):
         self.greet_timer.start(random.randint(*GREET_INTERVAL))
@@ -720,8 +731,8 @@ class PetWidget(QWidget):
                     self.max_tokens = clamp_tokens(cfg.get('max_tokens', 1000))
                     self.reasoning_enabled = cfg.get('reasoning', True)
                     self.temperature = float(cfg.get('temperature', 1.0))
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_load_ai_config:734', _exc)   # v6.54
 
     def _current_profile(self):
         """当前角色对应的模型档案（档案缺失时回退第一份 / None）"""
@@ -770,8 +781,8 @@ class PetWidget(QWidget):
         self._ai_busy = True
         try:
             self._refresh_task_sidebar()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_run_task:784', _exc)   # v6.54
         # v6.53：保留线程句柄，供 /stop 判断旧线程是否已退出（防抢跑）
         self._ai_thread = _th.Thread(target=self._ai_worker, args=(text,), daemon=True)
         self._ai_thread.start()
@@ -782,8 +793,8 @@ class PetWidget(QWidget):
         self._task_queue.append({'text': text, 'ts': _time.time()})
         try:
             self._refresh_task_sidebar()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_enqueue_task:796', _exc)   # v6.54
 
     def _next_task(self):
         """v6.43b：空闲时执行队列下一个任务（先来先到）"""
@@ -796,10 +807,10 @@ class PetWidget(QWidget):
                     self._cur_task_text = None
                 try:
                     self._refresh_task_sidebar()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _exc:
+                    _silent_log('_next_task:810', _exc)   # v6.54
+        except Exception as _exc:
+            _silent_log('_next_task:812', _exc)   # v6.54
 
     def _refresh_task_sidebar(self):
         """v6.43b：刷新任务侧栏（首行=执行中，其后排队可拖拽）"""
@@ -858,8 +869,8 @@ class PetWidget(QWidget):
             self._ai_busy = False
             try:
                 self._remove_status_line()
-            except Exception:
-                pass
+            except Exception as _exc:
+                _silent_log('_stop_ai:872', _exc)   # v6.54
             self._close_pending_user_msg()
             self._save_chat_memory()
             # v6.43b：紧急停止只停当前任务，队列继续（先来先到）
@@ -870,8 +881,8 @@ class PetWidget(QWidget):
                 self._pending_resume = True
             else:
                 self._next_task()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_stop_ai:884', _exc)   # v6.54
 
     def _close_pending_user_msg(self):
         """v6.43：若历史最后一条是悬空 user（AI 未回复=任务中断），补一条中断说明。
@@ -880,8 +891,8 @@ class PetWidget(QWidget):
             msgs = self.chat_history_msgs
             if msgs and msgs[-1].get('role') == 'user':
                 msgs.append({'role': 'assistant', 'content': '（上轮任务已中断取消，如需继续请重新说明）'})
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_close_pending_user_msg:894', _exc)   # v6.54
 
     def ask_ai(self, text):
         """调用 DeepSeek API 对话（线程执行，不卡 UI）"""
@@ -951,8 +962,8 @@ class PetWidget(QWidget):
                 if len(parts) >= 2 and parts[1].strip():
                     apps.append({'name': parts[0].strip(), 'path': parts[1].strip(),
                                  'exe': os.path.basename(parts[1].strip()).lower()})
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_build_app_index:965', _exc)   # v6.54
         # 2. 注册表已安装应用
         try:
             import winreg
@@ -971,7 +982,8 @@ class PetWidget(QWidget):
                             try:
                                 name, _ = winreg.QueryValueEx(skh, 'DisplayName')
                                 icon, _ = winreg.QueryValueEx(skh, 'DisplayIcon')
-                            except Exception:
+                            except Exception as _exc:
+                                _silent_log('_build_app_index:985', _exc)   # v6.54
                                 continue
                             exe = ''
                             if icon:
@@ -980,12 +992,14 @@ class PetWidget(QWidget):
                                 seen.add((name, exe))
                                 apps.append({'name': str(name).strip(), 'path': icon.split(',')[0] if icon else '',
                                              'exe': exe})
-                        except Exception:
+                        except Exception as _exc:
+                            _silent_log('_build_app_index:994', _exc)   # v6.54
                             continue
-                except Exception:
+                except Exception as _exc:
+                    _silent_log('_build_app_index:996', _exc)   # v6.54
                     continue
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_build_app_index:998', _exc)   # v6.54
         return apps
 
     def _load_app_index(self):
@@ -997,13 +1011,13 @@ class PetWidget(QWidget):
                     data = json.load(f)
                 if time.time() - data.get('built_at', 0) < 86400:
                     return data.get('apps', [])
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_load_app_index:1011', _exc)   # v6.54
         apps = self._build_app_index()
         try:
             self._atomic_write_json(idx_path, {'built_at': time.time(), 'apps': apps}, pretty=False)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_load_app_index:1016', _exc)   # v6.54
         return apps
 
     def _smart_find_app(self, query):
@@ -1168,8 +1182,8 @@ class PetWidget(QWidget):
             try:
                 subprocess.Popen([target])
                 return f'已打开 {app}'
-            except Exception:
-                pass
+            except Exception as _exc:
+                _silent_log('_smart_open:1182', _exc)   # v6.54
 
         # 2. 常见中文名映射（非精确匹配）
         fuzzy = {
@@ -1209,8 +1223,8 @@ class PetWidget(QWidget):
                 path = where_result.stdout.strip().split('\n')[0]
                 subprocess.Popen([path])
                 return f'已打开 {app}'
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_smart_open:1223', _exc)   # v6.54
 
         # 5. 尝试文件路径（存在则用默认程序打开）
         if os.path.exists(app):
@@ -1222,8 +1236,8 @@ class PetWidget(QWidget):
             result = _open_shell_target(app)
             if result == 0:
                 return f'已尝试打开 {app}'
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_smart_open:1236', _exc)   # v6.54
 
         return f'找不到 {app}，请确认名称'
 
@@ -1268,8 +1282,8 @@ class PetWidget(QWidget):
             self._last_extract_ts = now
             import threading as _th
             _th.Thread(target=self._extract_worker, daemon=True).start()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_maybe_extract_memory:1282', _exc)   # v6.54
 
     def _extract_chat(self, messages, max_tokens):
         """抽取用的 LLM 调用（worker 线程，非流式）"""
@@ -1314,10 +1328,10 @@ class PetWidget(QWidget):
                     try:
                         self.memories.add(self.current, 'event', title,
                                           str(e.get('detail', ''))[:200])
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as _exc:
+                        _silent_log('_extract_worker:1328', _exc)   # v6.54
+        except Exception as _exc:
+            _silent_log('_extract_worker:1330', _exc)   # v6.54
 
     def _remember_fact(self, action, content='', importance=3, fid='', role='both'):
         """memorize 工具处理（数据逻辑拆至 memory_store.remember_fact，此处持有状态+落盘）"""
@@ -2077,8 +2091,8 @@ class PetWidget(QWidget):
                 if rel:
                     rel_block = '\n'.join(f'★{c.get("importance", 3)} {c["text"]}' for c in rel)
                     mem = (rel_block + '\n\n' + mem) if mem else rel_block
-            except Exception:
-                pass
+            except Exception as _exc:
+                _silent_log('_post_stream:2091', _exc)   # v6.54
             # v6.53：记忆只作背景、不做话题（治“问什么都往已记住的事上靠”的过拟合）
             mem_use_rule = ('\n【记忆的使用方式（重要）】上面这些记忆只是背景参考：'
                             '仅当用户当前问题与之直接相关时才引用；不要主动把话题引向记忆，'
@@ -2156,8 +2170,8 @@ class PetWidget(QWidget):
                 if full.get('usage'):
                     try:
                         self._record_api_usage({'usage': full['usage']}, fallback_model=cur_model)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _silent_log('_post_stream:2170', _exc)   # v6.54
                 msg = {
                     'role': 'assistant',  # v6.40 fix：缺 role 导致工具调用后第二轮请求 400（DeepSeek 报 role 错误）
                     'content': full.get('content') or '',
@@ -2234,16 +2248,16 @@ class PetWidget(QWidget):
             if final_reply and not final_reply.startswith('（'):
                 try:
                     self._handle_affection(self.affection.trigger(self.current, 'chat'))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_post_stream:2248', _exc)   # v6.54
             if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
                 return  # v6.43：已被新任务取代，静默丢弃本次回复
             self.ai_reply_signal.emit(final_reply)
             # v6.41 自动记忆抽取（低频：间隔 30 分钟且 ≥4 轮对话）
             try:
                 self._maybe_extract_memory()
-            except Exception:
-                pass
+            except Exception as _exc:
+                _silent_log('_post_stream:2256', _exc)   # v6.54
         except Exception as e:
             # 400 等 HTTP 错误：显示响应体中的具体原因（DeepSeek error.message）
             try:
@@ -2253,8 +2267,8 @@ class PetWidget(QWidget):
                     detail = body
                     try:
                         detail = jsonlib.loads(body).get('error', {}).get('message') or body[:200]
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _silent_log('_post_stream:2267', _exc)   # v6.54
                     self.ai_reply_signal.emit(f'（AI 出错了：HTTP {e.code} — {detail}）')
                 else:
                     self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
@@ -2270,8 +2284,8 @@ class PetWidget(QWidget):
                 self._cur_task_text = None
                 try:
                     self._refresh_task_sidebar()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_post_stream:2284', _exc)   # v6.54
                 self._next_task()
 
     EMOTION_STATE_MAP = {
@@ -2383,16 +2397,16 @@ class PetWidget(QWidget):
             for emo in emotions:
                 try:
                     self._apply_emotion(emo)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_on_stream:2397', _exc)   # v6.54
             if not cleaned:
                 return
             self._stream_text += cleaned
             if self._stream_label is not None:
                 self._stream_label.setText(self._stream_text)
                 self._chat_scroll_bottom()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_on_stream:2405', _exc)   # v6.54
 
     def _on_reasoning(self, chunk):
         """主线程槽：流式思考 chunk → 同卡片灰色思考区（可折叠）；过滤 emotion 标签"""
@@ -2466,8 +2480,8 @@ class PetWidget(QWidget):
         # v6.42 fix：任何回复路径先清状态行（工具轮耗尽/超时后的非流式回复会残留 ⏳）
         try:
             self._remove_status_line()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_display_ai_reply:2480', _exc)   # v6.54
         if getattr(self, '_stream_rendered', False) and reply:
             # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复打字机
             self._stream_rendered = False
@@ -2481,21 +2495,21 @@ class PetWidget(QWidget):
             self._save_chat_memory()  # v6.40 fix：流式路径此前跳过保存，对话历史不落盘
             try:
                 self._attach_bubble_actions(self._chat_type_bubble, _display)  # v6.40 fix：复制按钮存剥标签后的正文（原始reply含[emotion:xxx]）
-            except Exception:
-                pass
+            except Exception as _exc:
+                _silent_log('_display_ai_reply:2495', _exc)   # v6.54
             # v6.40+ 富文本恢复：含代码块/表格 → 同气泡重渲染成卡片（复制按钮回归）
             if ('```' in _display) or self._looks_like_table(_display):
                 try:
                     self._rerender_rich(_display)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_display_ai_reply:2501', _exc)   # v6.54
             # v6.41 fix：流式路径也渲染情感选项（AI 正文 + offer_choices 工具调用时）
             if getattr(self, '_choices_requested', False):
                 self._choices_requested = False
                 try:
                     self._render_choices()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_display_ai_reply:2508', _exc)   # v6.54
             return
         if not reply and getattr(self, '_choices_requested', False):
             self._choices_requested = False
@@ -2579,8 +2593,8 @@ class PetWidget(QWidget):
                 for _m in self.display_msgs:
                     if isinstance(_m, dict) and _m.get('text'):
                         _m['text'] = _re.sub(r'\[emotion:[^\]]*\]', '', str(_m['text']))
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_load_chat_memory:2593', _exc)   # v6.54
 
     def _echo_display_history(self):
         """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）"""
@@ -2600,8 +2614,8 @@ class PetWidget(QWidget):
             # 只保留最近 50 条 LLM 上下文 + 最近 300 条显示历史
             msgs = self.chat_history_msgs[-50:]
             self._atomic_write_json(mem_path, {'messages': msgs, 'display': self.display_msgs[-300:]})
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_save_chat_memory:2614', _exc)   # v6.54
 
     def _clear_chat_memory(self):
         self.chat_history_msgs = []
@@ -2833,8 +2847,8 @@ class PetWidget(QWidget):
                     self.model.SetParameterValue('ParamEyeROpen', blink)
                     self.model.SetParameterValue('ParamBreath', math.sin(self.t * 1.5) * 0.5 + 0.5)
                     self.update()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_drive:2847', _exc)   # v6.54
 
             def paintGL(self):
                 live2d.clearBuffer(0, 0, 0, 0)
@@ -2998,8 +3012,8 @@ class PetWidget(QWidget):
                     self.model.SetParameterValue('ParamEyeROpen', blink)
                     self.model.SetParameterValue('ParamBreath', math.sin(self.t * 1.5) * 0.5 + 0.5)
                     self.update()  # 关键：每帧请求重绘，否则画面不刷新
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_drive:3012', _exc)   # v6.54
 
             def paintGL(self):
                 try:
@@ -3825,8 +3839,8 @@ class PetWidget(QWidget):
                 _f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
                          f"type={type(resp).__name__} keys={list(resp.keys())[:6] if isinstance(resp, dict) else '-'} "
                          f"usage={'有' if isinstance(resp, dict) and resp.get('usage') else '无'}\n")
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_record_api_usage:3839', _exc)   # v6.54
         try:
             if not isinstance(resp, dict):
                 return
@@ -3837,8 +3851,8 @@ class PetWidget(QWidget):
             cost = self.api_stats.record(usage, model)
             if cost:
                 self.cost_bubble_signal.emit(cost)  # v6.30 费用气泡
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_record_api_usage:3851', _exc)   # v6.54
 
     def _show_api_stats_history(self):
         """显示最近 API 调用历史（消息框）"""
@@ -5589,8 +5603,8 @@ class PetWidget(QWidget):
                 if os.path.exists(oldp):
                     try:
                         os.remove(oldp)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _silent_log('toggle_autostart:5603', _exc)   # v6.54
             if True:
                 self._append_chat('桌宠', '❌ 开机自启已关闭（下次开机需手动启动桌宠）')
                 self.say_plain('已关闭开机自启', immediate=True)
@@ -5602,8 +5616,8 @@ class PetWidget(QWidget):
                     if os.path.exists(oldp):
                         try:
                             os.remove(oldp)
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            _silent_log('toggle_autostart:5616', _exc)   # v6.54
                 ok = self._create_autostart_lnk(path)
                 if ok:
                     # 清理旧注册表条目（若存在，避免重复启动）
@@ -5612,11 +5626,11 @@ class PetWidget(QWidget):
                         rk = _wr.OpenKey(_wr.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Run', 0, _wr.KEY_SET_VALUE)
                         try:
                             _wr.DeleteValue(rk, 'DeepSeekPet')
-                        except FileNotFoundError:
-                            pass
+                        except FileNotFoundError as _exc:
+                            _silent_log('toggle_autostart:5626', _exc)   # v6.54
                         _wr.CloseKey(rk)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _silent_log('toggle_autostart:5629', _exc)   # v6.54
                     self._append_chat('桌宠', '✅ 开机自启已开启（启动文件夹快捷方式）')
                     self.say_plain('已开启开机自启', immediate=True)
                 else:
@@ -5853,16 +5867,16 @@ class PetWidget(QWidget):
                             affection_at=self.affection.snapshot(self.current)['affection'])
                         self._show_pet_bubble(f'🏆 「{game}」新纪录 {score} 分！', 4)
                         self.affection.trigger(self.current, 'chat')  # 破纪录额外好感
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _silent_log('_on_game_result:5867', _exc)   # v6.54
             try:
                 self._show_state_image('victory' if win else 'defeat')
-            except Exception:
-                pass
+            except Exception as _exc:
+                _silent_log('_on_game_result:5871', _exc)   # v6.54
             if win:
                 self.play_scene('happy')
-        except Exception:
-            pass
+        except Exception as _exc:
+            _silent_log('_on_game_result:5875', _exc)   # v6.54
 
     def _check_satiety(self):
         """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）"""
