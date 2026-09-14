@@ -25,15 +25,21 @@
 |---------|---------|---------|
 | ![双角色](screenshots/hero.png) | ![表情](screenshots/emotions.png) | ![运行截图](screenshots/screenshot.png) |
 
-### v6.30 新功能
+### 界面一览（v2.7 现状）
 
-| 好感度关系面板 | 回忆相册 | 小游戏大厅 |
-|---------|---------|---------|
-| ![关系面板](screenshots/pet_v630_relation.png) | ![回忆相册](screenshots/pet_v630_memories.png) | ![小游戏](screenshots/pet_v630_games.png) |
-
-| Farkle 骰子 | 21 点 | 俄罗斯方块 | 桌宠本体 |
+| 桌宠主界面（聊天 + 任务侧栏） | 统一设置窗口 | 好感度关系面板 | 小游戏大厅 |
 |---------|---------|---------|---------|
-| ![Farkle](screenshots/pet_v630_farkle.png) | ![21点](screenshots/pet_v630_blackjack.png) | ![俄罗斯方块](screenshots/pet_v630_tetris.png) | ![桌宠](screenshots/pet_v630_idle.png) |
+| ![主界面](screenshots/v270_pet.png) | ![设置窗口](screenshots/v270_settings.png) | ![关系面板](screenshots/v270_relation.png) | ![小游戏](screenshots/v270_games.png) |
+
+### 养成与游戏
+
+| 回忆相册 | Farkle 骰子 | 21 点 | 俄罗斯方块 |
+|---------|---------|---------|---------|
+| ![回忆相册](screenshots/pet_v630_memories.png) | ![Farkle](screenshots/pet_v630_farkle.png) | ![21点](screenshots/pet_v630_blackjack.png) | ![俄罗斯方块](screenshots/pet_v630_tetris.png) |
+
+| 桌宠本体（静态立绘） |
+|---------|
+| ![桌宠](screenshots/pet_v630_idle.png) |
 
 ## ✨ 特性
 
