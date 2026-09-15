@@ -1,7 +1,0 @@
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_01.mp4'
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_02.mp4'
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_03.mp4'
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_04.mp4'
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_05.mp4'
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_06.mp4'
-file 'E:\ai工作站\desktop-pet\视频介绍\mux_seg_07.mp4'
