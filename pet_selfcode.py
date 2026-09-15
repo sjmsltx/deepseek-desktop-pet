@@ -11,38 +11,77 @@
 3. 「AI 改自己代码」这条链路的安全性（只允许项目内 .py、改前备份、语法验证拦截）
    集中在一个文件里，便于审查。
 
+v6.56 修复（2026-09-15，自改代码"几乎没成功过"的根因）：
+  R1 **行尾无关匹配** —— 原先用 `old_text in src` 精确匹配；但项目内文件行尾不统一
+     （desktop_pet.py 是 LF、memory_engine.py/tools_registry.py 是 CRLF），
+     而 AI 经 JSON 传来的 old_text 一律是 LF → 在 CRLF 文件上**必然匹配失败**。
+     现在改成"按行归一化后匹配连续行块"，并支持行尾空格差异。
+  R2 **保留原文件行尾** —— 原先读用 newline='' + splitlines() + '\\n'.join()，
+     会把整个文件行尾改写成 LF（实测 CRLF 444 → 0，git diff 爆炸）。现在按原文件行尾写回。
+  R3 **备份修复** —— 原先 `datetime.datetime.now()` 但模块未 import datetime，
+     NameError 被静默吞掉 → backup/ 一直为空，返回消息却提示"可用 backup 恢复"。
+     现在真正写备份，并只在备份成功时才提它。
+  R4 **语法校验改进程内 ast.parse** —— 原先 `subprocess.run([sys.executable, '-c', ...])`，
+     冻结（PyInstaller）环境下 sys.executable 是桌宠 exe 本身 → 校验变成"再启动一只桌宠"。
+  R5 **失败可见** —— 4 处 `except Exception: pass` 改为写日志（pet_log），不再静默。
+  R6 冻结环境明确提示（打包版代码在 _internal 内、无 .git，改了也不生效）。
+
 接口（纯函数，失败返回「（…」开头的可读文本，不抛异常）：
     search_code(keyword, max_results=20, base_dir=None)
     write_file_tool(filename, content, base_dir=None)
     edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None)
 """
+import ast
 import os
-import re
 import subprocess
 import shutil
 import sys
 
 
+def _log(where, exc):
+    """v6.56：本模块统一出口——只记日志，不改变行为（原先 4 处静默吞异常，出问题无从查）"""
+    try:
+        from pet_log import get_logger
+        get_logger('selfcode').info('%s | %s: %s', where, type(exc).__name__, exc)
+    except Exception:
+        pass
+
+
+def _norm_lines(text):
+    """按行切分（兼容 CRLF/LF），并去掉每行尾部空白，便于"行尾无关"匹配"""
+    return [ln.rstrip() for ln in (text or '').replace('\r\n', '\n').split('\n')]
+
+
+def _file_eol(src):
+    """探测原文件行尾风格（v6.56：写回时必须沿用，否则整文件被改写）"""
+    return '\r\n' if '\r\n' in src else '\n'
+
+
 def search_code(keyword, max_results=20, base_dir=None):
-    """关键词搜索项目源码（所有 .py 模块），返回 文件:行号:代码行（v6.41 定位工具）"""
+    """关键词搜索项目源码（所有 .py 模块，含子目录），返回 文件:行号:代码行（v6.41 定位工具）"""
     base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     keyword = (keyword or '').strip()
     if not keyword:
         return '请提供搜索关键词'
     hits = []
-    for f in sorted(os.listdir(base_dir)):
-        if not f.endswith('.py') or f.startswith('_'):
-            continue
-        path = os.path.join(base_dir, f)
-        try:
-            with open(path, encoding='utf-8', errors='ignore') as fh:
-                for i, line in enumerate(fh, 1):
-                    if keyword.lower() in line.lower():
-                        hits.append(f'{f}:{i}: {line.strip()[:100]}')
-                        if len(hits) >= max_results:
-                            break
-        except Exception:
-            pass
+    skip = {'backup', 'release_build', '__pycache__', '.git', '输出', 'node_modules'}
+    for cur, dirs, files in os.walk(base_dir):
+        dirs[:] = [d for d in dirs if d not in skip and not d.startswith('.')]
+        for f in sorted(files):
+            if not f.endswith('.py') or f.startswith('_'):
+                continue
+            rel = os.path.relpath(os.path.join(cur, f), base_dir)
+            try:
+                with open(os.path.join(cur, f), encoding='utf-8', errors='ignore') as fh:
+                    for i, line in enumerate(fh, 1):
+                        if keyword.lower() in line.lower():
+                            hits.append(f'{rel}:{i}: {line.strip()[:100]}')
+                            if len(hits) >= max_results:
+                                break
+            except Exception as e:
+                _log('search_code', e)
+            if len(hits) >= max_results:
+                break
         if len(hits) >= max_results:
             break
     if not hits:
@@ -50,10 +89,11 @@ def search_code(keyword, max_results=20, base_dir=None):
     total = len(hits)
     return '\n'.join(hits[:max_results]) + (f'\n…（共 {total} 处，仅显示前 {max_results} 条）' if total > max_results else '')
 
+
 def write_file_tool(filename, content, base_dir=None):
-    base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     """AI 生成文件：统一写入 base_dir/输出/（防穿越，自动建目录）。
     .py 文件先做语法校验，校验失败不落盘并返回错误（v6.17 保证生成代码可运行）"""
+    base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     out_dir = os.path.join(base_dir, '输出')
     try:
         os.makedirs(out_dir, exist_ok=True)
@@ -62,31 +102,27 @@ def write_file_tool(filename, content, base_dir=None):
         content = content or ''
         is_py = safe.lower().endswith('.py')
         if is_py:
-            # 先写临时文件做 py_compile 语法校验，通过才落盘
-            import tempfile
-            tmp = os.path.join(tempfile.gettempdir(), '_pet_syntax_check.py')
             try:
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                import py_compile
-                py_compile.compile(tmp, doraise=True)
-            except Exception as e:
-                return f'（❌ Python 语法校验失败，文件未保存：{e}）请重新生成缩进正确、语法完整的代码后再调用 write_file'
-            finally:
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
+                ast.parse(content)   # v6.56：改进程内校验（冻结版也可用）
+            except SyntaxError as e:
+                return f'（❌ Python 语法校验失败，文件未保存：第 {e.lineno} 行 {e.msg}）请重新生成缩进正确、语法完整的代码后再调用 write_file'
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
         return f'✅ 已生成文件：{path}（共 {len(content)} 字符' + ('，语法校验通过' if is_py else '') + '）'
     except Exception as e:
+        _log('write_file_tool', e)
         return f'（写入失败：{e}）'
 
+
 def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None):
-    base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     """AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘。
-    v6.41 支持任意模块（file 参数，白名单 .py）；v6.25 两种编辑模式：①按行号替换（start_line/end_line + new_text，推荐）；②old_text 精确匹配"""
+
+    v6.41 支持任意模块（file 参数，白名单 .py）；v6.25 两种编辑模式：
+      ①按行号替换（start_line/end_line + new_text，推荐）；②old_text 匹配
+    v6.56：old_text 匹配改为**行尾无关**（CRLF/LF 都能匹配、行尾空格差异容忍）、
+           写回时**保留原文件行尾**、备份真正可用、语法校验进程内完成。
+    """
+    base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     fname = (file or 'desktop_pet.py').strip()
     if not fname.endswith('.py') or fname.startswith('_') or '/' in fname or '\\' in fname:
         return f'（不允许修改的文件：{fname}，只能改项目内的 .py 模块）'
@@ -98,72 +134,88 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
     if not old_text.strip() and start_line is None:
         return '（需要提供 old_text 或 start_line）'
     try:
-        # 0. 确认 git 仓库（桌宠项目必须是 git 仓库才能安全自改）
+        # 0. 版本保护：必须在 git 工作区内（v6.56：冻结环境给出明确原因）
         r = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
-                            capture_output=True, timeout=15)
+                           capture_output=True, timeout=15)
         if r.returncode != 0:
+            if getattr(sys, 'frozen', False):
+                return ('（打包版无法自改：打包后的代码在 _internal 内、且没有 .git，改了也不会生效。'
+                        '请用源码目录运行 python desktop_pet.py 后再让我改）')
             return '（不是 git 仓库，拒绝自改——需要版本保护）'
-        # 1. 记录基线 hash（v6.42：不再 commit 基线——E盘fsync慢导致两次commit让AI卡1分钟+；改hash记录+backup双保险）
         base_hash = ''
         try:
             r0 = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=base_dir, capture_output=True, timeout=15)
             if r0.returncode == 0:
                 base_hash = (r0.stdout or b'').decode().strip()
-        except Exception:
-            pass
-        # 1.5 额外备份一份到 backup/（双保险，防 git 异常时无回退点）
+        except Exception as e:
+            _log('git_head', e)
+        # 1. 备份（v6.56：修 datetime 未导入 —— 此前 NameError 被静默吞，backup/ 一直是空的）
+        backup_name = ''
         try:
+            import datetime as _dt
             bdir = os.path.join(base_dir, 'backup')
             os.makedirs(bdir, exist_ok=True)
-            import shutil
-            shutil.copy2(path, os.path.join(bdir, f'{fname.replace(".py", "")}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'))
-        except Exception:
-            pass
-        # 2. 读代码 + 替换
+            backup_name = f'{fname[:-3]}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'
+            shutil.copy2(path, os.path.join(bdir, backup_name))
+        except Exception as e:
+            _log('backup', e)
+            backup_name = ''
+        # 2. 读 + 替换
         with open(path, encoding='utf-8', newline='') as f:
             src = f.read()
+        eol = _file_eol(src)
+        lines = src.splitlines()
+        tail_eol = src.endswith(('\n', '\r\n'))
         if start_line is not None:
-            # 按行替换：start_line~end_line 之间的内容替换为 new_text（v6.25）
             try:
-                lines = src.splitlines()
                 s = int(start_line) - 1
-                # end_line 省略 = 只替换 start_line 一行（v6.25 修复：此前误为到文件末尾）
                 e = (s + 1) if end_line is None else int(end_line)
                 if s < 0 or s >= len(lines) or e < s or e > len(lines):
                     return f'（行号越界：文件共 {len(lines)} 行，请求 {start_line}~{end_line}）'
-                new_src = '\n'.join(lines[:s] + [new_text] + lines[e:])
-                if src.endswith('\n'):
-                    new_src += '\n'
+                new_lines = lines[:s] + new_text.replace('\r\n', '\n').split('\n') + lines[e:]
+                where = f'第 {start_line}~{e} 行'
             except ValueError:
                 return '（start_line/end_line 需要数字）'
         else:
-            if old_text not in src:
-                # 失败时提示附近行号，帮 AI 用 read_file 精确重新读取（v6.25）
+            # 行尾无关匹配：归一化后找"连续行块"（v6.56 核心修复）
+            old_n = _norm_lines(old_text)
+            if old_n and old_n[-1] == '':
+                old_n.pop()          # 末尾换行不算内容
+            if not old_n:
+                return '（old_text 为空）'
+            n = len(old_n)
+            cand = [i for i in range(max(0, len(lines) - n + 1))
+                    if _norm_lines('\n'.join(lines[i:i + n])) == old_n]
+            if not cand:
+                first = old_n[0][:20]
                 near = ''
-                first_line = old_text.splitlines()[0][:20] if old_text else ''
-                for i, ln in enumerate(src.splitlines(), 1):
-                    if first_line and first_line in ln:
+                for i, ln in enumerate(lines, 1):
+                    if first and first in ln:
                         near = f'第 {i} 行附近：{ln[:80]}'
                         break
-                return f'（未找到要修改的代码段，请先用 read_file 带 start_line/end_line 精确读取原文再修改；{near}）'
-            if src.count(old_text) > 1:
-                return '（找到多处匹配，请提供更长的唯一上下文）'
-            new_src = src.replace(old_text, new_text, 1)
-        # 3. 语法验证（写临时文件检查，通过才落盘）
+                return (f'（未找到要修改的代码段（已按行尾无关匹配）{near}）'
+                        f'建议改用按行号模式：read_file 拿准行号后传 start_line/end_line + new_text')
+            if len(cand) > 1:
+                return f'（找到 {len(cand)} 处匹配（行 {cand[:5]}…），请提供更长的唯一上下文，或改用 start_line/end_line）'
+            i = cand[0]
+            new_lines = lines[:i] + new_text.replace('\r\n', '\n').split('\n') + lines[i + n:]
+            where = f'第 {i + 1}~{i + n} 行（按文本匹配）'
+        new_src = eol.join(new_lines) + (eol if tail_eol else '')
+        # 3. 语法验证（v6.56：进程内 ast.parse，冻结版同样可用）
+        try:
+            ast.parse(new_src)
+        except SyntaxError as e:
+            return f'（语法验证失败，未修改：第 {e.lineno} 行 {e.msg}）'
+        # 4. 原子落盘（行尾沿用原文件）
         tmp = path + '.ai_tmp'
         with open(tmp, 'w', encoding='utf-8', newline='') as f:
             f.write(new_src)
-        r = subprocess.run(
-            [sys.executable, '-c',
-             'import ast,sys; s = open(sys.argv[1], encoding="utf-8-sig").read(); ast.parse(s)', tmp],
-            capture_output=True, timeout=30)
-        if r.returncode != 0:
-            os.remove(tmp)
-            return f'（语法验证失败，未修改：{(r.stderr or b"").decode(errors="replace")[-200:]}）'
         os.replace(tmp, path)
-        # 4. 回滚保障（v6.42：不 git commit——E盘 commit 实测 60s+ 会卡死 AI；改后文件留为工作区改动，
-        #    回滚用 git restore 直接从对象库恢复 HEAD 版本 + backup/ 文件双保险）
-        rollback = f'git restore {fname}' if base_hash else '可用 backup/ 备份文件恢复'
-        return f'✅ 已修改（回滚：{rollback} 或 backup/ 备份）。修改会在下次 git 提交时入库；请重启桌宠生效，若异常对我说"回滚桌宠修改"。'
+        # 5. 返回（v6.56：只在备份真的成功时才提它；给出文件与行号）
+        rollback = f'git restore {fname}' if base_hash else 'backup/ 备份'
+        bk = f'（改前备份：backup/{backup_name}）' if backup_name else '（⚠️ 改前备份失败，已记日志）'
+        return (f'✅ 已修改 {fname} {where}。回滚：{rollback}。{bk}\n'
+                f'修改会在下次 git 提交时入库；**需重启桌宠生效**；若异常对我说"回滚桌宠修改"。')
     except Exception as e:
-        return f'（修改失败：{e}）'
+        _log('edit_own_code', e)
+        return f'（修改失败：{type(e).__name__}: {e}）'

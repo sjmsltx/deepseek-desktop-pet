@@ -5,6 +5,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+
+- **「自改代码（自我进化）」在真实环境中几乎必然失败**（使用者反馈「几乎没成功过」）。定位到四个根因：
+  1. **行尾不匹配**：项目内文件行尾不统一（`desktop_pet.py` 为 LF，`memory_engine.py` / `tools_registry.py` 为 CRLF），
+     而 AI 经 JSON 传来的 `old_text` 一律是 LF → 精确匹配**必然失败**。改为**按行归一化后匹配连续行块**（同时容忍行尾空格差异）。
+  2. **编辑会污染行尾**：`splitlines()` + `'\n'.join()` 把整个文件行尾改写成 LF（实测 CRLF 444 → 0，git diff 爆炸）。
+     改为**按原文件行尾写回**。
+  3. **改前备份一直是坏的**：`datetime.datetime.now()` 但模块未 `import datetime` → `NameError` 被静默吞掉，
+     `backup/` 始终为空，而返回消息却提示「可用 backup 恢复」。现在真正写备份，且**只在成功时提及**。
+  4. **打包版必然失败**：语法校验走 `subprocess.run([sys.executable, '-c', ...])`，冻结后 `sys.executable` 就是桌宠 exe；
+     且打包目录没有 `.git`。改为**进程内 `ast.parse`**，并在冻结环境给出明确原因提示。
+- `search_code` 支持递归子目录（此前只扫顶层，模块搬进子目录后搜不到）。
+- 自改链路的失败路径全部接入日志（替换 4 处静默 `except: pass`）；成功消息带上**文件名与行号**。
+
+### 测试
+
+- 新增 `tests/test_selfcode_success.py`：**8 项成功路径断言**（CRLF 文件 + LF 文本匹配、行尾保留、
+  备份落盘、行尾空格容忍、语法门仍生效、多处匹配给建议、消息可用性、源码护栏）。
+  此前 `test_pet_selfcode.py` 的 12 组断言**全是拒绝分支**，成功路径 0 覆盖 —— 这正是问题能长期潜伏的原因。
+- 单测总数 **57 → 65**。
+
 ## [2.7.1] - 2026-09-14
 
 流式取消、记忆过拟合治理与工具梯级暴露（基于用户反馈的 5 个现象排查）。
