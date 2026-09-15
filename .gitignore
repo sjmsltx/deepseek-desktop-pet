@@ -57,3 +57,8 @@ games_save/
 backup/
 视频介绍/
 chat_memory*.json
+
+# 内部工作文档（公开版在 docs/，含本地信息的原始版不提交）
+功能体检报告_*.md
+排障与修复记录_*.md
+后续展望-*.md
