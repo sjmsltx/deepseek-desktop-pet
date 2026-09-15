@@ -62,7 +62,7 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_own_code",
-            "description": "直接修改桌宠自己的源代码（支持任意模块，默认 desktop_pet.py）。流程：先用 search_code 定位关键词所在文件与行号 → read_file 带 start_line/end_line 读目标行（输出带行号）→ 本工具传 file（模块文件名，如 affection_engine.py）+ start_line/end_line + new_text 精确替换。自动带 git 保护（改前提交基线，改后语法验证，失败不落盘 + backup 备份）。修改后提示用户重启生效。注意：UI 颜色/样式不要改源码——用主题系统（set_theme 切换或 install_plugin 装 theme 插件）。",
+            "description": "直接修改桌宠自己的源代码（支持任意模块，默认 desktop_pet.py）。流程：先用 search_code 定位关键词所在文件与行号 → read_file 带 start_line/end_line 读目标行（输出带行号）→ 本工具传 file（模块文件名，如 affection_engine.py）+ start_line/end_line + new_text 精确替换。自动带 git 保护（改前记录基线 hash，改后语法验证，失败不落盘 + backup 备份）。修改后提示用户重启生效。注意：UI 颜色/样式不要改源码——用主题系统（set_theme 切换或 install_plugin 装 theme 插件）。",
             "parameters": {
                 "type": "object",
                 "properties": {

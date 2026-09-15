@@ -108,6 +108,26 @@ def test_success_message_useful():
     assert "m.py" in r and "第 1" in r and "重启" in r
 
 
+def test_inline_fragment_fallback():
+    """v6.56b：行内片段也要能匹配（模型常只给一句话中间的片段）"""
+    d = _sandbox("r8")
+    p = os.path.join(d, "m.py")
+    open(p, "w", encoding="utf-8").write('DESC = "自动带 git 保护（改前提交基线，改后语法验证）"\n')
+    r = edit_own_code("改前提交基线", "改前记录基线 hash", file="m.py", base_dir=d)
+    assert r.startswith("✅"), "行内片段未能匹配：%s" % r[:90]
+    assert "改前记录基线 hash" in open(p, encoding="utf-8").read()
+
+
+def test_no_backup_on_failed_match():
+    """v6.56b：匹配失败不应留下备份（避免 backup/ 噪音）"""
+    d = _sandbox("r9")
+    p = os.path.join(d, "m.py")
+    open(p, "w", encoding="utf-8").write("A = 1\n")
+    edit_own_code("这段根本不存在", "X", file="m.py", base_dir=d)
+    bdir = os.path.join(d, "backup")
+    assert not (os.path.isdir(bdir) and os.listdir(bdir)), "失败也写了备份"
+
+
 def test_source_guards():
     """源码护栏：不许退回旧写法（sys.executable 校验 / datetime 未导入 / 静默 pass）"""
     src = open(os.path.join(ROOT, "pet_selfcode.py"), encoding="utf-8-sig").read()
@@ -132,5 +152,7 @@ if __name__ == "__main__":
     test_syntax_guard_still_blocks()
     test_multi_match_hint()
     test_success_message_useful()
+    test_inline_fragment_fallback()
+    test_no_backup_on_failed_match()
     test_source_guards()
-    print("✅ 自改代码成功路径 8 项断言通过")
+    print("✅ 自改代码成功路径 10 项断言通过")

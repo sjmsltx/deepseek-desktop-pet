@@ -149,18 +149,7 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
                 base_hash = (r0.stdout or b'').decode().strip()
         except Exception as e:
             _log('git_head', e)
-        # 1. 备份（v6.56：修 datetime 未导入 —— 此前 NameError 被静默吞，backup/ 一直是空的）
-        backup_name = ''
-        try:
-            import datetime as _dt
-            bdir = os.path.join(base_dir, 'backup')
-            os.makedirs(bdir, exist_ok=True)
-            backup_name = f'{fname[:-3]}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'
-            shutil.copy2(path, os.path.join(bdir, backup_name))
-        except Exception as e:
-            _log('backup', e)
-            backup_name = ''
-        # 2. 读 + 替换
+        # 2. 读 + 匹配（v6.56：先匹配成功、再写备份 —— 避免失败也留备份的噪音）
         with open(path, encoding='utf-8', newline='') as f:
             src = f.read()
         eol = _file_eol(src)
@@ -176,8 +165,8 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
                 where = f'第 {start_line}~{e} 行'
             except ValueError:
                 return '（start_line/end_line 需要数字）'
+            new_src = eol.join(new_lines) + (eol if tail_eol else '')
         else:
-            # 行尾无关匹配：归一化后找"连续行块"（v6.56 核心修复）
             old_n = _norm_lines(old_text)
             if old_n and old_n[-1] == '':
                 old_n.pop()          # 末尾换行不算内容
@@ -186,21 +175,42 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
             n = len(old_n)
             cand = [i for i in range(max(0, len(lines) - n + 1))
                     if _norm_lines('\n'.join(lines[i:i + n])) == old_n]
-            if not cand:
-                first = old_n[0][:20]
-                near = ''
-                for i, ln in enumerate(lines, 1):
-                    if first and first in ln:
-                        near = f'第 {i} 行附近：{ln[:80]}'
-                        break
-                return (f'（未找到要修改的代码段（已按行尾无关匹配）{near}）'
-                        f'建议改用按行号模式：read_file 拿准行号后传 start_line/end_line + new_text')
-            if len(cand) > 1:
+            if len(cand) == 1:
+                i = cand[0]
+                new_lines = lines[:i] + new_text.replace('\r\n', '\n').split('\n') + lines[i + n:]
+                new_src = eol.join(new_lines) + (eol if tail_eol else '')
+                where = f'第 {i + 1}~{i + n} 行（按文本匹配）'
+            elif len(cand) > 1:
                 return f'（找到 {len(cand)} 处匹配（行 {cand[:5]}…），请提供更长的唯一上下文，或改用 start_line/end_line）'
-            i = cand[0]
-            new_lines = lines[:i] + new_text.replace('\r\n', '\n').split('\n') + lines[i + n:]
-            where = f'第 {i + 1}~{i + n} 行（按文本匹配）'
-        new_src = eol.join(new_lines) + (eol if tail_eol else '')
+            else:
+                # 回退：兼容旧语义——整行块匹配不到时，再按“归一化后的行内子串”匹配
+                src_n = src.replace('\r\n', '\n')
+                old_s = old_text.replace('\r\n', '\n')
+                cnt = src_n.count(old_s)
+                if cnt == 0:
+                    first = old_n[0][:20]
+                    near = ''
+                    for i, ln in enumerate(lines, 1):
+                        if first and first in ln:
+                            near = f'第 {i} 行附近：{ln[:80]}'
+                            break
+                    return (f'（未找到要修改的代码段（已按行尾无关匹配）{near}）'
+                            f'建议改用按行号模式：read_file 拿准行号后传 start_line/end_line + new_text')
+                if cnt > 1:
+                    return f'（该文本在文件中出现 {cnt} 次，请提供更长的唯一上下文，或改用 start_line/end_line）'
+                new_src = src_n.replace(old_s, new_text.replace('\r\n', '\n'), 1).replace('\n', eol)
+                where = '按文本片段匹配'
+        # 2.5 写备份（匹配已成功才备份）
+        backup_name = ''
+        try:
+            import datetime as _dt
+            bdir = os.path.join(base_dir, 'backup')
+            os.makedirs(bdir, exist_ok=True)
+            backup_name = f'{fname[:-3]}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'
+            shutil.copy2(path, os.path.join(bdir, backup_name))
+        except Exception as e:
+            _log('backup', e)
+            backup_name = ''
         # 3. 语法验证（v6.56：进程内 ast.parse，冻结版同样可用）
         try:
             ast.parse(new_src)
