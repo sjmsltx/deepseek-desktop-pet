@@ -74,7 +74,9 @@ from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules
 from affection_engine import AffectionEngine  # v6.30 好感度引擎
 from memory_events import MemoryEvents  # v6.30 回忆日志
 from affection_ui import RelationDialog, CostBubble, MemoriesDialog  # v6.30 关系面板/费用气泡/回忆相册
-from pet_minigames import GameWindow  # v6.30 小游戏
+from pet_minigames import GameWindow  # v6.30 小游戏（v6.58 主题接入见 _publish_theme）
+from pet_theme import DEFAULT_THEME, TOKEN_GROUPS  # v6.57 主题 token 唯一源（A1：原内联在本文件）
+import pet_theme                                  # v6.58 A2-2：生效主题通道（set_active/subscribe）
 
 # Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
 DWMWA_NCRENDERING_POLICY = 2
@@ -203,7 +205,7 @@ def build_characters(registry=None):
     for ckey, conf in reg.characters().items():
         conf = dict(conf)
         try:
-            conf['color'] = QColor(conf.get('color') or '#B0C4DE')
+            conf['color'] = QColor(conf.get('color') or DEFAULT_THEME['char_default_color'])
         except Exception:
             conf['color'] = QColor(176, 196, 222)
         out[ckey] = conf
@@ -255,27 +257,8 @@ def _hotkey_filter_factory(callbacks):
 
 
 # ---------- API 统计（v6.18 自监控：解析 usage，无代理无断链） ----------
-# 主题变量（v6.23 主题系统）：默认深蓝黑风格，theme 插件可覆盖
-DEFAULT_THEME = {
-    'panel_bg': 'rgba(20,20,30,0.85)',
-    'text': '#eee',
-    'input_bg': 'rgba(255,255,255,0.12)',
-    'input_focus': 'rgba(255,255,255,0.18)',
-    'input_text': '#fff',  # v6.52 输入框文字色（原先写死在 _panel_qss 里，浅色主题下会看不见）
-    'user_bubble': 'rgba(30,88,70,0.80)',
-    'ai_bubble': 'rgba(46,54,76,0.80)',
-    'name_user': '#6fe3a1',
-    'name_ai': '#7fb2ff',
-    'accent': '#7fb2ff',
-    'scroll_bg': 'rgba(255,255,255,0.08)',
-    'scroll_handle': '#ffffff',
-    'scroll_handle_hover': 'rgba(255,255,255,0.65)',
-    'bubble_text': '#eee',  # v6.44 气泡内文字颜色（主题化：白底气泡需配深色文字）
-    # v6.51 顶部说话气泡（say_plain）的配色——此前写死在控件里，换深色主题后仍是刺眼白底
-    'say_bg': 'rgba(255,255,255,0.92)',
-    'say_text': '#333',
-    'say_border': '#ccc',
-}
+# 主题 token（v6.23 主题系统）已于 v6.57 迁到 pet_theme.py（唯一源，theme 插件同名键可覆盖）
+# 顶部 import 已再导出 DEFAULT_THEME，既有引用（self.theme = dict(DEFAULT_THEME)）无需改动
 
 
 class _DropChatEdit(QTextEdit):
@@ -314,6 +297,7 @@ class PetWidget(QWidget):
     weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
     ocr_signal = Signal(str)       # OCR 识别结果（截图粘贴，跨线程安全）
     cost_bubble_signal = Signal(float)  # v6.30 API 费用气泡（跨线程）
+    ui_call_signal = Signal(object)     # v6.58 通用"回主线程执行"通道（工作线程里 QTimer.singleShot 不触发）
 
     def __init__(self):
         super().__init__()
@@ -383,6 +367,7 @@ class PetWidget(QWidget):
         self.ai_status_signal.connect(self._update_ai_status)
         self.wakeup_signal.connect(self._display_wakeup)
         self.confirm_signal.connect(lambda fn: fn())  # 确认回调在主线程执行
+        self.ui_call_signal.connect(lambda fn: fn())  # v6.58 通用回主线程通道（跨线程安全）
         # 全局快捷键 Ctrl+Alt+P 呼出 / Ctrl+Alt+S 截图 OCR
         self._hotkey_installed = False
         try:
@@ -462,13 +447,8 @@ class PetWidget(QWidget):
         self.bubble = QLabel(self)
         self.bubble.setWordWrap(True)
         self.bubble.setAlignment(Qt.AlignCenter)
-        self.bubble.setStyleSheet("""
-            QLabel {
-                background-color: rgba(255,255,255,0.92);
-                color: #333; border: 2px solid #ccc;
-                border-radius: 10px; padding: 8px 12px; font-size: 13px;
-            }
-        """)
+        # v6.58 主题化：初值也走主题（与切主题时同一条规则）
+        pb.apply_say_bubble_theme(self.bubble, self.theme)
         self.bubble.setMaximumWidth(400)
         self.bubble.setMaximumHeight(220)
         # 气泡不参与布局排版（悬浮定位，避免挤压控制栏导致上下跳动）
@@ -493,7 +473,8 @@ class PetWidget(QWidget):
 
         # 聊天历史（只读）
         self.chat_more_btn = QLabel('📜 显示更多历史', self.chat_panel)
-        self.chat_more_btn.setStyleSheet("color:#7fb2ff; font-size:11px; padding:2px; cursor:pointer;")
+        self._set_themed_qss(self.chat_more_btn,
+                             lambda: f"color:{self._tk('accent')}; font-size:11px; padding:2px; cursor:pointer;")
         self.chat_more_btn.setAlignment(Qt.AlignCenter)
         self.chat_more_btn.setCursor(Qt.PointingHandCursor)
         self.chat_more_btn.mousePressEvent = lambda e: self._load_more_history()
@@ -516,10 +497,10 @@ class PetWidget(QWidget):
         self._task_queue = []
         self._cur_task_text = None
         self.chat_task_sidebar = QFrame(self.chat_panel)
-        self.chat_task_sidebar.setStyleSheet(
-            'QFrame{background:rgba(18,26,44,.5);border-radius:8px;}'
-            'QLabel{color:#8aa;font-size:10px;} QListWidget{background:rgba(12,18,32,.6);'
-            'color:#dce3f0;border:none;font-size:11px;}')
+        self._set_themed_qss(self.chat_task_sidebar, lambda: (
+            'QFrame{background:%s;border-radius:8px;}' % self._tk('ui_popup_bg')
+            + 'QLabel{color:%s;font-size:10px;} QListWidget{background:%s;' % (self._tk('ui_text_dim'), self._tk('ui_popup_list_bg'))
+            + 'color:%s;border:none;font-size:11px;}' % self._tk('ui_text')))
         _tsv = QVBoxLayout(self.chat_task_sidebar)
         _tsv.setContentsMargins(6, 6, 6, 6)
         _tsv.setSpacing(4)
@@ -551,9 +532,10 @@ class PetWidget(QWidget):
         self.task_toggle_tab.setFixedSize(22, 40)
         self.task_toggle_tab.setCursor(Qt.PointingHandCursor)
         self.task_toggle_tab.setToolTip('展开/收缩任务队列')
-        self.task_toggle_tab.setStyleSheet(
-            'QPushButton{background:rgba(18,26,44,.4);color:#9ec;border:none;border-radius:6px;font-size:11px;}'
-            'QPushButton:hover{background:rgba(40,60,90,.7);}')
+        self._set_themed_qss(self.task_toggle_tab, lambda: (
+            'QPushButton{background:%s;color:%s;border:none;border-radius:6px;font-size:11px;}'
+            'QPushButton:hover{background:%s;}'
+            % (self._tk('ui_popup_btn_bg'), self._tk('ui_text_soft'), self._tk('ui_popup_btn_hover'))))
         self.task_toggle_tab.clicked.connect(self._toggle_task_sidebar)
         chat_body = QHBoxLayout()
         chat_body.setSpacing(6)
@@ -633,6 +615,8 @@ class PetWidget(QWidget):
         # 输入感知（打盹/久坐/光标跟随）+ 早安日报
         self._start_idle_system()
         self._start_morning_report()
+        # v6.58：恢复上次主题（必须早于历史回显，回显出的气泡才会用上主题色）
+        self._restore_saved_theme()
         self._echo_display_history()  # 面板已就绪，回显上次会话历史
         self.weather_signal.connect(self._on_weather_result)
         self.ocr_signal.connect(self._on_ocr_result)
@@ -728,8 +712,12 @@ class PetWidget(QWidget):
                 self.language = cfg.get('language', 'zh')  # zh/en
                 self.display_mode = cfg.get('display_mode', 'static')  # static/live2d
                 self.live2d_model = cfg.get('live2d_model', 'mao')  # Live2D 模型目录名
-                # v6.53：进阶工具模式（默认关 → 只放开 core 的 8 个工具，省 ≈4K token/请求）
+                # v6.53：进阶工具模式（默认关 → 只放开 core 工具，省 token）
+                # v6.58：core 已补回“外观/自改/插件/文件”9 个（用户能直接要求的能力）
                 self.advanced_tools = bool(cfg.get('advanced_tools', False))
+                # v6.58：记住 config 里保存的主题名（启动时在 UI 就绪后恢复；此前只写不读 → 重启被重置）
+                self._saved_theme = str(cfg.get('theme') or 'default')
+                self._theme_widgets = []   # 受主题着色的控件登记表（切主题时统一刷新）
                 # 模型档案是模型身份的唯一来源：角色表每次从档案重建
                 # （改 models.json 即可改显示名/台词，无需动代码）
                 CHARACTERS = build_characters()
@@ -1719,11 +1707,11 @@ class PetWidget(QWidget):
                 elif key == 'city':
                     self.pet_city = value
                 elif key == 'language':
-                    QTimer.singleShot(0, lambda v=value: self._set_language(v))  # GUI 回主线程（v6.25.1）
+                    self._run_on_ui(lambda v=value: self._set_language(v))  # v6.58 GUI 回主线程
                 elif key == 'active_chat':
                     self.active_chat_enabled = value == 'true'
                 elif key == 'display_mode':
-                    QTimer.singleShot(0, lambda v=value: self._set_display_mode(v))  # GUI 回主线程（v6.25.1）
+                    self._run_on_ui(lambda v=value: self._set_display_mode(v))  # v6.58 GUI 回主线程
                 elif key == 'api_prices':
                     # 热加载价格（空对象 = 恢复出厂价）；经 api_stats 统一处理，
                     # 有模型档案时写进档案，避免与内置表各存一份
@@ -1821,10 +1809,10 @@ class PetWidget(QWidget):
             return f'（可用主题：{"、".join(available)}）'
         # 数据部分（线程安全）立即更新（与右键菜单入口共用同一方法）
         self._set_theme_data(tname)
-        # GUI 部分回主线程执行（QTimer.singleShot 线程安全）
-        QTimer.singleShot(0, self._apply_theme)
+        # GUI 部分回主线程执行（v6.58：改用跨线程信号——工作线程里 QTimer.singleShot 不会触发）
+        self._run_on_ui(self._apply_theme)
         self._save_cfg_value('theme', tname)
-        return f'✅ 已切换主题：{tname}（样式即将生效）'
+        return f'✅ 已切换主题：{tname}（样式已生效）'
 
     def _tool_skill_run(self, args):
         # v6.23 复合技能：返回步骤清单，AI 逐步执行
@@ -2351,10 +2339,11 @@ class PetWidget(QWidget):
         try:
             head = self._chat_type_bubble.layout().itemAt(0).layout()
             thinking_toggle = QPushButton('💭 思考过程 ▼')
-            thinking_toggle.setStyleSheet(
-                'QPushButton { background:transparent; color:#7a8aa0; border:none;'
+            self._set_themed_qss(thinking_toggle, lambda: (
+                'QPushButton { background:transparent; color:%s; border:none;'
                 ' font-size:11px; padding:0; text-align:left; }'
-                'QPushButton:hover { color:#9fd0ff; }')
+                'QPushButton:hover { color:%s; }'
+                % (self._tk('ui_status_text'), self._tk('ui_accent_soft'))))
             thinking_toggle.setCursor(Qt.PointingHandCursor)
             thinking_toggle._collapsed = False
             def _toggle():
@@ -2375,8 +2364,9 @@ class PetWidget(QWidget):
         thinking_label = QLabel('')
         thinking_label.setWordWrap(True)
         thinking_label.setTextFormat(Qt.PlainText)
-        thinking_label.setStyleSheet(
-            'color:#7a8aa0; font-size:12px; background:#141b2c; border-radius:6px; padding:6px;')
+        self._set_themed_qss(thinking_label, lambda: (
+            'color:%s; font-size:12px; background:%s; border-radius:6px; padding:6px;'
+            % (self._tk('ui_status_text'), self._tk('ui_input_bg'))))
         thinking_label.hide()  # 无思考时不占位
         self._chat_type_content.addWidget(thinking_label)
         self._thinking_label = thinking_label
@@ -2384,7 +2374,8 @@ class PetWidget(QWidget):
         self._stream_label = QLabel('')
         self._stream_label.setWordWrap(True)
         self._stream_label.setTextFormat(Qt.PlainText)
-        self._stream_label.setStyleSheet(f'color:{self.theme.get("bubble_text", "#eee")}; font-size:14px;')
+        self._set_themed_qss(self._stream_label,
+                             lambda: f'color:{self._tk("bubble_text")}; font-size:14px;')
         self._chat_type_content.addWidget(self._stream_label)
         self._chat_scroll_bottom()
         self._stream_active = True
@@ -2404,7 +2395,8 @@ class PetWidget(QWidget):
                     self._stream_label = QLabel('')
                     self._stream_label.setWordWrap(True)
                     self._stream_label.setTextFormat(Qt.PlainText)
-                    self._stream_label.setStyleSheet(f'color:{self.theme.get("bubble_text", "#eee")}; font-size:14px;')
+                    self._set_themed_qss(self._stream_label,
+                                         lambda: f'color:{self._tk("bubble_text")}; font-size:14px;')
                     self._chat_type_content.addWidget(self._stream_label)
                 else:
                     self._chat_type_stream_begin()
@@ -3757,7 +3749,7 @@ class PetWidget(QWidget):
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
-            QTimer.singleShot(0, lambda t=text, i=immediate: self.say_plain(t, i))
+            self._run_on_ui(lambda t=text, i=immediate: self.say_plain(t, i))  # v6.58
             return
         if immediate:
             self.type_timer.stop()
@@ -3928,17 +3920,16 @@ class PetWidget(QWidget):
         win.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
                            Qt.Tool | Qt.NoDropShadowWindowHint)
         win.setAttribute(Qt.WA_TranslucentBackground)
-        win.setStyleSheet("""
-            QWidget#ap { background: rgba(15,20,32,0.92); border: 1px solid #2c3a52;
-                         border-radius: 10px; }
-            QLabel { color: #dce3f0; font-size: 11px; background: transparent; }
-            QLabel#t { color: #7fb2ff; font-size: 12px; font-weight: bold; }
-            QLabel#v { color: #6ecb7a; font-size: 11px; }
-            QLabel#d { color: #8aa; font-size: 10px; }
-            QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 4px;
-                           text-align: center; color: #dce3f0; font-size: 10px; }
-            QProgressBar::chunk { background: #6ecb7a; border-radius: 4px; }
-        """)
+        self._set_themed_qss(win, lambda: (          # v6.58 主题化
+            "QWidget#ap { background: %s; border: 1px solid %s;" % (self._tk('ui_stats_bg'), self._tk('ui_border_soft'))
+            + " border-radius: 10px; }"
+            + "QLabel { color: %s; font-size: 11px; background: transparent; }" % self._tk('ui_text')
+            + "QLabel#t { color: %s; font-size: 12px; font-weight: bold; }" % self._tk('ui_accent')
+            + "QLabel#v { color: %s; font-size: 11px; }" % self._tk('ui_green')
+            + "QLabel#d { color: %s; font-size: 10px; }" % self._tk('ui_text_dim')
+            + "QProgressBar { background: %s; border: none; border-radius: 4px;" % self._tk('ui_stats_track')
+            + " text-align: center; color: %s; font-size: 10px; }" % self._tk('ui_text')
+            + "QProgressBar::chunk { background: %s; border-radius: 4px; }" % self._tk('ui_green')))
         panel = QWidget(win)
         panel.setObjectName('ap')
         v = _VL(panel)
@@ -4046,8 +4037,9 @@ class PetWidget(QWidget):
         name = QLabel(who)
         name_color = self.theme.get('name_user') if is_user else self.theme.get('name_ai')
         name.setStyleSheet(f'color:{name_color};font-size:11px;font-weight:bold;background:transparent;')
+        self._register_theme_widget(name, 'name', is_user)  # v6.58 切主题时名字色同步
         tl = QLabel(ts)
-        tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
+        tl.setStyleSheet(f'color:{self._tk("ui_text_muted")};font-size:10px;background:transparent;')
         if is_user:
             head.addStretch(1)
             head.addWidget(name)
@@ -4068,8 +4060,10 @@ class PetWidget(QWidget):
     def _bubble_text_label(self, html_text, is_user=False):
         """消息文本标签：富文本（<b>/<i>/<br> 等），自动换行，可选中复制；
         用户/AI 不同背景色+对齐（v6.19 对比度增强 + v6.23 主题变量）
-        （实现已搬至 pet_bubble.bubble_text_label）"""
-        return pb.bubble_text_label(html_text, self.theme, is_user=is_user)
+        （实现已搬至 pet_bubble.bubble_text_label；v6.58 登记为受主题控件，切主题时刷新）"""
+        lbl = pb.bubble_text_label(html_text, self.theme, is_user=is_user)
+        self._register_theme_widget(lbl, 'text', is_user)
+        return lbl
     def _copy_message_text(self, text):
         """复制单条消息文本到剪贴板（用气泡提示，不污染对话历史）"""
         try:
@@ -4118,14 +4112,20 @@ class PetWidget(QWidget):
             parts += f'…（共{len(warns)}处）'
         warn = QLabel(f'⚠️ 自动检查：上述回复有 {len(warns)} 处 Python 代码块语法错误（{parts}），建议让我重新生成。')
         warn.setWordWrap(True)
-        warn.setStyleSheet('color:#e8c76a; font-size:11px; background:transparent; padding:2px 0;')
+        warn.setStyleSheet(f'color:{self._tk("ui_warn")}; font-size:11px; background:transparent; padding:2px 0;')
         self._chat_type_content.addWidget(warn)
         self._chat_scroll_bottom()
 
     def _render_md_into(self, content_layout, text):
         """把 markdown 文本分块渲染进内容区：代码/表格成卡片，连续文本合为一个段落（v6.17）
-        （实现已搬至 pet_bubble.render_md_into）"""
-        return pb.render_md_into(content_layout, text, self.theme)
+        （实现已搬至 pet_bubble.render_md_into；v6.58 把新建控件登记为受主题控件）"""
+        made = pb.render_md_into(content_layout, text, self.theme)
+        for w in made:
+            if isinstance(w, QLabel):
+                self._register_theme_widget(w, 'text', False)
+            else:
+                self._register_theme_widget(w, 'factory', False)   # 卡片：走 apply_theme()
+        return made
     @staticmethod
     def _split_rich_blocks(text):
         """把 markdown 拆成渲染块（拆至 chat_render.split_rich_blocks）
@@ -4192,8 +4192,9 @@ class PetWidget(QWidget):
         name = QLabel(who)
         name_color = self.theme.get('name_user') if is_user else self.theme.get('name_ai')
         name.setStyleSheet(f'color:{name_color};font-size:11px;font-weight:bold;background:transparent;')
+        self._register_theme_widget(name, 'name', is_user)  # v6.58 切主题时名字色同步
         tl = QLabel(ts)
-        tl.setStyleSheet('color:#667;font-size:10px;background:transparent;')
+        tl.setStyleSheet(f'color:{self._tk("ui_text_muted")};font-size:10px;background:transparent;')
         if is_user:
             head.addStretch(1)
             head.addWidget(name)
@@ -4204,14 +4205,14 @@ class PetWidget(QWidget):
             head.addStretch(1)
         if text:
             cp = QLabel('⧉')
-            cp.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+            cp.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
             cp.setCursor(Qt.PointingHandCursor)
             cp.setToolTip('复制该消息')
             cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
             cp.hide()
             head.addWidget(cp)
             sv = QLabel('🖼')
-            sv.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+            sv.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
             sv.setCursor(Qt.PointingHandCursor)
             sv.setToolTip('存为图片')
             sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
@@ -4232,7 +4233,7 @@ class PetWidget(QWidget):
         v6.25.1 非主线程调用自动转发主线程——修复 AI 后台线程直接操作 Qt 控件导致的崩溃（Qt6Gui.dll 访问违规）"""
         text = self._strip_emotion_tags(str(text))[0]  # v6.40 出口统一剥 emotion 标签
         if threading.current_thread() is not threading.main_thread():
-            QTimer.singleShot(0, lambda w=who, t=text: self._append_chat(w, t))
+            self._run_on_ui(lambda w=who, t=text: self._append_chat(w, t))  # v6.58
             return
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
@@ -4248,7 +4249,7 @@ class PetWidget(QWidget):
         """追加一条聊天记录（AI 回复用，markdown 分块渲染：代码/表格成卡片）
         v6.25.1 非主线程调用自动转发主线程（防 Qt 跨线程崩溃）"""
         if threading.current_thread() is not threading.main_thread():
-            QTimer.singleShot(0, lambda w=who, t=text: self._append_chat_md(w, t))
+            self._run_on_ui(lambda w=who, t=text: self._append_chat_md(w, t))  # v6.58
             return
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
@@ -4270,14 +4271,14 @@ class PetWidget(QWidget):
         if head is None:
             return
         cp = QLabel('⧉')
-        cp.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+        cp.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
         cp.setCursor(Qt.PointingHandCursor)
         cp.setToolTip('复制该消息')
         cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
         cp.hide()
         head.addWidget(cp)
         sv = QLabel('🖼')
-        sv.setStyleSheet('color:#8aa;font-size:11px;background:transparent;padding:0 2px;')
+        sv.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
         sv.setCursor(Qt.PointingHandCursor)
         sv.setToolTip('存为图片')
         sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
@@ -4314,7 +4315,8 @@ class PetWidget(QWidget):
         self._remove_status_line()
         self._status_widget = QLabel(f'⏳ {text}')
         self._status_widget.setWordWrap(True)
-        self._status_widget.setStyleSheet('color:#8aa; font-size:11px; background:transparent; padding:2px 0;')
+        self._status_widget.setStyleSheet(
+            f'color:{self._tk("ui_text_dim")}; font-size:11px; background:transparent; padding:2px 0;')
         self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, self._status_widget)
         self._chat_scroll_bottom()
 
@@ -4324,7 +4326,7 @@ class PetWidget(QWidget):
         return f"""
             QFrame {{ background-color: {t['panel_bg']}; border-radius: 12px; }}
             QTextBrowser {{ background: transparent; color: {t['text']}; border: none; font-size: 12px; padding: 6px; }}
-            QTextEdit {{ background: {t['input_bg']}; color: {t.get('input_text', '#fff')}; border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px; }}
+            QTextEdit {{ background: {t['input_bg']}; color: {t.get('input_text') or DEFAULT_THEME['input_text']}; border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px; }}
             QTextEdit:focus {{ background: {t['input_focus']}; }}
             QTextEdit viewport {{ background: transparent; }}
             QScrollArea {{ background: transparent; border: none; }}
@@ -4367,12 +4369,105 @@ class PetWidget(QWidget):
         except Exception as e:
             log.debug('气泡主题应用失败：%s', e)
     def _apply_theme(self):
-        """把当前主题应用到面板与气泡（v6.25.1 必须主线程调用——修复 AI 后台线程跨线程 setStyleSheet 崩溃）"""
+        """把当前主题应用到面板、说话气泡与已有消息
+
+        v6.25.1 必须主线程调用（修复 AI 后台线程跨线程 setStyleSheet 崩溃）；
+        v6.58 追加 _retheme_messages()：切主题时把已有消息气泡一起刷新。"""
         try:
             self.chat_panel.setStyleSheet(self._panel_qss())
         except Exception as e:
             log.warning('主题样式应用失败：%s', e)
         self._apply_bubble_theme()
+        self._retheme_messages()   # v6.58：历史消息气泡同步换色
+        self._publish_theme()  # v6.58：发布给所有订阅模块（小游戏等）
+
+    def _publish_theme(self):
+        """把当前生效主题发布给所有订阅模块（小游戏 / 卡片 / 关系面板 …；v6.58 A2-2）
+
+        实现：pet_theme.set_active() 更新全局生效主题并通知订阅者 —— 各 UI 模块
+        只需在导入时 pet_theme.subscribe(自己的重刷函数)，不再各自维护一份主题拷贝。"""
+        try:
+            pet_theme.set_active(self.theme)
+        except Exception as e:
+            log.debug('主题发布失败：%s', e)
+
+    # ---------- v6.58 主题生效链路（修"AI 装了主题却不生效"） ----------
+    def _run_on_ui(self, fn):
+        """把 GUI 操作安全投递到主线程执行。
+
+        背景：此前用 `QTimer.singleShot(0, fn)` 从工作线程"回主线程"，但 QTimer 需要目标
+        线程有事件循环——AI 工具是在工作线程（Thread）里跑的，那里没有事件循环，定时器
+        **永不触发**。表现：AI 装了主题插件、config 也写了，界面却毫无变化。
+        这里改用跨线程信号（项目既有做法，见 ai_reply_signal / confirm_signal）。
+        """
+        if threading.current_thread() is threading.main_thread():
+            try:
+                fn()
+            except Exception as e:
+                log.warning('主线程执行失败：%s', e)
+            return
+        self.ui_call_signal.emit(fn)
+
+    def _tk(self, key):
+        """取当前主题色（v6.58 宿主侧唯一入口；缺键回退 pet_theme 默认值）"""
+        return self.theme.get(key) or DEFAULT_THEME.get(key) or '#ff00ff'  # theme-exempt（缺键兜底色）
+
+    def _set_themed_qss(self, w, factory):
+        """给控件挂"按主题生成样式"的工厂：切主题时由 _retheme_messages() 统一重刷（v6.58）"""
+        try:
+            w._theme_qss = factory
+            w.setStyleSheet(factory())
+        except Exception as e:
+            log.debug('主题化控件失败：%s', e)
+        self._register_theme_widget(w, 'factory', False)
+        return w
+
+    def _restore_saved_theme(self):
+        """启动时恢复 config 里保存的主题（v6.58：此前 theme 只写不读，重启即被重置为 default）"""
+        tname = str(getattr(self, '_saved_theme', 'default') or 'default')
+        if tname == 'default':
+            return
+        try:
+            available = ['default'] + [str(x) for x in self.plugin_mgr.theme_names()]
+            if tname not in available:
+                log.warning('启动恢复主题跳过：「%s」不在可用列表 %s', tname, available)
+                return
+            self._set_theme_data(tname)
+            self._apply_theme()
+            log.info('已恢复上次主题：%s', tname)
+        except Exception as e:
+            log.warning('启动恢复主题失败：%s', e)
+
+    def _register_theme_widget(self, w, kind, is_user):
+        """登记一个受主题着色影响的控件（kind='name'|"text'），切主题时统一刷新（v6.58）"""
+        try:
+            self._theme_widgets.append((w, kind, is_user))
+        except Exception:
+            pass
+
+    def _retheme_messages(self):
+        """切主题时刷新已有消息气泡（名字色 + 文本底色）；已销毁控件自动剔除（v6.58）"""
+        alive = []
+        for w, kind, is_user in list(getattr(self, '_theme_widgets', [])):
+            try:
+                if kind == 'name':
+                    c = self.theme.get('name_user') if is_user else self.theme.get('name_ai')
+                    w.setStyleSheet(f'color:{c};font-size:11px;font-weight:bold;background:transparent;')
+                elif kind == 'factory':
+                    if hasattr(w, 'apply_theme'):
+                        w.apply_theme()          # 卡片等自带 apply_theme 的控件
+                    else:
+                        fn = getattr(w, '_theme_qss', None)
+                        if callable(fn):
+                            w.setStyleSheet(fn())
+                else:
+                    pb.apply_message_label_theme(w, self.theme, is_user)
+                alive.append((w, kind, is_user))
+            except RuntimeError:
+                continue          # Qt 对象已销毁
+            except Exception:
+                continue
+        self._theme_widgets = alive
 
     def _sync_window_to_panel(self):
         """窗口尺寸跟随面板（保持立绘+空隙差值 320），并钳制在屏幕工作区内——
@@ -4674,7 +4769,8 @@ class PetWidget(QWidget):
     def _make_attach_card(self, att):
         """附件卡片：图标 + 文件名 + 大小 + ✕"""
         card = QFrame(self.attach_bar)
-        card.setStyleSheet('QFrame{background:#2b3245;border:1px solid #3a4158;border-radius:6px;}')
+        self._set_themed_qss(card, lambda: 'QFrame{background:%s;border:1px solid %s;border-radius:6px;}'
+                             % (self._tk('ui_card_bg'), self._tk('ui_card_border')))
         hl = QHBoxLayout(card)
         hl.setContentsMargins(8, 3, 6, 3)
         hl.setSpacing(5)
@@ -4682,17 +4778,18 @@ class PetWidget(QWidget):
         icon.setStyleSheet('background:transparent;border:none;font-size:13px;')
         hl.addWidget(icon)
         nm = QLabel(att['name'], card)
-        nm.setStyleSheet('background:transparent;border:none;color:#cfd6e6;font-size:11px;')
+        nm.setStyleSheet(f'background:transparent;border:none;color:{self._tk("ui_card_text")};font-size:11px;')
         nm.setMaximumWidth(130)
         nm.setToolTip(att['path'])
         hl.addWidget(nm)
         sz = QLabel(att['size'], card)
-        sz.setStyleSheet('background:transparent;border:none;color:#7a8299;font-size:10px;')
+        sz.setStyleSheet(f'background:transparent;border:none;color:{self._tk("ui_card_text_dim")};font-size:10px;')
         hl.addWidget(sz)
         xb = QPushButton('✕', card)
         xb.setFixedSize(16, 16)
-        xb.setStyleSheet('QPushButton{background:transparent;border:none;color:#9aa2b8;font-size:10px;}'
-                         'QPushButton:hover{color:#ff6b6b;}')
+        self._set_themed_qss(xb, lambda: (
+            'QPushButton{background:transparent;border:none;color:%s;font-size:10px;}' % self._tk('ui_card_btn')
+            + 'QPushButton:hover{color:%s;}' % self._tk('ui_card_btn_hover')))
         xb.clicked.connect(lambda: self._remove_attachment(att))
         hl.addWidget(xb)
         return card
@@ -5836,7 +5933,7 @@ class PetWidget(QWidget):
     def _show_pet_bubble(self, text, secs=3):
         """角色头顶提示气泡（复用 CostBubble 动画）"""
         try:
-            b = CostBubble(self, text, '#6ecb7a')
+            b = CostBubble(self, text, self._tk('ui_green'))
             b.show_bubble(max(8, self.width() // 2 - len(text) * 6), 8, duration=secs * 1000)
         except Exception:
             pass
@@ -5844,7 +5941,7 @@ class PetWidget(QWidget):
     def _on_cost_bubble(self, cost):
         """API 费用气泡（主线程，跨线程信号）"""
         try:
-            b = CostBubble(self, f'-¥{cost:.3f}', '#ff8a8a' if cost > 0.1 else '#9fd0ff')
+            b = CostBubble(self, f'-¥{cost:.3f}', self._tk('ui_red_soft') if cost > 0.1 else self._tk('ui_accent_soft'))
             b.show_bubble(self.width() // 2 - 25, 8)
         except Exception:
             pass
@@ -5869,6 +5966,7 @@ class PetWidget(QWidget):
                 self._game_window.close()
             except Exception:
                 pass
+        self._publish_theme()   # v6.58 先发布主题再开窗口
         self._game_window = GameWindow(self._on_game_result, self)
         self._game_window.show()
 
@@ -5945,11 +6043,14 @@ class PetWidget(QWidget):
                 label = str(c)
                 tag = ''
             btn = QPushButton(f'{letters[i]}. {label}{tag}')
-            btn.setStyleSheet(
-                'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
+            self._set_themed_qss(btn, lambda: (          # v6.58 主题化
+                'QPushButton { background:%s; color:%s; border:1px solid %s;'
                 ' border-radius:8px; padding:8px 12px; text-align:left; font-size:13px; }'
-                'QPushButton:hover { background:#35507a; border-color:#7fb2ff; }'
-                'QPushButton:disabled { background:#1c2740; color:#667; border-color:#24314a; }')
+                'QPushButton:hover { background:%s; border-color:%s; }'
+                'QPushButton:disabled { background:%s; color:%s; border-color:%s; }'
+                % (self._tk('ui_btn_bg'), self._tk('ui_text'), self._tk('ui_border'),
+                   self._tk('ui_btn_hover'), self._tk('ui_accent'),
+                   self._tk('ui_btn_disabled'), self._tk('ui_text_muted'), self._tk('ui_btn_alt'))))
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked, c=c, b=btn: self._send_choice(c, b))
             content.addWidget(btn)

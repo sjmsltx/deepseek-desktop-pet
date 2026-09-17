@@ -23,6 +23,8 @@ import json
 import os
 import re
 
+from pet_theme import DEFAULT_THEME as _THEME  # v6.58 主题唯一源（角色默认色；本模块不依赖 PySide6）
+
 DEFAULT_ENDPOINT = 'https://api.deepseek.com/chat/completions'
 
 # 输出上限（对齐 DeepSeek v4 输出上限）。原先 722 行夹 64000、菜单写 128000、
@@ -48,7 +50,7 @@ BUILTIN_PROFILES = [
         'api_key_field': 'deepseek_api_key',
         'params': {'temperature': 1.0, 'max_tokens': DEFAULT_MAX_TOKENS, 'reasoning': True},
         'price': {'input': 1.5, 'cache': 0.05, 'output': 4.5},
-        'appearance': {'color': '#B0C4DE', 'portrait': '', 'sub': '浅蓝和服 · 快言快语'},
+        'appearance': {'color': '#B0C4DE', 'portrait': '', 'sub': '浅蓝和服 · 快言快语'},  # theme-exempt（角色档案数据，非 UI 主题）
         'persona': {
             'greetings': [
                 '我在呢！有什么要帮忙的？', 'Flash 模式，快问快答～', '今天也是效率满满的一天！',
@@ -76,7 +78,7 @@ BUILTIN_PROFILES = [
         'api_key_field': 'deepseek_api_key',
         'params': {'temperature': 1.0, 'max_tokens': DEFAULT_MAX_TOKENS, 'reasoning': True},
         'price': {'input': 4.5, 'cache': 0.15, 'output': 13.5},
-        'appearance': {'color': '#2E4A8E', 'portrait': '', 'sub': '深蓝女仆 · 深思熟虑'},
+        'appearance': {'color': '#2E4A8E', 'portrait': '', 'sub': '深蓝女仆 · 深思熟虑'},  # theme-exempt（角色档案数据，非 UI 主题）
         'persona': {
             'greetings': [
                 '我在。有什么需要仔细思考的吗？', '已经帮你推演了三套方案。', 'V4 Pro 模式，专注深度分析。',
@@ -143,7 +145,7 @@ def validate_profile_fields(display_name, model_id, endpoint, color,
         errs.append('接口地址要以 http:// 或 https:// 开头')
     c = str(color or '').strip()
     if c and not COLOR_RE.match(c):
-        errs.append('主题色要写成 #RRGGBB（如 #B0C4DE）或 #RGB')
+        errs.append('主题色要写成 #RRGGBB（如 #B0C4DE）或 #RGB')  # theme-exempt（格式提示文本）
     if temperature is not None:
         try:
             t = float(temperature)
@@ -210,7 +212,7 @@ class ModelProfile:
                 if _v is not None and _v >= 0:      # 负价无意义（统计会算出负费用），丢弃
                     self.price[_k] = _v
         app = d.get('appearance') or {}
-        self.color = str(app.get('color') or '#B0C4DE')
+        self.color = str(app.get('color') or _THEME['char_default_color'])
         self.portrait = str(app.get('portrait') or '')
         self.sub = str(app.get('sub') or '')
         self.persona = dict(d.get('persona') or {})

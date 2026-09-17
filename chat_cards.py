@@ -12,23 +12,48 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QTextEdit
 
 
+from pet_theme import color as T  # v6.58 主题化：取当前生效色（唯一源）
+
+
+def code_card_qss():
+    """代码卡片样式（v6.58：颜色全部取自主题 token）"""
+    return ("""
+            QFrame#codeCard { background:%s; border-radius:8px; }
+            QLabel { color:%s; font-size:10px; background:transparent; }
+            QPushButton { background:%s; color:%s; border:none; border-radius:4px;
+                          padding:2px 8px; font-size:10px; }
+            QPushButton:hover { background:%s; }
+            QTextEdit { background:%s; color:%s; border:none; font-size:11px;
+                        padding:4px; selection-background-color:%s;
+                        font-family:'Consolas','Courier New',monospace; }
+            QScrollArea { background:transparent; border:none; }
+        """ % (T('ui_bg'), T('ui_text_dim'), T('ui_code_btn'), T('ui_text_soft'),
+               T('ui_code_btn_hover'), T('ui_code_bg'), T('ui_code_text'), T('ui_code_sel')))
+
+
+def table_card_qss():
+    """表格卡片样式（v6.58：颜色全部取自主题 token）"""
+    return ("""
+            QFrame#tableCard { background:%s; border-radius:8px; }
+            QLabel { color:%s; font-size:10px; background:transparent; }
+            QPushButton { background:%s; color:%s; border:none; border-radius:4px;
+                          padding:2px 8px; font-size:10px; }
+            QPushButton:hover { background:%s; }
+            QTextEdit { background:%s; color:%s; border:none; font-size:11px;
+                        padding:4px; }
+            QScrollArea { background:transparent; border:none; }
+        """ % (T('ui_bg'), T('ui_text_dim'), T('ui_code_btn'), T('ui_text_soft'),
+               T('ui_code_btn_hover'), T('ui_code_bg'), T('ui_code_text')))
+
+
 class CodeCard(QFrame):
-    """代码卡片：标题栏（title + 复制按钮）+ 横向/纵向滚动 + 只读等宽文本（v6.17）"""
+    """代码卡片：标题栏（title + 复制按钮）+ 长行自动换行 + 只读等宽文本（v6.17，v6.58 改换行）"""
 
     def __init__(self, code, title='代码', parent=None):
         super().__init__(parent)
         self._code = code
-        self.setStyleSheet("""
-            QFrame#codeCard { background:#1e2430; border-radius:8px; }
-            QLabel { color:#8aa; font-size:10px; background:transparent; }
-            QPushButton { background:#2a3142; color:#9ec; border:none; border-radius:4px;
-                          padding:2px 8px; font-size:10px; }
-            QPushButton:hover { background:#3a4152; }
-            QTextEdit { background:#161b26; color:#d8e0f0; border:none; font-size:11px;
-                        padding:4px; selection-background-color:#2a4a6b;
-                        font-family:'Consolas','Courier New',monospace; }
-            QScrollArea { background:transparent; border:none; }
-        """)
+        self.setStyleSheet(code_card_qss())                 # v6.58 主题化
+        self.apply_theme = lambda: self.setStyleSheet(code_card_qss())   # 切主题时重刷
         self.setObjectName('codeCard')
         v = QVBoxLayout(self)
         v.setContentsMargins(6, 4, 6, 6)
@@ -45,7 +70,7 @@ class CodeCard(QFrame):
         self.editor = QTextEdit()
         self.editor.setReadOnly(True)
         self.editor.setPlainText(code)
-        self.editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)  # v6.58：长行换行，不再被卡片右缘裁掉
         self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         v.addWidget(self.editor)
@@ -77,16 +102,8 @@ class TableCard(QFrame):
     def __init__(self, md_text, html, parent=None):
         super().__init__(parent)
         self._md = md_text
-        self.setStyleSheet("""
-            QFrame#tableCard { background:#1e2430; border-radius:8px; }
-            QLabel { color:#8aa; font-size:10px; background:transparent; }
-            QPushButton { background:#2a3142; color:#9ec; border:none; border-radius:4px;
-                          padding:2px 8px; font-size:10px; }
-            QPushButton:hover { background:#3a4152; }
-            QTextEdit { background:#161b26; color:#d8e0f0; border:none; font-size:11px;
-                        padding:4px; }
-            QScrollArea { background:transparent; border:none; }
-        """)
+        self.setStyleSheet(table_card_qss())                # v6.58 主题化
+        self.apply_theme = lambda: self.setStyleSheet(table_card_qss())  # 切主题时重刷
         self.setObjectName('tableCard')
         v = QVBoxLayout(self)
         v.setContentsMargins(6, 4, 6, 6)

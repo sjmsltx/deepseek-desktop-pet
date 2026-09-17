@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QLabel
 from chat_render import split_md_blocks, split_rich_blocks, md_to_html, md_table
 from chat_cards import CodeCard, TableCard
 from code_checker import check_python_blocks
+from pet_theme import DEFAULT_THEME as _THEME  # v6.58 主题唯一源（兜底值也从这里取，不再写死颜色）
 
 
 def strip_emotion_tag(text):
@@ -83,6 +84,20 @@ def check_code_blocks(text):
     return check_python_blocks(text)
 
 
+def message_label_qss(theme, is_user=False):
+    """消息文本标签的样式（创建时与切主题刷新时共用同一处规则，避免两处写法漂移）"""
+    t = theme or {}
+    bg = (t.get('user_bubble') if is_user else t.get('ai_bubble')) or _THEME['panel_bg']
+    return (f'color:{t.get("bubble_text") or _THEME["bubble_text"]}; font-size:13px; background:{bg};'
+            f' border-radius:8px; padding:6px 10px;')
+
+
+def apply_message_label_theme(lbl, theme, is_user=False):
+    """把主题配色重新套到已存在的消息标签上（v6.58 切主题时刷新历史消息用）"""
+    lbl.setStyleSheet(message_label_qss(theme, is_user))
+    return lbl
+
+
 def bubble_text_label(html_text, theme, is_user=False):
     """消息文本标签：富文本，自动换行，可选中复制；用户/AI 不同背景色+对齐"""
     lbl = QLabel(html_text)
@@ -90,27 +105,38 @@ def bubble_text_label(html_text, theme, is_user=False):
     lbl.setTextFormat(Qt.TextFormat.RichText)
     lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
-    bg = (theme or {}).get('user_bubble') if is_user else (theme or {}).get('ai_bubble')
     lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
-    lbl.setStyleSheet(f'color:{(theme or {}).get("bubble_text", "#eee")}; font-size:13px; background:{bg};'
-                      f' border-radius:8px; padding:6px 10px;')
+    lbl.setStyleSheet(message_label_qss(theme, is_user))
     return lbl
 
 
 def render_one_block(content_layout, kind, content, theme, is_user=False):
-    """渲染单个块到内容区（文本段 / 代码卡片 / 表格卡片）"""
+    """渲染单个块到内容区（文本段 / 代码卡片 / 表格卡片）。
+
+    返回新建的控件（文本标签或卡片，供调用方登记以便切主题时刷新）。"""
     if kind == 'code':
-        content_layout.addWidget(CodeCard(content))
-    elif kind == 'table':
-        content_layout.addWidget(TableCard(content, md_table_from_text(content)))
-    else:
-        content_layout.addWidget(bubble_text_label(to_html(content), theme, is_user=is_user))
+        card = CodeCard(content)
+        content_layout.addWidget(card)
+        return card
+    if kind == 'table':
+        card = TableCard(content, md_table_from_text(content))
+        content_layout.addWidget(card)
+        return card
+    lbl = bubble_text_label(to_html(content), theme, is_user=is_user)
+    content_layout.addWidget(lbl)
+    return lbl
 
 
 def render_md_into(content_layout, text, theme, is_user=False):
-    """把 markdown 文本分块渲染进内容区：代码/表格成卡片，连续文本合为一个段落"""
+    """把 markdown 文本分块渲染进内容区：代码/表格成卡片，连续文本合为一个段落。
+
+    返回新建控件列表（v6.58：宿主据此登记，切主题时可刷新已有消息/卡片）。"""
+    made = []
     for kind, content in split_blocks(text):
-        render_one_block(content_layout, kind, content, theme, is_user=is_user)
+        w = render_one_block(content_layout, kind, content, theme, is_user=is_user)
+        if w is not None:
+            made.append(w)
+    return made
 
 
 def apply_say_bubble_theme(bubble, theme):
@@ -119,6 +145,6 @@ def apply_say_bubble_theme(bubble, theme):
     bubble.setStyleSheet(
         'QLabel { background-color: %s; color: %s; border: 2px solid %s;'
         ' border-radius: 10px; padding: 8px 12px; font-size: 13px; }' % (
-            t.get('say_bg', 'rgba(255,255,255,0.92)'),
-            t.get('say_text', '#333'),
-            t.get('say_border', '#ccc')))
+            t.get('say_bg') or _THEME['say_bg'],
+            t.get('say_text') or _THEME['say_text'],
+            t.get('say_border') or _THEME['say_border']))

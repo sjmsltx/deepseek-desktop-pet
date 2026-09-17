@@ -9,6 +9,86 @@
 
 ### 修复
 
+- **小游戏界面空白**（使用者实测「游戏界面没了」）：A2-1 主题化迁移时，替换 import 块的锚点把
+  `from PySide6.QtGui import QPainter, QPen, QColor, QBrush` **整行吃掉了** → 所有画布类游戏
+  （五子棋 / 扫雷 / 贪吃蛇 / 2048 / 俄罗斯方块…）的 `paintEvent` 抛 `NameError`，对话框能打开但**画面全白**。
+  已补回 import。
+- **教训已固化为测试**：新增 `tests/test_minigames_paint.py` 与 `tests/test_ui_paint_sweep.py` ——
+  对每个 UI 面 **真 show + processEvents + grab**（真正触发 paintEvent），并捕获 excepthook / stderr 异常；
+  覆盖主窗口 / 设置窗 / 模型管理窗 / 关系面板 / 回忆相册 / 小游戏列表页 / 15 款游戏 / 代码卡 / 表格卡。
+  此前所有断言都只查“能构造、样式表有色”，**抓不到绘制期错误**——这正是该 bug 能潜过的原因。
+- **「AI 装了主题却切不生效」**（使用者实测：桌宠报告已安装并切换主题，界面毫无变化，重启也无效）。三个真 bug：
+  1. **GUI 刷新投递错了**：`_tool_set_theme` 用 `QTimer.singleShot(0, self._apply_theme)` 从工作线程「回主线程」，
+     但 AI 工具跑在工作线程（`Thread`）里、**该线程没有事件循环 → 定时器永不触发**；结果主题数据改了、
+     `config.json` 也写了，界面却从未刷新。改为跨线程信号 `ui_call_signal` + 统一入口 `_run_on_ui()`（项目既有做法）。
+     同类问题一并修：`_write_config_tool`（切语言 / 显示模式）、`say_plain`、`_append_chat`、`_append_chat_md`。
+  2. **启动不恢复主题**：配置读取那一层只写不读 `theme` → 重启即被静默重置为 `default`。
+     现由 `_load_ai_config` 记住、`_init_finish` 恢复（**早于历史回显**，回显出的气泡即用主题色）。
+  3. **旧消息不换色**：气泡配色在创建时就写进 `QLabel` 样式表 → 切主题后历史消息仍是旧色。
+     现登记受主题着色的控件（`_theme_widgets`）并在 `_apply_theme()` 里统一刷新（已销毁控件自动剔除）。
+- `pet_bubble` 新增 `message_label_qss()` / `apply_message_label_theme()`：消息气泡配色**单一来源**，
+  创建与刷新共用同一规则（避免两处写法漂移）；兜底色改从 `pet_theme` 取，不再写死。
+- **工具梯级把「用户能感知的能力」收得太狠**：`read_file` / `write_file` / `search_code` / `edit_own_code` /
+  `install_plugin` / `uninstall_plugin` / `list_plugins` / `set_theme` / `skill_run` 原先都在「进阶工具模式」里，
+  导致使用者让桌宠“装个主题并切换”时 AI 手上没有工具，只能回“工具没装上”。
+  现把这 9 个补回核心（核心 8 → **17** 个；默认模式约 7.5K 字符 ≈3.8K token，仍比全量省 **32%**）；
+  进阶模式保留偏系统/偏危险的工具（PowerShell / 进程 / 剪贴板等）。
+- **系统提示词补一条**：需要的能力确实不在工具列表时，明确告诉用户去 设置 →「放开全部工具（进阶模式）」，
+  不许谎称已完成，也不许说“工具没装上”这种含糊说法。
+- **代码卡长行被右缘裁掉**：`CodeCard` 内部原为 `QTextEdit.NoWrap`（横向滚动），实测一条 JSON 代码块
+  文档宽 558px、卡片可视宽 408px → **约 27% 内容看不见**。改为 `WidgetWidth`（长行换行），
+  不再有被裁的字；「复制」按钮仍复制原文。
+
+### 新增
+
+- **主题 token 唯一源 `pet_theme.py`**（A1）：主题色原先**内联在主程序**，而设置窗口又另写了一套写死配色
+  （「第二套主题」）——主题源不唯一，是「AI 改 UI 定位不准」的结构性原因之一。现统一为**唯一 token 源**
+  （17 → **28** 个 token，新增设置窗口用色，取值与原字面量逐项一致）；主程序改为从该模块 import
+  （保留 `DEFAULT_THEME` 名字，既有引用零改动）；附 `TOKEN_GROUPS` 分类索引。
+- **护栏测试 `tests/test_theme_tokens.py`**（5 项）：唯一源存在、token 表合法、设置窗口零硬编码颜色、
+  prompt 口径正确、**硬编码颜色只减不增**（ratchet，基线 `tests/golden/theme_hardcoded_baseline.json`）。
+
+### 变更
+
+- system prompt「桌宠自身能力」章节改为**诚实口径**：颜色**优先走主题**，唯一 token 源是 `pet_theme.py`；
+  **只有该文件确实没有对应 token 时**（小游戏/关系面板/卡片等尚未主题化的部位）才允许改源码，
+  且必须走 `search_code → read_file(带行号) → edit_own_code(按行)`，并在回复里报出改了哪个文件哪几行。
+  （此前提示词声称「UI 样式（……**所有**颜色）都在主题系统里」，与事实不符——实际约 145 处颜色在主题系统之外。）
+- **小游戏（15 款）接入主题**（A2-1）：`pet_minigames.py` 原有 **55 处**硬编码颜色、完全不随主题变化
+  （换浅色主题后只有聊天面板变了，一进小游戏还是深色）。现改为**模块级主题快照 + 取色函数 `T()`**，
+  子控件挂样式工厂（`_theme_qss`）以便切主题时统一重刷；2048 色阶 / 扫雷数字色 / 俄罗斯方块方块色 /
+  西蒙记忆色板改为 **token 映射**。`pet_theme.py` 新增 **34 个 `mg_*` token**（取值与原字面量逐项一致）。
+  宿主在 `_apply_theme()` 里推主题给小游戏模块、开窗前先同步主题。详见 `docs/主题token化-A2-1-小游戏-20260915.md`。
+- **主程序 / 卡片 / 关系面板接入主题（A2-2）+ 生效主题中央通道**：`pet_theme` 新增
+  `active()/color()/set_active()/subscribe()` —— **当前生效值只有一处**，各 UI 模块只取色 + 登记
+  “变化时怎么重刷”，不再各自存一份；宿主 `_apply_theme()` 末尾广播给所有订阅者。
+  覆盖 `desktop_pet.py`（41：任务侧栏/监控悬浮窗/附件卡片/选项按钮/流式与思考区/费用气泡…）、
+  `chat_cards.py`（11）、`affection_ui.py`（17，含新建主题通道）、其它 13。
+  token 表 79 个（A2-1 的 `mg_*` 正名为通用 `ui_*`）。**至此产品代码硬编码颜色 = 0**（172 → 144 → 89 → **0**）。
+  详见 `docs/主题token化-A2-2-主程序与卡片-20260915.md`。
+
+### 测试
+
+- 单测总数 **67 → 81**（本轮新增 14 项）：
+  - `tests/test_theme_tokens.py`（5 项）：唯一源存在、token 表合法、设置窗口零硬编码颜色、prompt 口径正确、硬编码颜色只减不增；
+  - `tests/test_theme_persist.py`（6 项）：插件主题变量读取、**工作线程切主题必须真刷新面板**（老 bug 复现点）、
+    启动恢复主题、未知主题安全回退、切主题刷新历史气泡、源码护栏（禁用 QTimer 投递 / 启动必须接恢复）；
+  - `tests/test_code_card_wrap.py`（2 项）：代码卡按宽度换行、放进 360px 容器不溢出；
+  - `tests/test_tool_tiers.py` 增 1 项：**外观/自改/插件/文件类工具必须在默认集合**（锁定本次修复）。
+- 主题颜色护栏改为**只扫产品代码**（`tests/` 夹具需要写字面量来断言颜色）。
+- 端到端验证：以真实 `config.json` 离屏构造桌宠 → `current_theme` 与主题字典正确、面板样式表已含目标色、
+  默认色不再出现；`golden_ui` 的 theme 分区随之同步（插件内容变化后重采）。
+- 主题 token 化 A1 的验证证据：面板样式原文未动、原 17 token 取值逐字节一致、设置窗口 QSS 渲染逐字节一致、
+  黄金基线仅 `theme` 分区变化（17→28 只增未删，逐帧像素等 6 个分区未变）。详见 `docs/主题token化-A1-20260915.md`。
+- 新增 `tests/test_minigames_theme.py`（5 项）：无残留字面量 / `T()` 跟随主题 / **15 款游戏全部可构造且无缺键兜底色** /
+  已开窗口切主题自动重刷 / 小游戏列表页接入主题。单测总数 **81 → 86**。
+- 颜色护栏（ratchet）基线：**144 → 89 处**（小游戏清零）。
+- **值等价性机器证明**：旧 `pet_minigames.py` 里 36 种颜色字面量全部能在 token 表找到同值 → 默认主题渲染不变。
+- 新增 `tests/test_host_theme.py`（5 项）、「真绘制」扫荡 `tests/test_minigames_paint.py`（2）+
+  `tests/test_ui_paint_sweep.py`（3）；单测总数 **86 → 98**。
+
+### 修复
+
 - **「自改代码（自我进化）」在真实环境中几乎必然失败**（使用者反馈「几乎没成功过」）。定位到四个根因：
   1. **行尾不匹配**：项目内文件行尾不统一（`desktop_pet.py` 为 LF，`memory_engine.py` / `tools_registry.py` 为 CRLF），
      而 AI 经 JSON 传来的 `old_text` 一律是 LF → 精确匹配**必然失败**。改为**按行归一化后匹配连续行块**（同时容忍行尾空格差异）。

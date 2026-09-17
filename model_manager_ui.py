@@ -20,6 +20,7 @@ model_manager_ui.py — 模型管理对话框（Phase 2）
 import threading
 
 from PySide6.QtCore import Qt, Signal
+from pet_theme import DEFAULT_THEME as _THEME, color as _T  # v6.58 主题化（提示色走唯一源）
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QGroupBox,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QSpinBox,
@@ -68,7 +69,7 @@ class ModelManagerDialog(QDialog):
         left.addLayout(row)
         self.lbl_src = QLabel('')
         self.lbl_src.setWordWrap(True)
-        self.lbl_src.setStyleSheet('color:#7c8486;font-size:11px;')
+        self.lbl_src.setStyleSheet('color:%s;font-size:11px;' % _T('hint_text'))   # v6.58 主题化
         left.addWidget(self.lbl_src)
         root.addLayout(left)
 
@@ -121,7 +122,7 @@ class ModelManagerDialog(QDialog):
 
         self.lbl_status = QLabel('')
         self.lbl_status.setWordWrap(True)
-        self.lbl_status.setStyleSheet('color:#4d5456;font-size:12px;')
+        self.lbl_status.setStyleSheet('color:%s;font-size:12px;' % _T('ui_hint_dark'))   # v6.58 主题化
         right.addWidget(self.lbl_status)
 
         bar = QHBoxLayout()

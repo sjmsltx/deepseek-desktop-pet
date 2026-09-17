@@ -13,6 +13,8 @@ chat_render.py — 聊天渲染·纯文本解析层（P2 模块化拆分）
 """
 import re
 
+from pet_theme import color as _T  # v6.58 主题化（HTML 内联色）
+
 
 def split_rich_blocks(text):
     """把 markdown 拆成渲染块：(类型, 内容)。类型 text=连续段落(保留空行分段) code=代码块 table=表格块"""
@@ -121,9 +123,11 @@ def md_to_html(text):
         kind, content = saved[i]
         ph = f'\x00MD{i}\x00'
         if kind == 'pre':
-            t = t.replace(ph, '<pre style="white-space:pre-wrap;background:#1e2430;color:#d8e0f0;padding:6px;border-radius:4px">' + content + '</pre>')
+            t = t.replace(ph, '<pre style="white-space:pre-wrap;background:%s;color:%s;padding:6px;border-radius:4px">'
+                           % (_T('ui_bg'), _T('ui_code_text')) + content + '</pre>')
         elif kind == 'code':
-            t = t.replace(ph, '<code style="background:#2a3142;padding:1px 4px;border-radius:3px">' + content + '</code>')
+            t = t.replace(ph, '<code style="background:%s;padding:1px 4px;border-radius:3px">' % _T('ui_code_btn')
+                           + content + '</code>')
         else:
             t = t.replace(ph, content)
     return t
@@ -150,9 +154,9 @@ def md_table(m, escape=True):
     body = rows[2:] if has_sep else rows  # 无表头时所有行都是数据
     html = '<table style="border-collapse:collapse;margin:4px 0;font-size:12px;max-width:100%">'
     if header:
-        html += '<tr>' + ''.join(f'<th style="border:1px solid #3a4152;padding:3px 8px;background:#2a3142">{esc(c)}</th>' for c in header) + '</tr>'
+        html += '<tr>' + ''.join(f'<th style="border:1px solid {_T("ui_card_border")};padding:3px 8px;background:{_T("ui_code_btn")}">{esc(c)}</th>' for c in header) + '</tr>'
     for r in body:
-        html += '<tr>' + ''.join(f'<td style="border:1px solid #3a4152;padding:3px 8px">{esc(c)}</td>' for c in r) + '</tr>'
+        html += '<tr>' + ''.join(f'<td style="border:1px solid {_T("ui_card_border")};padding:3px 8px">{esc(c)}</td>' for c in r) + '</tr>'
     if not body and not header:
         return m.group(1)
     return html + '</table>'

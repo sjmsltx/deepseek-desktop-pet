@@ -19,12 +19,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout,
                                QLabel, QLineEdit, QListWidget, QPushButton, QStackedWidget,
                                QVBoxLayout, QWidget)
+from pet_theme import DEFAULT_THEME  # v6.57 主题 token 唯一源（消除本模块里的"第二套配色"）
 
 PAGES = ('通用', '对话', '外观', '模型与 API', '记忆与数据', '系统')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))   # 本模块就在桌宠项目目录下
 
-STYLE_HINT = 'color:#7c8486;font-size:11.5px;'
+STYLE_HINT = 'color:%s;font-size:11.5px;' % DEFAULT_THEME['hint_text']  # v6.57 取自唯一源
 STYLE_HEAD = 'font-weight:600;font-size:15px;'
 TOKEN_PRESETS = [500, 1000, 2000, 4000, 16000, 32000, 64000, 128000]
 
@@ -299,33 +300,33 @@ class SettingsDialog(QDialog):
 
     # ---------- 主题 ----------
     def _apply_theme(self):
-        """跟随桌宠主题：新窗口默认吃系统调色板（浅色），这里按主题变量拼一份样式表，
-        让设置窗口与聊天面板同一套观感（颜色全部取自宿主的 theme，不写死）。"""
+        """跟随桌宠主题：颜色**全部**来自唯一 token 源 pet_theme.py（v6.57）。
+
+        宿主 theme 里的同名键（含 theme 插件覆盖）优先，其余取默认值；取值与原硬编码
+        颜色逐项等价，因此默认主题下渲染结果不变。"""
         th = dict(getattr(self.host, 'theme', None) or {})
-        fg = th.get('text', '#eee')
-        acc = th.get('accent', '#7fb2ff')
-        inp = th.get('input_bg', 'rgba(255,255,255,0.12)')
+        v = {k: (th.get(k) or DEFAULT_THEME[k]) for k in DEFAULT_THEME}
         self.setStyleSheet('''
-            QDialog { background: #14161f; }
-            QLabel { color: %s; }
-            QListWidget { background: rgba(255,255,255,0.05); color: %s;
-                          border: 1px solid rgba(255,255,255,0.10);
+            QDialog { background: %(dialog_bg)s; }
+            QLabel { color: %(text)s; }
+            QListWidget { background: %(list_bg)s; color: %(text)s;
+                          border: 1px solid %(list_border)s;
                           border-radius: 6px; padding: 6px; outline: none; }
             QListWidget::item { padding: 7px 10px; border-radius: 5px; }
-            QListWidget::item:selected { background: rgba(127,178,255,0.20); color: #ffffff; }
+            QListWidget::item:selected { background: %(list_sel_bg)s; color: %(list_sel_text)s; }
             QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
-                background: %s; color: %s;
-                border: 1px solid rgba(255,255,255,0.14);
+                background: %(input_bg)s; color: %(text)s;
+                border: 1px solid %(item_border)s;
                 border-radius: 5px; padding: 4px 8px; }
-            QComboBox QAbstractItemView { background: #1b1e2a; color: %s;
-                selection-background-color: rgba(127,178,255,0.25); }
-            QPushButton { background: rgba(255,255,255,0.08); color: %s;
-                          border: 1px solid rgba(255,255,255,0.14);
+            QComboBox QAbstractItemView { background: %(popup_bg)s; color: %(text)s;
+                selection-background-color: %(popup_sel_bg)s; }
+            QPushButton { background: %(item_bg)s; color: %(text)s;
+                          border: 1px solid %(item_border)s;
                           border-radius: 5px; padding: 5px 12px; }
-            QPushButton:hover { background: rgba(255,255,255,0.15); border-color: %s; }
-            QCheckBox { color: %s; }
+            QPushButton:hover { background: %(item_hover_bg)s; border-color: %(accent)s; }
+            QCheckBox { color: %(text)s; }
             QScrollArea { border: none; background: transparent; }
-        ''' % (fg, fg, inp, fg, fg, fg, acc, fg))
+        ''' % v)
 
     def _apply_edge_mode(self, *_):
         """切换贴边模式（v6.51：下拉入口；_building 期间的回填不触发）"""

@@ -20,23 +20,35 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def test_core_subset_of_all():
     all_names = {t['function']['name'] for t in tr.AI_TOOLS}
     assert set(tr.CORE_TOOLS) <= all_names, 'CORE_TOOLS 有拼错的工具名：%s' % (set(tr.CORE_TOOLS) - all_names)
-    assert 5 <= len(tr.CORE_TOOLS) <= 10, 'core 工具数量应保持精简，当前 %d' % len(tr.CORE_TOOLS)
+    assert 5 <= len(tr.CORE_TOOLS) <= 20, 'core 工具数量应保持精简，当前 %d' % len(tr.CORE_TOOLS)
 
 
 def test_mode_switch():
     core = tr.tools_for_mode(False)
     full = tr.tools_for_mode(True)
-    assert len(core) == len(tr.CORE_TOOLS) == 8, '默认模式应只给 core：%d' % len(core)
+    assert len(core) == len(tr.CORE_TOOLS), '默认模式应只给 core：%d' % len(core)
     assert len(full) == len(tr.AI_TOOLS) == 29, '进阶模式应给全部：%d' % len(full)
     assert {t['function']['name'] for t in core} == set(tr.CORE_TOOLS)
 
 
 def test_context_saving():
-    """默认模式必须真省上下文（否则梯级暴露没意义）"""
+    """默认模式仍需明显省上下文（门槛从 55%% 调到 30%%：v6.58 把能力类工具补回了 core）"""
     core = json.dumps(tr.tools_for_mode(False), ensure_ascii=False)
     full = json.dumps(tr.tools_for_mode(True), ensure_ascii=False)
     saved = 1 - len(core) / len(full)
-    assert saved >= 0.55, '默认模式节省比例不足 55%%（实际 %.0f%%）' % (saved * 100)
+    assert saved >= 0.30, '默认模式节省比例不足 30%%（实际 %.0f%%）' % (saved * 100)
+
+
+def test_capability_tools_in_core():
+    """v6.58：外观/自改/插件/文件类工具必须在默认集合里。
+
+    背景：v6.53 把它们收进进阶模式，导致使用者让桌宠“装个主题并切换”时，AI 手上没有
+    read_file / install_plugin / set_theme，只能回“工具没装上”。
+    """
+    core = {t['function']['name'] for t in tr.tools_for_mode(False)}
+    for must in ('read_file', 'write_file', 'search_code', 'edit_own_code',
+                 'install_plugin', 'uninstall_plugin', 'list_plugins', 'set_theme', 'skill_run'):
+        assert must in core, '能力类工具被误收进进阶模式：%s' % must
 
 
 def test_companion_tools_present():
@@ -67,7 +79,8 @@ if __name__ == '__main__':
     test_core_subset_of_all()
     test_mode_switch()
     test_context_saving()
+    test_capability_tools_in_core()
     test_companion_tools_present()
     test_source_guards()
     test_frozen_log_dir()
-    print('✅ 工具梯级 6 项断言通过')
+    print('✅ 工具梯级 7 项断言通过')

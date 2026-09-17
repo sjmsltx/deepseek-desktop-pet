@@ -13,6 +13,69 @@ from PySide6.QtCore import Qt, QPropertyAnimation, QPoint, QEasingCurve
 from affection_engine import AFFECTION_MAX, AFFECTION_INIT, xp_for_level, stage_from_affection
 
 
+from pet_theme import color as T      # v6.58 主题化
+import pet_theme as _pt               # v6.58 A2-2：订阅主题变化
+
+_OPEN_DIALOGS = []                    # 已打开的关系面板/回忆相册
+
+
+def memories_qss():
+    """回忆相册样式（颜色取自主题 token）"""
+    return ("QDialog { background:%s; }" % T('ui_bg')
+            + "QLabel { color:%s; font-size:13px; }" % T('ui_text')
+            + "QListWidget { background:%s; color:%s; border:1px solid %s;" % (T('ui_input_bg'), T('ui_text'), T('ui_border'))
+            + " border-radius:8px; font-size:13px; }"
+            + "QListWidget::item { padding:8px; border-bottom:1px solid %s; }" % T('ui_btn_alt')
+            + "QListWidget::item:selected { background:%s; }" % T('ui_btn_hover'))
+
+
+def relation_qss():
+    """关系面板样式（颜色取自主题 token）"""
+    return ("QDialog { background:%s; }" % T('ui_bg')
+            + "QLabel { color:%s; font-size:13px; }" % T('ui_text')
+            + "QProgressBar { border:1px solid %s; border-radius:6px; background:%s; height:16px; text-align:center; }"
+              % (T('ui_border'), T('ui_input_bg'))
+            + "QProgressBar::chunk { background:%s; border-radius:6px; }" % T('ui_red')
+            + "QPushButton { background:%s; color:%s; border:none; border-radius:6px; padding:6px 14px; }"
+              % (T('ui_btn_bg'), T('ui_text'))
+            + "QPushButton:hover { background:%s; }" % T('ui_btn_hover')
+            + "QFrame#card { background:%s; border-radius:10px; }" % T('ui_board_bg'))
+
+
+def _apply_relation_theme(dlg):
+    """重刷关系面板（含内部几个内联样式的标签）"""
+    try:
+        dlg.setStyleSheet(relation_qss())
+        dlg.lb_title.setStyleSheet('font-size:16px; font-weight:bold; color:%s;' % T('ui_text_strong'))
+        dlg.lb_stage.setStyleSheet(
+            'background:%s; color:%s; border-radius:9px; padding:2px 10px; font-size:12px;'
+            % (T('ui_btn_hover'), T('ui_text_strong')))
+        dlg.lb_stats.setStyleSheet('color:%s; font-size:12px;' % T('ui_text_dim'))
+    except Exception:
+        pass
+
+
+def refresh_open():
+    """v6.58：主题变化时重刷已打开的面板"""
+    alive = []
+    for w in list(_OPEN_DIALOGS):
+        try:
+            if not w.isVisible():
+                continue
+            fn = getattr(w, 'apply_theme', None)
+            if callable(fn):
+                fn()
+            alive.append(w)
+        except RuntimeError:
+            continue
+        except Exception:
+            continue
+    _OPEN_DIALOGS[:] = alive
+
+
+_pt.subscribe(refresh_open)
+
+
 class MemoriesDialog(QDialog):
     """回忆相册：按时间线浏览共同经历（v6.30 Phase3）"""
 
@@ -24,14 +87,9 @@ class MemoriesDialog(QDialog):
         self.role = role
         self.setWindowTitle(f'📖 回忆相册 · {role_name}')
         self.resize(380, 460)
-        self.setStyleSheet(
-            "QDialog { background:#1e2430; }"
-            "QLabel { color:#dce3f0; font-size:13px; }"
-            "QListWidget { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;"
-            " border-radius:8px; font-size:13px; }"
-            "QListWidget::item { padding:8px; border-bottom:1px solid #24314a; }"
-            "QListWidget::item:selected { background:#35507a; }"
-        )
+        self.setStyleSheet(memories_qss())                  # v6.58 主题化
+        self.apply_theme = lambda: self.setStyleSheet(memories_qss())
+        _OPEN_DIALOGS.append(self)
         lay = QVBoxLayout(self)
         self.lb_count = QLabel('')
         lay.addWidget(self.lb_count)
@@ -61,11 +119,12 @@ class MemoriesDialog(QDialog):
 class CostBubble(QLabel):
     """费用/好感度动画气泡：上浮渐隐（dsh-pet 余额气泡 + LiveGalGame 动效）"""
 
-    def __init__(self, parent, text: str, color: str = '#9fd0ff'):
+    def __init__(self, parent, text: str, color: str = None):
         super().__init__(parent)
         self.setText(text)
+        color = color or T('ui_accent_soft')          # v6.58 主题化：默认色也走 token
         self.setStyleSheet(
-            f'color:{color}; font-size:12px; font-weight:bold; background:rgba(20,27,44,0.75);'
+            f'color:{color}; font-size:12px; font-weight:bold; background:{T("ui_bubble_bg")};'
             f'border:1px solid {color}; border-radius:8px; padding:2px 8px;')
         self.adjustSize()
         self._op = QGraphicsOpacityEffect(self)
@@ -108,15 +167,7 @@ class RelationDialog(QDialog):
         self.role_name = role_name
         self.setWindowTitle(f'❤️ 关系 · {role_name}')
         self.setMinimumWidth(340)
-        self.setStyleSheet(
-            "QDialog { background:#1e2430; }"
-            "QLabel { color:#dce3f0; font-size:13px; }"
-            "QProgressBar { border:1px solid #3a4a66; border-radius:6px; background:#141b2c; height:16px; text-align:center; }"
-            "QProgressBar::chunk { background:#e0527a; border-radius:6px; }"
-            "QPushButton { background:#2a3a55; color:#dce3f0; border:none; border-radius:6px; padding:6px 14px; }"
-            "QPushButton:hover { background:#35507a; }"
-            "QFrame#card { background:#182136; border-radius:10px; }"
-        )
+        self.setStyleSheet(relation_qss())                  # v6.58 主题化
         self._build()
         self.refresh()
 
@@ -128,10 +179,12 @@ class RelationDialog(QDialog):
         # 角色名 + 阶段徽章
         head = QHBoxLayout()
         self.lb_title = QLabel(f'{self.role_name} · 关系')
-        self.lb_title.setStyleSheet('font-size:16px; font-weight:bold; color:#fff;')
+        self.lb_title.setStyleSheet(
+            'font-size:16px; font-weight:bold; color:%s;' % T('ui_text_strong'))   # v6.58 主题化
         self.lb_stage = QLabel('')
         self.lb_stage.setStyleSheet(
-            'background:#35507a; color:#fff; border-radius:9px; padding:2px 10px; font-size:12px;')
+            'background:%s; color:%s; border-radius:9px; padding:2px 10px; font-size:12px;'
+            % (T('ui_btn_hover'), T('ui_text_strong')))                          # v6.58 主题化
         head.addWidget(self.lb_title)
         head.addStretch(1)
         head.addWidget(self.lb_stage)
@@ -171,10 +224,14 @@ class RelationDialog(QDialog):
         self.lb_titles = QLabel('称号：无')
         self.lb_titles.setWordWrap(True)
         self.lb_stats = QLabel('')
-        self.lb_stats.setStyleSheet('color:#8aa; font-size:12px;')
+        self.lb_stats.setStyleSheet('color:%s; font-size:12px;' % T('ui_text_dim'))   # v6.58 主题化
         c3.addWidget(self.lb_titles)
         c3.addWidget(self.lb_stats)
         lay.addWidget(card3)
+
+        # v6.58 主题化：登记本窗口，切主题时重刷
+        self.apply_theme = lambda: _apply_relation_theme(self)
+        _OPEN_DIALOGS.append(self)
 
         # 刷新按钮
         btn_refresh = QPushButton('🔄 刷新')

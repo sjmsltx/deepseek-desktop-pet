@@ -425,13 +425,22 @@ TOOL_STATUS = {
 }
 
 
-# ---------- 工具梯级（v6.53）----------
+# ---------- 工具梯级（v6.53 引入，v6.58 校准）----------
 # 背景：29 个工具的 schema 每请求约 11.1K 字符（≈5.5K token），工具说明会挤占人设，
-# 也会诱发“什么事都想去调工具”。方案：默认只暴露 core（陪伴/日常高频 8 个），
-# 其余收进「进阶工具模式」开关（设置窗口可切，随时恢复全部）。
+# 也会诱发“什么事都想去调工具”。方案：默认只暴露 core + 「进阶工具模式」开关（设置窗口可切）。
+#
+# v6.58 校正：v6.53 把「外观 / 自改 / 插件 / 文件」也收进了进阶模式，结果使用者让桌宠
+# “装个蓝白主题并切换”时，AI 手上没有 read_file / install_plugin / set_theme，
+# 只能回一句“工具没装上”——省 token 不能省掉用户能明确感知的能力。
+# 原则：core = 陪伴高频 + 用户能直接要求的能力；进阶 = 偏系统/偏危险（PowerShell/进程/注册表等）。
 CORE_TOOLS = (
+    # 陪伴 / 日常（v6.53 原 core）
     'get_time', 'query_weather', 'set_reminder', 'manage_todo',
     'memorize', 'offer_choices', 'schedule_followup', 'web_search',
+    # v6.58：外观 / 自改 / 插件 / 文件（用户能明确感知的能力，默认必须可用）
+    'read_file', 'write_file', 'search_code', 'edit_own_code',
+    'install_plugin', 'uninstall_plugin', 'list_plugins', 'set_theme',
+    'skill_run',
 )
 
 

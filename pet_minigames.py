@@ -11,7 +11,51 @@ import time
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QLineEdit, QMessageBox, QWidget, QGridLayout, QComboBox)
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush
+from PySide6.QtGui import QPainter, QPen, QColor, QBrush   # v6.58 修复：A2-1 迁移时误删，导致画布类游戏 paintEvent 报 NameError（界面空白）
+from pet_theme import DEFAULT_THEME as _THEME_DEFAULT  # v6.58 主题唯一源
+import pet_theme as _pt                                # v6.58 A2-2：生效主题通道（set_active/subscribe）
+
+
+# ---------- 主题接入（v6.58 A2-1 / A2-2）----------
+# 小游戏配色原先全部写死在文件里、不随主题变化。现改为「全局生效主题 + 取色函数 T()」：
+#   · 生效主题由 pet_theme 统一持有（默认值 + 插件覆盖），各模块不再各存一份；
+#   · paintEvent 类控件在绘制时现取色，update() 一下就跟着变；
+#   · 带样式表的窗口由 apply_theme() 重建（按钮/输入框挂 _theme_qss 工厂后统一重刷）。
+_OPEN_GAMES = []          # 已打开的游戏窗口（切主题时统一刷新）
+
+
+def set_theme(theme):
+    """由宿主调用：更新全局生效主题（pet_theme 会通知所有订阅者重刷）。"""
+    return _pt.set_active(theme)
+
+
+def T(key, fallback='#ff00ff'):  # theme-exempt（缺键兜底色，故意写死）
+    """取当前主题色（小游戏内唯一入口）。
+
+    缺键回退 pet_theme 默认值；再缺则返回 fallback（洋红=肉眼可见的"漏配"提示，
+    避免静默用错色）。"""
+    return _pt.color(key, fallback)
+
+
+def refresh_open():
+    """让所有已打开的游戏窗口按新主题重刷样式。"""
+    alive = []
+    for w in list(_OPEN_GAMES):
+        try:
+            if not w.isVisible():
+                continue
+            if hasattr(w, 'apply_theme'):
+                w.apply_theme()
+            w.update()
+            alive.append(w)
+        except RuntimeError:
+            continue          # Qt 对象已销毁
+        except Exception:
+            continue
+    _OPEN_GAMES[:] = alive
+
+
+_pt.subscribe(refresh_open)   # v6.58：主题一变自动重刷已打开的游戏窗口
 
 
 class BaseGame(QDialog):
@@ -22,18 +66,8 @@ class BaseGame(QDialog):
         self.on_result = on_result
         self.setWindowTitle(title)
         self.setMinimumWidth(320)  # v6.40 可缩放（右下角拖拽扩张），不再固定尺寸
-        self.setStyleSheet(
-            "QDialog { background:#1e2430; }"
-            "QLabel { color:#dce3f0; font-size:14px; }"
-            "QPushButton { background:#2a3a55; color:#dce3f0; border:none;"
-            " border-radius:6px; padding:8px 16px; font-size:14px; }"
-            "QPushButton:hover { background:#35507a; }"
-            "QPushButton:disabled { background:#1c2740; color:#667; }"
-            "QComboBox { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;"
-            " border-radius:6px; padding:4px 8px; font-size:13px; }"
-            "QLineEdit { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;"
-            " border-radius:6px; padding:6px; font-size:14px; }"
-        )
+        self.setStyleSheet(self._base_qss() + self._extra_qss())   # v6.58 主题化
+        _OPEN_GAMES.append(self)          # 切主题时统一刷新
         self._difficulties = {}
         self._combo = None
         self.difficulty = None
@@ -41,6 +75,63 @@ class BaseGame(QDialog):
         self._closed = False
         self._restore_checked = False
         self.over = False  # v6.52 上收：各游戏初始化不再各自声明（重开局仍需各自重置）
+
+    # ---------- v6.58 主题（A2-1）----------
+    def _base_qss(self):
+        """游戏窗口基础样式（颜色全部取自主题 token）"""
+        return (
+            "QDialog { background:%s; }" % T('ui_bg')
+            + "QLabel { color:%s; font-size:14px; }" % T('ui_text')
+            + "QPushButton { background:%s; color:%s; border:none;" % (T('ui_btn_bg'), T('ui_text'))
+            + " border-radius:6px; padding:8px 16px; font-size:14px; }"
+            + "QPushButton:hover { background:%s; }" % T('ui_btn_hover')
+            + "QPushButton:disabled { background:%s; color:%s; }" % (T('ui_btn_disabled'), T('ui_text_muted'))
+            + "QComboBox { background:%s; color:%s; border:1px solid %s;" % (T('ui_input_bg'), T('ui_text'), T('ui_border'))
+            + " border-radius:6px; padding:4px 8px; font-size:13px; }"
+            + "QLineEdit { background:%s; color:%s; border:1px solid %s;" % (T('ui_input_bg'), T('ui_text'), T('ui_border'))
+            + " border-radius:6px; padding:6px; font-size:14px; }"
+        )
+
+    def _extra_qss(self):
+        """子类可覆盖：游戏自己的补充样式（颜色也要用 T()）"""
+        return ''
+
+    def _pet_face_qss(self):
+        return ('color:%s; font-size:13px; background:%s;'
+                ' border:1px solid %s; border-radius:8px; padding:6px;'
+                % (T('ui_accent_soft'), T('ui_input_bg'), T('ui_border_soft')))
+
+    def _save_btn_qss(self):
+        return ('QPushButton { background:%s; color:%s; border:none;'
+                ' border-radius:6px; padding:4px 10px; font-size:12px; }'
+                'QPushButton:hover { background:%s; }'
+                % (T('ui_btn_bg'), T('ui_text_soft'), T('ui_btn_hover')))
+
+    def apply_theme(self):
+        """按当前主题重建样式（v6.58：set_theme() 会调用它刷新已打开的窗口）"""
+        try:
+            self.setStyleSheet(self._base_qss() + self._extra_qss())
+        except Exception:
+            pass
+        if getattr(self, 'pet_face', None) is not None:
+            try:
+                self.pet_face.setStyleSheet(self._pet_face_qss())
+            except Exception:
+                pass
+        if getattr(self, '_save_btn', None) is not None:
+            try:
+                self._save_btn.setStyleSheet(self._save_btn_qss())
+            except Exception:
+                pass
+        # 挂了样式工厂的子控件（按钮/输入框）统一重刷
+        for cls in (QPushButton, QLineEdit):
+            for w in self.findChildren(cls):
+                fn = getattr(w, '_theme_qss', None)
+                if callable(fn):
+                    try:
+                        w.setStyleSheet(fn())
+                    except Exception:
+                        pass
 
     # ---------- 暂停保存协议（v6.40） ----------
     @staticmethod
@@ -150,9 +241,7 @@ class BaseGame(QDialog):
     def _add_pet_face(self, lay):
         """桌宠表情区：游戏窗口内显示桌宠反应（解决黑箱问题）"""
         self.pet_face = QLabel('', alignment=Qt.AlignCenter)
-        self.pet_face.setStyleSheet(
-            'color:#9fd0ff; font-size:13px; background:#141b2c;'
-            ' border:1px solid #2c3a52; border-radius:8px; padding:6px;')
+        self.pet_face.setStyleSheet(self._pet_face_qss())   # v6.58 主题化
         lay.addWidget(self.pet_face)
 
     def _set_pet_face(self, text):
@@ -181,10 +270,7 @@ class BaseGame(QDialog):
         self._save_btn = None
         if type(self)._state_to_save is not BaseGame._state_to_save:
             self._save_btn = QPushButton('💾 保存')
-            self._save_btn.setStyleSheet(
-                'QPushButton { background:#2a3a55; color:#9ec; border:none;'
-                ' border-radius:6px; padding:4px 10px; font-size:12px; }'
-                'QPushButton:hover { background:#35507a; }')
+            self._save_btn.setStyleSheet(self._save_btn_qss())   # v6.58 主题化
             self._save_btn.setCursor(Qt.PointingHandCursor)
             self._save_btn.clicked.connect(self._manual_save)
             row.addWidget(self._save_btn)
@@ -481,8 +567,8 @@ class _BoardWidget(QWidget):
         g = self.game
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(), QColor('#141b2c'))
-        pen = QPen(QColor('#3a4a66'))
+        p.fillRect(self.rect(), QColor(T('ui_input_bg')))
+        pen = QPen(QColor(T('ui_border')))
         p.setPen(pen)
         for i in range(g.SIZE):
             p.drawLine(g.MARGIN, g.MARGIN + i * g.CELL, g.MARGIN + (g.SIZE - 1) * g.CELL, g.MARGIN + i * g.CELL)
@@ -491,7 +577,7 @@ class _BoardWidget(QWidget):
             for x in range(g.SIZE):
                 v = g.board[y][x]
                 if v:
-                    color = QColor('#111111') if v == 1 else QColor('#e0527a')
+                    color = QColor(T('ui_stone_dark')) if v == 1 else QColor(T('ui_red'))
                     p.setBrush(QBrush(color))
                     p.setPen(Qt.NoPen)
                     p.drawEllipse(QPoint(g.MARGIN + x * g.CELL, g.MARGIN + y * g.CELL), 9, 9)
@@ -547,23 +633,34 @@ class Game2048(BaseGame):
                 self._render()
 
     def _render(self):
-        colors = {0: '#141b2c', 2: '#2a3a55', 4: '#35507a', 8: '#3f6ca8',
-                  16: '#4a8ac2', 32: '#5aa7d6', 64: '#e0527a', 128: '#e8739a',
-                  256: '#f09ab5', 512: '#f5b8cc', 1024: '#ffd700', 2048: '#ff8c00', 4096: '#ff5555'}
+        # v6.58 主题化：数字→token 键；颜色在渲染时从主题快照取
+        _tile = {0: 'ui_input_bg', 2: 'ui_btn_bg', 4: 'ui_btn_hover', 8: 'ui_blue_deep',
+                 16: 'ui_blue', 32: 'ui_blue_light', 64: 'ui_red', 128: 'ui_pink_soft',
+                 256: 'ui_pink_light', 512: 'ui_pink_lighter', 1024: 'ui_gold',
+                 2048: 'ui_orange_deep', 4096: 'ui_red_bright'}
+        colors = {k: T(v) for k, v in _tile.items()}
         html = ['<table cellspacing="4" align="center">']
         for y in range(self.size):
             html.append('<tr>')
             for x in range(self.size):
                 v = self.board[y][x]
-                c = colors.get(v, '#e0527a')
+                c = colors.get(v, T('ui_red'))
                 txt = str(v) if v else ''
                 html.append(f'<td width="64" height="64" style="background:{c};border-radius:8px;'
-                            f'color:{"#fff" if v >= 8 else "#dce3f0"};font-weight:bold;text-align:center;">'
+                            f'color:{T("ui_text_strong") if v >= 8 else T("ui_text")};font-weight:bold;text-align:center;">'
                             f'{txt}</td>')
             html.append('</tr>')
         html.append('</table>')
         self.lb.setText(f'目标 {self.goal}，方向键移动')
         self.lb_board.setText(''.join(html))
+
+    def apply_theme(self):
+        """v6.58：棋盘是 HTML 表格，切主题后要重画"""
+        super().apply_theme()
+        try:
+            self._render()
+        except Exception:
+            pass
 
     def _move(self, dx, dy):
         moved = False
@@ -772,19 +869,19 @@ class _MineWidget(QWidget):
             for x in range(g.W):
                 rect = QRect(x * cell, y * cell, cell - 1, cell - 1)
                 if g.revealed[y][x]:
-                    p.fillRect(rect, QColor('#182136'))
+                    p.fillRect(rect, QColor(T('ui_board_bg')))
                     v = g.grid[y][x]
                     if v == 9:
-                        p.setPen(QColor('#ff8a8a'))
+                        p.setPen(QColor(T('ui_red_soft')))
                         p.drawText(rect, Qt.AlignCenter, '💣')
                     elif v:
-                        colors = {1: '#9fd0ff', 2: '#6ecb7a', 3: '#ff8a8a', 4: '#e0527a', 5: '#c9a0ff'}
-                        p.setPen(QColor(colors.get(v, '#dce3f0')))
+                        _num = {1: 'ui_accent_soft', 2: 'ui_green', 3: 'ui_red_soft', 4: 'ui_red', 5: 'ui_purple'}
+                        p.setPen(QColor(T(_num.get(v)) if v in _num else T('ui_text')))
                         p.drawText(rect, Qt.AlignCenter, str(v))
                 else:
-                    p.fillRect(rect, QColor('#2a3a55'))
+                    p.fillRect(rect, QColor(T('ui_btn_bg')))
                     if g.flagged[y][x]:
-                        p.setPen(QColor('#ffd700'))
+                        p.setPen(QColor(T('ui_gold')))
                         p.drawText(rect, Qt.AlignCenter, '🚩')
 
     def mousePressEvent(self, event):
@@ -873,14 +970,14 @@ class _SnakeWidget(QWidget):
     def paintEvent(self, event):
         g = self.game
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor('#141b2c'))
+        p.fillRect(self.rect(), QColor(T('ui_input_bg')))
         # 食物
-        p.setBrush(QBrush(QColor('#e0527a')))
+        p.setBrush(QBrush(QColor(T('ui_red'))))
         p.setPen(Qt.NoPen)
         p.drawEllipse(g.food[0] * g.CELL + 2, g.food[1] * g.CELL + 2, g.CELL - 4, g.CELL - 4)
         # 蛇
         for i, (x, y) in enumerate(g.snake):
-            color = QColor('#6ecb7a') if i == 0 else QColor('#3f8f5f')
+            color = QColor(T('ui_green')) if i == 0 else QColor(T('ui_green_dark'))
             p.setBrush(QBrush(color))
             p.setPen(Qt.NoPen)
             p.drawRoundedRect(x * g.CELL + 1, y * g.CELL + 1, g.CELL - 2, g.CELL - 2, 3, 3)
@@ -934,11 +1031,15 @@ class MemoryMatch(BaseGame):
         for i in range(len(cards)):
             btn = QPushButton('❓')
             btn.setFixedSize(58, 58)
-            btn.setStyleSheet(
-                'QPushButton { background:#2a3a55; color:#dce3f0; border:1px solid #3a4a66;'
-                ' border-radius:8px; font-size:20px; }'
-                'QPushButton:hover { background:#35507a; }'
-                'QPushButton:disabled { background:#1c2740; color:#8aa; }')
+            def _qss():
+                return ('QPushButton { background:%s; color:%s; border:1px solid %s;'
+                        ' border-radius:8px; font-size:20px; }'
+                        'QPushButton:hover { background:%s; }'
+                        'QPushButton:disabled { background:%s; color:%s; }'
+                        % (T('ui_btn_bg'), T('ui_text'), T('ui_border'), T('ui_btn_hover'),
+                           T('ui_btn_disabled'), T('ui_text_dim')))
+            btn._theme_qss = _qss          # v6.58 切主题时由 apply_theme 重刷
+            btn.setStyleSheet(_qss())
             btn.clicked.connect(lambda checked, idx=i: self._flip(idx))
             self.grid.addWidget(btn, i // cols, i % cols)
             self.buttons.append(btn)
@@ -996,10 +1097,13 @@ class TicTacToe(BaseGame):
         for i in range(9):
             btn = QPushButton('')
             btn.setFixedSize(70, 70)
-            btn.setStyleSheet(
-                'QPushButton { background:#182136; color:#dce3f0; border:1px solid #3a4a66;'
-                ' border-radius:8px; font-size:26px; }'
-                'QPushButton:hover { background:#24314a; }')
+            def _qss():
+                return ('QPushButton { background:%s; color:%s; border:1px solid %s;'
+                        ' border-radius:8px; font-size:26px; }'
+                        'QPushButton:hover { background:%s; }'
+                        % (T('ui_board_bg'), T('ui_text'), T('ui_border'), T('ui_btn_alt')))
+            btn._theme_qss = _qss          # v6.58 主题化
+            btn.setStyleSheet(_qss())
             btn.clicked.connect(lambda checked, idx=i: self._move(idx))
             grid.addWidget(btn, i // 3, i % 3)
             self.btns.append(btn)
@@ -1124,11 +1228,15 @@ class Farkle(BaseGame):
             btn = QPushButton('·')
             btn.setFixedSize(52, 52)
             btn.setCheckable(True)
-            btn.setStyleSheet(
-                'QPushButton { background:#141b2c; color:#dce3f0; border:1px solid #3a4a66;'
-                ' border-radius:8px; font-size:20px; }'
-                'QPushButton:checked { background:#35507a; border:2px solid #ffd700; color:#fff; }'
-                'QPushButton:disabled { color:#445; }')
+            def _qss():
+                return ('QPushButton { background:%s; color:%s; border:1px solid %s;'
+                        ' border-radius:8px; font-size:20px; }'
+                        'QPushButton:checked { background:%s; border:2px solid %s; color:%s; }'
+                        'QPushButton:disabled { color:%s; }'
+                        % (T('ui_input_bg'), T('ui_text'), T('ui_border'), T('ui_btn_hover'),
+                           T('ui_gold'), T('ui_text_strong'), T('ui_text_faint')))
+            btn._theme_qss = _qss          # v6.58 主题化
+            btn.setStyleSheet(_qss())
             btn.clicked.connect(lambda checked, idx=i: self._toggle(idx))
             grid.addWidget(btn, i // 3, i % 3)
             self.dice_btns.append(btn)
@@ -1350,10 +1458,13 @@ class WhackAMole(BaseGame):
         for i in range(9):
             btn = QPushButton('🕳️')
             btn.setFixedSize(72, 72)
-            btn.setStyleSheet(
-                'QPushButton { background:#182136; color:#dce3f0; border:1px solid #3a4a66;'
-                ' border-radius:10px; font-size:26px; }'
-                'QPushButton:hover { background:#24314a; }')
+            def _qss():
+                return ('QPushButton { background:%s; color:%s; border:1px solid %s;'
+                        ' border-radius:10px; font-size:26px; }'
+                        'QPushButton:hover { background:%s; }'
+                        % (T('ui_board_bg'), T('ui_text'), T('ui_border'), T('ui_btn_alt')))
+            btn._theme_qss = _qss          # v6.58 主题化
+            btn.setStyleSheet(_qss())
             btn.clicked.connect(lambda checked, idx=i: self._hit(idx))
             grid.addWidget(btn, i // 3, i % 3)
             self.btns.append(btn)
@@ -1545,10 +1656,14 @@ class Sudoku(BaseGame):
                 ed.setMaxLength(1)
                 ed.setFixedSize(38, 38)
                 ed.setAlignment(Qt.AlignCenter)
-                ed.setStyleSheet(
-                    'QLineEdit { background:#141b2c; color:#dce3f0; border:1px solid #2c3a52;'
-                    ' border-radius:4px; font-size:16px; }'
-                    'QLineEdit[given="true"] { background:#1c2740; color:#7fb2ff; font-weight:bold; }')
+                def _qss():
+                    return ('QLineEdit { background:%s; color:%s; border:1px solid %s;'
+                            ' border-radius:4px; font-size:16px; }'
+                            'QLineEdit[given="true"] { background:%s; color:%s; font-weight:bold; }'
+                            % (T('ui_input_bg'), T('ui_text'), T('ui_border_soft'),
+                               T('ui_btn_disabled'), T('ui_accent')))
+                ed._theme_qss = _qss          # v6.58 主题化
+                ed.setStyleSheet(_qss())
                 grid.addWidget(ed, r, c)
                 self.edits[(r, c)] = ed
                 self.cells.append(ed)
@@ -1640,7 +1755,8 @@ class Tetris(BaseGame):
         [[1, 0, 0], [1, 1, 1]],
         [[0, 0, 1], [1, 1, 1]],
     ]
-    COLORS = ['#00e5ff', '#ffd700', '#c9a0ff', '#6ecb7a', '#ff8a8a', '#ffa040', '#4a8ac2']
+    # v6.58 主题化：存 token 名，绘制时解析（见 _TetrisWidget.paintEvent 的 _BLOCK_TOKENS）
+    COLORS = ['ui_cyan', 'ui_gold', 'ui_purple', 'ui_green', 'ui_red_soft', 'ui_orange', 'ui_blue']
     W, H = 10, 20
 
 
@@ -1745,20 +1861,20 @@ class _TetrisWidget(QWidget):
         g = self.game
         p = QPainter(self)
         cell = self.cell
-        p.fillRect(self.rect(), QColor('#0d1320'))
-        p.setPen(QPen(QColor('#1c2740')))
+        p.fillRect(self.rect(), QColor(T('ui_board_deep')))
+        p.setPen(QPen(QColor(T('ui_btn_disabled'))))
         for y in range(g.H):
             for x in range(g.W):
                 p.drawRect(x * cell, y * cell, cell, cell)
                 if g.board[y][x]:
-                    p.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2, QColor('#5aa7d6'))
+                    p.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2, QColor(T('ui_blue_light')))
         # 当前方块
         if not g.over and hasattr(g, 'piece'):
             for r, row in enumerate(g.piece):
                 for c, v in enumerate(row):
                     if v:
                         p.fillRect((g.px + c) * cell + 1, (g.py + r) * cell + 1, cell - 2, cell - 2,
-                                   QColor(g.pcolor))
+                                   QColor(T(g.pcolor)) if isinstance(g.pcolor, str) and g.pcolor.startswith('ui_') else QColor(g.pcolor))
 
 
 # ---------- 华容道（数字滑块） ----------
@@ -1818,11 +1934,15 @@ class SlidingPuzzle(BaseGame):
         for i in range(total):
             btn = QPushButton()
             btn.setFixedSize(64, 64)
-            btn.setStyleSheet(
-                'QPushButton { background:#2a3a55; color:#dce3f0; border-radius:8px;'
-                ' font-size:20px; font-weight:bold; }'
-                'QPushButton:hover { background:#35507a; }'
-                'QPushButton:disabled { background:#182136; color:#445; }')
+            def _qss():
+                return ('QPushButton { background:%s; color:%s; border-radius:8px;'
+                        ' font-size:20px; font-weight:bold; }'
+                        'QPushButton:hover { background:%s; }'
+                        'QPushButton:disabled { background:%s; color:%s; }'
+                        % (T('ui_btn_bg'), T('ui_text'), T('ui_btn_hover'),
+                           T('ui_board_bg'), T('ui_text_faint')))
+            btn._theme_qss = _qss          # v6.58 主题化
+            btn.setStyleSheet(_qss())
             btn.clicked.connect(lambda checked, idx=i: self._move(idx))
             self.grid.addWidget(btn, i // n, i % n)
             self.buttons.append(btn)
@@ -1853,8 +1973,9 @@ class SlidingPuzzle(BaseGame):
 class SimonSays(BaseGame):
     """西蒙记忆：记颜色序列，逐步加长，4键/6键"""
 
-    COLORS = [('#e0527a', '红'), ('#6ecb7a', '绿'), ('#4a8ac2', '蓝'), ('#ffd700', '黄'),
-              ('#c9a0ff', '紫'), ('#00e5ff', '青')]
+    # v6.58 主题化：存 token 名，用色处用 T() 解析
+    COLORS = [('ui_red', '红'), ('ui_green', '绿'), ('ui_blue', '蓝'), ('ui_gold', '黄'),
+              ('ui_purple', '紫'), ('ui_cyan', '青')]
 
 
     RULES = '西蒙记忆：桌宠会点亮一串颜色（红/绿/蓝/黄…），你要按顺序点击复述。每过一关序列加长一个，记住 8 个以上算记忆超神！'
@@ -1876,8 +1997,12 @@ class SimonSays(BaseGame):
             color, name = self.COLORS[i]
             btn = QPushButton('')
             btn.setFixedSize(90, 90)
-            btn.setStyleSheet(f'QPushButton {{ background:{color}; border-radius:12px; }}'
-                              f'QPushButton:disabled {{ background:#2a3a55; }}')
+            def _qss(c=color):
+                return ('QPushButton { background:%s; border-radius:12px; }'
+                        'QPushButton:disabled { background:%s; }'
+                        % (T(c), T('ui_btn_bg')))
+            btn._theme_qss = _qss          # v6.58 主题化
+            btn.setStyleSheet(_qss())
             btn.clicked.connect(lambda checked, idx=i: self._press(idx))
             grid.addWidget(btn, i // 3, i % 3)
             self.btns.append(btn)
@@ -1922,9 +2047,9 @@ class SimonSays(BaseGame):
 
     def _flash(self, idx):
         btn = self.btns[idx]
-        btn.setStyleSheet(f'QPushButton {{ background:#ffffff; border-radius:12px; }}')
+        btn.setStyleSheet(f'QPushButton {{ background:{T("ui_flash")}; border-radius:12px; }}')
         QTimer.singleShot(250, lambda: btn.setStyleSheet(
-            f'QPushButton {{ background:{self.COLORS[idx][0]}; border-radius:12px; }}'))
+            f'QPushButton {{ background:{T(self.COLORS[idx][0])}; border-radius:12px; }}'))
 
     def _press(self, idx):
         if not self.accept_input or self.over:
@@ -1982,13 +2107,8 @@ class GameWindow(QDialog):
         self.on_result = on_result
         self.setWindowTitle('🎮 小游戏')
         self.setFixedWidth(300)
-        self.setStyleSheet(
-            "QDialog { background:#1e2430; }"
-            "QLabel { color:#dce3f0; font-size:13px; }"
-            "QPushButton { background:#2a3a55; color:#dce3f0; border:none;"
-            " border-radius:6px; padding:10px; font-size:14px; }"
-            "QPushButton:hover { background:#35507a; }"
-        )
+        self.setStyleSheet(self._window_qss())   # v6.58 主题化
+        _OPEN_GAMES.append(self)                 # 切主题时一并刷新
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel('和桌宠玩一局？赢了好感度 +3', alignment=Qt.AlignCenter))
         for name, cls in GAMES.items():
@@ -2005,6 +2125,21 @@ class GameWindow(QDialog):
                 row.addWidget(rbtn)
             row.addStretch(1)
             lay.addLayout(row)
+
+    def _window_qss(self):
+        """小游戏列表页样式（颜色取自主题 token）"""
+        return ("QDialog { background:%s; }" % T('ui_bg')
+                + "QLabel { color:%s; font-size:13px; }" % T('ui_text')
+                + "QPushButton { background:%s; color:%s; border:none;" % (T('ui_btn_bg'), T('ui_text'))
+                + " border-radius:6px; padding:10px; font-size:14px; }"
+                + "QPushButton:hover { background:%s; }" % T('ui_btn_hover'))
+
+    def apply_theme(self):
+        """v6.58：列表页跟随主题"""
+        try:
+            self.setStyleSheet(self._window_qss())
+        except Exception:
+            pass
 
     def _open(self, cls):
         self.hide()
