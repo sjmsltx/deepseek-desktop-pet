@@ -1,0 +1,27 @@
+{
+  "name": "theme_blue_white",
+  "type": "theme",
+  "display_name": "蓝白主题",
+  "version": "1.1.0",
+  "enabled": true,
+  "description": "深色面板+浅色文字+蓝色点缀，全部文字可读",
+  "theme": {
+    "panel_bg": "rgba(20,20,30,0.85)",
+    "text": "#E8EEF7",
+    "input_bg": "rgba(255,255,255,0.12)",
+    "input_focus": "rgba(255,255,255,0.18)",
+    "input_text": "#FFFFFF",
+    "user_bubble": "rgba(59,130,246,0.35)",
+    "ai_bubble": "rgba(255,255,255,0.10)",
+    "bubble_text": "#EAF2FF",
+    "name_user": "#9CC3F0",
+    "name_ai": "#7fb2ff",
+    "scroll_bg": "rgba(255,255,255,0.08)",
+    "scroll_handle": "#9CC3F0",
+    "scroll_handle_hover": "rgba(156,195,240,0.75)",
+    "accent": "#3B82F6",
+    "say_bg": "#E8F2FF",
+    "say_text": "#1B3A5C",
+    "say_border": "#A9CDF5"
+  }
+}

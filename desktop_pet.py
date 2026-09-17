@@ -55,6 +55,8 @@ import pet_bubble as pb  # 气泡/Markdown 渲染装配层（批 3）
 import pet_anim as anim  # 状态机与动画（低耦合段，批 4）
 from pet_anim import SCENE_ACTIONS  # 场景动作表（批 4）
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
+import care_engine  # v6.60 批4：兜底关心措辞库（fallback_lines / pick_fallback）
+import pet_foreground as fgwin  # 前台程序感知（v6.59，可选·默认关闭；隐私边界见模块头部）
 from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
                             MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
 from model_manager_ui import ModelManagerDialog  # Phase 2 模型管理对话框
@@ -322,6 +324,23 @@ class PetWidget(QWidget):
         self.type_timer.timeout.connect(self._type_next)
         self.type_buffer = ''
         self.type_index = 0
+        # v6.60 气泡节奏与队列（拟人化：思考停顿 / 标点停顿 / 排队不覆盖 / 悬停暂停）
+        self._speak_busy = False      # 当前是否正在显示一条
+        self._speak_queue = []        # 排队中的下几条：(文本, immediate)
+        self._speak_think_ticks = 0   # “思考”阶段的点数计数
+        self._bubble_hover_paused = False
+        # v6.60 批 3：关心气泡（独立外观 + 可点开接话 + 回忆日志留痕）
+        self._bubble_mode = 'say'     # 'say' 普通说话 / 'care' 关心
+        self._care_click_text = ''    # 当前关心文本（点一下展开到聊天）
+        self._care_kind = 'care'      # care / remind / greet
+        self._dock_rehide = False     # 扒边探头后待收回
+        # v6.60 批 4：关心节流与场景触发状态
+        self._care_last_at = 0                 # 上次关心的时刻（冷却用）
+        self._care_today = None                # {'date': 'YYYY-MM-DD', 'n': 当日次数}
+        self._fg_cat = ''                      # 上次采样的前台程序类别
+        self._fg_break_at = 0                  # 从「专注」切到「不表态」的时刻
+        self._scene_used = True                # 本次休息间隙是否已用过
+        self._last_care_line = ''              # 上一条兜底措辞（避免重复）
         self.chat_type_timer = QTimer(self)  # 聊天面板打字机（AI 回复流式显示）
         self.chat_type_timer.timeout.connect(self._chat_type_tick)
         self.chat_type_buffer = ''
@@ -454,6 +473,13 @@ class PetWidget(QWidget):
         # 气泡不参与布局排版（悬浮定位，避免挤压控制栏导致上下跳动）
         self.bubble.setParent(self)
         self.bubble.hide()
+        # v6.60：悬停暂停——鼠标移上去就不再自动隐藏（也不再打字），
+        # 否则短气泡一闪而过，主动关心说了等于没说
+        self.bubble.enterEvent = lambda e: self._bubble_hover(True)
+        self.bubble.leaveEvent = lambda e: self._bubble_hover(False)
+        # v6.60 批 3：点关心气泡 → 展开到聊天（普通气泡点击无副作用）
+        self.bubble.mousePressEvent = self._bubble_clicked
+        self._init_status_bar()   # v6.60 批 2：底部系统状态条
 
         self.pet_label = QLabel(self)
         self.pet_label.setAlignment(Qt.AlignCenter)
@@ -715,6 +741,8 @@ class PetWidget(QWidget):
                 # v6.53：进阶工具模式（默认关 → 只放开 core 工具，省 token）
                 # v6.58：core 已补回“外观/自改/插件/文件”9 个（用户能直接要求的能力）
                 self.advanced_tools = bool(cfg.get('advanced_tools', False))
+                # v6.59：前台程序感知（默认关闭；开启后仅向唤醒判断附带「当前前台程序」信号）
+                self.foreground_aware = bool(cfg.get('foreground_aware', False))
                 # v6.58：记住 config 里保存的主题名（启动时在 UI 就绪后恢复；此前只写不读 → 重启被重置）
                 self._saved_theme = str(cfg.get('theme') or 'default')
                 self._theme_widgets = []   # 受主题着色的控件登记表（切主题时统一刷新）
@@ -912,7 +940,7 @@ class PetWidget(QWidget):
         if getattr(self, '_ai_busy', False):
             # v6.43b：忙碌 → 加入 FCFS 任务队列（先来先到；侧栏可拖拽调优先级、双击取消排队）
             self._enqueue_task(text)
-            self._append_chat('桌宠',
+            self._notify(
                               f'📋 已加入任务队列（第 {len(self._task_queue)} 位，当前完成后自动执行；/stop 紧急停止当前）')
             return
         # v6.43b：流式重置 + 启动任务（_run_task 内分配代次/置 busy/起线程）
@@ -1413,7 +1441,7 @@ class PetWidget(QWidget):
         """查看长期记忆（显示到聊天面板）"""
         active = [f for f in self.memory_facts if f.get('status') == 'active']
         if not active:
-            self._append_chat('桌宠', '🧠 还没有长期记忆。对话中告诉我你的偏好/重要信息，我会自动记住')
+            self._notify('🧠 还没有长期记忆。对话中告诉我你的偏好/重要信息，我会自动记住')
             return
         active.sort(key=lambda x: -x.get('importance', 3))
         lines = [f'🧠 长期记忆（{len(active)} 条）：']
@@ -1425,7 +1453,7 @@ class PetWidget(QWidget):
         """弹窗选择要删除的记忆"""
         active = [f for f in self.memory_facts if f.get('status') == 'active']
         if not active:
-            self._append_chat('桌宠', '🧠 还没有长期记忆可删除')
+            self._notify('🧠 还没有长期记忆可删除')
             return
         items = [f.get('content', '')[:40] for f in active]
         from PySide6.QtWidgets import QInputDialog
@@ -1434,14 +1462,14 @@ class PetWidget(QWidget):
             for f in active:
                 if f.get('content', '')[:40] == text:
                     self._remember_fact('delete', fid=f.get('id', ''))
-                    self._append_chat('桌宠', f'🗑 已遗忘：{f.get("content", "")}')
+                    self._notify(f'🗑 已遗忘：{f.get("content", "")}')
                     return
 
     def _clear_memory_confirm(self):
         """确认后清空全部记忆"""
         active = [f for f in self.memory_facts if f.get('status') == 'active']
         if not active:
-            self._append_chat('桌宠', '🧠 没有需要清空的记忆' if getattr(self, 'language', 'zh') != 'en' else '🧠 No memory to clear')
+            self._notify('🧠 没有需要清空的记忆' if getattr(self, 'language', 'zh') != 'en' else '🧠 No memory to clear')
             return
         from PySide6.QtWidgets import QMessageBox
         is_en = getattr(self, 'language', 'zh') == 'en'
@@ -1457,7 +1485,7 @@ class PetWidget(QWidget):
             for f in active:
                 self._remember_fact('delete', fid=f.get('id', ''))
             self._save_memory()
-            self._append_chat('桌宠', '🧹 长期记忆已全部清空' if not is_en else '🧹 All memories cleared')
+            self._notify('🧹 长期记忆已全部清空' if not is_en else '🧹 All memories cleared')
 
     # ============ 全局快捷键（v6.12，Ctrl+Alt+P 呼出） ============
     def _on_global_hotkey(self):
@@ -2644,7 +2672,7 @@ class PetWidget(QWidget):
                                        QPushButton, QHeaderView, QCheckBox, QWidget, QAbstractItemView)
         msgs = self.display_msgs
         if not msgs:
-            self._append_chat('桌宠', '没有可导出的聊天记录')
+            self._notify('没有可导出的聊天记录')
             return None
         is_en = getattr(self, 'language', 'zh') == 'en'
         T = self._t
@@ -2741,7 +2769,7 @@ class PetWidget(QWidget):
             if msgs is None:
                 return  # 用户取消选择
             if not msgs:
-                self._append_chat('桌宠', '未选择任何消息')
+                self._notify('未选择任何消息')
                 return
             # 默认导出目录：BASE_DIR/聊天记录/（不存在则创建）
             export_dir = os.path.join(BASE_DIR, '聊天记录')
@@ -2764,9 +2792,9 @@ class PetWidget(QWidget):
                     c = _rex.sub(r'\[emotion:[a-z_]+\]?\s*', '', c)
                     _buf.append(f'[{ts}] {who}: {c}\n')
             _atomic_write_text(path, ''.join(_buf))
-            self._append_chat('桌宠', f'📤 已导出 {len(msgs)} 条：{path}')
+            self._notify(f'📤 已导出 {len(msgs)} 条：{path}')
         except Exception as e:
-            self._append_chat('桌宠', f'导出失败：{e}')
+            self._notify(f'导出失败：{e}')
 
     def _scan_live2d_models(self):
         """扫描 assets/live2d/ 下所有含 model3.json 的模型目录，返回 {目录名: 路径}"""
@@ -2902,7 +2930,7 @@ class PetWidget(QWidget):
         is_en = getattr(self, 'language', 'zh') == 'en'
         models = self._scan_live2d_models()
         if name not in models:
-            self._append_chat('桌宠', '模型不存在' if not is_en else 'Model not found')
+            self._notify('模型不存在' if not is_en else 'Model not found')
             return
         self.live2d_model = name
         self._save_cfg_value('live2d_model', name)
@@ -2919,7 +2947,7 @@ class PetWidget(QWidget):
                 self._l2d_widget = w
                 self.pet_stack.setCurrentWidget(w)
                 self.bubble.raise_()
-        self._append_chat('桌宠', f'🤖 已切换 Live2D 模型：{name}' if not is_en else f'🤖 Switched Live2D model: {name}')
+        self._notify(f'🤖 已切换 Live2D 模型：{name}' if not is_en else f'🤖 Switched Live2D model: {name}')
 
     def _set_display_mode(self, mode):
         """切换显示模式：static 静态立绘 / live2d 模型"""
@@ -2930,7 +2958,7 @@ class PetWidget(QWidget):
             if not hasattr(self, '_l2d_widget') or self._l2d_widget is None:
                 w = self._create_l2d_embedded()
                 if w is None:
-                    self._append_chat('桌宠', 'Live2D 不可用（缺少 live2d-py 或模型文件）' if not is_en else 'Live2D unavailable (missing live2d-py or model)')
+                    self._notify('Live2D 不可用（缺少 live2d-py 或模型文件）' if not is_en else 'Live2D unavailable (missing live2d-py or model)')
                     return
                 self.pet_stack.addWidget(w)
                 self._l2d_widget = w
@@ -2938,12 +2966,12 @@ class PetWidget(QWidget):
             self.pet_stack.setCurrentWidget(self._l2d_widget)
             self.bubble.raise_()
             self._save_cfg_value('display_mode', 'live2d')
-            self._append_chat('桌宠', '🎬 已切换到 Live2D 模式（右键可切回静态立绘）' if not is_en else '🎬 Switched to Live2D mode')
+            self._notify('🎬 已切换到 Live2D 模式（右键可切回静态立绘）' if not is_en else '🎬 Switched to Live2D mode')
         else:
             self.display_mode = 'static'
             self.pet_stack.setCurrentWidget(self.pet_label)
             self._save_cfg_value('display_mode', 'static')
-            self._append_chat('桌宠', '🖼️ 已切换回静态立绘模式' if not is_en else '🖼️ Switched to static art mode')
+            self._notify('🖼️ 已切换回静态立绘模式' if not is_en else '🖼️ Switched to static art mode')
 
     def _open_live2d_preview(self):
         """Live2D 预览窗口（Mao 模型：自动眨眼/呼吸/跟随光标），与静态立绘并行"""
@@ -2955,21 +2983,21 @@ class PetWidget(QWidget):
             except Exception:
                 self._l2d_win = None
         if not os.path.exists(LIVE2D_MODEL):
-            self._append_chat('桌宠', 'Live2D 模型不存在（assets/live2d/mao/），无法预览')
+            self._notify('Live2D 模型不存在（assets/live2d/mao/），无法预览')
             return
         try:
             import live2d.v3 as live2d
             from PySide6.QtWidgets import QMainWindow
             from PySide6.QtOpenGLWidgets import QOpenGLWidget
         except Exception as e:
-            self._append_chat('桌宠', f'Live2D 依赖缺失：{e}（需要 pip install live2d-py）')
+            self._notify(f'Live2D 依赖缺失：{e}（需要 pip install live2d-py）')
             return
         if not getattr(self, '_l2d_inited', False):
             try:
                 live2d.init()
                 self._l2d_inited = True
             except Exception as e:
-                self._append_chat('桌宠', f'Live2D 初始化失败：{e}')
+                self._notify(f'Live2D 初始化失败：{e}')
                 return
 
         class L2DWidget(QOpenGLWidget):
@@ -3069,7 +3097,7 @@ class PetWidget(QWidget):
         """存档当前对话（带时间戳 txt）并清空，重新开始"""
         is_en = getattr(self, 'language', 'zh') == 'en'
         if not self.chat_history_msgs:
-            self._append_chat('桌宠', '没有可存档的对话' if not is_en else 'No conversation to archive')
+            self._notify('没有可存档的对话' if not is_en else 'No conversation to archive')
             return
         try:
             import datetime as _dt
@@ -3092,9 +3120,9 @@ class PetWidget(QWidget):
             self.chat_history_msgs = []
             self._clear_chat_history()
             self._save_chat_memory()
-            self._append_chat('桌宠', f'📦 已存档并清空：{fname}' if not is_en else f'📦 Archived and cleared: {fname}')
+            self._notify(f'📦 已存档并清空：{fname}' if not is_en else f'📦 Archived and cleared: {fname}')
         except Exception as e:
-            self._append_chat('桌宠', f'存档失败：{e}' if not is_en else f'Archive failed: {e}')
+            self._notify(f'存档失败：{e}' if not is_en else f'Archive failed: {e}')
 
     def _open_memory_manager(self):
         """记忆管理窗口：表格视图，支持筛选/搜索/编辑/删除/添加"""
@@ -3261,11 +3289,10 @@ class PetWidget(QWidget):
         due = _dt.datetime.fromtimestamp(r.get('time', 0)).strftime('%m-%d %H:%M')
         text = r.get('text', '')
         if r.get('type') == 'followup':
-            self._append_chat('桌宠', '💗 早安回访：昨晚休息得怎么样？补上早上的问候——记得吃早餐哦 ☀️')
-            self.say_plain('早安呀，昨晚休息得怎么样？记得吃早餐哦', immediate=True)
+            # v6.60 批 3：改走关心气泡（不再重复写聊天列表）
+            self.say_care('早安呀，昨晚休息得怎么样？记得吃早餐哦', kind='greet')
         else:
-            self._append_chat('桌宠', f'⏰ 补发提醒（原定 {due}，关机期间错过）：{text}')
-            self.say_plain(f'⏰ 补发提醒：{text}', immediate=True)
+            self.say_care(f'⏰ 补发提醒（原定 {due}，关机期间错过）：{text}', kind='remind')
             self._play_sound('remind')
 
     def _check_reminders(self):
@@ -3279,18 +3306,17 @@ class PetWidget(QWidget):
                 if r.get('type') == 'followup':
                     self._ai_followup(r['text'])
                 else:
-                    self.say_plain(f'⏰ 提醒：{r["text"]}')
-                    self._append_chat('桌宠', f'⏰ 提醒：{r["text"]}')
+                    self.say_care(f'⏰ 提醒：{r["text"]}', kind='remind')
                     self._play_sound('remind')
 
     def _add_reminder(self, seconds, text, rtype='normal'):
         self.reminders.append({'time': time.time() + seconds, 'text': text, 'type': rtype})
         self._save_reminders()
         if rtype == 'followup':
-            self._append_chat('桌宠', f'好，{seconds} 秒后我再来关心你：{text}')
+            self._notify(f'好，{seconds} 秒后我再来关心你：{text}')
         else:
             self.say_plain(f'好，{seconds} 秒后提醒你：{text}')
-            self._append_chat('桌宠', f'已设置提醒（{seconds}秒后）：{text}')
+            self._notify(f'已设置提醒（{seconds}秒后）：{text}')
 
     # ---------- 提醒管理窗口（v6.22） ----------
     def _open_reminder_manager(self):
@@ -3400,8 +3426,7 @@ class PetWidget(QWidget):
             is_en = getattr(self, 'language', 'zh') == 'en'
             msg = (f'😴 你已经连续坐 {int(idle // 60)} 分钟了，起来活动一下、喝口水吧！' if not is_en
                    else f'😴 You have been sitting for {int(idle // 60)} minutes. Time to stretch!')
-            self.say_plain(msg)
-            self._append_chat('桌宠', msg)
+            self.say_care(msg, kind='remind')
         elif idle < 60 and self._idle_warned:
             self._idle_warned = False
         # 打盹：空闲 3 分钟 → 切换睡眠立绘；有输入 → 唤醒（Live2D 模式跳过，模型自带动画）
@@ -3478,8 +3503,7 @@ class PetWidget(QWidget):
         else:
             base = (f'☀️ 早上好！今天是 {_dt.datetime.now().month}月{_dt.datetime.now().day}日 星期{week}。'
                     f'当前设置了 {n_rem} 条提醒。')
-        self.say_plain(base)
-        self._append_chat('桌宠', base)
+        self.say_care(base, kind='greet')
         # 异步查天气（线程 → weather_signal 回主线程）
         city = self.pet_city
         def fetch():
@@ -3516,9 +3540,9 @@ class PetWidget(QWidget):
             path = os.path.join(BASE_DIR, f'记忆备份_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
             # v6.53：改为原子写（与 memory.json 落盘同一套机制）
             _atomic_write_json_impl(path, self.memory_facts)
-            self._append_chat('桌宠', f'💾 记忆已备份：{path}' if not is_en else f'💾 Memory backed up: {path}')
+            self._notify(f'💾 记忆已备份：{path}' if not is_en else f'💾 Memory backed up: {path}')
         except Exception as e:
-            self._append_chat('桌宠', f'备份失败：{e}' if not is_en else f'Backup failed: {e}')
+            self._notify(f'备份失败：{e}' if not is_en else f'Backup failed: {e}')
 
     def _import_memory_backup(self):
         """导入记忆备份（JSON，按 id 去重合并）"""
@@ -3541,9 +3565,9 @@ class PetWidget(QWidget):
                     self.memory_facts.append(item)
                     added += 1
             self._save_memory()
-            self._append_chat('桌宠', f'📥 已导入 {added} 条记忆' if not is_en else f'📥 Imported {added} memories')
+            self._notify(f'📥 已导入 {added} 条记忆' if not is_en else f'📥 Imported {added} memories')
         except Exception as e:
-            self._append_chat('桌宠', f'导入失败：{e}' if not is_en else f'Import failed: {e}')
+            self._notify(f'导入失败：{e}' if not is_en else f'Import failed: {e}')
 
     # ---------- 立绘加载与显示 ----------
     def load_character(self, key):
@@ -3741,45 +3765,290 @@ class PetWidget(QWidget):
         bx = max(0, (self.width() - bw) // 2)
         by = 6
         self.bubble.setGeometry(bx, by, bw, bh)
+        self._place_status_bar()   # v6.60 批 2：窗口尺寸变化时状态条跟着走
+
+    # ---- v6.60 气泡节奏参数（集中在此便于调，改完跑 tests/test_bubble_pacing.py） ----
+    BUBBLE_HOLD_MIN_MS = 6000        # 最短停留：关心类不能一闪而过
+    BUBBLE_HOLD_PER_CHAR = 120       # 每字读字时间
+    BUBBLE_HOLD_BASE_MS = 3000       # 停留基数
+    BUBBLE_TYPE_FAST_MS = 26         # 逐字最快
+    BUBBLE_TYPE_SLOW_MS = 48         # 逐字最慢（随机，不做等速打字机）
+    BUBBLE_PAUSE_COMMA_MS = 120      # 逗号后停顿
+    BUBBLE_PAUSE_SENTENCE_MS = 260   # 句末标点后停顿
+    BUBBLE_PAUSE_NEWLINE_MS = 200    # 换行后停顿
+    BUBBLE_LONG_TEXT_CHARS = 40      # 超过此长度整段渐显（不逐字）
+    BUBBLE_THINK_TICKS = 3           # “思考”点数
+    BUBBLE_THINK_MS = 120            # 每个思考点间隔
+    BUBBLE_QUEUE_MAX = 2             # 排队上限
+    BUBBLE_GAP_MS = 600              # 两条气泡之间的间隔
+    # 关心气泡（v6.60 批 3）：停留更久，否则用户还没读到就消失了
+    BUBBLE_CARE_MIN_MS = 8000
+    BUBBLE_CARE_PER_CHAR = 150
+    BUBBLE_CARE_BASE_MS = 4000
+
+    def _bubble_hold_ms(self, text=None):
+        """一条气泡应停留多久（v6.60；关心类另有更长的下限）"""
+        t = self.type_buffer if text is None else str(text)
+        if getattr(self, '_bubble_mode', 'say') == 'care':
+            return max(self.BUBBLE_CARE_MIN_MS,
+                       len(t) * self.BUBBLE_CARE_PER_CHAR + self.BUBBLE_CARE_BASE_MS)
+        return max(self.BUBBLE_HOLD_MIN_MS,
+                   len(t) * self.BUBBLE_HOLD_PER_CHAR + self.BUBBLE_HOLD_BASE_MS)
+
+    def _schedule_bubble_hide(self, extra_ms=0):
+        """开始倒计时隐藏（悬停中则不启动）"""
+        if getattr(self, '_bubble_hover_paused', False):
+            return
+        self.bubble_hide_timer.start(self._bubble_hold_ms() + extra_ms)
 
     def say_plain(self, text, immediate=False):
-        """气泡显示短文本。immediate=True 时直接完整显示（状态提示用，避免打字机卡顿误导）
-        v6.25.1 非主线程调用自动转发主线程（防 Qt 跨线程崩溃）"""
+        """气泡显示短文本（v6.60 拟人化改造）
+
+        - 节奏：先"思考"3 个点 → 逐字（字速 26–48ms 随机 + 标点停顿）→ 超 40 字整段渐显
+        - 停留：max(6s, 字数×120ms+3s)；鼠标悬停暂停
+        - 队列：正在显示时新消息**排队**（上限 2 条）而不是覆盖旧的
+        - immediate=True：跳过打字机（状态/关心类提示），仍走队列与停留规则
+        v6.25.1 非主线程调用自动转发主线程（防 Qt 跨线程崩溃）
+        """
         text = self._strip_emotion_tags(str(text))[0]  # v6.40 出口统一剥 emotion 标签
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
             self._run_on_ui(lambda t=text, i=immediate: self.say_plain(t, i))  # v6.58
             return
-        if immediate:
-            self.type_timer.stop()
-            self.type_buffer = str(text)
-            self.type_index = len(self.type_buffer)
-            self.bubble.setText(str(text))
-            self.bubble.show()
-            self._place_bubble()
-            self.bubble_hide_timer.start(max(1500, len(self.type_buffer) * 80 + 1000))
+        if self._speak_busy:
+            # 正在说 → 排队，不再互相覆盖
+            if len(self._speak_queue) < self.BUBBLE_QUEUE_MAX:
+                self._speak_queue.append((str(text), bool(immediate)))
             return
+        self._speak_begin(str(text), immediate)
+
+    def _speak_begin(self, text, immediate=False):
+        """开始显示一条气泡（内部）"""
+        self._speak_busy = True
         self.type_buffer = str(text)
         self.type_index = 0
-        self.bubble.setText('')
+        self.bubble_hide_timer.stop()
         self.bubble.show()
+        if immediate or len(self.type_buffer) > self.BUBBLE_LONG_TEXT_CHARS:
+            # 状态/关心类与长文本：不逐字（避免久等），直接给完整内容
+            self.type_timer.stop()
+            self.type_index = len(self.type_buffer)
+            self.bubble.setText(self.type_buffer)
+            self._place_bubble()
+            self._schedule_bubble_hide()
+            return
+        # 短句：先“思考”再开口，像人在组织语言
+        self._speak_think_ticks = 0
+        self.bubble.setText('·')
         self._place_bubble()
-        self.type_timer.start(40)
-        self.bubble_hide_timer.start(max(1500, len(self.type_buffer) * 80 + 1000))
+        self.type_timer.start(self.BUBBLE_THINK_MS)
 
     def _type_next(self):
-        """打字机：逐字显示"""
+        """打字机（v6.60）：思考阶段 → 逐字阶段（标点停顿 + 随机字速）"""
+        if self._speak_think_ticks < self.BUBBLE_THINK_TICKS:
+            self._speak_think_ticks += 1
+            self.bubble.setText('·' * min(self.BUBBLE_THINK_TICKS, self._speak_think_ticks + 1))
+            self._place_bubble()
+            if self._speak_think_ticks >= self.BUBBLE_THINK_TICKS:
+                self.type_timer.stop()
+                self.type_index = 0
+                self.bubble.setText('')
+                self._place_bubble()
+                self.type_timer.start(self._char_delay(1))
+            return
         if self.type_index < len(self.type_buffer):
             self.type_index += 1
             self.bubble.setText(self.type_buffer[:self.type_index])
             self._place_bubble()
+            self.type_timer.start(self._char_delay(self.type_index))
         else:
             self.type_timer.stop()
+            self._schedule_bubble_hide()
+
+    def _char_delay(self, pos):
+        """逐字间隔（v6.60）：标点后停顿 + 26–48ms 随机"""
+        txt = self.type_buffer
+        prev = txt[pos - 1] if 0 < pos <= len(txt) else ''
+        if prev in '。！？!?…':
+            return self.BUBBLE_PAUSE_SENTENCE_MS
+        if prev in '，,、；;：':
+            return self.BUBBLE_PAUSE_COMMA_MS
+        if prev == '\n':
+            return self.BUBBLE_PAUSE_NEWLINE_MS
+        return random.randint(self.BUBBLE_TYPE_FAST_MS, self.BUBBLE_TYPE_SLOW_MS)
 
     def _hide_bubble(self):
+        """隐藏气泡，并取出排队的下一条（v6.60：队列代替覆盖）"""
         self.bubble.hide()
         self.type_timer.stop()
+        self.bubble_hide_timer.stop()
+        self._speak_busy = False
+        # v6.60 批 3：扒边探头后自动收回
+        if getattr(self, '_dock_rehide', False) and self._edge_side is not None:
+            self._dock_rehide = False
+            try:
+                self._enter_dock(self._edge_side, self._popup_y)
+            except Exception as e:
+                log.debug('探头收回失败：%s', e)
+        if self._speak_queue:
+            text, immediate = self._speak_queue.pop(0)
+            QTimer.singleShot(self.BUBBLE_GAP_MS,
+                              lambda t=text, i=immediate: self._speak_begin(t, i))
+
+    def _bubble_hover(self, on):
+        """悬停暂停（v6.60）：移入→停住不倒计时；移开→再给 2 秒后继续"""
+        self._bubble_hover_paused = bool(on)
+        if on:
+            self.bubble_hide_timer.stop()
+            self.type_timer.stop()
+        elif self.bubble.isVisible() or self._speak_busy:
+            if self._speak_busy:
+                self.type_timer.start(self._char_delay(max(1, self.type_index)))
+            else:
+                self._schedule_bubble_hide(extra_ms=2000)
+
+    # ---- v6.60 批 2：系统状态条 ----
+    # 系统通知（配置变更 / 文件操作 / 能力可用性 / 进度）原先以「桌宠」身份写进聊天列表，
+    # 使用者反馈「污染会话、太人机」。现改为窗口底部一条细状态条：
+    # 不进聊天列表（display_msgs）、不进模型上下文（chat_history_msgs），只额外记一条日志。
+    STATUS_MS = 2500                     # 状态条默认停留时长
+
+    def _init_status_bar(self):
+        """创建底部状态条（悬浮定位，不参与布局，避免挤压立绘导致上下跳动）"""
+        self.status_bar = QLabel('', self)
+        self.status_bar.setParent(self)
+        self.status_bar.setAlignment(Qt.AlignCenter)
+        self.status_bar.setMaximumHeight(40)
+        self.status_bar.setAttribute(Qt.WA_TransparentForMouseEvents, True)  # 不挡立绘点击
+        self.status_bar.hide()
+        self._style_status_bar()
+        self.status_hide_timer = QTimer(self)
+        self.status_hide_timer.setSingleShot(True)
+        self.status_hide_timer.timeout.connect(self.status_bar.hide)
+
+    def _style_status_bar(self):
+        """状态条配色走主题 token（不写死颜色；切主题时由 _apply_theme 重新调用）"""
+        try:
+            t = self.theme or {}
+            bg = t.get('say_bg') or t.get('panel_bg') or t.get('ui_board_bg')
+            fg = t.get('hint_text') or t.get('text') or t.get('ui_text')
+            bd = t.get('say_border') or bg
+            if bg and fg:
+                self.status_bar.setStyleSheet(
+                    'QLabel{background:%s;color:%s;border:1px solid %s;'
+                    'border-radius:4px;padding:2px 8px;font-size:11px;}' % (bg, fg, bd))
+        except Exception as e:
+            log.debug('状态条样式应用失败：%s', e)
+
+    def _place_status_bar(self):
+        """贴在窗口底部（窗口小且会随扒边变窄，这里按实际宽度夹一下）"""
+        try:
+            if not self.status_bar.isVisible():
+                return
+            avail = max(60, self.width() - 8)
+            w = min(max(self.status_bar.sizeHint().width(), 60), avail)
+            h = min(max(self.status_bar.sizeHint().height(), 16), 40)
+            self.status_bar.setGeometry(4, max(0, self.height() - h - 2), w, h)
+            self.status_bar.raise_()
+        except Exception:
+            pass
+
+    def _notify(self, text, ms=None):
+        """系统状态提示（v6.60 批 2）：底部状态条 + 日志；不写聊天列表、不进模型上下文。
+
+        取代原先「系统通知以桌宠身份写进聊天记录」的做法。非主线程调用自动转主线程。
+        """
+        text = self._strip_emotion_tags(str(text))[0].strip()
+        if not text:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            self._run_on_ui(lambda t=text, m=ms: self._notify(t, m))
+            return
+        try:
+            log.info('状态条：%s', text)
+        except Exception:
+            pass
+        if getattr(self, 'status_bar', None) is None:
+            return
+        self.status_bar.setText(text)
+        self.status_bar.show()
+        self._place_status_bar()
+        self.status_hide_timer.start(int(ms or self.STATUS_MS))
+
+    # ---- v6.60 批 3：关心通道（独立外观 + 可点开接话 + 回忆日志留痕） ----
+    # 此前关心/回访/提醒与系统提示共用一个气泡外观、且“气泡 + 聊天列表”各写一遍（重复），
+    # 使用者反馈「开了主动关心会混在一起、效果不明显」。现关心走独立样式与独立记录。
+    _CARE_LABEL = {'care': '主动关心', 'remind': '提醒', 'greet': '问候'}
+
+    def say_care(self, text, kind='care'):
+        """关心气泡（v6.60 批 3）
+
+        - 外观：左侧 accent 色条（与普通说话气泡一眼分开）
+        - 鼠标变手型 + tooltip，点一下 → 展开到聊天列表（可接着回）
+        - 留痕：写入回忆日志（memory_events）；**不写聊天列表、不进模型上下文**
+        - 停留：≥8 秒，且悬停暂停（见 _bubble_hold_ms）
+        非主线程调用自动转主线程。
+        """
+        text = self._strip_emotion_tags(str(text))[0].strip()
+        if not text:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            self._run_on_ui(lambda t=text, k=kind: self.say_care(t, k))
+            return
+        self._bubble_mode = 'care'
+        self._care_click_text = text
+        self._care_kind = kind if kind in self._CARE_LABEL else 'care'
+        try:
+            pb.apply_say_bubble_theme(self.bubble, self.theme, 'care')
+            self.bubble.setCursor(Qt.PointingHandCursor)
+            self.bubble.setToolTip('点一下 → 展开到聊天，接着聊')
+        except Exception as e:
+            log.debug('关心气泡样式失败：%s', e)
+        try:
+            label = self._CARE_LABEL.get(self._care_kind, '关心')
+            self.memories.add(self.current, 'event',
+                              '%s：%s' % (label, text[:28]),
+                              text)
+        except Exception as e:
+            log.debug('关心入回忆日志失败：%s', e)
+        # 一次性提示（本次运行第一条关心）：告知气泡可点（不污染聊天列表）
+        if not getattr(self, '_care_hint_shown', False):
+            self._care_hint_shown = True
+            self._notify('提示：点一下关心气泡可展开到聊天', ms=4000)
+        self._speak_begin(text, immediate=False)
+
+    def _reset_bubble_mode(self):
+        """回到普通说话气泡样式（v6.60 批 3）"""
+        self._bubble_mode = 'say'
+        self._care_click_text = ''
+        try:
+            pb.apply_say_bubble_theme(self.bubble, self.theme, 'say')
+            self.bubble.setCursor(Qt.ArrowCursor)
+            self.bubble.setToolTip('')
+        except Exception:
+            pass
+
+    def _bubble_clicked(self, event=None):
+        """点关心气泡 → 展开到聊天列表并打开聊天窗（v6.60 批 3）
+
+        普通说话气泡点击无副作用（不把自言自语塞进聊天记录）。
+        注意：只有用户显式点击才写聊天列表——这是「关心不污染会话」与「可接着聊」的平衡点。
+        """
+        try:
+            if self._bubble_mode == 'care' and self._care_click_text:
+                text = self._care_click_text
+                self._reset_bubble_mode()
+                self._append_chat('桌宠', text)
+                self.chat_panel.show()
+                self._chat_scroll_bottom()
+                self._hide_bubble()
+                return
+            # 普通气泡：点击不做事（事件交回默认处理）
+            if event is not None and hasattr(QLabel, 'mousePressEvent'):
+                QLabel.mousePressEvent(self.bubble, event)
+        except Exception as e:
+            log.debug('关心气泡展开失败：%s', e)
 
     def show_emotion(self, emoji, ms=2000):
         """头顶 emoji 气泡（情绪表达，不挡脸）"""
@@ -3808,7 +4077,7 @@ class PetWidget(QWidget):
         lines = self._char_lines('think_lines')
         text = random.choice(lines) if lines else 'Hmm…'
         self.say_plain(text)
-        self._append_chat('桌宠', text)
+        self._notify(text)
         self._show_state_image('thinking')
         if self.thinking_timer is not None:
             self.thinking_timer.stop()
@@ -4365,7 +4634,7 @@ class PetWidget(QWidget):
         """说话气泡跟随主题（v6.51）：颜色取自主题，缺键时回退原来的浅色外观
         （实现已搬至 pet_bubble.apply_say_bubble_theme）"""
         try:
-            pb.apply_say_bubble_theme(self.bubble, self.theme)
+            pb.apply_say_bubble_theme(self.bubble, self.theme, self._bubble_mode)  # v6.60 批3：关心模式跟随
         except Exception as e:
             log.debug('气泡主题应用失败：%s', e)
     def _apply_theme(self):
@@ -4378,6 +4647,7 @@ class PetWidget(QWidget):
         except Exception as e:
             log.warning('主题样式应用失败：%s', e)
         self._apply_bubble_theme()
+        self._style_status_bar()   # v6.60 批 2：状态条同步换色
         self._retheme_messages()   # v6.58：历史消息气泡同步换色
         self._publish_theme()  # v6.58：发布给所有订阅模块（小游戏等）
 
@@ -4803,7 +5073,7 @@ class PetWidget(QWidget):
         for f in files[:5]:
             self._add_attachment(f)
         if len(files) > 5:
-            self._append_chat('桌宠', '一次最多处理 5 个文件，已忽略其余')
+            self._notify('一次最多处理 5 个文件，已忽略其余')
 
     def _handle_dropped_files(self, urls):
         """处理拖入的文件列表"""
@@ -4820,7 +5090,7 @@ class PetWidget(QWidget):
             for p in paths[:5]:
                 self._attach_file(p)
             if len(paths) > 5:
-                self._append_chat('桌宠', '一次最多处理 5 个文件，已忽略其余')
+                self._notify('一次最多处理 5 个文件，已忽略其余')
 
     def _attach_file(self, path):
         """按类型处理拖入文件：图片→OCR，文本→读内容发AI，其他→路径"""
@@ -4838,11 +5108,11 @@ class PetWidget(QWidget):
             try:
                 from PIL import Image
                 Image.open(path).convert('RGB').save(dst, 'PNG')
-                self._append_chat('桌宠', '🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing text…')
+                self._notify('🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing text…')
                 import threading
                 threading.Thread(target=lambda: self.ocr_signal.emit(ocr_image(dst, OCR_PS1)), daemon=True).start()
             except Exception as e:
-                self._append_chat('桌宠', f'图片处理失败：{e}' if not is_en else f'Image error: {e}')
+                self._notify(f'图片处理失败：{e}' if not is_en else f'Image error: {e}')
         elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
             try:
                 with open(path, encoding='utf-8', errors='ignore') as f:
@@ -4850,7 +5120,7 @@ class PetWidget(QWidget):
                 self._append_chat('我', f'📄 [{base}]（{size_txt}·文本 {len(content)} 字）')
                 self.ask_ai(f'（用户放入文件：{base}，内容如下，请分析/回答）\n{content}')
             except Exception as e:
-                self._append_chat('桌宠', f'文件读取失败：{e}' if not is_en else f'Read error: {e}')
+                self._notify(f'文件读取失败：{e}' if not is_en else f'Read error: {e}')
         else:
             self._append_chat('我', f'📎 [{base}]（{size_txt}·{ext[1:] or "未知"}）')
             self.ask_ai(f'（用户放入文件：{path}。若需要读取内容请提示用户配合，或根据文件名/路径回应）')
@@ -4868,7 +5138,7 @@ class PetWidget(QWidget):
                     pass
         is_en = getattr(self, 'language', 'zh') == 'en'
         if not text.strip():
-            self._append_chat('桌宠', '😕 没识别到文字（可能是纯图片或截图太糊）' if not is_en else '😕 No text recognized')
+            self._notify('😕 没识别到文字（可能是纯图片或截图太糊）' if not is_en else '😕 No text recognized')
             return
         self._chat_type_finish()
         self._append_chat('我', f'📷 截图识别（{len(text)} 字）→ 已发送分析')
@@ -4880,7 +5150,7 @@ class PetWidget(QWidget):
         try:
             from PIL import ImageGrab
             is_en = getattr(self, 'language', 'zh') == 'en'
-            self._append_chat('桌宠', '📸 截屏中…' if not is_en else '📸 Capturing…')
+            self._notify('📸 截屏中…' if not is_en else '📸 Capturing…')
             img = ImageGrab.grab()
             path = os.path.join(BASE_DIR, '_screenshot_ocr.png')
             img.save(path, 'PNG')
@@ -4892,7 +5162,7 @@ class PetWidget(QWidget):
                     pass
             threading.Thread(target=worker, daemon=True).start()
         except Exception as e:
-            self._append_chat('桌宠', f'截图失败：{e}' if not is_en else f'Capture failed: {e}')
+            self._notify(f'截图失败：{e}' if not is_en else f'Capture failed: {e}')
 
     def _on_chat_input(self):
         """处理聊天输入：本地指令 / AI 对话（含暂存图片：OCR 后连同文字要求一起发）"""
@@ -4984,11 +5254,11 @@ class PetWidget(QWidget):
 
         if low == '/stop':
             self._stop_ai()
-            self._append_chat('桌宠', '⏹ 已停止当前任务并取消未完成任务')
+            self._notify('⏹ 已停止当前任务并取消未完成任务')
             return
         if low == '/clear':
             self._clear_chat_memory()
-            self._append_chat('桌宠', '聊天记录已清空')
+            self._notify('聊天记录已清空')
             return
         if low == '/help':
             self._append_chat('桌宠', '指令：/clear 清空 · /time 时间 · /calc 算式 · /weather 天气 · /person 性格 · /run 程序 · /remind 秒 内容 · /pomo 番茄钟 · /lock 锁屏 · /sound 音效 · /todo 待办清单；直接聊天即可，Ctrl+V 可粘贴截图识别')
@@ -5019,7 +5289,7 @@ class PetWidget(QWidget):
             try:
                 ctypes.windll.user32.LockWorkStation()
             except Exception:
-                self._append_chat('桌宠', '锁屏失败')
+                self._notify('锁屏失败')
             return
         if low.startswith('/remind '):
             parts = text[8:].split(' ', 1)
@@ -5028,15 +5298,15 @@ class PetWidget(QWidget):
                 msg = parts[1].strip() if len(parts) > 1 else '该做事啦'
                 self._add_reminder(sec, msg)
             except Exception:
-                self._append_chat('桌宠', '用法：/remind 60 喝水')
+                self._notify('用法：/remind 60 喝水')
             return
         if low == '/pomo':
             self._add_reminder(25 * 60, '番茄钟结束，休息一下！')
-            self._append_chat('桌宠', '🍅 25 分钟番茄钟已开始，到点提醒')
+            self._notify('🍅 25 分钟番茄钟已开始，到点提醒')
             return
         if low == '/sound':
             self._play_sound('msg')
-            self._append_chat('桌宠', '🔔 测试音效')
+            self._notify('🔔 测试音效')
             return
         # 其他走 AI
         self.ask_ai(text)
@@ -5053,13 +5323,13 @@ class PetWidget(QWidget):
             self._load_ai_config()
             return True
         except Exception as e:
-            self._append_chat('桌宠', f'配置保存失败：{e}')
+            self._notify(f'配置保存失败：{e}')
             return False
 
     def _set_reply_style(self, val, label):
         """设置回复风格（short/normal/detailed）"""
         if self._save_cfg_value('reply_style', val):
-            self._append_chat('桌宠', f'回复风格：{label}')
+            self._notify(f'回复风格：{label}')
 
     def _log_ai_abort(self, stage):
         """v6.53：把“被停止 / 被新任务顶替”记进日志（原先静默 return，出问题无从下手）"""
@@ -5070,6 +5340,25 @@ class PetWidget(QWidget):
                                   getattr(self, '_cur_gen', None), getattr(self, '_ai_busy', None))
         except Exception:
             pass
+
+    def set_foreground_aware(self, on):
+        """v6.59：前台程序感知开关（默认关）。开启后仅在唤醒判断里附加「当前前台程序」信号。
+
+        隐私：只读进程名，不读窗口标题/内容、不截屏、不联网（见 pet_foreground 模块头部）。
+        """
+        on = bool(on)
+        self.foreground_aware = on
+        if not self._save_cfg_value('foreground_aware', on):
+            return
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if on:
+            cur = fgwin.foreground_process_name() or '—'
+            msg = (f'前台程序感知：已开启（当前检测到 {cur}）。只读程序名，不读窗口标题。'
+                   if not is_en else f'Foreground awareness ON (now: {cur})')
+        else:
+            msg = '前台程序感知：已关闭' if not is_en else 'Foreground awareness OFF'
+        self._notify(msg)
+        self._sync_settings_ui()
 
     def _set_advanced_tools(self, on):
         """v6.53：切换「进阶工具模式」——开 = 放开全部工具，关 = 只留 core 8 个"""
@@ -5082,7 +5371,7 @@ class PetWidget(QWidget):
             n = len(tools_for_mode(on))
         except Exception:
             n = 0
-        self._append_chat('桌宠', (f'工具范围：{"全部 %d 个" % n if on else "常用 %d 个（已收起进阶工具）" % n}'
+        self._notify((f'工具范围：{"全部 %d 个" % n if on else "常用 %d 个（已收起进阶工具）" % n}'
                                   if not is_en else
                                   (f'Tools: all {n} enabled' if on else f'Tools: {n} core tools only')))
         self._sync_settings_ui()
@@ -5099,7 +5388,7 @@ class PetWidget(QWidget):
     def _set_max_tokens(self, val, label):
         """设置回复 token 上限（v6.53：改走模型档案 —— 与设置窗口「回复长度」同一份真相）"""
         if self._save_profile_param('max_tokens', val):
-            self._append_chat('桌宠', f'回复长度上限：{label}')
+            self._notify(f'回复长度上限：{label}')
             self._sync_settings_ui()
 
     def _set_max_tokens_dialog(self):
@@ -5114,7 +5403,7 @@ class PetWidget(QWidget):
             val = clamp_tokens(text.strip())
             # v6.53：原先写 config.json（但读的是 models.json 的档案 → 界面没变、实际不生效）
             if self._save_profile_param('max_tokens', val):
-                self._append_chat('桌宠', f'回复长度上限：{val} token（已写入模型档案）' if not is_en
+                self._notify(f'回复长度上限：{val} token（已写入模型档案）' if not is_en
                                   else f'Reply length limit: {val} tokens (saved to model profile)')
                 self._sync_settings_ui()
 
@@ -5126,7 +5415,7 @@ class PetWidget(QWidget):
             '输入默认天气城市：' if not is_en else 'Enter default weather city:', text=self.pet_city)
         if ok and text.strip():
             if self._save_cfg_value('city', text.strip()):
-                self._append_chat('桌宠', f'默认城市：{text.strip()}' if not is_en else f'Default city: {text.strip()}')
+                self._notify(f'默认城市：{text.strip()}' if not is_en else f'Default city: {text.strip()}')
 
     def _set_api_key_dialog(self):
         """弹窗设置 DeepSeek API Key（保存后热加载生效）"""
@@ -5144,7 +5433,7 @@ class PetWidget(QWidget):
             QLineEdit.Password, cur)
         if ok and text.strip():
             if self._save_cfg_value('deepseek_api_key', text.strip()):
-                self._append_chat('桌宠', '✅ API Key 已更新，AI 立即生效' if not is_en else '✅ API key updated, AI takes effect immediately')
+                self._notify('✅ API Key 已更新，AI 立即生效' if not is_en else '✅ API key updated, AI takes effect immediately')
 
     def _set_search_key_dialog(self):
         """弹窗设置 Tavily 联网搜索 API Key（可选，配置后 AI 可联网查最新信息）"""
@@ -5164,7 +5453,7 @@ class PetWidget(QWidget):
         if ok and text.strip():
             if self._save_cfg_value('search_api_key', text.strip()):
                 self.search_api_key = text.strip()
-                self._append_chat('桌宠', '✅ 联网搜索已配置，AI 可查询最新信息' if not is_en else '✅ Search configured, AI can browse for latest info')
+                self._notify('✅ 联网搜索已配置，AI 可查询最新信息' if not is_en else '✅ Search configured, AI can browse for latest info')
 
     def _save_profile_param(self, name, value):
         """写当前角色的档案参数并落盘（思考开关 / 采样温度等）"""
@@ -5185,14 +5474,14 @@ class PetWidget(QWidget):
             return
         msg = ('思考模式已开启' if want else '思考模式已关闭') if not is_en else \
               ('Thinking on' if want else 'Thinking off')
-        self._append_chat('桌宠', msg + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
+        self._notify(msg + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
 
     def _set_temperature(self, val):
         """设置采样温度（写进当前角色的模型档案）"""
         is_en = getattr(self, 'language', 'zh') == 'en'
         if not self._save_profile_param('temperature', val):
             return
-        self._append_chat('桌宠', (f'采样温度：{val}' if not is_en else f'Temperature: {val}')
+        self._notify((f'采样温度：{val}' if not is_en else f'Temperature: {val}')
                           + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
 
     def _set_temperature_dialog(self):
@@ -5207,7 +5496,7 @@ class PetWidget(QWidget):
             try:
                 self._set_temperature(max(0.0, min(float(text.strip()), 2.0)))
             except ValueError:
-                self._append_chat('桌宠', '请输入数字。' if not is_en else 'Please enter a number.')
+                self._notify('请输入数字。' if not is_en else 'Please enter a number.')
 
     def _on_models_saved(self):
         """模型档案落盘后热加载：刷新角色表 / 模型 ID / 参数"""
@@ -5230,16 +5519,16 @@ class PetWidget(QWidget):
             '输入性格描述（如：傲娇毒舌的学姐）：' if not is_en else 'Enter personality description (e.g. sarcastic senior):', text=self.personality)
         if ok and text.strip():
             if self._save_cfg_value('personality', text.strip()):
-                self._append_chat('桌宠', f'性格设置为：{text.strip()}' if not is_en else f'Personality set to: {text.strip()}')
+                self._notify(f'性格设置为：{text.strip()}' if not is_en else f'Personality set to: {text.strip()}')
 
     def _set_personality(self, p):
         """切换性格（预设，写入配置持久保存）"""
         p = p.strip()
         if p in ['温柔', '傲娇', '吐槽', '元气', '高冷']:
             self._save_cfg_value('personality', p)
-            self._append_chat('桌宠', f'性格切换为：{p}（已保存）')
+            self._notify(f'性格切换为：{p}（已保存）')
         else:
-            self._append_chat('桌宠', '可选性格：温柔/傲娇/吐槽/元气/高冷')
+            self._notify('可选性格：温柔/傲娇/吐槽/元气/高冷')
 
     def switch_char(self, key):
         """切换角色（每个角色独立的对话历史 + 独立模型）"""
@@ -5253,13 +5542,13 @@ class PetWidget(QWidget):
         self.chat_history_msgs = []
         self._clear_chat_history()
         self._load_chat_memory()
-        self._append_chat('桌宠', f'已切换到 {CHARACTERS[key]["name"]}（模型：{self.ai_model}）——这是 {CHARACTERS[key]["name"]} 的独立对话')
+        self._notify(f'已切换到 {CHARACTERS[key]["name"]}（模型：{self.ai_model}）——这是 {CHARACTERS[key]["name"]} 的独立对话')
 
     def toggle_edge_mode(self):
         """切换贴边模式：扒边 ↔ 完全消失"""
         self._edge_mode = 'hidden' if self._edge_mode == 'peek' else 'peek'
         mode_name = '完全消失' if self._edge_mode == 'hidden' else '扒边'
-        self._append_chat('桌宠', f'贴边模式切换为：{mode_name}')
+        self._notify(f'贴边模式切换为：{mode_name}')
         if self._edge_side is not None:
             self._edge_popped = False
             self._enter_dock(self._edge_side, self._popup_y)
@@ -5724,7 +6013,7 @@ class PetWidget(QWidget):
                     except Exception as _exc:
                         _silent_log('toggle_autostart:5603', _exc)   # v6.54
             if True:
-                self._append_chat('桌宠', '❌ 开机自启已关闭（下次开机需手动启动桌宠）')
+                self._notify('❌ 开机自启已关闭（下次开机需手动启动桌宠）')
                 self.say_plain('已关闭开机自启', immediate=True)
             else:
                 # 清理旧版启动项（.bat 残留），防止开机双启动
@@ -5749,13 +6038,13 @@ class PetWidget(QWidget):
                         _wr.CloseKey(rk)
                     except Exception as _exc:
                         _silent_log('toggle_autostart:5629', _exc)   # v6.54
-                    self._append_chat('桌宠', '✅ 开机自启已开启（启动文件夹快捷方式）')
+                    self._notify('✅ 开机自启已开启（启动文件夹快捷方式）')
                     self.say_plain('已开启开机自启', immediate=True)
                 else:
-                    self._append_chat('桌宠', '❌ 自启写入失败')
+                    self._notify('❌ 自启写入失败')
                     self.say_plain('自启写入失败', immediate=True)
         except Exception as e:
-            self._append_chat('桌宠', f'自启设置失败：{e}')
+            self._notify(f'自启设置失败：{e}')
             self.say_plain(f'自启设置失败: {e}', immediate=True)
 
     # ---------- 随机动作 ----------
@@ -5778,11 +6067,22 @@ class PetWidget(QWidget):
             state = f'现在是{now.strftime("%H:%M")}（周{week}），电脑空闲 {idle:.0f} 分钟'
             if last_chat:
                 state += f'，最近对话：{last_chat}'
+            # v6.60 批 4：把最近两条「我主动说过的话」也给模型，避免反复说同类内容
+            try:
+                _cares = [m for m in self.memories.all(self.current)
+                          if str(m.get('title', '')).startswith(('主动关心', '提醒', '问候'))]
+                if _cares:
+                    _recent = '；'.join(str(m.get('detail') or m.get('title'))[:28] for m in _cares[-2:])
+                    state += f'，最近我主动说过：{_recent}（换个角度，不要重复）'
+            except Exception:
+                pass
             return judge_wakeup(
                 self._current_api_key(), self._current_model(), state,
                 CHARACTERS[self.current]['name'],
                 record_cb=self._record_api_usage,
                 endpoint=self._current_endpoint(),
+                # v6.59：仅在用户显式开启「前台程序感知」时才附带信号（默认 None 不影响原逻辑）
+                busy_hint=(fgwin.busy_hint() if getattr(self, 'foreground_aware', False) else None),
             )
         except Exception:
             return None
@@ -5811,7 +6111,9 @@ class PetWidget(QWidget):
         display, emotion = self._strip_emotion_tag(msg)
         if emotion:
             self._apply_emotion(emotion)
-        self.say_plain(display, immediate=True)
+        # v6.60 批 3：主动关心走独立「关心气泡」（左侧色条 + 可点开接话 + 入回忆日志）
+        self.say_care(display, kind='care')
+        self._care_mark()   # v6.60 批 4：计入冷却与每日上限
 
     def _ai_followup(self, topic):
         """回访机制（消息生成拆至 care_engine.followup_message，此处组装状态+发信号）"""
@@ -5840,24 +6142,113 @@ class PetWidget(QWidget):
         import threading
         threading.Thread(target=work, daemon=True).start()
 
+    # ---- v6.60 批 4：关心的节流 / 场景触发 / 措辞多样化 ----
+    CARE_COOLDOWN_MIN = 20           # 两次主动关心最短间隔（分钟）
+    CARE_DAILY_MAX = 8               # 每日上限（次）
+    CARE_SCENE_WINDOW = (30, 300)    # 「休息间隙」判定窗口（秒）
+
+    def _is_night(self, hour=None):
+        """深夜静默（23:00–8:00）——与链式判断提示词里的规则一致，改为硬约束"""
+        h = datetime.datetime.now().hour if hour is None else int(hour)
+        return h >= 23 or h < 8
+
+    def _care_allowed(self):
+        """三重节流：深夜静默 / 冷却 / 每日上限。返回 (是否允许, 原因)"""
+        if self._is_night():
+            return False, '深夜静默'
+        if time.time() - getattr(self, '_care_last_at', 0) < self.CARE_COOLDOWN_MIN * 60:
+            return False, '冷却中（%d 分钟内已关心过）' % self.CARE_COOLDOWN_MIN
+        day = datetime.datetime.now().strftime('%Y-%m-%d')
+        st = getattr(self, '_care_today', None)
+        if not st or st.get('date') != day:
+            st = {'date': day, 'n': 0}
+            self._care_today = st
+        if int(st.get('n', 0)) >= self.CARE_DAILY_MAX:
+            return False, '已达当日上限 %d 次' % self.CARE_DAILY_MAX
+        return True, ''
+
+    def _care_mark(self):
+        """记一次关心（冷却与每日上限用）。注：内存计数，重启会重置（不写用户 config）"""
+        self._care_last_at = time.time()
+        day = datetime.datetime.now().strftime('%Y-%m-%d')
+        st = getattr(self, '_care_today', None)
+        if not st or st.get('date') != day:
+            st = {'date': day, 'n': 0}
+        st['n'] = int(st.get('n', 0)) + 1
+        self._care_today = st
+
+    def _note_foreground(self, proc):
+        """采样前台程序类别（仅前台感知开启时调用）——用于「休息间隙」场景触发"""
+        try:
+            cat = fgwin.categorize(proc) or 'other'
+        except Exception:
+            return
+        prev = getattr(self, '_fg_cat', '')
+        if cat == prev:
+            return
+        self._fg_cat = cat
+        if prev in ('code', 'office', 'meeting', 'game', 'video') and cat in ('browser', 'terminal', 'other'):
+            self._fg_break_at = time.time()   # 从专注切到不表态 → 视为休息间隙
+            self._scene_used = False
+
+    def _scene_ready(self):
+        """休息间隙是否可用于提前关心（窗口 30–300 秒内、本次间隙未用过）"""
+        if not getattr(self, 'foreground_aware', False):
+            return False
+        if getattr(self, '_scene_used', True):
+            return False
+        lo, hi = self.CARE_SCENE_WINDOW
+        return lo <= (time.time() - getattr(self, '_fg_break_at', 0)) <= hi
+
+    def _pick_care_line(self, kind='care'):
+        """兜底关心措辞：从措辞库取一句，且与上一条不重复（v6.60 批 4）"""
+        lang = 'en' if getattr(self, 'language', 'zh') == 'en' else 'zh'
+        line = care_engine.pick_fallback(lang, kind, getattr(self, '_last_care_line', ''))
+        if line:
+            self._last_care_line = line
+        return line
+
     def _check_active_chat(self):
-        """主动关心检查：到点触发。AI 可用→链式判断；AI 不可用→随机台词兜底"""
+        """主动关心检查（v6.60 批 4）
+
+        触发：① 到点（链式唤醒给的间隔）；② 场景触发——前台程序从「专注」切到浏览器/桌面，
+              在 30–300 秒窗口内视为休息间隙（仅开启前台感知时生效）。
+        节流：深夜静默 / 冷却 20 分钟 / 每日上限 8 次；未通过则顺延并记 debug 日志。
+        """
         if not self.active_chat_enabled or self.sleeping:
             return
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
-            return
+            # v6.60 批 3：不再静默放弃这一次 —— 先探头把话说出来，说完再缩回扒边
+            try:
+                self._popup_from_dock()
+                self._dock_rehide = True
+            except Exception as e:
+                log.debug('扒边探头失败，本轮跳过：%s', e)
+                return
         now = time.time()
-        if now < self._active_chat_next:
+        if getattr(self, 'foreground_aware', False):
+            self._note_foreground(fgwin.foreground_process_name())
+        scene = self._scene_ready()
+        if now < self._active_chat_next and not scene:
             return
+        ok, why = self._care_allowed()
+        if not ok:
+            log.debug('本次关心跳过：%s', why)
+            if now >= self._active_chat_next:
+                self._active_chat_next = now + 300   # 节流中：5 分钟后再看
+            return
+        if scene:
+            self._scene_used = True
+            log.info('场景触发：检测到休息间隙（前台类别 %s）', getattr(self, '_fg_cat', '?'))
         if self.ai_enabled:
             import threading
             threading.Thread(target=self._wakeup_worker, daemon=True).start()
         else:
-            # AI 不可用：随机台词兜底（原心跳）
-            lines = self._char_lines('greetings')
-            extra = ['该喝水啦～', '要不要休息一下眼睛？', '坐久了记得站起来走走～', '今天也要加油鸭！'] if getattr(self, 'language', 'zh') != 'en' else ['Time for some water～', 'Rest your eyes a bit?', 'Stand up and stretch!', 'Keep going today!']
-            lines = (lines or []) + extra
-            self.say_plain(random.choice(lines))
+            # AI 不可用：兜底措辞（v6.60 批 4：从措辞库取，且不与上一条重复）
+            line = self._pick_care_line('rest')
+            if line:
+                self.say_care(line, kind='care')
+                self._care_mark()
             self._active_chat_next = now + random.uniform(480, 1200)
 
     def toggle_active_chat(self):
@@ -5866,7 +6257,7 @@ class PetWidget(QWidget):
         self._save_cfg_value('active_chat', self.active_chat_enabled)
         state = '已开启' if self.active_chat_enabled else '已关闭'
         mode = 'AI 智能判断（链式唤醒+回访）' if self.active_chat_enabled else ''
-        self._append_chat('桌宠', f'主动关心{state}{mode}')
+        self._notify(f'主动关心{state}{mode}')
         self.say_plain(f'主动关心{state}', immediate=True)
 
     def _run_plugin_menu(self, command):
@@ -6235,7 +6626,7 @@ class PetWidget(QWidget):
             # 更新输入框 placeholder
             self.chat_input.setPlaceholderText(self._t('chat_placeholder'))
             msg = '语言已切换为中文' if lang == 'zh' else 'Language switched to English'
-            self._append_chat('桌宠', msg)
+            self._notify(msg)
             self.say_plain(msg, immediate=True)
 
 

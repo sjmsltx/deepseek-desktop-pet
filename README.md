@@ -172,6 +172,7 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 - 唤醒判断独立上下文，不污染主对话
 
 ### 🖥️ 桌宠体验
+- **三类信息分层（v6.60）**：对话气泡 / 关心气泡（左侧色条、可点开接话、停留 ≥8 秒、悬停暂停）/ 系统提示（窗口底部状态条，2.5 秒淡出，不写聊天记录）
 - 透明置顶悬浮窗，立绘随情绪切换（[emotion:happy] 等标签），眨眼/呼吸/头发动画
 - 右键菜单整合：角色 / 聊天 / 互动 / 贴边 / 动作 / 性格 / 设置 / 记忆管理
 - 全局热键 `Ctrl+Alt+P` 呼出聊天
@@ -369,10 +370,10 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 
 想学习或贡献？先看 [CONTRIBUTING.md](CONTRIBUTING.md)（含源码阅读路线图）。
 
-- [ ] 前台窗口感知（判断用户在忙什么）
-- [ ] 更多角色 / Live2D 骨骼动画
-- [ ] 语音交互（TTS/ASR）
-- [ ] 插件化工具系统
+- [x] 前台窗口感知（判断用户在忙什么）—— v6.59 实现：**可选开关、默认关闭**，只读前台进程名（不读窗口标题/内容、不联网）
+- [x] 插件化工具系统 —— 已落地：`plugins/` 目录 + 安装 / 卸载 / 列举工具（内置主题与示例插件）
+- [ ] 语音交互（TTS/ASR）—— 计划中
+- [ ] 更多角色 / Live2D 骨骼动画 —— 暂缓（吃美术资产，边际收益低）
 
 ## 📄 License
 

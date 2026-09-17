@@ -173,10 +173,10 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 
 Want to learn from or contribute to this project? Start with [CONTRIBUTING.md](CONTRIBUTING.md) (includes a source-reading map).
 
-- [ ] Foreground window awareness (detect what user is doing)
-- [ ] More characters / Live2D skeletal animation
-- [ ] Voice interaction (TTS/ASR)
-- [ ] Plugin-based tool system
+- [x] Foreground window awareness — shipped in v6.59 as an **opt-in toggle (off by default)**; reads only the process name (no window titles, no content, no network)
+- [x] Plugin-based tool system — shipped: `plugins/` with install / uninstall / list tools
+- [ ] Voice interaction (TTS/ASR) — planned
+- [ ] More characters / Live2D skeletal animation — deferred (asset-heavy, low marginal value)
 
 ## 📄 License
 

@@ -1,0 +1,159 @@
+{
+  "assets": {
+    "char": "flash",
+    "count": 45,
+    "files": {
+      "flash_angry.png": "654575:6cc65ea06ba3f6a08af92279d9eae629",
+      "flash_blink.jpg": "1065118:a5cbd5cbe15cfd1ddb7eed5b489a3272",
+      "flash_blink.png": "639993:4719e1b502be69f3cf020758e7d0b9c5",
+      "flash_coffee.png": "641817:9c05ee9b2d950bd29a37b1d6585d3562",
+      "flash_cry.png": "747659:0172c3e836cb3c4a2c57dbe495eb678b",
+      "flash_dance.png": "785462:661411d53dbd3c8926943ae6d4344dac",
+      "flash_defeat.png": "733520:0d631fb9e6badb68ff1f108683cbb968",
+      "flash_eating.png": "669664:4401a0b5ea40816a65958deb430cc2ea",
+      "flash_excited.png": "632390:04b57ed9adff189c17833d6ad9dc9b95",
+      "flash_exercise.png": "643252:202c24fc665e3e14dceeab804701e388",
+      "flash_flower.png": "641702:6d175963713c84fa26656cddc40cf14b",
+      "flash_flower_give.png": "747596:c329fd6c749f1f9eb9e177e42e7d4f16",
+      "flash_gift.png": "630768:5f97f752703d38fd3cd2cad0365670e9",
+      "flash_happy.jpg": "1111430:c6788f0fbffb4d8e57a1c0f1e26d4c92",
+      "flash_happy.png": "676067:24831d633bc3d647b2ed68a9d24182c0",
+      "flash_hug_whale.png": "734282:417e326d05b416892ba47e26886b81ff",
+      "flash_hungry.png": "762174:aac94016f8e8b0533e4aef48c9817023",
+      "flash_idle.jpg": "1086185:64300e354b519ce32abf1eb966a961b8",
+      "flash_idle.png": "658125:842e343050beec6a3cfc68985638dbd5",
+      "flash_kiss.png": "741897:cce7ee477fb2a2db83542ccc6293d65f",
+      "flash_lying.png": "739049:94f2b4ad27430fce31e0185d17accb51",
+      "flash_music.png": "519714:987404eee07635b137b7ba9ddbe7a037",
+      "flash_pat.png": "729143:e98ba961e48dd3a66f9b618711511a84",
+      "flash_peek.png": "478069:c020a8e41e058e3610c01640d674c901",
+      "flash_peek_bottom.png": "569658:ce20d681e5ab8e7da623df7593290a41",
+      "flash_peek_bottom_sleep.png": "367811:670fd9507d8bb525ea126a72273ded7d",
+      "flash_peek_sleep.png": "494849:dd0e23d44f853a01ae25c9438556dda6",
+      "flash_peek_top.png": "744822:9bd5112482c00c5f50970af33d2e866b",
+      "flash_phone.png": "593988:a008ea19ad64b51f951ca15e5b81accd",
+      "flash_proud.png": "751209:6a65bd8d1448704b328bc910cfffa90e",
+      "flash_reading.png": "674028:0042869fd879857cc218673c59a045bd",
+      "flash_sad.png": "587699:cb1c4f1c328b79f566d5d0737c254ecd",
+      "flash_shy.png": "658208:5229d80862128ba509789abe1e7d03f0",
+      "flash_shy_hug.png": "758045:3496e87fb2bf328f5632aef0996946a1",
+      "flash_sing.png": "759459:a5991d5003855be8c0beaae990116954",
+      "flash_sleep.jpg": "1060742:ee43ffc950aafebcd5cead411792407a",
+      "flash_sleep.png": "636235:0173cdae329b4a73b0d8d0731a6da46b",
+      "flash_surprised.png": "733510:339fa9cc66b62707429e2dfd2abdf781",
+      "flash_thinking.jpg": "1095014:8bf117686d3540232d39fa8897f90a8f",
+      "flash_thinking.png": "615907:892686f5ceed78bd8c6037505d9c77d4",
+      "flash_typing.png": "690458:34b3970d89958c21461bb489e3cfb242",
+      "flash_umbrella.png": "781988:0f55b5b1bfdd25d2b4ed1f165b362c0f",
+      "flash_victory.png": "820619:87ec382689493afcd11e70f67c526ebf",
+      "flash_waving.jpg": "1153598:223e8fa101c839e6ac430400ebfabb93",
+      "flash_waving.png": "624181:71317368d5a2e303c32a07c6213f2d5c"
+    }
+  },
+  "frame": {
+    "idle": "260x260:25eac1793e6abbacf12c1f2e31737597",
+    "idle_dx+10": "260x260:ce6a6e725919d4b78f64eba190d18b83",
+    "idle_dx-20": "260x260:151d0542c6ba3de4a9ae83ae645052e1",
+    "scene_eat": "1024x1024:98fc2c53e4d13baac9a31e0e4a55a4c0",
+    "scene_music": "1024x1024:7045382948444a08301b3d68d26bbd43",
+    "scene_read": "1024x1024:98fc2c53e4d13baac9a31e0e4a55a4c0",
+    "scene_sport": "1024x1024:98fc2c53e4d13baac9a31e0e4a55a4c0",
+    "state_angry": "1024x1024:8dd62fd5d0702757cd829c6637f2b765",
+    "state_happy": "1024x1024:38e38aa5d7f6eada62651874aa0e9738",
+    "state_idle": "1024x1024:98fc2c53e4d13baac9a31e0e4a55a4c0",
+    "state_sad": "1024x1024:45bf41083d3e8829c7975e977037add7",
+    "state_scared": "1024x1024:98fc2c53e4d13baac9a31e0e4a55a4c0",
+    "state_shy": "1024x1024:922d9b5f9fd944e2039fbd5d27f4bc62",
+    "state_sleep": "1024x1024:b593dcb8ad483f6019aa89670b867a6b",
+    "state_thinking": "1024x1024:cc15b841c4048c122bf710768de8c3b4"
+  },
+  "geometry": {
+    "pet_size": 260,
+    "window_size": [
+      440,
+      560
+    ]
+  },
+  "markdown": {
+    "_blocks_split": [
+      "f78ffe7c89fbc55ef6b45d45e9199871",
+      "c503703e250d3136a1d44c1395ee0c06",
+      "612f3845f75174ca29b53958a43d41cc",
+      "cc6c61cddc474dbb7e7457ae680c02b6",
+      "97840d775c722515cfd848d22440a61d",
+      "e734b6033f4e250e12fda2c5451d8121"
+    ],
+    "sample_00": "5ddaeb0e175df2a4f303a34beb85d088",
+    "sample_01": "ee55a5c54b9bae37dc95ed6517e718a3",
+    "sample_02": "bc2abf22f2bdba38490aa13b2b4abdac",
+    "sample_03": "caa90e137793483c4fbb4487eb8d5769",
+    "sample_04": "c657752c2ee81353153aef9b3130554d",
+    "sample_05": "bde536c653b8611dc3092fbc72b48723",
+    "sample_06": "2aee9d32f1d7b9242fabff52a2d2809f",
+    "sample_07": "3cf1034d5c7d3156531fc79fedb4f9ea",
+    "sample_08": "6b34b655cf2e51b6df440192d214d671",
+    "sample_09": "c870b94d91cae52591620e27a8fbbeb4",
+    "sample_10": "e3b0c44298fc1c149afbf4c8996fb924",
+    "sample_11": "01756f737de480c52e5e41841fb79fe9"
+  },
+  "state_machine": {
+    "angry": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "happy": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "idle": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "sad": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "scared": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "shy": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "sleep": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    },
+    "thinking": {
+      "state": "ERR:PetWidget.set_state() takes 1 positional argument but 2 were given"
+    }
+  },
+  "theme": {
+    "current_theme": "default",
+    "stylesheet_colors": 0,
+    "stylesheet_hash": "e3b0c44298fc1c149afbf4c8996fb924",
+    "stylesheet_len": 0,
+    "theme_hash": "4c6e3cb3282a0a3fe2ccb84bda925f0f",
+    "theme_keys": [
+      "accent",
+      "ai_bubble",
+      "bubble_text",
+      "input_bg",
+      "input_focus",
+      "input_text",
+      "name_ai",
+      "name_user",
+      "panel_bg",
+      "say_bg",
+      "say_border",
+      "say_text",
+      "scroll_bg",
+      "scroll_handle",
+      "scroll_handle_hover",
+      "text",
+      "user_bubble"
+    ]
+  },
+  "ui_probe": {
+    "bubble_text": null,
+    "choice_buttons": "list",
+    "status_widget": false,
+    "stream_text": "",
+    "thinking_hidden": true,
+    "thinking_text": null
+  }
+}

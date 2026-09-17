@@ -16,9 +16,11 @@ settings_ui.py — 统一设置窗口（Phase 5）
 """
 import os
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout,
                                QLabel, QLineEdit, QListWidget, QPushButton, QStackedWidget,
                                QVBoxLayout, QWidget)
+import pet_foreground as fgwin  # v6.59 前台程序感知（只读进程名，隐私边界见模块头部）
 from pet_theme import DEFAULT_THEME  # v6.57 主题 token 唯一源（消除本模块里的"第二套配色"）
 
 PAGES = ('通用', '对话', '外观', '模型与 API', '记忆与数据', '系统')
@@ -39,6 +41,11 @@ class SettingsDialog(QDialog):
         self.registry = registry     # 模型档案注册表（宿主里是模块级变量，显式传进来）
         self._building = False          # 构建/刷新期间屏蔽控件信号，避免回写
         self.setWindowTitle('⚙️ 设置')
+        # v6.59：前台程序感知的实时状态行（让开关的效果"看得见"）
+        self._fg_timer = QTimer(self)
+        self._fg_timer.setInterval(1000)
+        self._fg_timer.timeout.connect(self._update_fg_now)
+        self._fg_timer.start()
         self.resize(800, 600)
 
         root = QHBoxLayout(self)
@@ -129,6 +136,19 @@ class SettingsDialog(QDialog):
         self.ck_active.toggled.connect(self._toggle_active_chat)
         f.addRow('主动关心', self.ck_active)
 
+        # v6.59：前台程序感知 —— 用户要求的「单独的、明确的勾选选项」，默认关闭。
+        # 与「主动关心」平级但独立：不勾选则完全不读取前台程序。
+        self.ck_fg = QCheckBox('开启（默认关闭）')
+        self.ck_fg.toggled.connect(self._toggle_foreground)
+        f.addRow('前台程序感知', self.ck_fg)
+        self.lb_fg_note = QLabel(fgwin.privacy_note())
+        self.lb_fg_note.setWordWrap(True)
+        self.lb_fg_note.setStyleSheet(STYLE_HINT)
+        f.addRow('', self.lb_fg_note)
+        self.lb_fg_now = QLabel('当前检测：—（未开启）')
+        self.lb_fg_now.setStyleSheet(STYLE_HINT)
+        f.addRow('', self.lb_fg_now)
+
         # v6.53：工具梯级暴露 —— 默认只给陪伴/日常高频工具，省 ≈4K token/请求且人设更稳
         self.ck_adv = QCheckBox('放开全部工具（进阶模式）')
         self.ck_adv.toggled.connect(self._toggle_advanced_tools)
@@ -142,6 +162,32 @@ class SettingsDialog(QDialog):
         self.cb_edge.currentIndexChanged.connect(self._apply_edge_mode)
         f.addRow('贴边模式', self.cb_edge)
         return p
+
+    def _toggle_foreground(self, on):
+        """v6.59：前台程序感知开关（落盘与提示由宿主负责）"""
+        if self._building:
+            return
+        self.host.set_foreground_aware(bool(on))
+        self._update_fg_now()
+
+    def _update_fg_now(self):
+        """实时显示「现在检测到什么」——让使用者能当场看到这个开关的效果"""
+        try:
+            if not self.isVisible():
+                return
+            if not bool(getattr(self.host, 'foreground_aware', False)):
+                self.lb_fg_now.setText('当前检测：—（未开启）')
+                return
+            name = fgwin.foreground_process_name() or '—'
+            cat = fgwin.categorize(name)
+            level = fgwin.busy_level(name)
+            zh = {'high': '高度专注、建议不打扰',
+                  'mid': '专注但可打断',
+                  'none': '不表态，按原规则'}.get(level, '不表态')
+            label = fgwin.category_label(cat) if cat and cat != 'other' else '其他'
+            self.lb_fg_now.setText('当前检测：%s（%s · %s）' % (name, label, zh))
+        except Exception:
+            pass
 
     def _apply_city(self):
         if self._building:
@@ -353,6 +399,8 @@ class SettingsDialog(QDialog):
             self.ed_city.setText(getattr(h, 'pet_city', '') or '')
             self.ck_active.setChecked(bool(getattr(h, 'active_chat_enabled', False)))
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
+            self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
+            self._update_fg_now()
             # 对话
             idx = self.cb_persona.findData(getattr(h, 'personality', '温柔'))
             self.cb_persona.setCurrentIndex(idx if idx >= 0 else 0)

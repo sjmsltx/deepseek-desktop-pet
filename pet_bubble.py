@@ -139,12 +139,24 @@ def render_md_into(content_layout, text, theme, is_user=False):
     return made
 
 
-def apply_say_bubble_theme(bubble, theme):
-    """说话气泡（顶部 QLabel）跟随主题；颜色取自主题，缺键时回退原来的浅色外观"""
+def apply_say_bubble_theme(bubble, theme, mode='say'):
+    """说话气泡（顶部 QLabel）跟随主题；颜色取自主题，缺键时回退原来的浅色外观。
+
+    mode='say'  普通说话（现状不变）
+    mode='care' 关心气泡（v6.60 批 3）：左侧加一条 accent 色条 + 稍大圆角，
+                用于区分「它主动找我」与「系统提示」，可与普通气泡一眼分开。
+    """
     t = theme or {}
+    bg = t.get('say_bg') or _THEME['say_bg']
+    fg = t.get('say_text') or _THEME['say_text']
+    bd = t.get('say_border') or _THEME['say_border']
+    if mode == 'care':
+        accent = t.get('accent') or _THEME.get('accent') or bd
+        bubble.setStyleSheet(
+            'QLabel { background-color: %s; color: %s; border: 2px solid %s;'
+            ' border-left: 4px solid %s; border-radius: 10px;'
+            ' padding: 8px 12px; font-size: 13px; }' % (bg, fg, bd, accent))
+        return
     bubble.setStyleSheet(
         'QLabel { background-color: %s; color: %s; border: 2px solid %s;'
-        ' border-radius: 10px; padding: 8px 12px; font-size: 13px; }' % (
-            t.get('say_bg') or _THEME['say_bg'],
-            t.get('say_text') or _THEME['say_text'],
-            t.get('say_border') or _THEME['say_border']))
+        ' border-radius: 10px; padding: 8px 12px; font-size: 13px; }' % (bg, fg, bd))
