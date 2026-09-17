@@ -32,6 +32,12 @@ pip install pytest ruff   # 开发依赖
 3. 提交并推送，然后发起 Pull Request
 4. 描述中说明：改了什么、为什么改、如何验证
 
+## 🌱 新手任务（Good First Issues）
+
+第一次参与开源、不知道从哪下手？看 **[docs/good-first-issues.md](docs/good-first-issues.md)** ——
+里面是 5 条已拆好的任务，每条都标了**难度**、**涉及文件**和**验收标准**（改文案、小游戏记住设置、补测试、
+扩写文档、打包自检）。满足验收标准就能提 PR，不需要先读懂整个项目。
+
 ## 报告 Bug
 
 请用 Issue 模板提交，包含：
@@ -43,3 +49,12 @@ pip install pytest ruff   # 开发依赖
 ## 行为准则
 
 参与本项目即表示你同意遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+
+## 相关文档
+
+| 文档 | 用途 |
+|------|------|
+| [SECURITY.md](SECURITY.md) | 安全模型与漏洞报告流程（勿公开提 Issue） |
+| [docs/good-first-issues.md](docs/good-first-issues.md) | 新手任务候选（含验收标准） |
+| [CHANGELOG.md](CHANGELOG.md) | 发布版本变更记录 |
+| [docs/live2d_pipeline.md](docs/live2d_pipeline.md) | Live2D 接入全流程 |

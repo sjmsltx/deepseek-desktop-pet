@@ -1,0 +1,61 @@
+name: 🐛 Bug 报告
+description: 报告一个让项目无法正常工作的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先**搜索已有 Issue**，避免重复。
+        ⚠️ 粘贴日志前请删除 API Key、路径中的用户名等隐私信息。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 发布版本号（见 CHANGELOG.md）或源码内部开发号（v6.xx）
+      placeholder: "2.7.2 / v6.58"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 运行环境
+      description: 系统、Python 版本、PySide6 版本、是否打包版
+      placeholder: "Windows 11 26200 · Python 3.10.20 · PySide6 6.11.1 · 源码运行"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 实际现象 + 你期望的结果
+      placeholder: "点击「小游戏」后窗口是空白的，期望能看到游戏列表"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开桌宠
+        2. 右键 → 小游戏
+        3. 看到空白窗口
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 报错（可选）
+      description: "`logs/pet.log` 相关片段，或控制台报错。请先脱敏。"
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue，确认不是重复问题
+          required: true
+        - label: 我已删除日志中的敏感信息（API Key / 个人信息 / 本地路径）
+          required: true

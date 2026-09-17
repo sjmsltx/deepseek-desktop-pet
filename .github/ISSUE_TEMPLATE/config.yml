@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 使用文档 / 常见问题
+    url: https://github.com/sjmsltx/deepseek-desktop-pet#readme
+    about: 安装、配置、功能说明先看 README（含英文版 README.en.md）
+  - name: 🔐 安全漏洞（请勿公开提 Issue）
+    url: https://github.com/sjmsltx/deepseek-desktop-pet/security/advisories/new
+    about: 安全问题请走私密渠道，见 SECURITY.md
+  - name: 💬 讨论与提问
+    url: https://github.com/sjmsltx/deepseek-desktop-pet/discussions
+    about: 用法交流、想法讨论（若 Discussions 未开启，请用 Issue 的「功能建议」）

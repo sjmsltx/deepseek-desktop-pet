@@ -19,6 +19,33 @@
 
 **[English](README.en.md) | [中文](README.md)**
 
+## 🌍 English Summary（给国际访客 / for search & AI crawlers）
+
+**DeepSeek Desktop Pet** is a local-first AI desktop companion for Windows, built with **PySide6 (Qt) + the DeepSeek API**.
+It lives on your desktop as an animated character that chats, remembers, uses tools — and proactively cares about you.
+
+- **Dual characters** (Flash / Pro) with distinct personalities, emotion states and an affection (好感度) progression
+- **Long-term memory**: BM25 retrieval + auto fact extraction + LLM re-ranking
+- **Tool calling**: time · weather · reminders · todo · PowerShell automation · web search · MCP servers · installable plugins
+- **Theme system**: 86 design tokens with a single source of truth, plus installable theme plugins
+- **Extensible**: plugin system (tool / menu / rules / theme / skill) and self-editing code tools with backup + syntax gate
+- **15 mini-games**, an art → Live2D pipeline, and a **bilingual UI (中文 / English)**
+
+**Keywords:** desktop pet · AI companion · LLM desktop assistant · DeepSeek · PySide6 · Qt for Python ·
+Live2D · function calling · MCP · plugin system · local-first · Windows desktop app
+
+**Quick start (Windows)**
+
+```powershell
+git clone https://github.com/sjmsltx/deepseek-desktop-pet.git
+cd deepseek-desktop-pet
+pip install -r requirements.txt
+python desktop_pet.py
+```
+
+Full English documentation: [README.en.md](README.en.md) · Live2D pipeline: [docs/live2d_pipeline.md](docs/live2d_pipeline.md) ·
+How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/good-first-issues.md](docs/good-first-issues.md)
+
 ## 📸 截图
 
 | 双角色立绘 | 表情与动作 | 运行实拍 |

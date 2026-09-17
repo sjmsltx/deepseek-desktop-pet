@@ -1,0 +1,52 @@
+name: ✨ 功能建议
+description: 提出一个新功能、改进或文档建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎建议！请尽量说明**使用场景**，而不只是"想要什么功能"——
+        场景清楚时更容易判断该不该做、怎么做最简。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及范围
+      options:
+        - 陪伴体验（聊天 / 记忆 / 好感度 / 主动关心）
+        - 工具能力（PowerShell / 上网 / MCP / 插件）
+        - 外观主题（主题 token / 主题插件 / 立绘）
+        - 小游戏 / 养成
+        - 打包 / 性能 / 安装
+        - 文档 / 示例
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: scene
+    attributes:
+      label: 使用场景
+      description: 你在什么情况下需要它？现在是怎么绕过去的？
+      placeholder: "我想让桌宠在我写论文时自动进入免打扰，现在只能手动关掉主动消息。"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你设想的方案（可选）
+      placeholder: "可以提供一个「专注模式」开关，开启后 30 分钟内不主动说话。"
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案 / 类似项目怎么做的（可选）
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue 与 README（避免提已被实现或已讨论的功能）
+          required: true
