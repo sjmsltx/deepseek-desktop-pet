@@ -6,6 +6,9 @@
 ![Stars](https://img.shields.io/github/stars/sjmsltx/deepseek-desktop-pet)
 ![Last Commit](https://img.shields.io/github/last-commit/sjmsltx/deepseek-desktop-pet)
 
+> [!TIP]
+> **📦 直接下载（Windows 免安装）**：[最新版便携包 ↗](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest) — 解压即用，无需 Python 环境（需自备 DeepSeek API Key）。想从源码运行或自己打包，见 [🚀 快速开始](#-快速开始)。
+
 一只住在你电脑里的 Q 版桌宠：会陪你聊天、帮你干活、还能主动关心你。
 
 ![V4 Flash & V4 Pro 双角色](screenshots/hero.png)
@@ -203,6 +206,13 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 - 互动菜单精简：常用 5 动作直显，其余收「🎬 更多动作」子菜单
 
 ## 🚀 快速开始
+
+### 方式一：下载便携包（推荐，无需 Python）
+
+到 **[Releases 最新版](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)** 下载 `DeepSeekPet-v*-win64.zip`（约 305 MB），解压后双击启动即可。
+首次运行在 GUI 里配置 API Key：右键桌宠 → ⚙️ 设置 → 🔑 API 设置。
+
+### 方式二：从源码运行
 
 ```powershell
 # 1. 安装依赖
