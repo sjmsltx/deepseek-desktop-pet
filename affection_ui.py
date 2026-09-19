@@ -8,7 +8,8 @@ LiveGalGame 式可视化（变化动效 +N↑ 在 Phase 2 与余额气泡一起�
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QProgressBar, QPushButton, QScrollArea, QWidget, QFrame,
                                QGraphicsOpacityEffect, QListWidget, QListWidgetItem)
-from PySide6.QtCore import Qt, QPropertyAnimation, QPoint, QEasingCurve
+from PySide6.QtCore import (Qt, QPropertyAnimation, QPoint, QEasingCurve,
+                            QSequentialAnimationGroup, QParallelAnimationGroup)
 
 from affection_engine import AFFECTION_MAX, AFFECTION_INIT, xp_for_level, stage_from_affection
 
@@ -133,8 +134,12 @@ class CostBubble(QLabel):
         self._op_anim = QPropertyAnimation(self._op, b'opacity', self)
         self._finished = False
 
-    def show_bubble(self, x: int, y: int, dy: int = -46, duration: int = 1400):
-        """从 (x,y) 上浮 dy 并渐隐，结束后销毁自己"""
+    def show_bubble(self, x: int, y: int, dy: int = -46, duration: int = 1400, hold_ms: int = 0):
+        """从 (x,y) 上浮 dy 并渐隐，结束后销毁自己。
+
+        hold_ms > 0 时先原地静止 hold_ms 毫秒再开始上浮渐隐 —— 费用/好感这类数字
+        一闪而来看不清（v6.61：使用者反馈「一秒钟之内就没了」）。
+        """
         self.move(x, y)
         self.show()
         self.raise_()
@@ -148,8 +153,18 @@ class CostBubble(QLabel):
         self._op_anim.setStartValue(1.0)
         self._op_anim.setEndValue(0.0)
         self._pos_anim.finished.connect(self._on_done)
-        self._pos_anim.start()
-        self._op_anim.start()
+        if hold_ms > 0:
+            # 静止段：文字保持满不透明度，读完再上浮渐隐
+            fade = QParallelAnimationGroup(self)
+            fade.addAnimation(self._pos_anim)
+            fade.addAnimation(self._op_anim)
+            self._group = QSequentialAnimationGroup(self)
+            self._group.addPause(int(hold_ms))
+            self._group.addAnimation(fade)
+            self._group.start()
+        else:
+            self._pos_anim.start()
+            self._op_anim.start()
 
     def _on_done(self):
         if not self._finished:

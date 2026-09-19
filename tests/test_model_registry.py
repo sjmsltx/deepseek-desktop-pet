@@ -124,9 +124,10 @@ def test_empty_profiles_recovers():
 # ---------- 6. 价格查询 ----------
 def test_price_lookup():
     reg, _, _ = _fresh()
-    assert reg.price_for('deepseek-flash')['output'] == 4.5
-    assert reg.price_for('deepseek-v4-flash')['output'] == 4.5, '别名应命中'
-    assert reg.price_for('flash')['output'] == 4.5, '档案键应命中'
+    # v6.62 按官方定价页校正：flash 空闲价 1/0.02/4（原档案写的 1.5/0.05/4.5 与官方不符）
+    assert reg.price_for('deepseek-flash')['output'] == 4.0
+    assert reg.price_for('deepseek-v4-flash')['output'] == 4.0, '别名应命中'
+    assert reg.price_for('flash')['output'] == 4.0, '档案键应命中'
     assert reg.price_for('deepseek-v4-pro')['output'] == 13.5
     assert reg.price_for('totally-unknown') is None, '未知模型必须返回 None，不静默兜底'
     assert reg.price_for('') is None

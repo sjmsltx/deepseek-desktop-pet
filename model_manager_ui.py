@@ -21,7 +21,7 @@ import threading
 
 from PySide6.QtCore import Qt, Signal
 from pet_theme import DEFAULT_THEME as _THEME, color as _T  # v6.58 主题化（提示色走唯一源）
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDoubleSpinBox, QFormLayout, QGroupBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QGroupBox,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QSpinBox,
                                QVBoxLayout)
@@ -101,9 +101,27 @@ class ModelManagerDialog(QDialog):
         self.sp_tokens.setSingleStep(1000)
         self.sp_tokens.setGroupSeparatorShown(True)
         self.ck_reason = QCheckBox('开启（推理模型会先输出思考过程）')
+        # v6.62：思考强度 + 视觉能力
+        self.cb_effort = QComboBox()
+        for _lv in ('none', 'low', 'high', 'max'):
+            self.cb_effort.addItem(_lv, _lv)
+        self.cb_effort.setToolTip('思考深度：越低越快越省 token；none = 不思考')
+        self.ck_vision = QCheckBox('支持图片输入（图片可直接交给模型看）')
+        self.ck_vision.setToolTip('官方能力表：deepseek-flash 支持看图，deepseek-v4-pro 不支持')
+        # v6.62：计价方式（接第三方模型时不再被官方峰谷规则误加倍）
+        self.cb_pricing = QComboBox()
+        for _v, _lab in (('auto', '自动（按接口地址判断）'),
+                         ('deepseek_peak', '官方峰谷（高峰价 ×2）'),
+                         ('flat', '固定价（不区分峰谷）')):
+            self.cb_pricing.addItem(_lab, _v)
+        self.cb_pricing.setToolTip('自动：官方地址（api.deepseek.com）按峰谷计价；'
+                                   '第三方/中转地址按固定价，不会被 DeepSeek 的峰谷规则加倍')
         f2.addRow('采样温度', self.sp_temp)
         f2.addRow('输出上限', self.sp_tokens)
         f2.addRow('思考模式', self.ck_reason)
+        f2.addRow('思考强度', self.cb_effort)
+        f2.addRow('视觉能力', self.ck_vision)
+        f2.addRow('计价方式', self.cb_pricing)
         right.addWidget(gb2)
 
         gb3 = QGroupBox('价格（每百万 token 单价，用于费用统计）')
@@ -118,6 +136,12 @@ class ModelManagerDialog(QDialog):
         f3.addRow('输入', self.sp_pin)
         f3.addRow('缓存命中', self.sp_pcache)
         f3.addRow('输出', self.sp_pout)
+        # v6.62：官方价分峰谷，这里编辑的是空闲价（高峰为两倍），提醒一下避免误解
+        _pk = QLabel('以上为官方空闲时段价（元/百万 token）：高峰时段为其 2 倍（仅「计价方式」为官方峰谷时生效）；'
+                     '第三方模型请填真实价目，「核对官方价格」只对官方地址的档案生效')
+        _pk.setWordWrap(True)
+        _pk.setStyleSheet('color:%s;font-size:11.5px;' % _THEME['hint_text'])
+        f3.addRow('', _pk)
         right.addWidget(gb3)
 
         self.lbl_status = QLabel('')
@@ -128,6 +152,7 @@ class ModelManagerDialog(QDialog):
         bar = QHBoxLayout()
         self.btn_pull = QPushButton('🔍 拉取官方模型列表')
         self.btn_probe = QPushButton('🩺 连通性自检')
+        self.btn_price = QPushButton('💰 核对官方价格')   # v6.62
         self.btn_reset = QPushButton('↩ 恢复出厂')
         self.btn_export = QPushButton('📤 导出')
         self.btn_import = QPushButton('📥 导入')
@@ -135,12 +160,14 @@ class ModelManagerDialog(QDialog):
         self.btn_close = QPushButton('关闭')
         self.btn_pull.clicked.connect(self._on_pull)
         self.btn_probe.clicked.connect(self._on_probe)
+        self.btn_price.clicked.connect(self._on_check_price)   # v6.62
         self.btn_reset.clicked.connect(self._on_reset)
         self.btn_export.clicked.connect(self._on_export)
         self.btn_import.clicked.connect(self._on_import)
         self.btn_save.clicked.connect(self._on_save)
         self.btn_close.clicked.connect(self.reject)
-        for b in (self.btn_pull, self.btn_probe, self.btn_reset, self.btn_export, self.btn_import):
+        for b in (self.btn_pull, self.btn_probe, self.btn_price, self.btn_reset,
+                  self.btn_export, self.btn_import):
             bar.addWidget(b)
         bar.addStretch(1)
         bar.addWidget(self.btn_save)
@@ -182,6 +209,9 @@ class ModelManagerDialog(QDialog):
         self.sp_temp.setValue(p.temperature)
         self.sp_tokens.setValue(p.max_tokens)
         self.ck_reason.setChecked(p.reasoning)
+        self.cb_effort.setCurrentIndex(max(0, self.cb_effort.findData(getattr(p, 'effort', 'high'))))
+        self.ck_vision.setChecked(bool(p.supports_vision))
+        self.cb_pricing.setCurrentIndex(max(0, self.cb_pricing.findData(getattr(p, 'pricing_mode', 'auto'))))
         self.sp_pin.setValue(float(p.price.get('input', 0)))
         self.sp_pcache.setValue(float(p.price.get('cache', 0)))
         self.sp_pout.setValue(float(p.price.get('output', 0)))
@@ -220,6 +250,9 @@ class ModelManagerDialog(QDialog):
         self.registry.set_param(self._cur, 'temperature', self.sp_temp.value())
         self.registry.set_param(self._cur, 'max_tokens', self.sp_tokens.value())
         self.registry.set_param(self._cur, 'reasoning', self.ck_reason.isChecked())
+        self.registry.set_param(self._cur, 'effort', self.cb_effort.currentData() or 'high')
+        self.registry.set_field(self._cur, 'vision', self.ck_vision.isChecked())
+        self.registry.set_param(self._cur, 'pricing_mode', self.cb_pricing.currentData() or 'auto')
         self.registry.set_price(self._cur, {'input': self.sp_pin.value(),
                                             'cache': self.sp_pcache.value(),
                                             'output': self.sp_pout.value()})
@@ -318,6 +351,8 @@ class ModelManagerDialog(QDialog):
         self.lbl_status.setText(label)
         self.btn_pull.setEnabled(False)
         self.btn_probe.setEnabled(False)
+        if hasattr(self, 'btn_price'):
+            self.btn_price.setEnabled(False)
 
         def work():
             try:
@@ -335,12 +370,60 @@ class ModelManagerDialog(QDialog):
         self._run_bg(lambda: ('probe',) + probe_model(self._key(), mid, self._endpoint()),
                      '正在探测 %s …' % (mid or '(未填模型 ID)'))
 
+    # ---------- v6.62：核对官方价格（抓官方定价页，只提示不改价） ----------
+    def _on_check_price(self):
+        import price_check as pc
+
+        def job():
+            prices, err = pc.fetch_official_prices()
+            if err:
+                return ('price_err', err)
+            diffs = pc.compare_with_profiles(prices, self.registry.profiles())
+            return ('price', prices, diffs)
+
+        self._run_bg(job, '正在核对官方价格…')
+
+    def _on_price_result(self, prices, diffs):
+        import price_check as pc
+        if not diffs:
+            self.lbl_status.setText('✓ 价格核对完成：本地档案与官方定价一致')
+            QMessageBox.information(self, '核对官方价格',
+                                    '本地档案的价格与官方定价页**完全一致**。\n\n'
+                                    '官方价格：\n%s'
+                                    % '\n'.join('· %s：输入 %s / 缓存 %s / 输出 %s（高峰 ×2）'
+                                                % (m, v.get('input'), v.get('cache'), v.get('output'))
+                                                for m, v in sorted(prices.items())))
+            return
+        txt = pc.diff_text(diffs)
+        self.lbl_status.setText('⚠ 发现 %d 处价格差异（见对话框）' % len(diffs))
+        ok = QMessageBox.question(
+            self, '核对官方价格',
+            '发现 %d 处与官方不一致：\n\n%s\n\n是否把官方价格写入本地档案？\n'
+            '（只影响官方接口地址的档案；第三方/中转档案不动）' % (len(diffs), txt),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ok != QMessageBox.Yes:
+            return
+        done, errs = pc.apply_prices(self.registry, prices)
+        if errs:
+            QMessageBox.warning(self, '核对官方价格', '部分档案写入失败：%s' % '；'.join(errs))
+        self._load_into(self._cur) if self._cur else None
+        self.lbl_status.setText('✓ 已按官方价格更新：%s' % ('、'.join(done) or '无'))
+        self.saved.emit()
+
     def _on_net_done(self, payload):
         self.btn_pull.setEnabled(True)
         self.btn_probe.setEnabled(True)
+        if hasattr(self, 'btn_price'):
+            self.btn_price.setEnabled(True)
         kind = payload[0]
         if kind == 'error':
             self.lbl_status.setText('✗ 出错：%s' % payload[1])
+            return
+        if kind == 'price_err':
+            self.lbl_status.setText('✗ 价格核对失败：%s' % payload[1])
+            return
+        if kind == 'price':
+            self._on_price_result(payload[1], payload[2])
             return
         if kind == 'pull':
             _, ids, err = payload

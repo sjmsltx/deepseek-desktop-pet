@@ -4,7 +4,7 @@
 锁住三件事：
 1. 关心内容不进聊天列表（`display_msgs`）—— 只进回忆日志；点开才展开成对话
 2. 关心气泡外观与普通说话气泡不同（左侧 accent 色条）、停留 ≥8 秒
-3. 扒边时不再静默放弃（先探头说话，说完缩回）—— 这是「效果不明显」的硬原因之一
+3. 扒边时不再静默放弃（v6.61：默认只冒气泡不弹人；开关开启则探头说完缩回）
 
 运行：python -m pytest tests/test_care_bubble.py -q
 """
@@ -84,17 +84,34 @@ def test_normal_bubble_click_does_nothing():
     assert len(p.display_msgs) == n0, '普通气泡点击不应写聊天列表'
 
 
-def test_dock_pops_up_instead_of_silent_skip():
-    """回归：扒边未弹出时旧实现直接 return（使用者感知不到关心）"""
+def test_dock_probe_toggle_controls_popup():
+    """回归（v6.60 批 3 → v6.61）：扒边时不再静默放弃关心；是否弹出整个人由开关决定
+
+    - 开关关（默认）：只冒关心气泡，人保持扒边
+    - 开关开：弹出来说，说完缩回扒边
+    """
     p = _pet()
     p.ai_enabled = False                 # 走随机台词兜底，避免联网
     p.active_chat_enabled = True
     p.sleeping = False
     p._edge_side, p._edge_mode, p._edge_popped = 'left', 'peek', False
     p._active_chat_next = 0              # 已到点
+
+    # ① 默认（开关关）：不弹人，但关心气泡照旧 —— 不得静默放弃
+    p.dock_probe = False
     p._check_active_chat()
-    assert p._dock_rehide is True, '扒边时应先探头，而不是静默放弃'
+    assert p._edge_popped is False and p._dock_rehide is False, \
+        '关闭开关时应保持扒边不动（只冒气泡）'
+    assert p._bubble_mode == 'care', '仍然要冒关心气泡（不静默放弃）'
+
+    # ② 开关开：弹出来说，说完缩回
+    p.dock_probe = True
+    p._care_last_at = 0                  # 清冷却（上一步刚 mark 过）
+    p._active_chat_next = 0
+    p._check_active_chat()
+    assert p._dock_rehide is True, '开启开关时应探头，而不是静默放弃'
     assert p._edge_popped is True, '应已从扒边弹出'
+    p._probe_timer.stop()
     p._hide_bubble()
     assert p._dock_rehide is False and p._edge_popped is False, '说完应缩回扒边'
 

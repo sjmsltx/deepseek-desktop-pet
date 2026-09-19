@@ -44,7 +44,7 @@ from pet_selfcode import search_code, write_file_tool, edit_own_code
 
 log = get_logger('ui')
 from api_stats import ApiStats
-from deepseek_client import chat_completions, stream_chat_completions
+from deepseek_client import chat_completions, stream_chat_completions, beta_endpoint
 from memory_store import load_memory, save_memory, remember_fact
 from memory_engine import search_memory, search_memory_for_injection, extract_memories
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
@@ -57,14 +57,18 @@ from pet_anim import SCENE_ACTIONS  # 场景动作表（批 4）
 from care_engine import user_idle_minutes, judge_wakeup, followup_message
 import care_engine  # v6.60 批4：兜底关心措辞库（fallback_lines / pick_fallback）
 import pet_foreground as fgwin  # 前台程序感知（v6.59，可选·默认关闭；隐私边界见模块头部）
-from model_registry import (ModelRegistry, clamp_tokens, DEFAULT_ENDPOINT,
-                            MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
+from model_registry import (ModelRegistry, clamp_tokens, clamp_effort, DEFAULT_ENDPOINT,
+                            DEFAULT_EFFORT, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
 from model_manager_ui import ModelManagerDialog  # Phase 2 模型管理对话框
+from vision_helper import build_vision_content  # v6.62 图片直送模型（视觉）
+from files_api import FilesCache, build_content_via_files  # v6.62 图片走 Files API 复用
 from settings_ui import SettingsDialog  # Phase 5 统一设置窗口
-from tools_registry import AI_TOOLS, TOOL_STATUS, tools_for_mode
+from tools_registry import AI_TOOLS, TOOL_STATUS, tools_for_mode, strict_tools
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
-from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot
-from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor
+from PySide6.QtCore import (Qt, QTimer, QPoint, QRect, QRectF, Signal, Slot as QtSlot,
+                            QObject, QEvent)
+from PySide6.QtGui import (QPixmap, QPainter, QColor, QAction, QPainterPath, QFont, QIcon, QImage, QTransform, QCursor,
+                           QFontMetrics)
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QMenu, QGraphicsOpacityEffect,
     QVBoxLayout, QHBoxLayout, QPushButton, QFrame, QSizePolicy,
@@ -299,6 +303,7 @@ class PetWidget(QWidget):
     weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
     ocr_signal = Signal(str)       # OCR 识别结果（截图粘贴，跨线程安全）
     cost_bubble_signal = Signal(float)  # v6.30 API 费用气泡（跨线程）
+    balance_signal = Signal(dict)       # v6.61 余额查询结果（跨线程）
     ui_call_signal = Signal(object)     # v6.58 通用"回主线程执行"通道（工作线程里 QTimer.singleShot 不触发）
 
     def __init__(self):
@@ -371,6 +376,7 @@ class PetWidget(QWidget):
         """跨线程信号连接 + 全局快捷键注册"""
         self._satiety_timer.start(5 * 60 * 1000)
         self.cost_bubble_signal.connect(self._on_cost_bubble)
+        self.balance_signal.connect(self._on_balance_result)   # v6.61 余额查询回主线程
         self._last_satiety_warn = 0.0
         # v6.40 真流式：信号连接
         self.stream_signal.connect(self._on_stream)
@@ -410,7 +416,17 @@ class PetWidget(QWidget):
         self.display_msgs = []
         self.api_stats = ApiStats(os.path.join(BASE_DIR, 'api_stats.json'), config_path=CONFIG_PATH,
                                   registry=MODEL_REGISTRY)  # v6.18 API 自监控（价格表改读模型档案）
+        self._files_cache = FilesCache(os.path.join(BASE_DIR, 'files_cache.json'))  # v6.62 Files API
+        self._last_turn_reasoning = None   # v6.62 上一轮思考内容（带 tools 时回传）
+        # v6.62：峰谷计价要认法定节假日（表内置，可从公共静态 JSON 年度更新，不花搜索额度）
+        ApiStats.HOLIDAYS_CACHE = os.path.join(BASE_DIR, 'holidays_cache.json')
+        self._maybe_update_holidays()
         self._api_stats_win = None
+        # v6.61：余额查询（低余额提醒阈值可在设置里手改；自动刷新间隔默认 10 分钟）
+        self.balance_low_threshold = self.BALANCE_LOW_DEFAULT
+        self.balance_auto_minutes = 10
+        self._balance_busy = False
+        self._balance_alerted = ''
         self.mcp = McpBridge(CONFIG_PATH)  # v6.20 MCP 桥接：后台连接配置的 MCP server
         self.mcp.connect_all()
         self.plugin_mgr = PluginManager(os.path.join(BASE_DIR, 'plugins'))  # v6.21 插件管理器
@@ -444,6 +460,17 @@ class PetWidget(QWidget):
         self.active_chat_timer = QTimer(self)
         self.active_chat_timer.timeout.connect(self._check_active_chat)
         self.active_chat_timer.start(30000)  # 每 30 秒检查一次
+        # v6.61：扒边探头开关（默认「关」：扒边时只冒气泡，不把整个人弹出来）
+        self.dock_probe = False
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as _f:
+                self.dock_probe = bool(json.load(_f).get('dock_probe', False))
+        except Exception:
+            self.dock_probe = False
+        # v6.61：探头看门狗（探头后若一直没说出话 → 强制收回扒边，防卡在弹出态）
+        self._probe_timer = QTimer(self)
+        self._probe_timer.setSingleShot(True)
+        self._probe_timer.timeout.connect(self._probe_watchdog)
         self._popup_y = 0
         self._popup_x = 0
         self._chat_hidden_for_dock = False
@@ -743,6 +770,18 @@ class PetWidget(QWidget):
                 self.advanced_tools = bool(cfg.get('advanced_tools', False))
                 # v6.59：前台程序感知（默认关闭；开启后仅向唤醒判断附带「当前前台程序」信号）
                 self.foreground_aware = bool(cfg.get('foreground_aware', False))
+                # v6.61：扒边探头（默认关 → 扒边时只冒气泡；开 → 关心时整个人弹出来说，说完缩回）
+                self.dock_probe = bool(cfg.get('dock_probe', False))
+                # v6.61：余额（低余额阈值可手改；自动刷新间隔分钟）
+                try:
+                    self.balance_low_threshold = max(0.0, float(
+                        cfg.get('balance_low_threshold', self.BALANCE_LOW_DEFAULT) or 0))
+                except Exception:
+                    self.balance_low_threshold = self.BALANCE_LOW_DEFAULT
+                try:
+                    self.balance_auto_minutes = max(1, int(cfg.get('balance_auto_minutes', 10) or 10))
+                except Exception:
+                    self.balance_auto_minutes = 10
                 # v6.58：记住 config 里保存的主题名（启动时在 UI 就绪后恢复；此前只写不读 → 重启被重置）
                 self._saved_theme = str(cfg.get('theme') or 'default')
                 self._theme_widgets = []   # 受主题着色的控件登记表（切主题时统一刷新）
@@ -763,11 +802,20 @@ class PetWidget(QWidget):
                 if prof is not None:
                     self.max_tokens = prof.max_tokens
                     self.reasoning_enabled = prof.reasoning
+                    self.reasoning_effort = prof.effort      # v6.62 思考强度
                     self.temperature = prof.temperature
+                    self.vision_enabled = prof.supports_vision   # v6.62 图片是否可直送模型
                 else:
                     self.max_tokens = clamp_tokens(cfg.get('max_tokens', 1000))
                     self.reasoning_enabled = cfg.get('reasoning', True)
+                    self.reasoning_effort = clamp_effort(cfg.get('effort', DEFAULT_EFFORT))
                     self.temperature = float(cfg.get('temperature', 1.0))
+                    self.vision_enabled = bool(cfg.get('use_vision', True))
+                # v6.62：三项跨模型的 API 行为开关（全局 config.json）
+                self.pass_reasoning_history = bool(cfg.get('pass_reasoning_history', True))
+                self.strict_tools = bool(cfg.get('strict_tools', False))
+                self.vision_files_api = bool(cfg.get('vision_files_api', False))
+                self.holidays_auto_update = bool(cfg.get('holidays_auto_update', True))
         except Exception as _exc:
             _silent_log('_load_ai_config:734', _exc)   # v6.54
 
@@ -810,8 +858,11 @@ class PetWidget(QWidget):
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
         return getattr(self, 'model_flash', 'deepseek-flash')
 
-    def _run_task(self, text):
-        """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）"""
+    def _run_task(self, text, images=None):
+        """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）
+
+        v6.62：images 随任务一起带入（图片直送模型）
+        """
         import threading as _th
         self._ai_generation = getattr(self, '_ai_generation', 0) + 1
         self._cur_task_text = text
@@ -821,13 +872,13 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_run_task:784', _exc)   # v6.54
         # v6.53：保留线程句柄，供 /stop 判断旧线程是否已退出（防抢跑）
-        self._ai_thread = _th.Thread(target=self._ai_worker, args=(text,), daemon=True)
+        self._ai_thread = _th.Thread(target=self._ai_worker, args=(text, images), daemon=True)
         self._ai_thread.start()
 
-    def _enqueue_task(self, text):
+    def _enqueue_task(self, text, images=None):
         """v6.43b：任务入队（FCFS）"""
         import time as _time
-        self._task_queue.append({'text': text, 'ts': _time.time()})
+        self._task_queue.append({'text': text, 'images': images, 'ts': _time.time()})
         try:
             self._refresh_task_sidebar()
         except Exception as _exc:
@@ -838,7 +889,7 @@ class PetWidget(QWidget):
         try:
             if self._task_queue and not getattr(self, '_ai_busy', False):
                 t = self._task_queue.pop(0)
-                self._run_task(t['text'])
+                self._run_task(t['text'], t.get('images'))
             else:
                 if not self._task_queue:
                     self._cur_task_text = None
@@ -931,15 +982,18 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_close_pending_user_msg:894', _exc)   # v6.54
 
-    def ask_ai(self, text):
-        """调用 DeepSeek API 对话（线程执行，不卡 UI）"""
+    def ask_ai(self, text, images=None):
+        """调用 DeepSeek API 对话（线程执行，不卡 UI）
+
+        images：v6.62 新增，本地图片路径列表 → 直接送模型看图（不再先 OCR 成文字）
+        """
         self._load_ai_config()  # 热加载：每次聊天前刷新 config.json（改配置无需重启）
         if not self.ai_enabled:
             self._append_chat('桌宠', '还没配置 AI 呢！在 config.json 里加 deepseek_api_key 就能和我聊天了')
             return
         if getattr(self, '_ai_busy', False):
             # v6.43b：忙碌 → 加入 FCFS 任务队列（先来先到；侧栏可拖拽调优先级、双击取消排队）
-            self._enqueue_task(text)
+            self._enqueue_task(text, images)
             self._notify(
                               f'📋 已加入任务队列（第 {len(self._task_queue)} 位，当前完成后自动执行；/stop 紧急停止当前）')
             return
@@ -954,7 +1008,34 @@ class PetWidget(QWidget):
         self._stream_pending = ''
         self._thinking_pending = ''
         self._stream_rendered = False
-        self._run_task(text)
+        self._run_task(text, images)
+
+    def _vision_ready(self):
+        """v6.62：图片能不能直送模型 —— 当前档案支持看图 + 开关打开 + 有 key"""
+        try:
+            return bool(getattr(self, 'vision_enabled', False)) and bool(self._current_api_key())
+        except Exception:
+            return False
+
+    def _vision_content(self, text, images):
+        """v6.62：把图片编进 user 消息。返回 (content, 成功张数, 错误列表)
+
+        成功张数为 0 时调用方应回退本地 OCR（不让用户白等一场）。
+        开了「图片走文件接口复用」时优先用 Files API（同一张图只上传一次）。
+        """
+        paths = [p for p in (images or []) if p and os.path.isfile(str(p))]
+        if not paths:
+            return text, 0, []
+        if getattr(self, 'vision_files_api', False):
+            try:
+                content, used, errs = build_content_via_files(
+                    text, paths, self._current_api_key(), self._current_endpoint(),
+                    getattr(self, '_files_cache', None))
+                if used:
+                    return content, used, errs
+            except Exception as _exc:
+                _silent_log('_vision_content:files_api', _exc)
+        return build_vision_content(text, paths)
 
     # ---------- 智能本地应用检索（v6.36） ----------
     COMMON_ALIASES = {
@@ -1288,20 +1369,65 @@ class PetWidget(QWidget):
         save_memory(MEMORY_PATH, self.memory_facts, self.memory_summaries)
 
     # ---------- v6.41 记忆引擎：检索重排 + 自动抽取（memory_engine） ----------
+    @staticmethod
+    def _parse_rerank_ids(raw):
+        """解析重排结果（v6.62）：优先 JSON（官方 json_object），失败再抠数字。
+
+        返回整数列表（可能为空，由调用方决定兼底）。
+        """
+        import re as _re
+        text = str(raw or '')
+
+        def _seq_from(obj):
+            if isinstance(obj, dict):
+                seq = obj.get('ids')
+                if seq is None:
+                    seq = obj.get('id')
+            else:
+                seq = obj
+            if isinstance(seq, (int, float, str)):
+                seq = [seq]
+            if not isinstance(seq, (list, tuple)):
+                return []
+            out = []
+            for n in seq:
+                try:
+                    out.append(int(str(n).strip()))
+                except (TypeError, ValueError):
+                    continue
+            return out
+
+        try:
+            got = _seq_from(json.loads(text))
+            if got:
+                return got
+        except Exception:
+            pass
+        try:
+            m = _re.search(r'\{.*\}', text, _re.S)
+            if m:
+                got = _seq_from(json.loads(m.group(0)))
+                if got:
+                    return got
+        except Exception:
+            pass
+        return [int(n) for n in _re.findall(r'\d+', text)]
+
     def _rerank_memories(self, query, candidates):
         """LLM 重排：候选记忆 → 选最相关 top-3（8 选 3 把关，复用 deepseek_client）"""
         try:
-            import re as _re
             lines = '\n'.join(f'{i + 1}. {c.get("text", "")}' for i, c in enumerate(candidates))
             prompt = (f'用户问：{query}\n候选记忆：\n{lines}\n'
                       f'请选出与问题最相关的 1-3 条（宁缺毋滥，不相关的不选），'
-                      f'按相关度从高到低只输出编号，用逗号分隔。')
+                      f'只输出 JSON（不要其它文字）：{{"ids": [编号, ...]}}，按相关度从高到低。')
             data = json.dumps({'model': self._current_model(),
                                'messages': [{'role': 'user', 'content': prompt}],
-                               'max_tokens': 30}).encode()
+                               'max_tokens': 60,
+                               # v6.62：官方结构化输出（提示词里已含“JSON”字样）
+                               'response_format': {'type': 'json_object'}}).encode()
             resp = chat_completions(self._current_api_key(), data)
             self._record_api_usage(resp)
-            nums = [int(n) for n in _re.findall(r'\d+', resp['choices'][0]['message'].get('content') or '')]
+            nums = self._parse_rerank_ids(resp['choices'][0]['message'].get('content') or '')
             picked = [candidates[i - 1]['id'] for i in nums if 1 <= i <= len(candidates)]
             return picked or [c['id'] for c in candidates[:3]]
         except Exception:
@@ -1326,7 +1452,10 @@ class PetWidget(QWidget):
         """抽取用的 LLM 调用（worker 线程，非流式）"""
         try:
             data = json.dumps({'model': self._current_model(),
-                               'messages': messages, 'max_tokens': max_tokens}).encode()
+                               'messages': messages, 'max_tokens': max_tokens,
+                               # v6.62：官方结构化输出 —— 抽取提示词里已含“JSON”字样，
+                               # 让模型直接吐合法 JSON，不再靠正则抠（抠失败就静默丢记忆）
+                               'response_format': {'type': 'json_object'}}).encode()
             resp = chat_completions(self._current_api_key(), data)
             self._record_api_usage(resp)
             return resp['choices'][0]['message'].get('content') or ''
@@ -1683,8 +1812,8 @@ class PetWidget(QWidget):
 
     # ---------- AI 自我管理（阶段1+2：改配置/读自己代码） ----------
     CONFIG_WHITELIST = ('personality', 'reply_style', 'max_tokens', 'city', 'language',
-                        'active_chat', 'display_mode', 'live2d_model', 'sedentary_minutes',
-                        'api_prices')
+                        'active_chat', 'dock_probe', 'balance_low_threshold', 'display_mode',
+                        'live2d_model', 'sedentary_minutes', 'api_prices')
 
     def _search_code(self, keyword, max_results=20):
         """薄委托（实现见 pet_selfcode.search_code，v6.51 搬出）"""
@@ -1711,6 +1840,13 @@ class PetWidget(QWidget):
             return '（display_mode 需为 static/live2d）'
         if key == 'active_chat':
             value = 'true' if value.lower() in ('true', '1', '开', 'on', 'yes') else 'false'
+        if key == 'dock_probe':
+            value = 'true' if value.lower() in ('true', '1', '开', 'on', 'yes') else 'false'
+        if key == 'balance_low_threshold':
+            try:
+                value = str(max(0.0, min(float(value), 100000.0)))
+            except ValueError:
+                return '（需要数字，单位元）'
         if key == 'api_prices':
             # JSON 对象：{"模型名": {"input": x, "cache": y, "output": z}}（每百万 token 单价）
             try:
@@ -1738,6 +1874,10 @@ class PetWidget(QWidget):
                     self._run_on_ui(lambda v=value: self._set_language(v))  # v6.58 GUI 回主线程
                 elif key == 'active_chat':
                     self.active_chat_enabled = value == 'true'
+                elif key == 'dock_probe':
+                    self.dock_probe = value == 'true'
+                elif key == 'balance_low_threshold':
+                    self.balance_low_threshold = float(value)
                 elif key == 'display_mode':
                     self._run_on_ui(lambda v=value: self._set_display_mode(v))  # v6.58 GUI 回主线程
                 elif key == 'api_prices':
@@ -2020,6 +2160,9 @@ class PetWidget(QWidget):
             'personality': getattr(self, 'personality', ''),
             'reply_style': getattr(self, 'reply_style', 'normal'),
             'active_care': bool(getattr(self, 'active_chat_enabled', False)),
+            'dock_probe': bool(getattr(self, 'dock_probe', False)),
+            'balance_low_threshold': getattr(self, 'balance_low_threshold', None),
+            'balance': getattr(self.api_stats, 'balance', None),
             'ai_enabled': bool(getattr(self, 'ai_enabled', False)),
             'chat_msgs': list(getattr(self, 'chat_history_msgs', []) or []),
             'memory_summaries': list(getattr(self, 'memory_summaries', []) or []),
@@ -2066,8 +2209,12 @@ class PetWidget(QWidget):
         """测试用：思考区折叠按钮句柄（点它验证折叠/展开）"""
         return getattr(self, '_thinking_toggle', None)
 
-    def _ai_worker(self, text):
-        """后台线程：调用 DeepSeek API（支持 function calling 循环）"""
+    def _ai_worker(self, text, images=None):
+        """后台线程：调用 DeepSeek API（支持 function calling 循环）
+
+        v6.62：images 为本地图片路径 → 直接随消息送给模型（视觉）；
+        编码失败时自动回退本地 OCR，不让用户白等。
+        """
         import urllib.request
         import json as jsonlib
 
@@ -2078,7 +2225,7 @@ class PetWidget(QWidget):
                 self._current_api_key(), data,
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
-                endpoint=self._current_endpoint(),
+                endpoint=self._request_endpoint(),
             )
             self._record_api_usage(resp)
             return resp
@@ -2090,7 +2237,7 @@ class PetWidget(QWidget):
                 self._current_api_key(), data,
                 status_cb=lambda s: self.ai_status_signal.emit(s),
                 status_zh=status_zh, status_en=status_en, is_en=is_en,
-                endpoint=self._current_endpoint(),
+                endpoint=self._request_endpoint(),
                 # v6.53：把“该不该停”交给 UI 侧 —— 代次一变立即断流
                 should_cancel=lambda: getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1),
             )
@@ -2112,6 +2259,28 @@ class PetWidget(QWidget):
             self.ai_status_signal.emit(gs[1] if getattr(self, 'language', 'zh') == 'en' else gs[0])
             # 上下文：最近 10 条 + 当前消息
             ctx = self.chat_history_msgs[-30:] + [{'role': 'user', 'content': text}]
+            # v6.62：官方称带 tools 时应回传历史思考内容（只补上一轮，已截断）
+            if getattr(self, 'pass_reasoning_history', True):
+                ctx = self._with_reasoning_history(ctx)
+            # v6.62：图片直送模型（成功则当前这条 user 消息带图；失败回退 OCR）
+            if images:
+                _vcontent, _vused, _verrs = self._vision_content(text, images)
+                if _vused:
+                    ctx[-1] = {'role': 'user', 'content': _vcontent}
+                else:
+                    _fallback = []
+                    for _p in images:
+                        try:
+                            _fallback.append('【%s OCR】\n%s'
+                                             % (os.path.basename(str(_p)), ocr_image(_p, OCR_PS1)))
+                        except Exception:
+                            _fallback.append('【%s】（OCR 失败）' % os.path.basename(str(_p)))
+                    if _fallback:
+                        ctx[-1] = {'role': 'user', 'content': (text or '') + '\n\n' + '\n\n'.join(_fallback)}
+                    else:
+                        self._notify('图片直读失败，且本地识别也没读到内容')
+                    if _verrs:
+                        _silent_log('_vision_fallback', _verrs)
             # 根据配置生成回复风格提示
             style_hint = {
                 'short': '回复尽量简短（一两句话以内）。',
@@ -2174,19 +2343,22 @@ class PetWidget(QWidget):
                     return
                 # 请求阶段：覆盖预判为确定状态；v6.40 真流式（SSE）
                 self.ai_status_signal.emit('正在思考…' if getattr(self, 'language', 'zh') != 'en' else 'Thinking…')
-                data = jsonlib.dumps({
+                data = jsonlib.dumps(dict({
                     'model': cur_model,
                     'messages': messages,
                     # v6.53：工具按模式暴露（默认 core 8 个；MCP/插件工具始终保留）
-                    'tools': tools_for_mode(getattr(self, 'advanced_tools', False)) + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas(),
+                    # v6.62：开了 strict 时这里输出严格版 schema
+                    'tools': self._tools_payload(cur_model),
                     'max_tokens': getattr(self, 'max_tokens', 1000),
                     'stream': True,
                     'stream_options': {'include_usage': True},  # v6.40 fix：流式返回 usage（api_stats 统计）
                     'temperature': getattr(self, 'temperature', 1.0),
-                }).encode()
+                    # v6.62：思考开关 + 强度真正进请求体（原先只驱动 UI，等于没关）
+                }, **self._thinking_fields())).encode()
                 self.stream_done_signal.emit()  # 上一轮流式收尾（防残留）
                 full = None
                 aborted = False
+                _round_rsn = ''
                 for evt, val in _post_stream(data, '正在思考…', 'Thinking…'):
                     # v6.53：逐块检查代次 —— /stop 或新任务顶替时立刻停止回显
                     if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
@@ -2203,6 +2375,7 @@ class PetWidget(QWidget):
                     break
                 if full is None:
                     raise RuntimeError('流式响应为空')
+                _round_rsn = full.get('reasoning_content') or ''
                 # 记录 API 用量（v6.40 fix：stream_options.include_usage 后流式响应带 usage）
                 if full.get('usage'):
                     try:
@@ -2232,6 +2405,8 @@ class PetWidget(QWidget):
                             'model': cur_model,
                             'messages': messages[:-1] + [{'role': 'user', 'content': '请用简短中文回复上一条消息（不要调用工具）'}],
                             'max_tokens': min(4096, int(getattr(self, 'max_tokens', 4096) or 4096)),  # v6.53：原先写死 500 会截断
+                            # v6.62：空回复属于“该直接说话”的场景，关掉思考直接出正文，省 token 也省时
+                            'thinking': {'type': 'disabled'},
                         }).encode()
                         result2 = _post(data2, '正在思考…', 'Thinking…')
                         final_reply = (result2['choices'][0]['message'].get('content') or '').strip() or '（我刚才卡壳了，换个说法再问我一次？）'
@@ -2280,7 +2455,10 @@ class PetWidget(QWidget):
             # 保存到对话记忆（占位/错误回复不存；user 消息已在开头保存，此处只存 assistant）
             if final_reply and not final_reply.startswith('（'):
                 # v6.40 fix：上下文存剥标签后的回复（原始含[emotion:xxx]会污染上下文+被AI模仿输出）
-                self.chat_history_msgs.append({'role': 'assistant', 'content': self._strip_emotion_tags(final_reply)[0]})
+                _clean_reply = self._strip_emotion_tags(final_reply)[0]
+                self.chat_history_msgs.append({'role': 'assistant', 'content': _clean_reply})
+                # v6.62：记下本轮思考内容（下次带 tools 的请求会回传给模型）
+                self._remember_reasoning(_clean_reply, _round_rsn)
             # v6.30 好感度：对话完成事件（占位/错误回复不计）
             if final_reply and not final_reply.startswith('（'):
                 try:
@@ -3884,13 +4062,9 @@ class PetWidget(QWidget):
         self.type_timer.stop()
         self.bubble_hide_timer.stop()
         self._speak_busy = False
-        # v6.60 批 3：扒边探头后自动收回
-        if getattr(self, '_dock_rehide', False) and self._edge_side is not None:
-            self._dock_rehide = False
-            try:
-                self._enter_dock(self._edge_side, self._popup_y)
-            except Exception as e:
-                log.debug('探头收回失败：%s', e)
+        # v6.60 批 3 / v6.61：扒边探头后自动收回（收回路径收敛至 _rehide_after_probe）
+        if getattr(self, '_dock_rehide', False):
+            self._rehide_after_probe()
         if self._speak_queue:
             text, immediate = self._speak_queue.pop(0)
             QTimer.singleShot(self.BUBBLE_GAP_MS,
@@ -3913,6 +4087,7 @@ class PetWidget(QWidget):
     # 使用者反馈「污染会话、太人机」。现改为窗口底部一条细状态条：
     # 不进聊天列表（display_msgs）、不进模型上下文（chat_history_msgs），只额外记一条日志。
     STATUS_MS = 2500                     # 状态条默认停留时长
+    COST_NOTIFY_MS = 6000                # 费用提示停留时长（v6.61：太短看不清）
 
     def _init_status_bar(self):
         """创建底部状态条（悬浮定位，不参与布局，避免挤压立绘导致上下跳动）"""
@@ -4039,6 +4214,13 @@ class PetWidget(QWidget):
             if self._bubble_mode == 'care' and self._care_click_text:
                 text = self._care_click_text
                 self._reset_bubble_mode()
+                # v6.61：扒边窄窗里展开聊天会被截断 —— 用户主动点击时允许弹出（不算「自动探头」）
+                if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
+                    try:
+                        self._popup_from_dock()
+                        self._dock_rehide = False
+                    except Exception as e:
+                        log.debug('点关心气泡时弹出失败：%s', e)
                 self._append_chat('桌宠', text)
                 self.chat_panel.show()
                 self._chat_scroll_bottom()
@@ -4131,8 +4313,24 @@ class PetWidget(QWidget):
                 return
             model = resp.get('model') or fallback_model or ''
             cost = self.api_stats.record(usage, model)
+            # v6.62：模型没配价格时提醒一次（不再拿别人价目编数字，但要让用户知道钱没算上）
+            try:
+                _last = self.api_stats.last or {}
+                if _last.get('price_unknown') and not getattr(self, '_unknown_price_notified', False):
+                    self._unknown_price_notified = True
+                    if model:
+                        self._notify('⚠ 模型 %s 未配置价格，费用未计入「设置 → 模型管理」可填' % model,
+                                     ms=self.COST_NOTIFY_MS)
+            except Exception as _exc:
+                _silent_log('_record_api_usage:price_unknown', _exc)
             if cost:
                 self.cost_bubble_signal.emit(cost)  # v6.30 费用气泡
+            # v6.61：余额缓存过期（默认 10 分钟）→ 后台静默刷一次（不弹提示、不阻塞）
+            try:
+                if self.api_stats.balance_stale(getattr(self, 'balance_auto_minutes', 10)):
+                    self._query_balance_async(manual=False)
+            except Exception:
+                pass
         except Exception as _exc:
             _silent_log('_record_api_usage:3851', _exc)   # v6.54
 
@@ -4177,6 +4375,7 @@ class PetWidget(QWidget):
 
     def _toggle_api_stats_window(self):
         """开关 API 统计悬浮窗（透明置顶小窗，实时刷新 + 缓存命中率图表）"""
+        WIN_W = 320          # v6.62：宽度固定 320，高度按内容算（不再写死）
         if self._api_stats_win is not None:
             try:
                 self._api_stats_win.close()
@@ -4184,7 +4383,7 @@ class PetWidget(QWidget):
                 pass
             self._api_stats_win = None
             return
-        from PySide6.QtWidgets import QVBoxLayout as _VL, QProgressBar
+        from PySide6.QtWidgets import QVBoxLayout as _VL, QProgressBar, QPushButton
         win = QWidget()
         win.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
                            Qt.Tool | Qt.NoDropShadowWindowHint)
@@ -4230,8 +4429,19 @@ class PetWidget(QWidget):
         l_today = QLabel('今日: —'); l_today.setObjectName('v')
         l_total = QLabel('累计: —'); l_total.setObjectName('v')
         l_app = QLabel('来源: —'); l_app.setObjectName('d')
+        l_bal = QLabel('余额: 未查询'); l_bal.setObjectName('v')   # v6.61
+        l_bal.setWordWrap(False)                                   # v6.62：不允许换行撑宽窗口
+        lbl_slot = QLabel('时段: —'); lbl_slot.setObjectName('d')   # v6.62：当前是按高峰还是空闲计价
+        # v6.62：未配置价格的调用单独一行（不塞进「今日」行 —— 那行会被按像素收口截掉）
+        lbl_unk = QLabel(''); lbl_unk.setObjectName('d')
+        btn_bal = QPushButton('💰 查询余额')
+        btn_bal.setFixedWidth(150)      # v6.62：只占一半宽，四周留出可拖动区域
+        btn_bal.clicked.connect(lambda: self._query_balance_async(True))
         v.addWidget(l_last); v.addWidget(l_cache); v.addWidget(cache_bar)
         v.addWidget(l_today); v.addWidget(l_total); v.addWidget(l_app)
+        v.addWidget(lbl_slot)
+        v.addWidget(lbl_unk)
+        v.addWidget(l_bal); v.addWidget(btn_bal, 0, Qt.AlignHCenter)
 
         def refresh():
             st = self.api_stats
@@ -4254,30 +4464,108 @@ class PetWidget(QWidget):
             l_total.setText(f"累计: {total.get('count',0)}次 · {_fmt(total.get('total',0))} tok · {total.get('cost',0):.4f}元")
             by_app = today.get('by_app', {})
             if by_app:
-                parts = [f"{k} {v['count']}次/{_fmt(v['total'])}tok" for k, v in by_app.items()]
-                l_app.setText('来源: ' + ' · '.join(parts))
+                # v6.62：来源行可能无限长（多个 app），只列前 3 个并截断，避免把窗口顶宽
+                _items = list(by_app.items())[:3]
+                parts = [f"{k} {v['count']}次/{_fmt(v['total'])}tok" for k, v in _items]
+                if len(by_app) > 3:
+                    parts.append('…')
+                l_app.setText(('来源: ' + ' · '.join(parts))[:64])
             else:
                 l_app.setText('来源: —')
+            # v6.61：余额常驻行（无缓存时明说「未查询」，不编数字）
+            # v6.62 fix：文案改短 + 完整信息进 tooltip —— 原先「余额: ¥70.68（赠金 …）· 3 分钟前更新」
+            # 把 320px 窗口的布局最小宽度顶到 361px（装不下 → 挤压/抖动）
+            try:
+                short = st.balance_text(False)
+                if short:
+                    l_bal.setText('余额: %s · %s' % (short, st.balance_updated_text()))
+                    l_bal.setToolTip(st.balance_text(True) + '\n' + st.balance_updated_text())
+                else:
+                    l_bal.setText('余额: 未查询（点下面按钮查）')
+                    l_bal.setToolTip('')
+            except Exception:
+                l_bal.setText('余额: —')
+            # v6.62：当前按高峰还是空闲计价（用北京时间，与用户时区/本机时钟无关）
+            try:
+                import server_clock as _sc
+                _bj = _sc.beijing_now()
+                _peak = self.api_stats.is_peak_now(_bj)
+                _txt = '时段: %s（北京 %s）' % ('高峰' if _peak else '空闲',
+                                              _bj.strftime('%m-%d %H:%M'))
+                _skew = _sc.skew_text()
+                if _skew:
+                    _txt += ' · ' + _skew
+                lbl_slot.setText(_txt)
+                lbl_slot.setToolTip('官方峰谷定价：高峰=北京时间周一至周五 9:00–12:00、14:00–18:00（不含法定节假日）；'
+                                    '其余（含周末与节假日）为空闲，空闲价是高峰的一半')
+            except Exception:
+                lbl_slot.setText('时段: —')
+            # v6.62：未配置价格的调用单独提示（不编数字，用户能一眼看出钱没算上）
+            try:
+                _unk = (st.today.get('unknown', 0) or 0)
+                if _unk:
+                    lbl_unk.setText('⚠ %d 次调用未配价格，未计入费用' % _unk)
+                    lbl_unk.setToolTip('有模型没配价格（如第三方模型），这部分费用未计入统计 —— '
+                                       '可在「设置 → 模型管理」填价格')
+                else:
+                    lbl_unk.setText('')
+                    lbl_unk.setToolTip('')
+            except Exception:
+                lbl_unk.setText('')
+            # v6.62 fix：最后统一按像素宽收口 —— 任何一行（尤其「来源」多 app）
+            # 都不允许把窗口顶宽（之前内容 620px 塞 320px 窗口 → 挤压/发沏）
+            try:
+                _budget = max(80, int(WIN_W) - 26)
+                for _l in (l_last, l_cache, l_today, l_total, l_app, l_bal, lbl_slot, lbl_unk):
+                    _t = _l.text()
+                    _fm = QFontMetrics(_l.font())
+                    if _fm.horizontalAdvance(_t) > _budget:
+                        _l.setText(_fm.elidedText(_t, Qt.ElideRight, _budget))
+            except Exception:
+                pass
 
         timer = QTimer(win)  # 父对象 win，防止被 GC 导致悬浮窗不刷新
         timer.timeout.connect(refresh)
         timer.start(1000)
 
+        # v6.62 fix：窗口任意位置都能拖（原先只有 panel 能拖，抓到按钮/边缘就「拖不动」）；
+        # 拖动期间暂停 1 秒刷新，避免刷新与移动互相干扰；松手后记住位置
         _drag = {'on': False, 'x': 0, 'y': 0}
-        def _press(e):
-            if e.button() == Qt.LeftButton:
+
+        def _drag_handler(obj, ev):
+            t = ev.type()
+            if t == QEvent.MouseButtonPress and ev.button() == Qt.LeftButton:
+                if isinstance(obj, QPushButton):
+                    return False                       # 按钮保留点击语义
                 _drag['on'] = True
-                _drag['x'] = int(e.globalPosition().x() - win.x())
-                _drag['y'] = int(e.globalPosition().y() - win.y())
-        def _move(e):
-            if _drag['on']:
-                win.move(int(e.globalPosition().x() - _drag['x']),
-                         int(e.globalPosition().y() - _drag['y']))
-        def _release(e):
-            _drag['on'] = False
-        panel.mousePressEvent = _press
-        panel.mouseMoveEvent = _move
-        panel.mouseReleaseEvent = _release
+                _drag['x'] = int(ev.globalPosition().x() - win.x())
+                _drag['y'] = int(ev.globalPosition().y() - win.y())
+                timer.stop()
+                return False
+            if t == QEvent.MouseMove and _drag['on']:
+                win.move(int(ev.globalPosition().x() - _drag['x']),
+                         int(ev.globalPosition().y() - _drag['y']))
+                return True
+            if t == QEvent.MouseButtonRelease and _drag['on']:
+                _drag['on'] = False
+                timer.start(1000)
+                try:
+                    self._save_cfg_value('stats_win_pos', [win.x(), win.y()])
+                except Exception:
+                    pass
+                return True
+            return False
+
+        class _DragFilter(QObject):
+            def eventFilter(self, obj, ev):
+                try:
+                    return bool(_drag_handler(obj, ev))
+                except Exception:
+                    return False
+
+        _df = _DragFilter(win)
+        for _w in [win, panel] + panel.findChildren(QWidget):
+            _w.installEventFilter(_df)
 
         win.setContextMenuPolicy(Qt.CustomContextMenu)
         def _menu(pos):
@@ -4287,11 +4575,27 @@ class PetWidget(QWidget):
             m.exec(win.mapToGlobal(pos))
         win.customContextMenuRequested.connect(_menu)
 
-        panel.setFixedWidth(320)
-        win.setFixedSize(320, 142)
-        win.move(40, 40)
-        win.show()
+        panel.setFixedWidth(WIN_W)
         refresh()
+        panel.adjustSize()
+        # v6.62 fix：高度按内容算（原先写死 142，加了两行余额内容后装不下 → 挤压/拖动发沏）；
+        # 宽度也取「内容需要」与基准宽的较大者（上限 460，防止来源行把窗口拉长）
+        WIN_W = min(460, max(WIN_W, panel.sizeHint().width()))
+        panel.setFixedWidth(WIN_W)
+        win.setFixedWidth(WIN_W)
+        refresh()
+        win.setFixedHeight(max(120, panel.sizeHint().height()))
+        win.setToolTip('按住窗口任意位置拖动 · 右键菜单可关闭')
+        try:
+            with open(CONFIG_PATH, encoding='utf-8') as _f:
+                _p = (json.load(_f) or {}).get('stats_win_pos')
+        except Exception:
+            _p = None
+        if isinstance(_p, (list, tuple)) and len(_p) == 2:
+            win.move(int(_p[0]), int(_p[1]))
+        else:
+            win.move(40, 40)
+        win.show()
         self._api_stats_win = win
 
     def _new_bubble(self, who, ts, is_user=False, text=''):
@@ -5104,6 +5408,12 @@ class PetWidget(QWidget):
         size_txt = f'{size / 1024:.0f}KB' if size < 1024 * 1024 else f'{size / 1024 / 1024:.1f}MB'
         if ext in ('.png', '.jpg', '.jpeg', '.bmp', '.webp'):
             self._append_chat('我', f'🖼 [{base}]（{size_txt}·图片）')
+            if self._vision_ready():
+                # v6.62：图片直接交给模型看（不再先 OCR 成文字，图表/版面信息不丢）
+                self.ask_ai(('（用户放入一张图片，已直接附在消息里，请直接看图回答）' if not is_en
+                             else '(User dropped an image; it is attached. Please look at it.)'),
+                            images=[path])
+                return
             dst = os.path.join(BASE_DIR, '_dropped_img.png')
             try:
                 from PIL import Image
@@ -5155,6 +5465,12 @@ class PetWidget(QWidget):
             path = os.path.join(BASE_DIR, '_screenshot_ocr.png')
             img.save(path, 'PNG')
             import threading
+            if self._vision_ready():
+                # v6.62：全屏截图直接交给模型看（版面/图表信息不再丢）
+                self.ask_ai(('（用户截了一张全屏图，已直接附在消息里，请看图回答）' if not is_en
+                             else '(User took a screenshot; it is attached. Please look at it.)'),
+                            images=[path])
+                return
             def worker():
                 try:
                     self.ocr_signal.emit(ocr_image(path, OCR_PS1))
@@ -5222,16 +5538,25 @@ class PetWidget(QWidget):
                                 parts.append(f'【{a["name"]}】\n{content}')
                         else:
                             parts.append(f'【{a["name"]}】路径：{a["path"]}')
+                    vision_imgs = []
                     if images:
-                        for a in images:
-                            try:
-                                ocr_text = ocr_image(a['path'], OCR_PS1)
-                                parts.append(f'【图片 {a["name"]} OCR】\n{ocr_text}')
-                            except Exception:
-                                parts.append(f'【图片 {a["name"]}】（OCR 失败）')
+                        if self._vision_ready():
+                            # v6.62：图片直接附在消息里（不再 OCR）
+                            vision_imgs = [a['path'] for a in images]
+                        else:
+                            for a in images:
+                                try:
+                                    ocr_text = ocr_image(a['path'], OCR_PS1)
+                                    parts.append(f'【图片 {a["name"]} OCR】\n{ocr_text}')
+                                except Exception:
+                                    parts.append(f'【图片 {a["name"]}】（OCR 失败）')
                     body = '\n\n'.join(parts) if parts else '（无内容）'
                     req = text or '请查看这些文件并简要说明内容'
-                    self.ask_ai(f'（用户放入 {len(atts)} 个附件，内容如下）\n{body}\n\n用户要求：{req}')
+                    head = f'（用户放入 {len(atts)} 个附件'
+                    if vision_imgs:
+                        head += f'，其中 {len(vision_imgs)} 张图片已直接附在本消息里（请直接看图，不要依赖文字描述）'
+                    self.ask_ai(head + '，内容如下）' + (f'\n{body}' if parts else '')
+                                  + f'\n\n用户要求：{req}', images=vision_imgs)
                 except Exception:
                     pass
             threading.Thread(target=atts_ask, daemon=True).start()
@@ -5466,6 +5791,65 @@ class PetWidget(QWidget):
         self._load_ai_config()      # 热加载：参数立即生效 + 菜单勾选态刷新
         return True
 
+    def _request_endpoint(self):
+        """真正要发请求的地址（v6.62）：开了 strict 工具就走 /beta（官方要求）
+
+        其余情况用档案里的正式地址；自定义中转地址时 beta_endpoint 会原样返回。
+        """
+        try:
+            ep = self._current_endpoint()
+        except Exception:
+            ep = DEFAULT_ENDPOINT
+        return beta_endpoint(ep) if getattr(self, 'strict_tools', False) else ep
+
+    def _tools_payload(self, cur_model=None):
+        """工具 schema（v6.62）：开了 strict 就把“能安全严格”的工具转严格版"""
+        base = (tools_for_mode(getattr(self, 'advanced_tools', False))
+                + self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas())
+        if not getattr(self, 'strict_tools', False):
+            return base
+        out, _names = strict_tools(base)
+        return out
+
+    def _remember_reasoning(self, reply, reasoning):
+        """v6.62：记住本轮回复的思考内容（官方称带 tools 时应随历史回传）
+
+        只留一轮、并截断到 4000 字符：回传是官方推荐，但不该把历史 token 吹大。
+        """
+        rsn = str(reasoning or '').strip()
+        self._last_turn_reasoning = (str(reply or '').strip(), rsn[:4000]) if rsn else None
+
+    def _with_reasoning_history(self, msgs):
+        """v6.62：把上一轮 assistant 的 reasoning_content 补回历史（同内容匹配）"""
+        try:
+            last = getattr(self, '_last_turn_reasoning', None)
+            if not last:
+                return msgs
+            reply, rsn = last
+            for i in range(len(msgs) - 1, -1, -1):
+                m = msgs[i]
+                if m.get('role') == 'assistant' and str(m.get('content') or '').strip() == reply:
+                    out = list(msgs)
+                    out[i] = dict(m, reasoning_content=rsn)
+                    return out
+        except Exception as _exc:
+            _silent_log('_with_reasoning_history', _exc)
+        return msgs
+
+    def _thinking_fields(self):
+        """v6.62：思考相关的请求体字段（全项目唯一一处，测试护栏盯这里）
+
+        修复背景：设置里的「思考模式」原先只驱动 UI，从未进过请求体，
+        而官方默认 thinking=enabled、effort=high —— 所谓「关掉思考」根本没关。
+        规则：关思考（或强度=none）→ 只发 thinking.disabled；
+        开思考 → 同时带 reasoning_effort（none 与 enabled 自相矛盾，故归一成 disabled）。
+        """
+        effort = clamp_effort(getattr(self, 'reasoning_effort', DEFAULT_EFFORT))
+        on = bool(getattr(self, 'reasoning_enabled', True)) and effort != 'none'
+        if not on:
+            return {'thinking': {'type': 'disabled'}}
+        return {'thinking': {'type': 'enabled'}, 'reasoning_effort': effort}
+
     def _toggle_reasoning(self):
         """切换思考模式（写进当前角色的模型档案）"""
         is_en = getattr(self, 'language', 'zh') == 'en'
@@ -5475,6 +5859,84 @@ class PetWidget(QWidget):
         msg = ('思考模式已开启' if want else '思考模式已关闭') if not is_en else \
               ('Thinking on' if want else 'Thinking off')
         self._notify(msg + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
+
+    def _set_reasoning_effort(self, val):
+        """设置思考强度（写进当前角色的模型档案；v6.62）"""
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if not self._save_profile_param('effort', val):
+            return
+        self._notify((f'思考强度：{val}' if not is_en else f'Reasoning effort: {val}')
+                     + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
+
+    def _toggle_vision(self):
+        """开关「图片直接交给模型看」（写进当前角色档案的 vision 字段；v6.62）"""
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        prof = self._current_profile()
+        if prof is None:
+            return
+        want = not bool(getattr(self, 'vision_enabled', False))
+        if not MODEL_REGISTRY.set_field(prof.key, 'vision', want):
+            return
+        MODEL_REGISTRY.save()
+        self._load_ai_config()
+        self._notify(('图片已改为直接交给模型看' if want else '图片已改回本地文字识别（OCR）')
+                     + ('（已写入模型档案）' if not is_en else ' (saved to model profile)'))
+
+    def _toggle_cfg_flag(self, cfg_key, attr, on_msg, off_msg):
+        """v6.62：翻转一个全局布尔配置并落盘（走 _save_cfg_value 的热加载）"""
+        want = not bool(getattr(self, attr, False))
+        if self._save_cfg_value(cfg_key, want):
+            self._notify(on_msg if want else off_msg)
+
+    def _toggle_pass_reasoning(self):
+        """回传上轮思考内容（官方称带 tools 时应回传；略增 token）"""
+        self._toggle_cfg_flag('pass_reasoning_history', 'pass_reasoning_history',
+                              '已开启：多轮对话回传上一轮思考内容（官方推荐）',
+                              '已关闭：不回传历史思考内容')
+
+    def _toggle_strict_tools(self):
+        """strict 严格工具参数校验（需走 /beta）"""
+        self._toggle_cfg_flag('strict_tools', 'strict_tools',
+                              '已开启严格工具参数（请求改走 /beta，参数写错更少）',
+                              '已关闭严格工具参数校验')
+
+    def _toggle_vision_files(self):
+        """图片走 Files API 复用（同一张图只上传一次）"""
+        self._toggle_cfg_flag('vision_files_api', 'vision_files_api',
+                              '已开启：图片上传官方文件接口后复用（同图只传一次）',
+                              '已关闭：图片按 base64 直发')
+
+    # ---- v6.62：节假日表（峰谷计价用；不消耗搜索额度） ----
+    HOLIDAYS_CACHE = os.path.join(BASE_DIR, 'holidays_cache.json')
+
+    def _maybe_update_holidays(self):
+        """当年没表时静默拉一次（一年最多一次；失败就用内置表，不打扰用户）"""
+        try:
+            import cn_holidays as ch
+            year = datetime.datetime.now().year
+            if ch.has_year(year, self.HOLIDAYS_CACHE) or not getattr(self, 'holidays_auto_update', True):
+                return
+            threading.Thread(target=lambda: ch.update_from_remote([year], self.HOLIDAYS_CACHE),
+                             daemon=True).start()
+        except Exception as _exc:
+            _silent_log('_maybe_update_holidays', _exc)
+
+    def _update_holidays_now(self):
+        """手动更新节假日表（主跨年/发现算错时用；公共静态 JSON，无 key 无额度）"""
+        import threading
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        self._notify('正在更新节假日表…' if not is_en else 'Updating holiday table…')
+
+        def work():
+            import cn_holidays as ch
+            year = datetime.datetime.now().year
+            years = [y for y in (year - 1, year, year + 1)]
+            ok, errs = ch.update_from_remote(years, self.HOLIDAYS_CACHE)
+            msg = ('节假日表已更新：%s' % '、'.join('%d 年' % y for y in ok))
+            if errs:
+                msg += '；未取到：' + '；'.join(errs)
+            self._run_on_ui(lambda: self._notify(msg))
+        threading.Thread(target=work, daemon=True).start()
 
     def _set_temperature(self, val):
         """设置采样温度（写进当前角色的模型档案）"""
@@ -6208,23 +6670,80 @@ class PetWidget(QWidget):
             self._last_care_line = line
         return line
 
+    # ---- v6.61：扒边探头（可选开关 + 看门狗兜底） ----
+    # 背景：v6.60 批 3 把「探头」写在 _check_active_chat 开头，导致节流不通过的轮次
+    #      也先把窗口弹出来、随后直接 return —— 没有气泡就永远不会走收回路径，
+    #      桌宠停在全尺寸弹出态（用户反馈「缩回一会儿又自己弹出来」）。
+    # 现在：① 探头挪到「确认要说话」之后；② 探头只在本开关开启时发生；
+    #      ③ 探头即挂看门狗，超时未说话强制收回。
+    PROBE_WATCHDOG_MS = 60000        # 探头后若这么久还没说出话 → 强制收回
+
+    def set_dock_probe(self, on):
+        """设置「扒边时弹出来说」开关（落盘 + 热加载）"""
+        self.dock_probe = bool(on)
+        self._save_cfg_value('dock_probe', self.dock_probe)
+        self._notify('扒边探头：%s' % ('已开启（说关心时整个人弹出）' if self.dock_probe
+                                       else '已关闭（只冒气泡，不弹人）'))
+
+    def toggle_dock_probe(self):
+        self.set_dock_probe(not bool(getattr(self, 'dock_probe', False)))
+
+    def _probe_from_dock(self):
+        """扒边探头（v6.61）：仅「扒边 + 未弹出 + 开关开启」时把窗口弹出来。
+
+        返回是否已探头。开关关闭时不弹人 —— 关心气泡照旧显示在扒边窗口里
+        （_place_bubble 按窗口实际宽度夹过，长句不会被硬裁）。
+        """
+        docked = (self._edge_side is not None and self._edge_mode == 'peek'
+                  and not self._edge_popped)
+        if not docked or not bool(getattr(self, 'dock_probe', False)):
+            return False
+        try:
+            self._popup_from_dock()
+            self._dock_rehide = True
+            self._probe_timer.start(self.PROBE_WATCHDOG_MS)
+            log.info('扒边探头：弹出说话（%d 秒内无消息将自动收回）', self.PROBE_WATCHDOG_MS // 1000)
+            return True
+        except Exception as e:
+            log.debug('扒边探头失败，本轮改为只冒气泡：%s', e)
+            return False
+
+    def _rehide_after_probe(self):
+        """探头后收回扒边（v6.61：收回路径收敛，_hide_bubble 与看门狗共用）"""
+        self._dock_rehide = False
+        try:
+            self._probe_timer.stop()
+        except Exception:
+            pass
+        if self._edge_side is None:
+            return
+        try:
+            self._enter_dock(self._edge_side, self._popup_y)
+            log.info('扒边探头：已缩回扒边')
+        except Exception as e:
+            log.debug('探头收回失败：%s', e)
+
+    def _probe_watchdog(self):
+        """探头看门狗（v6.61）：到点仍没说出话（收回标记还在）→ 强制收回
+
+        覆盖「AI 判定这次不说话 / 线程异常 / 文本为空」等拿不到气泡的分支。
+        """
+        if not getattr(self, '_dock_rehide', False):
+            return
+        log.info('扒边探头：超时未说话，自动收回')
+        self._rehide_after_probe()
+
     def _check_active_chat(self):
-        """主动关心检查（v6.60 批 4）
+        """主动关心检查（v6.60 批 4；v6.61 修正探头顺序并加看门狗）
 
         触发：① 到点（链式唤醒给的间隔）；② 场景触发——前台程序从「专注」切到浏览器/桌面，
               在 30–300 秒窗口内视为休息间隙（仅开启前台感知时生效）。
         节流：深夜静默 / 冷却 20 分钟 / 每日上限 8 次；未通过则顺延并记 debug 日志。
+        扒边：v6.61 起「先判断要不要说话，再决定探头」——节流不通过的轮次不再碰窗口几何；
+              探头只在「扒边探头」开关开启时发生，关闭时只在边上冒气泡（见 _probe_from_dock）。
         """
         if not self.active_chat_enabled or self.sleeping:
             return
-        if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
-            # v6.60 批 3：不再静默放弃这一次 —— 先探头把话说出来，说完再缩回扒边
-            try:
-                self._popup_from_dock()
-                self._dock_rehide = True
-            except Exception as e:
-                log.debug('扒边探头失败，本轮跳过：%s', e)
-                return
         now = time.time()
         if getattr(self, 'foreground_aware', False):
             self._note_foreground(fgwin.foreground_process_name())
@@ -6240,6 +6759,9 @@ class PetWidget(QWidget):
         if scene:
             self._scene_used = True
             log.info('场景触发：检测到休息间隙（前台类别 %s）', getattr(self, '_fg_cat', '?'))
+        # v6.61：到这里才确认「这一轮真的要说话」→ 此刻才考虑探头
+        # （原先探头写在函数开头：节流不通过时弹出了却无话可说，且永远不会收回）
+        self._probe_from_dock()
         if self.ai_enabled:
             import threading
             threading.Thread(target=self._wakeup_worker, daemon=True).start()
@@ -6322,20 +6844,138 @@ class PetWidget(QWidget):
             self._show_pet_bubble('、'.join(notes) + '！', 4)
 
     def _show_pet_bubble(self, text, secs=3):
-        """角色头顶提示气泡（复用 CostBubble 动画）"""
+        """角色头顶提示气泡（复用 CostBubble 动画）
+
+        v6.61：① 说话/关心气泡也贴在窗口顶部 y≈6，若它正在显示，把本气泡下移，
+        不再叠在一起；② 先静止再渐隐（hold），否则渐变全程扫过、根本读不清。
+        """
         try:
             b = CostBubble(self, text, self._tk('ui_green'))
-            b.show_bubble(max(8, self.width() // 2 - len(text) * 6), 8, duration=secs * 1000)
+            x = max(8, self.width() // 2 - len(text) * 6)
+            y = 8
+            try:
+                speaking = bool(getattr(self, '_speak_busy', False)) or self.bubble.isVisible()
+                if speaking and self.bubble.height() > 0:
+                    y = min(max(8, self.height() - 44),
+                            self.bubble.y() + self.bubble.height() + 6)
+            except Exception:
+                pass
+            b.show_bubble(x, y, duration=secs * 1000, hold_ms=max(1200, int(secs * 500)))
         except Exception:
             pass
 
     def _on_cost_bubble(self, cost):
-        """API 费用气泡（主线程，跨线程信号）"""
+        """API 费用提示（v6.30 浮动气泡 → v6.61 底部状态条）
+
+        使用者反馈（2026-09-19）：浮动气泡固定在窗口顶部 y=8，**与说话气泡重叠**；
+        且 1.4 秒全程渐隐，金额看不清。现改走底部状态条通道（系统提示通道）：
+        位置不冲突、停留 6 秒、并带上今日累计，信息更完整。
+        """
         try:
-            b = CostBubble(self, f'-¥{cost:.3f}', self._tk('ui_red_soft') if cost > 0.1 else self._tk('ui_accent_soft'))
-            b.show_bubble(self.width() // 2 - 25, 8)
+            today = getattr(self.api_stats, 'today', {}) or {}
+            bal = ''
+            try:
+                bal = self.api_stats.balance_text()   # v6.61：有缓存则附上余额
+            except Exception:
+                bal = ''
+            msg = '本次 −¥%.4f · 今日 ¥%.2f / %d 次%s' % (
+                float(cost or 0), float(today.get('cost') or 0), int(today.get('count') or 0),
+                (' · 余额 ' + bal) if bal else '')
+            self._notify(msg, ms=self.COST_NOTIFY_MS)
+        except Exception as e:
+            log.debug('费用提示失败：%s', e)
+
+    # ---- v6.61：余额查询（手动 / 对话后静默刷新 / 低余额提醒） ----
+    BALANCE_LOW_DEFAULT = 5.0        # 低余额提醒阈值（元），可在设置里手改
+    BALANCE_NOTIFY_MS = 8000         # 余额类提示停留时长
+
+    def set_balance_low(self, value):
+        """设置低余额提醒阈值（元）；0 表示关闭提醒"""
+        try:
+            val = max(0.0, min(float(value), 100000.0))
         except Exception:
-            pass
+            return False
+        self.balance_low_threshold = val
+        self._save_cfg_value('balance_low_threshold', val)
+        self._notify('低余额提醒：%s' % ('已关闭' if val <= 0 else '低于 ¥%.2f 时提醒' % val))
+        return True
+
+    def _query_balance_async(self, manual=True):
+        """后台查询余额（不阻塞 UI）；结果经 balance_signal 回主线程
+
+        manual=False（对话后自动）时全程静默：不弹状态条，失败也不打扰。
+        """
+        if getattr(self, '_balance_busy', False):
+            return False
+        try:
+            key = self._current_api_key()
+        except Exception:
+            key = getattr(self, 'ai_key', '')
+        if not key:
+            if manual:
+                self._notify('余额：未配置 API Key', ms=self.COST_NOTIFY_MS)
+            return False
+        try:
+            base = self._current_endpoint()
+        except Exception:
+            base = ''
+        self._balance_busy = True
+
+        def work():
+            try:
+                info = ApiStats.query_balance(key, base)
+            except Exception as e:
+                info = {'ok': False, 'error': str(e)[:120]}
+            info = dict(info)
+            info['_manual'] = bool(manual)
+            try:
+                self.balance_signal.emit(info)
+            except Exception:
+                pass
+        import threading
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def _on_balance_result(self, info):
+        """余额查询结果回主线程（v6.61）：缓存 + 提示 + 低余额提醒"""
+        info = dict(info or {})
+        manual = bool(info.pop('_manual', False))
+        self._balance_busy = False
+        try:
+            self.api_stats.set_balance(info if info.get('ok') else None)
+        except Exception as e:
+            log.debug('余额缓存写入失败：%s', e)
+        if info.get('ok'):
+            txt = ''
+            try:
+                txt = self.api_stats.balance_text(True)
+            except Exception:
+                txt = ''
+            log.info('余额查询成功：%s', txt)
+            if manual:
+                self._notify('💰 余额 %s' % (txt or '—'), ms=self.BALANCE_NOTIFY_MS)
+            self._maybe_low_balance_alert(info)
+        else:
+            log.debug('余额查询失败：%s', info.get('error'))
+            if manual:
+                self._notify('余额查询失败：%s' % (info.get('error') or '未知错误'),
+                             ms=self.COST_NOTIFY_MS)
+
+    def _maybe_low_balance_alert(self, info):
+        """余额低于阈值提醒一次（每天最多一次）；阈值可在设置里手改"""
+        try:
+            thr = float(getattr(self, 'balance_low_threshold', self.BALANCE_LOW_DEFAULT) or 0)
+            total = info.get('total')
+            if thr <= 0 or total is None or float(total) >= thr:
+                return
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            if getattr(self, '_balance_alerted', '') == today:
+                return
+            self._balance_alerted = today
+            self._notify('⚠️ 余额偏低：¥%.2f（阈值 ¥%.2f）— 建议充值' % (float(total), thr),
+                         ms=self.BALANCE_NOTIFY_MS)
+        except Exception as e:
+            log.debug('低余额提醒失败：%s', e)
 
     def _feed_pet(self):
         """喂食：恢复饱食度 + 好感（冷却 30 分钟）"""
@@ -6529,6 +7169,12 @@ class PetWidget(QWidget):
         act_active.setCheckable(True)
         act_active.setChecked(bool(self.active_chat_enabled))
         act_active.triggered.connect(lambda: self.toggle_active_chat())
+        # v6.61：扒边探头（默认关 —— 扒边时说关心只在边上冒气泡，不把整个人弹出来）
+        act_probe = imenu.addAction(
+            '🪟 扒边时弹出来说' + ('（已开启）' if getattr(self, 'dock_probe', False) else '（已关闭）'))
+        act_probe.setCheckable(True)
+        act_probe.setChecked(bool(getattr(self, 'dock_probe', False)))
+        act_probe.triggered.connect(lambda: self.toggle_dock_probe())
 
         # 3. 形象：角色 / 立绘 / 性格（合并原「角色」「性格切换」与立绘模式）
         fmenu = menu.addMenu('🎭 形象')
@@ -6582,6 +7228,7 @@ class PetWidget(QWidget):
         stmenu.addSeparator()
         umenu = stmenu.addMenu('📈 API 用量')
         umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())
+        umenu.addAction('💰 查询余额').triggered.connect(lambda: self._query_balance_async(True))
         umenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)
         umenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
 

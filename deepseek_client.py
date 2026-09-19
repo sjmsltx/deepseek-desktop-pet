@@ -15,6 +15,7 @@ import urllib.request
 import urllib.error
 
 from model_registry import DEFAULT_ENDPOINT
+from server_clock import note_response as _note_server_time   # v6.62 响应头 Date 校正本机时钟
 
 # 全项目唯一的接口地址默认值（定义在 model_registry）。实际请求地址由调用方
 # 从模型档案（models.json）传入 endpoint；此常量仅作丢参时的兜底。
@@ -50,6 +51,7 @@ def chat_completions(api_key, data, status_cb=None, status_zh='', status_en='', 
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
+                _note_server_time(resp)      # v6.62：顺带用官方 Date 头校正本机时钟（零成本）
                 return _json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             if e.code in RETRY_CODES and attempt < 2:
@@ -93,6 +95,7 @@ def stream_chat_completions(api_key, data, status_cb=None, status_zh='', status_
         sent_any = False        # 本轮是否已吐过分块（决定还能不能安全重试）
         try:
             with urllib.request.urlopen(req, timeout=300) as resp:
+                _note_server_time(resp)      # v6.62：顺带校正本机时钟（零成本）
                 buffer = b''
                 reasoning_buf = []
                 content_buf = []
@@ -193,6 +196,21 @@ def models_url(endpoint=None):
     return base + '/models'
 
 
+def beta_endpoint(endpoint=None):
+    """由正式 chat 地址推出 Beta 地址（v6.62）
+
+    官方：strict 严格模式 / 对话前缀续写 需 base_url = https://api.deepseek.com/beta。
+    实测（2026-09-19）：/beta/chat/completions 接受 strict 工具并能正常返回 tool_calls。
+    自定义中转地址（认不出路径）时原样返回，不瞎拼。
+    """
+    ep = (endpoint or API_URL).strip().rstrip('/')
+    if '/beta/' in ep or ep.endswith('/beta'):
+        return ep
+    if ep.endswith('/chat/completions'):
+        return ep[:-len('/chat/completions')] + '/beta/chat/completions'
+    return ep
+
+
 def _http_err_text(e):
     """把 HTTPError 的响应体里那句 error.message 抽出来（失败时退回状态码）"""
     try:
@@ -214,6 +232,7 @@ def list_models(api_key, endpoint=None, timeout=20):
             headers={'Authorization': f'Bearer {api_key}'},
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            _note_server_time(resp)      # v6.62：顺带校正本机时钟
             data = _json.loads(resp.read().decode())
         ids = [m.get('id') for m in (data.get('data') or []) if m.get('id')]
         return ids, ''
@@ -236,6 +255,7 @@ def probe_model(api_key, model_id, endpoint=None, timeout=30):
             headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            _note_server_time(resp)      # v6.62：顺带校正本机时钟
             data = _json.loads(resp.read().decode())
         return True, (data.get('model') or ''), time.time() - t0, ''
     except urllib.error.HTTPError as e:

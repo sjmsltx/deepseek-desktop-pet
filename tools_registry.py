@@ -451,3 +451,105 @@ def tools_for_mode(advanced=False):
     if advanced:
         return list(AI_TOOLS)
     return [t for t in AI_TOOLS if t.get('function', {}).get('name') in CORE_TOOLS]
+
+
+# ---------- v6.62：strict 严格模式（工具参数强校验）----------
+# 官方要求：strict 需走 /beta 端点，且 schema 只能用白名单关键字（不支持 minLength/
+# maxLength/minItems/maxItems/pattern 等），对象必须 additionalProperties=false，
+# 且“所有字段都进 required”。实测（2026-09-19）：/beta 与正式端点都接受 strict，
+# 且 strict 与非 strict 工具可以混在同一个请求里。
+STRICT_UNSUPPORTED_KEYS = ('minLength', 'maxLength', 'minItems', 'maxItems',
+                           'pattern', 'format', 'default', 'examples', '$schema')
+
+
+def _normalize_schema(schema):
+    """递归剔除 strict 不支持的关键字，并给每个 object 加上 additionalProperties=false"""
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for k, v in schema.items():
+        if k in STRICT_UNSUPPORTED_KEYS:
+            continue
+        if k == 'properties' and isinstance(v, dict):
+            out[k] = {pk: _normalize_schema(pv) for pk, pv in v.items()}
+        elif k == 'items' and isinstance(v, (dict, list)):
+            out[k] = ([_normalize_schema(i) for i in v] if isinstance(v, list)
+                      else _normalize_schema(v))
+        else:
+            out[k] = v
+    if out.get('type') == 'object' and 'additionalProperties' not in out:
+        out['additionalProperties'] = False
+    return out
+
+
+def _has_anonymous_subschema(schema):
+    """是否存在“没声明 type/anyOf/$ref”的子 schema（v6.62 实测踩到的坑）
+
+    offer_choices 的参数里写了 `"items": {}`（“字符串或对象都行”），strict 模式下
+    官方直接 400：Invalid tool parameters schema : one of `type`, `anyOf`, `$ref`
+    field is required。这类工具不适合 strict，宁可不开，也不去改它的语义。
+    """
+    if not isinstance(schema, dict):
+        return False
+    if not any(k in schema for k in ('type', 'anyOf', '$ref')):
+        return True
+    for k, v in schema.items():
+        if k == 'properties' and isinstance(v, dict):
+            if any(_has_anonymous_subschema(sv) for sv in v.values()):
+                return True
+        elif k == 'items':
+            if isinstance(v, dict) and _has_anonymous_subschema(v):
+                return True
+            if isinstance(v, list) and any(_has_anonymous_subschema(i) for i in v):
+                return True
+        elif k in ('anyOf', 'oneOf', 'allOf') and isinstance(v, list):
+            if any(_has_anonymous_subschema(i) for i in v):
+                return True
+    return False
+
+
+def can_be_strict(tool):
+    """该工具能否安全开启 strict：对象参数、required 已覆盖全部属性、且无空子 schema
+
+    为什么只收这一子集：strict 要求“所有字段必填”，对有可选参数的工具强行
+    required 列全会改变语义（如 edit_own_code / memorize），反而更危险。
+    """
+    try:
+        f = tool.get('function') or {}
+        pm = f.get('parameters') or {}
+        if pm.get('type') != 'object':
+            return False
+        props = set((pm.get('properties') or {}).keys())
+        if props != set(pm.get('required') or []):
+            return False
+        return not _has_anonymous_subschema(pm)
+    except Exception:
+        return False
+
+
+def mark_strict(tool):
+    """返回该工具的 strict 版本（规范化 schema + strict=true）"""
+    f = dict(tool.get('function') or {})
+    f['parameters'] = _normalize_schema(f.get('parameters') or {'type': 'object'})
+    f['strict'] = True
+    out = dict(tool)
+    out['function'] = f
+    return out
+
+
+def strict_tools(tools):
+    """把“能安全严格”的工具转成 strict，其余保持原样。
+
+    返回 (tools, strict_names)。用户名可能要问“哪些工具变严了”，所以把名字一并给出。
+    """
+    out, names = [], []
+    for t in (tools or []):
+        try:
+            if t.get('type') == 'function' and can_be_strict(t):
+                out.append(mark_strict(t))
+                names.append((t.get('function') or {}).get('name', ''))
+            else:
+                out.append(t)
+        except Exception:
+            out.append(t)
+    return out, names

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>语音交互（TTS/ASR）方案 · desktop-pet 2026-09-19</title>
+<style>
+  :root{--ink:#14161a;--ink2:#3d434d;--ink3:#6d7480;--line:#dfe2e7;--line2:#f0f1f3;
+    --paper:#fff;--paper2:#fafaf9;--accent:#1f5f8b;--accent2:#a8442a;--ok:#2f6b4f;--warn:#8a6a1f;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper2);color:var(--ink);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.72}
+  .wrap{max-width:1000px;margin:0 auto;padding:56px 32px 96px;background:var(--paper);
+    border-left:1px solid var(--line);border-right:1px solid var(--line);min-height:100vh}
+  header{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:26px}
+  .kicker{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  h1{font-family:Georgia,"Songti SC",serif;font-size:29px;line-height:1.3;margin:12px 0 10px}
+  .sub{color:var(--ink3);font-size:14px}
+  .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));border:1px solid var(--line);margin-top:24px}
+  .meta div{padding:10px 14px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2)}
+  .meta b{display:block;font-size:11px;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .meta span{font-size:13.5px;font-family:Consolas,monospace}
+  h2{font-family:Georgia,"Songti SC",serif;font-size:20px;margin:46px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:26px 0 8px}
+  p{margin:0 0 14px} ul,ol{margin:0 0 16px;padding-left:22px} li{margin:5px 0}
+  code{font-family:Consolas,monospace;font-size:13px;background:#f2f3f5;padding:1px 5px;border:1px solid var(--line2)}
+  pre{font-family:Consolas,monospace;font-size:12.5px;line-height:1.62;background:#fbfbfa;border:1px solid var(--line);
+    border-left:3px solid var(--ink3);padding:14px 16px;overflow-x:auto;margin:14px 0}
+  pre.good{border-left-color:var(--ok)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f7f7f6;font-size:12.5px}
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border:1px solid currentColor;text-transform:uppercase}
+  .t-ok{color:var(--ok)} .t-no{color:var(--accent2)} .t-warn{color:var(--warn)}
+  .flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));border:1px solid var(--line);margin:18px 0}
+  .flow > div{padding:14px 16px;border-right:1px solid var(--line2)}
+  .flow .n{font-family:Georgia,serif;font-size:12px;color:var(--ink3);letter-spacing:.1em}
+  .flow .t{font-weight:600;font-size:14px;margin:6px 0}
+  .flow .d{font-size:12.8px;color:var(--ink2);line-height:1.6}
+  .note{border:1px solid var(--line);border-left:4px solid var(--accent);padding:14px 18px;margin:20px 0;background:#fcfcfb}
+  .note.warn{border-left-color:var(--warn)}
+  footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);color:var(--ink3);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">方案（待确认后再实现）· 2026-09-19</div>
+  <h1>语音交互方案：让桌宠开口、也能听你说话</h1>
+  <div class="sub">这是 README 路线图 B 项目里唯一还空着的「语音交互（TTS/ASR）」。本方案先把可行性测实了 —— 本机 WinRT 内置中文声线与中文识别包**都已就绪、零额外依赖**，而且可以复用桌宠现成的 PowerShell+WinRT 套路（OCR 就是这么做的）。</div>
+</header>
+
+<div class="meta">
+  <div><b>中文合成（离线）</b><span>WinRT 3 声线 ✓</span></div>
+  <div><b>中文识别（离线）</b><span>zh-Hans-CN ✓</span></div>
+  <div><b>额外依赖</b><span>P0/P1 为 0</span></div>
+  <div><b>在线高质量</b><span>edge-tts 7.2.8 ✓</span></div>
+  <div><b>建议范围</b><span>P0 朗读 + P1 语音输入</span></div>
+  <div><b>状态</b><span>待你确认</span></div>
+</div>
+
+<h2>一、可行性实测（本机，2026-09-19）</h2>
+<pre class="good">① SAPI（离线，零依赖）：Microsoft Huihui Desktop(zh-CN,女) · Microsoft Zira(en-US,女) —— 能用但机械
+② WinRT 合成（离线，零依赖）：Microsoft Huihui / Yaoyao(女) / Kangkang(男) —— 比 SAPI 自然，仍是系统内置
+③ WinRT 识别语言包：zh-Hans-CN（简体中文·中国大陆）已安装
+④ WinRT 识别实例：创建成功，当前语言 zh-Hans-CN ✓
+⑤ edge-tts 7.2.8：桌宠可用的 python 里已装（在线，声线质量最好，如 zh-CN-XiaoxiaoNeural）</pre>
+<p>结论：**离线语音这条路在本机是通的，且不需要用户额外装任何东西**。桌宠已经在用同一套路做 OCR（`ocr_helper.ps1` 调 WinRT），语音只需照抄这个模式加两个小脚本。</p>
+
+<h2>二、选型：合成（TTS）</h2>
+<table>
+<thead><tr><th>方案</th><th>依赖 / 联网</th><th>质量</th><th>延迟</th><th>评价</th></tr></thead>
+<tbody>
+<tr><td><b>WinRT 内置声线</b></td><td><span class="tag t-ok">零依赖</span> 离线</td><td>中上（3 个中文声线）</td><td>低（&lt;0.5s）</td><td><b>默认选项</b>：免安装、不联网、隐私好</td></tr>
+<tr><td>SAPI</td><td><span class="tag t-ok">零依赖</span> 离线</td><td>较机械</td><td>低</td><td>兜底（WinRT 不可用时的退路）</td></tr>
+<tr><td><b>edge-tts</b>（已装 7.2.8）</td><td><span class="tag t-warn">需联网</span> + 包</td><td>最好（晓晓/云希等）</td><td>中（首次 ~1s）</td><td><b>可选升级</b>：设置里给「离线声线 / 在线高质量」两档，默认离线</td></tr>
+<tr><td>云 TTS（Azure 等）</td><td>需 key + 计费</td><td>最好</td><td>中</td><td>不做（增加账号与成本，与「本地优先」相悖）</td></tr>
+</tbody>
+</table>
+
+<h2>三、选型：识别（ASR）</h2>
+<table>
+<thead><tr><th>方案</th><th>依赖 / 联网</th><th>中文效果</th><th>体积</th><th>评价</th></tr></thead>
+<tbody>
+<tr><td><b>WinRT 语音识别</b></td><td><span class="tag t-ok">零依赖</span> 离线（本机语言包已装）</td><td>日常短句可用</td><td>0（系统自带）</td><td><b>P1 默认</b>：与 OCR 同一套路，免装免下载</td></tr>
+<tr><td>faster-whisper（本地）</td><td>pip 包 + 模型下载</td><td>更好（长句/口音）</td><td>模型 100~300MB+</td><td>P2 可选增强；打包体积会涨，先不做</td></tr>
+<tr><td>云 ASR</td><td>需 key + 计费 + 上传音频</td><td>最好</td><td>0</td><td>不做（隐私与成本）</td></tr>
+</tbody>
+</table>
+
+<h2>四、架构与流程（沿用现有模块化风格）</h2>
+<div class="flow">
+  <div>
+    <div class="n">新增 1</div>
+    <div class="t">tts_helper.ps1</div>
+    <div class="d">PowerShell + WinRT 合成：文本 → wav 文件（写临时目录）。仿照 `ocr_helper.ps1`，Python 侧用 subprocess 调，返回路径给播放器。</div>
+  </div>
+  <div>
+    <div class="n">新增 2</div>
+    <div class="t">asr_helper.ps1</div>
+    <div class="d">PowerShell + WinRT 识别：麦克风 → 文本（单轮，静音自动结束）。同样是子进程调用，超时可杀。</div>
+  </div>
+  <div>
+    <div class="n">新增 3</div>
+    <div class="t">voice_io.py</div>
+    <div class="d">统一入口：`speak(text)` / `listen(timeout)`；带播放队列（不打断当前朗读）、夜间静音、失败降级到 SAPI 并回报错误。</div>
+  </div>
+  <div>
+    <div class="n">接线</div>
+    <div class="t">主程序 3 处</div>
+    <div class="d">① AI 回复完成 → 剥掉 [emotion:xxx] 标签后朗读；② 右键/设置加「🔊 朗读回复」「🎤 说句话」；③ 设置加开关（默认关）+ 声线选择。</div>
+  </div>
+</div>
+
+<h3>朗读时序（输出）</h3>
+<pre>AI 流式回复结束 → 剥标签/去 Markdown 符号 → 文本分句（按标点切） → 逐句合成+播放（可打断）
+                     ↘ 同步气泡显示（既有逻辑不动）
+夜间（23:59–08:00）或开关关闭 → 直接跳过，不产生任何子进程</pre>
+
+<h3>语音输入时序（输入）</h3>
+<pre>用户按热键 / 点「🎤 说句话」→ 提示「正在听…」（状态条，带明确指示）→ WinRT 识别（静音自动结束）
+  → 识别文本**填入输入框而不是直接发送**（保留你最后确认的一步）→ 你按回车才发出去</pre>
+
+<h2>五、分阶段（建议只批 P0+P1）</h2>
+<table>
+<thead><tr><th>阶段</th><th>内容</th><th>工作量</th><th>验收</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>P0 朗读</b></td>
+  <td>AI 回复自动/手动朗读；离线 WinRT 声线（SAPI 兜底）；夜间静音；剥标签与 Markdown 清洗；播放队列不打断</td>
+  <td>约半天</td>
+  <td>开关生效；连续两条回复不会叠着播；关掉开关后**零子进程**；夜间静音生效；新增测试覆盖清洗与队列</td>
+</tr>
+<tr>
+  <td><b>P1 语音输入</b></td>
+  <td>热键 + 按钮 → 识别 → 填入输入框（不自动发送）；状态条明确提示正在听；超时可中止</td>
+  <td>约一天</td>
+  <td>识别文本进输入框且不自动发；未装语言包/无麦克风时给出明确提示而不是静默失败；有测试覆盖失败路径</td>
+</tr>
+<tr>
+  <td>P2 增强（先不做）</td>
+  <td>唤醒词、边说边识别（流式）、口型联动、whisper 本地增强</td>
+  <td>视情况</td>
+  <td>—</td>
+</tr>
+</tbody>
+</table>
+
+<h2>六、风险与边界（我建议的默认值）</h2>
+<table>
+<thead><tr><th>问题</th><th>处理</th></tr></thead>
+<tbody>
+<tr><td>麦克风隐私</td><td>**默认关闭**；只在按下热键的那几秒打开麦克风；听的时候状态条明写「正在听…」；不录音留存（识别完即丢临时文件）</td></tr>
+<tr><td>打扰（突然出声）</td><td>朗读**默认关闭**，由用户主动开；夜间（23:59–08:00）强制静音（沿用 TTS 既有思路）</td></tr>
+<tr><td>打包体积</td><td>P0/P1 全部走系统 WinRT/SAPI → **不增加任何依赖与体积**；edge-tts 只在源码运行且用户显式选择时用</td></tr>
+<tr><td>非 Windows</td><td>项目本就深绑 Windows（winmm / 注册表自启）；语音同样只做 Windows，其他平台降级为「不显示该功能」</td></tr>
+<tr><td>成本</td><td>语音输入会**多花 token**（同样一句话，语音识别文本可能更长）——统计里能看到，且语音只在你主动用时发生</td></tr>
+<tr><td>识别准确率</td><td>WinRT 识别是「够用」级别；识别错了你可以在输入框里改完再发（这也是不自动发送的原因）</td></tr>
+</tbody>
+</table>
+
+<div class="note warn">
+  <p><b>要你定的三件事</b>：① 是否按 P0 朗读 → P1 语音输入 的顺序做（我建议先只做 P0，你听几天再决定要不要语音输入）；② 离线声线（WinRT，免装）还是在线高质量（edge-tts，需联网）；③ 朗读默认开还是默认关（我建议**默认关**，避免打扰和误会）。</p>
+</div>
+
+<h2>七、第二项待办：记忆检索（「搜共同经历」）草案</h2>
+<p>现状：回忆相册已有「按类型浏览」，记忆注入也有 BM25+重排；缺的是**面向用户的检索入口** —— 你想找「那次一起玩扫雷的事」得自己翻。</p>
+<table>
+<thead><tr><th>要做的事</th><th>做法（沿用现有引擎，不新建体系）</th></tr></thead>
+<tbody>
+<tr><td>入口</td><td>回忆相册里加搜索框；聊天面板支持 `/回忆 关键词`</td></tr>
+<tr><td>检索</td><td>复用 `memory_engine.search_memory_for_injection`（BM25 + 闸门 + LLM 重排），只换「展示」不换「引擎」</td></tr>
+<tr><td>展示</td><td>命中条目 + 时间 + 类型（事实/事件）+ 相关度；点击可回到当时的对话片段</td></tr>
+<tr><td>工作量</td><td>约半天，风险低（纯读操作，不改记忆写入逻辑）</td></tr>
+</tbody>
+</table>
+<p class="sub">这一项比语音小得多，也可以直接排在语音 P0 之前做 —— 由你定顺序。</p>
+
+<footer>
+  2026-09-19 · 方案草案（未实现）· 本机语音能力已实测（WinRT 合成 3 声线 + 中文识别包就绪 + edge-tts 7.2.8）· 待你确认后开工
+</footer>
+
+</div>
+</body>
+</html>

@@ -17,9 +17,9 @@ settings_ui.py — 统一设置窗口（Phase 5）
 import os
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget, QPushButton, QStackedWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton,
+                               QStackedWidget, QVBoxLayout, QWidget)
 import pet_foreground as fgwin  # v6.59 前台程序感知（只读进程名，隐私边界见模块头部）
 from pet_theme import DEFAULT_THEME  # v6.57 主题 token 唯一源（消除本模块里的"第二套配色"）
 
@@ -136,6 +136,11 @@ class SettingsDialog(QDialog):
         self.ck_active.toggled.connect(self._toggle_active_chat)
         f.addRow('主动关心', self.ck_active)
 
+        # v6.61：扒边探头 —— 与「主动关心」配套。默认关：扒边时只冒气泡，不把整个人弹出来。
+        self.ck_probe = QCheckBox('开启（说关心时整个人弹出来，说完缩回）')
+        self.ck_probe.toggled.connect(self._toggle_dock_probe)
+        f.addRow('扒边时弹出来说', self.ck_probe)
+
         # v6.59：前台程序感知 —— 用户要求的「单独的、明确的勾选选项」，默认关闭。
         # 与「主动关心」平级但独立：不勾选则完全不读取前台程序。
         self.ck_fg = QCheckBox('开启（默认关闭）')
@@ -202,6 +207,18 @@ class SettingsDialog(QDialog):
         self.host.active_chat_enabled = bool(on)
         self.host._save_cfg_value('active_chat', bool(on))
         self.host._append_chat('桌宠', '主动关心已%s' % ('开启' if on else '关闭'))
+
+    def _toggle_dock_probe(self, on):
+        """v6.61：扒边探头开关（落盘与提示由宿主负责）"""
+        if self._building:
+            return
+        self.host.set_dock_probe(bool(on))
+
+    def _apply_balance_low(self):
+        """v6.61：低余额提醒阈值（0 = 关闭提醒）"""
+        if self._building:
+            return
+        self.host.set_balance_low(self.sp_bal.value())
 
     # ---------- ② 对话 ----------
     def _toggle_advanced_tools(self, on):
@@ -289,6 +306,43 @@ class SettingsDialog(QDialog):
             lambda *_: not self._building and self.host._toggle_reasoning())
         f.addRow('思考模式', self.ck_reason)
 
+        # v6.62：思考强度（官方 reasoning_effort）—— 只有这项真正进了请求体
+        self.cb_effort = QComboBox()
+        for _lv, _lb in (('none', 'none · 不思考'), ('low', 'low · 快'),
+                         ('high', 'high · 默认'), ('max', 'max · 最深入')):
+            self.cb_effort.addItem(_lb, _lv)
+        self.cb_effort.currentIndexChanged.connect(
+            lambda *_: not self._building and self.cb_effort.currentData()
+            and self.host._set_reasoning_effort(self.cb_effort.currentData()))
+        self.cb_effort.setToolTip('思考越深 → 越慢、越费 token；选 none 等价于关闭思考')
+        f.addRow('思考强度', self.cb_effort)
+
+        self.ck_vision = QCheckBox('图片直接交给模型看（不先做文字识别）')
+        self.ck_vision.toggled.connect(
+            lambda *_: not self._building and self.host._toggle_vision())
+        self.ck_vision.setToolTip('开启后：拖入/粘贴的图片、全屏截图按官方多模态格式直送模型，'
+                                  '图表、界面布局这类非文字信息也能看懂；关闭则回退本地 OCR')
+        f.addRow('图片直送', self.ck_vision)
+
+        # v6.62：三项 API 细节开关（都是官方可选项，默认值已按官方建议设）
+        self.ck_pass_rsn = QCheckBox('多轮对话回传上一轮思考内容（官方推荐，略增 token）')
+        self.ck_pass_rsn.toggled.connect(
+            lambda *_: not self._building and self.host._toggle_pass_reasoning())
+        f.addRow('思考回传', self.ck_pass_rsn)
+
+        self.ck_strict = QCheckBox('严格工具参数校验（请求改走 /beta，参数写错更少）')
+        self.ck_strict.toggled.connect(
+            lambda *_: not self._building and self.host._toggle_strict_tools())
+        self.ck_strict.setToolTip('只对「所有参数都必填」的工具启用（如 write_file / search_code / '
+                                  'run_powershell）；有可选参数的工具（edit_own_code 等）保持原样')
+        f.addRow('严格工具', self.ck_strict)
+
+        self.ck_vfiles = QCheckBox('图片走文件接口复用（同一张图只上传一次）')
+        self.ck_vfiles.toggled.connect(
+            lambda *_: not self._building and self.host._toggle_vision_files())
+        self.ck_vfiles.setToolTip('官方 Files API：上传后拿 file_id 复用，同一张图反复提问不必重发 base64')
+        f.addRow('图片复用', self.ck_vfiles)
+
         self.sp_row = QWidget()
         hr = QHBoxLayout(self.sp_row)
         hr.setContentsMargins(0, 0, 0, 0)
@@ -305,6 +359,41 @@ class SettingsDialog(QDialog):
         hr.addWidget(b)
         hr.addStretch(1)
         f.addRow('采样温度', self.sp_row)
+        # v6.62：官方声明 —— 思考模式下 temperature 不生效，这里如实标出，避免误以为调了没用
+        lb_tip = QLabel('提示：官方在多模态/思考开启时不支持采样温度，此项仅关闭思考后生效')
+        lb_tip.setStyleSheet(STYLE_HINT)
+        lb_tip.setWordWrap(True)
+        f.addRow('', lb_tip)
+
+        # v6.61：余额 —— 手动查询 + 对话后自动刷新 + 低余额提醒（阈值可手改）
+        self.sp_bal = QDoubleSpinBox()
+        self.sp_bal.setRange(0.0, 10000.0)
+        self.sp_bal.setDecimals(2)
+        self.sp_bal.setSingleStep(1.0)
+        self.sp_bal.setSuffix(' 元')
+        self.sp_bal.setSpecialValueText('关闭提醒')
+        self.sp_bal.setToolTip('余额低于此值时提醒一次（每天最多一次）；设为 0 关闭提醒')
+        self.sp_bal.editingFinished.connect(self._apply_balance_low)
+        f.addRow('低余额提醒', self.sp_bal)
+        self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
+                                        ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
+
+        # v6.62：峰谷计价要认法定节假日（表内置；可手动更新，不消耗搜索额度）
+        try:
+            import server_clock as _sc
+            _local_peak = _sc.peak_ranges_in_local_text()
+            _skew = _sc.skew_text()
+        except Exception:
+            _local_peak, _skew = '', ''
+        _hd_tip = QLabel('高峰：北京时间 9:00–12:00 / 14:00–18:00（不含法定节假日；'
+                         '周末与节假日全天按空闲）'
+                         + ('；换算到你本机是 %s' % _local_peak if _local_peak else '')
+                         + ('。本机时钟：%s。' % _skew if _skew else '。'))
+        _hd_tip.setStyleSheet(STYLE_HINT)
+        _hd_tip.setWordWrap(True)
+        f.addRow('', _hd_tip)
+        self._buttons(f, '峰谷计价', [('📅 更新节假日表（免费，不占搜索额度）',
+                                       self.host._update_holidays_now)])
 
         self._buttons(f, '模型档案', [('🎯 模型管理…', self.host._open_model_manager)])
         self._buttons(f, '密钥', [('🔑 修改 API Key…', self.host._set_api_key_dialog),
@@ -398,6 +487,11 @@ class SettingsDialog(QDialog):
             self.cb_lang.setCurrentIndex(idx if idx >= 0 else 0)
             self.ed_city.setText(getattr(h, 'pet_city', '') or '')
             self.ck_active.setChecked(bool(getattr(h, 'active_chat_enabled', False)))
+            self.ck_probe.setChecked(bool(getattr(h, 'dock_probe', False)))
+            try:
+                self.sp_bal.setValue(float(getattr(h, 'balance_low_threshold', 5.0) or 0))
+            except Exception:
+                self.sp_bal.setValue(5.0)
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()
@@ -443,6 +537,15 @@ class SettingsDialog(QDialog):
                 self.cb_char.setCurrentIndex(i3 if i3 >= 0 else 0)
             self.lb_model.setText(getattr(h, '_current_model', lambda: '—')() or '—')
             self.ck_reason.setChecked(bool(getattr(h, 'reasoning_enabled', True)))
+            # v6.62：思考强度与图片直送
+            _e = str(getattr(h, 'reasoning_effort', 'high') or 'high')
+            _ie = self.cb_effort.findData(_e)
+            self.cb_effort.setCurrentIndex(_ie if _ie >= 0 else 2)   # 认不出回默认 high
+            self.ck_vision.setChecked(bool(getattr(h, 'vision_enabled', False)))
+            # v6.62：三项 API 细节开关
+            self.ck_pass_rsn.setChecked(bool(getattr(h, 'pass_reasoning_history', True)))
+            self.ck_strict.setChecked(bool(getattr(h, 'strict_tools', False)))
+            self.ck_vfiles.setChecked(bool(getattr(h, 'vision_files_api', False)))
             # v6.51：同「回复长度」——温度非预设值时也要能看见当前值
             for _i in range(self.cb_temp.count() - 1, -1, -1):
                 if self.cb_temp.itemText(_i).endswith('（当前）'):

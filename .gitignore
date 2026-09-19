@@ -42,6 +42,8 @@ _pasted_ocr.png
 # API 自监控运行时数据
 _apistats_debug.log
 api_stats.json
+files_cache.json
+holidays_cache.json
 
 affection.json
 memories.json
