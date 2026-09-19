@@ -15,12 +15,16 @@
 
 > 基于 PySide6 + DeepSeek API 的桌面 AI 陪伴助手，支持双角色、长期记忆、工具调用、主动关心机制。
 
+> **关键词：** 桌宠 · 桌面宠物 · AI 桌宠 · DeepSeek 桌宠 · 桌面陪伴 · AI 桌面助手 · 长期记忆 · 函数调用 · Live2D · 免安装便携版
+
 > ⚠️ 本项目为第三方开源项目，与 DeepSeek（深度求索）公司无任何关联，仅使用其公开 API。所有角色形象均为 AI 生成，不代表官方。
 
 > 📌 版本说明：**发布版本号**见 [CHANGELOG.md](CHANGELOG.md)（语义化 `2.x`）；源码注释里的 `v6.xx`
 > 是**内部开发迭代号**（`v6.19` 为开发起点）。两套编号用途不同，不是同一串版本。
 
 **[English](README.en.md) | [中文](README.md)**
+
+**目录：** [特性](#-特性) · [截图](#-截图) · [快速开始](#-快速开始) · [常见问题](#-常见问题) · [项目结构](#-项目结构) · [打包为 exe](#-打包为-exe) · [贡献](#-贡献--扩展方向)
 
 ## 🌍 English Summary（给国际访客 / for search & AI crawlers）
 
@@ -365,6 +369,29 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 ```
 
 > ⚠️ PyInstaller 必须 ≥ 6.21（支持 Python 3.14）；打包后删除 `_internal` 里的 `icu*.dll`（会干扰 Qt6Core，spec 已内置排除规则）。
+
+## ❓ 常见问题
+
+**Q：桌宠怎么安装？需要装 Python 吗？**
+A：不需要。到 [最新版 Release](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest) 下载 Windows 便携包，解压后双击运行即可（需自备 DeepSeek API Key）。想从源码运行见 [🚀 快速开始](#-快速开始)。
+
+**Q：DeepSeek API Key 填在哪里？**
+A：编辑仓库根目录的 `config.json`，把 Key 填进 `deepseek_api_key` 字段（字段名由 `models.json` 里的身份定义决定，随模型身份走）。Key 只在本地使用，不会发送给本项目。
+
+**Q：支持哪些模型？怎么换成 V4 Pro 或自定义模型？**
+A：模型身份定义在 `models.json` 的 `profiles` 里，默认带 Flash / Pro 两个身份，每个身份可配 `model_id`、`endpoint`、温度与价格等；缺少该文件时按 `models.json.example` 复制一份即可。
+
+**Q：怎么设置开机自启？**
+A：右键桌宠 → **🚀 开机自启**（菜单会显示“（已开）/（已关）”）。它会在系统启动文件夹放一个快捷方式，删掉那个快捷方式即可关闭。
+
+**Q：怎么换立绘 / 换角色 / 用 Live2D？**
+A：右键 → **🎭 形象**：可切换角色、在「静态模式 / Live2D 模式」之间切换、换人格与主题，「更多形象设置…」打开设置面板。Live2D 需额外安装 `live2d-py` 与 `pyopengl`（见 [🚀 快速开始](#-快速开始)），制作流程见 [docs/live2d_pipeline.md](docs/live2d_pipeline.md)。
+
+**Q：它会读取我的聊天内容或屏幕吗？**
+A：不会。只有你主动发给桌宠的对话会送到 DeepSeek API；聊天记忆与用量统计都存本地。可选的「前台程序感知」**只读取当前前台进程名**——不读窗口标题或内容、不截屏，且默认关闭。
+
+**Q：启动报错 / 双击没反应怎么办？**
+A：先看 [排障与修复记录](排障与修复记录_20260914.md) 与 [功能体检报告](功能体检报告_20260914.md)；仍无法解决可在 [Issues](https://github.com/sjmsltx/deepseek-desktop-pet/issues) 贴上报错日志。
 
 ## 🤝 贡献 / 扩展方向
 

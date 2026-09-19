@@ -169,6 +169,26 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 
 > ⚠️ PyInstaller must be ≥ 6.21 (Python 3.14 support); delete `icu*.dll` from `_internal` after packaging (interferes with Qt6Core; the spec already excludes them).
 
+## ❓ FAQ
+
+**Q: How do I install it? Do I need Python?**
+A: No. Download the portable zip from the [latest release](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest), unzip and run it (bring your own DeepSeek API key). From source, see [🚀 Quick Start](#-quick-start).
+
+**Q: Where do I put the DeepSeek API key?**
+A: In `config.json` (field `deepseek_api_key`; the exact name is defined by the profile in `models.json`). It stays local and is never sent to this project.
+
+**Q: Which models are supported?**
+A: Profiles live in `models.json` (`profiles`), shipped with Flash / Pro; each profile defines `model_id`, `endpoint`, temperature and pricing.
+
+**Q: How do I enable auto-start on boot?**
+A: Right-click the pet → **🚀 Auto-start** (shows ON / OFF). It places a shortcut in your Startup folder; delete it to turn it off.
+
+**Q: Can I change the character, or use Live2D?**
+A: Right-click → **🎭 Appearance** (character, static / Live2D mode, personality, theme). Live2D needs `live2d-py` + `pyopengl`; see [docs/live2d_pipeline.md](docs/live2d_pipeline.md).
+
+**Q: Does it read my chats or my screen?**
+A: No. Only the messages you send are forwarded to the DeepSeek API; memory and usage stats stay local. The optional foreground awareness reads **process names only** — no window titles, no content, no screenshots — and is off by default.
+
 ## 🤝 Contributing / Roadmap
 
 Want to learn from or contribute to this project? Start with [CONTRIBUTING.md](CONTRIBUTING.md) (includes a source-reading map).
