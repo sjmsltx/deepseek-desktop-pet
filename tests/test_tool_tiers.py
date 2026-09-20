@@ -27,16 +27,21 @@ def test_mode_switch():
     core = tr.tools_for_mode(False)
     full = tr.tools_for_mode(True)
     assert len(core) == len(tr.CORE_TOOLS), '默认模式应只给 core：%d' % len(core)
-    assert len(full) == len(tr.AI_TOOLS) == 29, '进阶模式应给全部：%d' % len(full)
+    assert len(full) == len(tr.AI_TOOLS) == 31, '进阶模式应给全部：%d' % len(full)
     assert {t['function']['name'] for t in core} == set(tr.CORE_TOOLS)
 
 
 def test_context_saving():
-    """默认模式仍需明显省上下文（门槛从 55%% 调到 30%%：v6.58 把能力类工具补回了 core）"""
+    """默认模式仍需明显省上下文
+
+    门槛演进：55%（v6.53）→ 30%（v6.58 把能力类工具补回 core）→ 28%（v6.66 把日常任务
+    工具 office_doc 也放进 core —— 使用者明确要日常任务能力，宁多花点上下文）。
+    真正的底线是“默认模式要明显比全量省”，而不是某个具体数字。
+    """
     core = json.dumps(tr.tools_for_mode(False), ensure_ascii=False)
     full = json.dumps(tr.tools_for_mode(True), ensure_ascii=False)
     saved = 1 - len(core) / len(full)
-    assert saved >= 0.30, '默认模式节省比例不足 30%%（实际 %.0f%%）' % (saved * 100)
+    assert saved >= 0.28, '默认模式节省比例不足 28%%（实际 %.0f%%）' % (saved * 100)
 
 
 def test_capability_tools_in_core():
@@ -56,6 +61,17 @@ def test_companion_tools_present():
     core = {t['function']['name'] for t in tr.tools_for_mode(False)}
     for must in ('memorize', 'offer_choices', 'schedule_followup', 'set_reminder', 'manage_todo'):
         assert must in core, '陪伴核心工具被误收起：%s' % must
+
+
+def test_office_tool_in_core():
+    """v6.66：办公工具（日常任务）必须在默认集合里
+
+    背景：使用者质疑“日常任务（WPS 表格/文档）行不行”—— 如果它只在进阶模式，
+    AI 默认手上没有这个工具，就又会回答“工具没装上”。
+    """
+    core = {t['function']['name'] for t in tr.tools_for_mode(False)}
+    assert 'office_doc' in core, '日常任务工具不在默认集合'
+    assert 'office_doc' in {t['function']['name'] for t in tr.AI_TOOLS}
 
 
 def test_source_guards():

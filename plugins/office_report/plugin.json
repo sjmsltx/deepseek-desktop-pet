@@ -1,0 +1,54 @@
+{
+  "manifest_version": 2,
+  "name": "office_report",
+  "title": "办公报表",
+  "version": "1.0.0",
+  "author": "AutoClaw 官方",
+  "description": "把结构化数据交给本机 WPS / Microsoft Office 生成带样式的 xlsx 与 PDF 报表（走官方 COM 接口，不用 GUI 自动化）",
+  "type": "tool",
+  "entry": "plugin.py",
+  "enabled": true,
+  "builtin": true,
+  "license": "MIT",
+  "min_pet_version": "6.67",
+  "permissions": {
+    "office.com": "调用本机 WPS / Microsoft Office 的 COM 接口来生成表格与 PDF",
+    "files.write": "把生成的报表文件写到程序目录的 输出/ 下"
+  },
+  "tools": [
+    {
+      "name": "excel_report",
+      "description": "生成一份带样式的 Excel 报表并导出 PDF（走本机 WPS/Office COM）。用户说“做个报表/整理成 Excel 并出 PDF”时用；文件统一落在程序目录 输出/ 下",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "报表标题（显示在第一行合并居中）"
+          },
+          "headers": {
+            "type": "string",
+            "description": "表头 JSON 数组，如 [\"日期\",\"金额\",\"备注\"]"
+          },
+          "rows": {
+            "type": "string",
+            "description": "数据 JSON 二维数组，如 [[\"09-19\",12.5,\"—\"]]"
+          },
+          "name": {
+            "type": "string",
+            "description": "文件名（不含路径，可省略扩展名；只会写到 输出/ 目录）"
+          },
+          "footer": {
+            "type": "string",
+            "description": "页脚说明（可选）"
+          },
+          "pdf": {
+            "type": "boolean",
+            "description": "是否同时导出 PDF，默认 true"
+          }
+        },
+        "required": ["title", "headers", "rows"]
+      }
+    }
+  ]
+}

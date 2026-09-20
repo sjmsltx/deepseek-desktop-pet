@@ -404,6 +404,51 @@ AI_TOOLS = [
             }
         }
     },
+    # v6.66：办公文档（WPS / Microsoft Office COM）—— 补上“日常任务”能力
+    {
+        "type": "function",
+        "function": {
+            "name": "office_doc",
+            "description": "办公文档（本机 WPS/Office + 真生成文档）：action=info 探测接口；write_sheet 写 xlsx；read_sheet 读表格；make_report 生成带样式报表；export_pdf 导出 PDF；write_doc 生成 Word（标题+段落+表格）；write_slides 生成 PPT（封面+要点页）。用户要“做表格/生成报表/统计成 Excel/导出 PDF/写文档/做 PPT”时用；文件统一落在程序目录的 输出/ 下",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["info", "write_sheet", "read_sheet", "make_report", "export_pdf", "write_doc", "write_slides"], "description": "操作类型"},
+                    "path": {"type": "string", "description": "目标文件名（.xlsx/.docx/.pptx；export_pdf 时填源文件）"},
+                    "rows": {"type": "string", "description": "二维数据 JSON，如 [[\"日期\",\"金额\"],[\"09-19\",1.5]]"},
+                    "headers": {"type": "string", "description": "表头 JSON（make_report / write_doc）"},
+                    "title": {"type": "string", "description": "标题（make_report / write_doc / write_slides）"},
+                    "subtitle": {"type": "string", "description": "副标题（write_doc / write_slides，可选）"},
+                    "paragraphs": {"type": "string", "description": "正文段落 JSON 数组（write_doc），元素可为字符串或 {\"style\":\"Heading 1\"|\"List Bullet\",\"text\":\"…\"}"},
+                    "slides": {"type": "string", "description": "幻灯片 JSON 数组（write_slides）：[{\"title\":\"页标题\",\"bullets\":[\"要点1\",\"要点2\"],\"notes\":\"备注\"}]"},
+                    "footer": {"type": "string", "description": "页脚备注（make_report，可选）"},
+                    "sheet": {"type": "string", "description": "工作表名（默认 Sheet1）"},
+                    "start": {"type": "string", "description": "起始单元格（默认 A1）"},
+                    "cell_range": {"type": "string", "description": "读取范围如 A1:D20"},
+                    "out": {"type": "string", "description": "导出的 PDF 文件名（export_pdf）"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    # v6.67：技能包管理（Batch 3-1）—— 放在进阶工具里（不是日常高频，省上下文）
+    {
+        "type": "function",
+        "function": {
+            "name": "skill_pack",
+            "description": "技能包管理：action=list 列出已装技能包（含来源/版本/权限）；info 看某个包的权限卡片；install 从本地目录或 zip 安装（做清单校验 + 安全扫描）；grant 确认权限；enable/disable 启用禁用；uninstall 卸载（进停放区可找回）。用户说“装个技能/扩展能力”“看装了哪些技能”“禁用/卸载某个技能”时用。技能包代码若要用子进程、联网、删文件这类能力，必须在 manifest 里声明对应权限并由用户确认后才生效。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "info", "install", "grant", "enable", "disable", "uninstall"], "description": "操作类型"},
+                    "name": {"type": "string", "description": "技能包名（info/grant/enable/disable/uninstall 用）"},
+                    "path": {"type": "string", "description": "install 时的本地技能包目录或 .zip 路径"},
+                    "permissions": {"type": "string", "description": "grant 时确认的权限类别，多个用逗号分隔，如 office.com,files.write"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
 ]
 
 
@@ -441,6 +486,8 @@ CORE_TOOLS = (
     'read_file', 'write_file', 'search_code', 'edit_own_code',
     'install_plugin', 'uninstall_plugin', 'list_plugins', 'set_theme',
     'skill_run',
+    # v6.66：办公文档（日常任务：表格 / 报表 / PDF）
+    'office_doc',
 )
 
 

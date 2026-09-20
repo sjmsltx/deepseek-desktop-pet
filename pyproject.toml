@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepseek-desktop-pet"
-version = "2.8.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）；本版攒了「思考开关接线 + 图片直送 + JSON 输出」三项，统一按 2.8 发布
+version = "2.9.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）；本版 = 技能包生态 + MCP 接入与管理 + 治理三件（审计/限额/出网白名单）+ 平台抽象层 P1
 description = "一只住在你电脑里的 Q 版桌宠：陪你聊天、帮你干活、主动关心你。"
 readme = "README.md"
 requires-python = ">=3.10"

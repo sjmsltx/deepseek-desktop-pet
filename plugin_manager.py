@@ -30,6 +30,8 @@ DANGEROUS_PATTERNS = [
 ]
 # 允许的插件文件类型
 ALLOWED_ENTRY_EXTS = ('.py',)
+# _load_module 的哨兵：策略拒绝（永禁代码 / 权限未确认）——调用方不要把它当成已加载
+REJECTED = object()
 
 
 class PluginManager:
@@ -38,6 +40,7 @@ class PluginManager:
     def __init__(self, plugins_dir):
         self.dir = plugins_dir
         self.plugins = {}          # name -> {dir, meta, module}
+        self.rejected = {}         # name -> 拒绝原因（安全策略），给界面/诊断看
         self._lock = threading.RLock()  # 可重入：install/uninstall 内部会再调 scan()
         os.makedirs(self.dir, exist_ok=True)
         self.scan()
@@ -47,11 +50,14 @@ class PluginManager:
         """全量扫描 plugins/ 目录，加载 enabled 插件（失败隔离）"""
         with self._lock:
             self.plugins = {}
+            self.rejected = {}
             if not os.path.isdir(self.dir):
                 return
             for entry in sorted(os.listdir(self.dir)):
                 pdir = os.path.join(self.dir, entry)
                 if not os.path.isdir(pdir):
+                    continue
+                if entry.startswith('_'):      # _registry.json / _uninstalled / _tmp 等内部目录
                     continue
                 meta_path = os.path.join(pdir, 'plugin.json')
                 if not os.path.isfile(meta_path):
@@ -64,13 +70,21 @@ class PluginManager:
                     if meta.get('enabled', True) is False:
                         continue
                     name = str(meta.get('name') or entry)  # 强制 str（AI 可能把 name 写成数字等）
-                    module = self._load_module(pdir, meta) if meta.get('entry') else None
+                    if not meta.get('entry'):
+                        self.plugins[name] = {'dir': pdir, 'meta': meta, 'module': None}
+                        continue
+                    module = self._load_module(pdir, meta)
+                    if module is REJECTED:
+                        # 安全策略拒载：**不挂进 plugins**（旧版会挂成 module=None，
+                        # 看着像加载了，实际上只会在列表里捣乱，v6.67 修正）
+                        self.rejected[name] = getattr(self, '_last_reject', '') or '安全策略拒载'
+                        continue
                     self.plugins[name] = {'dir': pdir, 'meta': meta, 'module': module}
                 except Exception as e:
                     print(f'[Plugin] {entry} 加载失败（已跳过）: {e}')
 
     def _load_module(self, pdir, meta):
-        """加载插件 Python 实现：语法校验 + 危险扫描 + exec"""
+        """加载插件 Python 实现：语法校验 + 静态扫描（分级）+ exec"""
         entry = meta.get('entry')
         if not entry:
             return None
@@ -80,15 +94,43 @@ class PluginManager:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 src = f.read()
-            ast.parse(src)  # ① 语法校验
-            for pat in DANGEROUS_PATTERNS:  # ② 危险操作扫描
-                if pat in src:
-                    print(f'[Plugin] {meta.get("name")} 含危险操作关键词「{pat}」，已拒绝加载')
-                    return None
+            import skill_pack
+            declared = (meta.get('permissions') or {}).keys()
+            # manifest_version ≥ 2 才按新规严管；v1 老插件只拦永禁（不误伤已有插件）
+            strict = int(meta.get('manifest_version') or 1) >= 2
+            ok, msg, _needed = skill_pack.scan_code(src, declared, strict=strict,
+                                                    builtin=bool(meta.get('builtin')))   # ① 语法 + 永禁/分级扫描
+            if not ok:
+                print(f'[Plugin] {meta.get("name")} 拒绝加载：{msg}')
+                self._last_reject = msg
+                return REJECTED
+            if not strict:
+                self._last_reject = ''
+                return self._exec_module(path, meta)
+            # ② 声明了但使用者还没确认的权限 → 也不加载（避免未授权能力被用上）
+            #    · 登记表里有 pending → 未确认
+            #    · 没登记、不是随程序自带的官方包、却声明了权限 → 视为“手工塞进来的”，也要求先确认
+            reg = skill_pack.read_registry(self.dir).get(str(meta.get('name'))) or {}
+            declared = sorted((meta.get('permissions') or {}).keys())
+            pending = list(reg.get('pending') or [])
+            if not reg and declared and not meta.get('builtin'):
+                pending = declared
+            if pending:
+                print(f'[Plugin] {meta.get("name")} 权限未确认（{"、".join(pending)}），暂不加载')
+                self._last_reject = '权限未确认：' + '、'.join(pending)
+                return REJECTED
+            return self._exec_module(path, meta)
+        except Exception as e:
+            print(f'[Plugin] {meta.get("name")} 模块加载失败（已跳过）: {e}')
+            return None
+
+    def _exec_module(self, path, meta):
+        """真正执行插件代码（已过语法/安全校验）"""
+        try:
             spec = importlib.util.spec_from_file_location(
                 f'pet_plugin_{meta.get("name", "x")}', path)
             mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)  # ③ 执行（失败由外层隔离）
+            spec.loader.exec_module(mod)  # 执行（失败由外层隔离）
             return mod
         except Exception as e:
             print(f'[Plugin] {meta.get("name")} 模块加载失败（已跳过）: {e}')
@@ -232,29 +274,28 @@ class PluginManager:
         name = str(name or '').strip()
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,32}', name):
             return False, '插件名只能含字母/数字/下划线/连字符（≤32 字符）'
-        # ② meta 校验
-        if not isinstance(meta, dict) or not meta.get('type'):
-            return False, 'plugin.json 需要包含 type 字段（tool/menu/rules/theme/skill）'
-        if meta.get('type') not in ('tool', 'menu', 'rules', 'theme', 'skill'):
-            return False, f"未知插件类型 {meta.get('type')}"
+        # ② meta 校验（v6.67：走技能包规范，字段/类型/权限类别全检）
+        import skill_pack
+        ok, vmsg, meta = skill_pack.validate_manifest(meta, name_hint=name)
+        if not ok:
+            return False, vmsg
         if meta.get('entry') and not entry_content:
             return False, '声明了 entry 但没提供代码内容'
-        # ③ entry 语法 + 危险扫描
+        # ③ entry 语法 + 静态扫描（永禁直接拒 / 分级关键词需声明权限）
         if entry_content:
-            try:
-                ast.parse(entry_content)
-            except SyntaxError as e:
-                return False, f'Python 语法错误：{e}'
-            for pat in DANGEROUS_PATTERNS:
-                if pat in entry_content:
-                    return False, f'代码含危险操作「{pat}」，已拒绝安装'
+            ok, msg, _needed = skill_pack.scan_code(entry_content, (meta.get('permissions') or {}).keys(),
+                                                    builtin=bool(meta.get('builtin')))
+            if not ok:
+                return False, msg
         # 写入
         pdir = os.path.join(self.dir, name)
+        declared = sorted((meta.get('permissions') or {}).keys())
+        if declared:
+            # v6.67：声明了权限 → 先落地但**禁用**，等使用者确认后再启用（不默认放行）
+            meta['enabled'] = False
         try:
             os.makedirs(pdir, exist_ok=True)
-            meta.setdefault('name', name)
             meta['name'] = str(meta['name'])  # 强制 str（防 AI 把 name 写成数字）
-            meta.setdefault('version', '1.0.0')
             meta.setdefault('enabled', True)
             with open(os.path.join(pdir, 'plugin.json'), 'w', encoding='utf-8') as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -265,29 +306,93 @@ class PluginManager:
             if meta.get('type') == 'rules' and meta.get('rules') and rules_content:
                 with open(os.path.join(pdir, meta['rules']), 'w', encoding='utf-8') as f:
                     f.write(rules_content)
+            # 登记来源/哈希/权限（来源=AI 通道）
+            reg = skill_pack.read_registry(self.dir)
+            reg[name] = {'version': meta.get('version', '1.0.0'), 'source': 'ai',
+                         'installed_at': int(time.time()), 'hash': skill_pack.dir_hash(pdir),
+                         'declared': declared, 'granted': [], 'pending': declared,
+                         'enabled': bool(meta.get('enabled', True))}
+            skill_pack.write_registry(self.dir, reg)
         except Exception as e:
             return False, f'写入失败：{e}'
         # 热加载
         self.scan()
         if name in self.plugins:
             return True, f'✅ 插件 {name} 已安装并生效'
+        if declared:
+            return True, ('✅ 插件 %s 已写入，但它申请了权限（%s），需确认后才启用'
+                          % (name, '、'.join('%s %s' % (c, skill_pack.PERMISSIONS[c][0]) for c in declared)))
         if meta.get('enabled') is False:
             return True, f'✅ 插件 {name} 已写入（enabled=false 处于禁用状态，启用后生效）'
         return False, '插件写入成功但加载失败（见控制台日志），可执行 list_plugins 查看状态'
 
     def uninstall(self, name):
-        import shutil
-        name = str(name or '')  # 强制 str（防 AI 传数字等非字符串，v6.23.1 修复）
+        """卸载（v6.67）：**移进停放区**而不是 rmtree 直接删，可找回
+
+        旧实现用 shutil.rmtree，误删/误装无法恢复；现在交给 skill_pack.uninstall。
+        """
+        name = str(name or '')
+        if name not in self.plugins and not os.path.isdir(os.path.join(self.dir, name)):
+            return False, f'插件 {name} 不存在'
+        import skill_pack
+        import governance as gov
         with self._lock:
-            if name not in self.plugins and not os.path.isdir(os.path.join(self.dir, name)):
-                return False, f'插件 {name} 不存在'
-            pdir = os.path.join(self.dir, name)
-            try:
-                shutil.rmtree(pdir)
-            except Exception as e:
-                return False, f'卸载失败：{e}'
+            ok, msg = skill_pack.uninstall(self.dir, name)
+            gov.log_event('uninstall', 'skill:' + name, 'uninstall', msg, allowed=bool(ok))
             self.scan()
-            return True, f'✅ 插件 {name} 已卸载'
+            return ok, msg
+
+    # ---------- 技能包（v6.67 skill_pack 接入）----------
+    def tool_owner(self, tool_name):
+        """工具名 → 它属于哪个技能包（审计/额度用；找不到就返回工具名本身）"""
+        for name, p in self.plugins.items():
+            for t in (p['meta'].get('tools') or []):
+                if t.get('name') == tool_name:
+                    return name
+        return str(tool_name)
+    def packs(self):
+        """列出技能包（含来源/版本/权限状态）—— 给设置界面与管理类工具用"""
+        import skill_pack
+        return skill_pack.list_packs(self.dir)
+
+    def set_enabled(self, name, flag):
+        """启用/禁用技能包（热生效，不需重启）"""
+        import skill_pack
+        import governance as gov
+        with self._lock:
+            ok, msg = skill_pack.set_enabled(self.dir, name, flag)
+            gov.log_event('enable' if flag else 'disable', 'skill:' + str(name),
+                          'set_enabled', msg, allowed=bool(ok))
+            self.scan()
+            return ok, msg
+
+    def grant(self, name, perms):
+        """确认技能包申请的权限（确认全部后才能启用）"""
+        import skill_pack
+        import governance as gov
+        with self._lock:
+            ok, msg = skill_pack.grant_permissions(self.dir, name, perms)
+            gov.log_event('grant', 'skill:' + str(name), 'grant',
+                          '%s → %s' % ('、'.join(perms or []), msg), allowed=bool(ok))
+            self.scan()
+            return ok, msg
+
+    def install_pack(self, path):
+        """从本地目录 / zip 安装技能包（按路径后缀判定），走完整校验"""
+        import skill_pack
+        import governance as gov
+        path = str(path or '')
+        with self._lock:
+            if os.path.isdir(path):
+                ok, msg, name = skill_pack.install_from_dir(path, self.dir, source='dir')
+            elif os.path.isfile(path) and path.lower().endswith('.zip'):
+                ok, msg, name = skill_pack.install_from_zip(path, self.dir, source='zip')
+            else:
+                return False, '请给我一个技能包目录或 .zip 文件'
+            gov.log_event('install', 'skill:' + str(name or path), 'install',
+                          '%s → %s' % (path, msg), allowed=bool(ok))
+            self.scan()
+            return ok, msg
 
     # ---------- 状态 ----------
     def status_text(self):

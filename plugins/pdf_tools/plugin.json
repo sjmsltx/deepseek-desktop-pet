@@ -1,0 +1,34 @@
+{
+  "manifest_version": 2,
+  "name": "pdf_tools",
+  "title": "PDF 工具",
+  "version": "1.0.0",
+  "author": "AutoClaw 官方",
+  "description": "PDF 处理：合并多个 PDF、按页拆分、提取文字、看页面信息（纯本地库 pypdf，不联网、不上传文件）",
+  "type": "tool",
+  "entry": "plugin.py",
+  "enabled": true,
+  "builtin": true,
+  "license": "MIT",
+  "permissions": {
+    "files.read": "读取你指定的 PDF 文件",
+    "files.write": "把合并/拆分的结果写到程序目录的 输出/ 下"
+  },
+  "tools": [
+    {
+      "name": "pdf_tool",
+      "description": "PDF 处理（本地）：action=info 看页数/大小/元信息；merge 合并多个 PDF；split 按页拆成多个文件；text 提取文字。用户说“把这两个 PDF 合起来”“拆开这个 PDF”“看看 PDF 里写了什么”时用",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["info", "merge", "split", "text"], "description": "操作类型"},
+          "paths": {"type": "string", "description": "PDF 文件路径 JSON 数组（merge 时多个；info/split/text 一个即可）"},
+          "path": {"type": "string", "description": "单个 PDF 路径（info/split/text）"},
+          "name": {"type": "string", "description": "输出文件名（不含路径，可省扩展名）"},
+          "pages": {"type": "string", "description": "split 时的页码，如 1-3,5（默认全部，最多拆 20 页）"}
+        },
+        "required": ["action"]
+      }
+    }
+  ]
+}

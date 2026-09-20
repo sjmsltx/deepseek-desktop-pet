@@ -123,11 +123,11 @@
     }
   },
   "theme": {
-    "current_theme": "theme_blue_white",
+    "current_theme": "default",
     "stylesheet_colors": 0,
     "stylesheet_hash": "e3b0c44298fc1c149afbf4c8996fb924",
     "stylesheet_len": 0,
-    "theme_hash": "f30cdd27c238ff31cff5045aa9b79924",
+    "theme_hash": "5647fb4758cf79fe13a8af1c2768a430",
     "theme_keys": [
       "accent",
       "ai_bubble",

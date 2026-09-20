@@ -29,7 +29,6 @@ from pet_sysutils import (
     write_clipboard_text as _write_clipboard_text,
     run_ps as _run_ps,
     volume_ps as _volume_ps,
-    hotkey_filter_factory as _hotkey_filter_factory,
     quote_ps_single as _ps_quote,
     open_shell_target as _open_shell_target,
     open_url as _open_url,
@@ -61,7 +60,10 @@ from model_registry import (ModelRegistry, clamp_tokens, clamp_effort, DEFAULT_E
                             DEFAULT_EFFORT, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)
 from model_manager_ui import ModelManagerDialog  # Phase 2 模型管理对话框
 from vision_helper import build_vision_content  # v6.62 图片直送模型（视觉）
+from side_panel import SidePanel            # v6.65 右侧信息栏（多页签，可增删）
+from asr import AsrEngine                   # v6.66 离线语音输入（WinRT）
 from files_api import FilesCache, build_content_via_files  # v6.62 图片走 Files API 复用
+from voice_io import VoiceIO, VOICE_CHOICES as _VOICE_CHOICES, DEFAULT_VOICE  # v6.63/6.64 语音
 from settings_ui import SettingsDialog  # Phase 5 统一设置窗口
 from tools_registry import AI_TOOLS, TOOL_STATUS, tools_for_mode, strict_tools
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
@@ -83,6 +85,7 @@ from affection_ui import RelationDialog, CostBubble, MemoriesDialog  # v6.30 关
 from pet_minigames import GameWindow  # v6.30 小游戏（v6.58 主题接入见 _publish_theme）
 from pet_theme import DEFAULT_THEME, TOKEN_GROUPS  # v6.57 主题 token 唯一源（A1：原内联在本文件）
 import pet_theme                                  # v6.58 A2-2：生效主题通道（set_active/subscribe）
+import platform_layer as pl  # v6.72 批次2：平台能力统一门面（自启/窗口特效已收编）
 
 # Windows DWM 常量（保留 DWMWA_NCRENDERING_POLICY 备用于未来阴影处理）
 DWMWA_NCRENDERING_POLICY = 2
@@ -240,28 +243,6 @@ BLINK_OFFSETS = {
 }
 
 
-def _hotkey_filter_factory(callbacks):
-    """创建全局热键过滤器（WM_HOTKEY）。callbacks: {hotkey_id: callback}"""
-    import ctypes.wintypes  # 必须显式导入（Python 3.14 中 ctypes.wintypes 不随 ctypes 自动加载）
-    from PySide6.QtCore import QAbstractNativeEventFilter
-    class _HotkeyFilter(QAbstractNativeEventFilter):
-        def nativeEventFilter(self, eventType, message):
-            try:
-                # PySide6 的 eventType 是 QByteArray（不是 str/bytes），message 是 VoidPtr
-                et = bytes(eventType) if hasattr(eventType, '__bytes__') else str(eventType).encode('utf-8', 'ignore')
-                if b'windows_generic_MSG' in et:
-                    msg = ctypes.wintypes.MSG.from_address(int(message))
-                    if msg.message == 0x0312:  # WM_HOTKEY
-                        cb = callbacks.get(msg.wParam)
-                        if cb:
-                            cb()
-                            return True, 0
-            except Exception:
-                pass
-            return False, 0
-    return _HotkeyFilter()
-
-
 # ---------- API 统计（v6.18 自监控：解析 usage，无代理无断链） ----------
 # 主题 token（v6.23 主题系统）已于 v6.57 迁到 pet_theme.py（唯一源，theme 插件同名键可覆盖）
 # 顶部 import 已再导出 DEFAULT_THEME，既有引用（self.theme = dict(DEFAULT_THEME)）无需改动
@@ -398,12 +379,12 @@ class PetWidget(QWidget):
         try:
             app = QApplication.instance()
             if app is not None:
-                self._hotkey_filter = _hotkey_filter_factory({1: self._on_global_hotkey, 2: self._on_screenshot_hotkey})
+                self._hotkey_filter = pl.hotkey_filter({1: self._on_global_hotkey, 2: self._on_screenshot_hotkey})
                 app.installNativeEventFilter(self._hotkey_filter)
-                if ctypes.windll.user32.RegisterHotKey(None, 1, 0x0002 | 0x0001, 0x50):  # MOD_CONTROL|MOD_ALT, 'P'
+                if pl.register_hotkey(1, pl.MOD_CONTROL | pl.MOD_ALT, 0x50):  # MOD_CONTROL|MOD_ALT, 'P'
                     self._hotkey_installed = True
                 try:
-                    ctypes.windll.user32.RegisterHotKey(None, 2, 0x0002 | 0x0001, 0x44)  # Ctrl+Alt+D 截图 OCR
+                    pl.register_hotkey(2, pl.MOD_CONTROL | pl.MOD_ALT, 0x44)  # Ctrl+Alt+D 截图 OCR
                 except Exception as _exc:
                     _silent_log('__init__:386', _exc)   # v6.54
         except Exception:
@@ -418,6 +399,17 @@ class PetWidget(QWidget):
                                   registry=MODEL_REGISTRY)  # v6.18 API 自监控（价格表改读模型档案）
         self._files_cache = FilesCache(os.path.join(BASE_DIR, 'files_cache.json'))  # v6.62 Files API
         self._last_turn_reasoning = None   # v6.62 上一轮思考内容（带 tools 时回传）
+        # v6.66：离线语音输入（WinRT，单句识别；点 🎤 开始，识别结果只填输入框不自动发）
+        self.asr = AsrEngine(BASE_DIR, lang=str(getattr(self, 'asr_lang', 'zh-CN') or 'zh-CN'))
+        self._listening = False
+        # v6.63：语音朗读（P0）—— 默认关闭；离线合成（WinRT→SAPI 兜底）+ winsound 播放可打断
+        self.voice = VoiceIO(BASE_DIR, enabled=bool(getattr(self, 'voice_enabled', False)),
+                             engine=str(getattr(self, 'voice_engine', 'auto') or 'auto'),
+                             voice=str(getattr(self, 'voice_name', '') or ''),
+                             night_quiet=bool(getattr(self, 'voice_night_quiet', True)),
+                             local_url=str(getattr(self, 'voice_local_url', '') or ''),
+                             local_ref=str(getattr(self, 'voice_local_ref', '') or ''),
+                             local_prompt=str(getattr(self, 'voice_local_prompt', '') or ''))
         # v6.62：峰谷计价要认法定节假日（表内置，可从公共静态 JSON 年度更新，不花搜索额度）
         ApiStats.HOLIDAYS_CACHE = os.path.join(BASE_DIR, 'holidays_cache.json')
         self._maybe_update_holidays()
@@ -479,10 +471,7 @@ class PetWidget(QWidget):
         """窗口标志 + 布局 + 气泡 + 立绘 + 聊天面板 + 任务侧栏 + 菜单"""
         self._edge_mode = 'peek'   # 'peek'=扒边模式(默认) / 'hidden'=完全消失模式
 
-        self.setWindowFlags(
-            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.NoDropShadowWindowHint
-        )
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        pl.apply_pet_window(self)   # v6.72 批次2：窗口标志收口到平台抽象层（等值搬迁）
         self.setFixedSize(440, 560)
         # 窗口透明由 DPI awareness + WA_TranslucentBackground 保证（不再需要手工清边框）
 
@@ -546,54 +535,43 @@ class PetWidget(QWidget):
         self.chat_history_scroll.setWidget(self.chat_history_container)
         self._status_widget = None  # 当前状态行（⏳/思考中）
 
-        # ===== v6.43b 任务侧栏：FCFS 队列 + 可收缩 + 拖拽调优先级 =====
-        self._task_queue = []
-        self._cur_task_text = None
-        self.chat_task_sidebar = QFrame(self.chat_panel)
-        self._set_themed_qss(self.chat_task_sidebar, lambda: (
-            'QFrame{background:%s;border-radius:8px;}' % self._tk('ui_popup_bg')
-            + 'QLabel{color:%s;font-size:10px;} QListWidget{background:%s;' % (self._tk('ui_text_dim'), self._tk('ui_popup_list_bg'))
-            + 'color:%s;border:none;font-size:11px;}' % self._tk('ui_text')))
-        _tsv = QVBoxLayout(self.chat_task_sidebar)
-        _tsv.setContentsMargins(6, 6, 6, 6)
-        _tsv.setSpacing(4)
-        _tsh = QHBoxLayout()
-        _tsh.setSpacing(4)
-        _tsh.addWidget(QLabel('📋 任务', self.chat_task_sidebar))
-        _tsh.addStretch(1)
-        self.task_collapse_btn = QPushButton('◀', self.chat_task_sidebar)
-        self.task_collapse_btn.setFixedSize(18, 18)
-        self.task_collapse_btn.setCursor(Qt.PointingHandCursor)
-        self.task_collapse_btn.setToolTip('收缩/展开任务侧栏')
-        self.task_collapse_btn.clicked.connect(self._toggle_task_sidebar)
-        _tsh.addWidget(self.task_collapse_btn)
-        _tsv.addLayout(_tsh)
-        self.task_list = QListWidget(self.chat_task_sidebar)
-        self.task_list.setFixedWidth(178)
-        self.task_list.setDragDropMode(QAbstractItemView.InternalMove)
-        self.task_list.setDefaultDropAction(Qt.MoveAction)
-        self.task_list.itemDoubleClicked.connect(self._cancel_queued_task)
-        try:
-            self.task_list.model().rowsMoved.connect(self._on_task_reorder)
-        except Exception as _exc:
-            _silent_log('__init__:527', _exc)   # v6.54
-        _tsv.addWidget(self.task_list, 1)
-        _tip = QLabel('拖拽排序 · 双击取消排队\n/stop 紧急停止当前', self.chat_task_sidebar)
-        _tsv.addWidget(_tip)
-        # v6.43b fix：常驻任务把手（侧栏收缩后仍可见，点击展开；收缩按钮◀在侧栏内，侧栏藏了它也会藏）
-        self.task_toggle_tab = QPushButton('📋', self.chat_panel)
-        self.task_toggle_tab.setFixedSize(22, 40)
-        self.task_toggle_tab.setCursor(Qt.PointingHandCursor)
-        self.task_toggle_tab.setToolTip('展开/收缩任务队列')
-        self._set_themed_qss(self.task_toggle_tab, lambda: (
-            'QPushButton{background:%s;color:%s;border:none;border-radius:6px;font-size:11px;}'
-            'QPushButton:hover{background:%s;}'
-            % (self._tk('ui_popup_btn_bg'), self._tk('ui_text_soft'), self._tk('ui_popup_btn_hover'))))
-        self.task_toggle_tab.clicked.connect(self._toggle_task_sidebar)
+        # ===== v6.65 右侧信息栏：多页签（任务/状态/花费/待办/便签/系统）+ 可增删改 + 可折叠 =====
+        # 原先只放任务队列，空着也占 1/3 宽 —— 改成“一栏多用”，并把页签做成可自定义
+        self._side_cfg = self._read_side_cfg()
+        self.side_panel = SidePanel(
+            self.chat_panel,
+            tabs=self._side_cfg.get('tabs'),
+            collapsed=self._side_cfg.get('collapsed', False),
+            save_cb=self._save_side_panel,
+            data_cb=self._side_panel_data,
+            theme_qss=lambda: (
+                'QFrame{background:%s;border-radius:8px;}'
+                'QLabel{color:%s;font-size:10.5px;}'
+                'QListWidget{background:%s;color:%s;border:none;font-size:11px;}'
+                'QPlainTextEdit{background:%s;color:%s;border:none;font-size:11px;}'
+                'QTabBar::tab{background:%s;color:%s;padding:3px 7px;border-radius:5px;'
+                'margin-right:2px;font-size:10px;}'
+                'QTabBar::tab:selected{background:%s;}'
+                % (self._solid(self._tk('ui_popup_bg')), self._tk('ui_text_dim'),
+                   self._solid(self._tk('ui_popup_list_bg')), self._tk('ui_text'),
+                   self._solid(self._tk('ui_popup_list_bg')), self._tk('ui_text'),
+                   self._solid(self._tk('ui_popup_btn_bg')), self._tk('ui_text_soft'),
+                   self._tk('ui_accent'))))
+        # 兼容旧接线（宿主别处仍用这几个名字）
+        self.chat_task_sidebar = self.side_panel
+        self.task_collapse_btn = self.side_panel.collapse_btn
+        self.task_list = self.side_panel._tasks_list
+        self.side_panel.collapse_btn.clicked.connect(self._toggle_task_sidebar)
+        self.side_panel._task_hooks['dblclick'] = self._cancel_queued_task
+        self.side_panel._task_hooks['reorder'] = self._on_task_reorder
+        self.side_panel._note_save = lambda: self._save_side_panel(
+            self.side_panel.dump_tabs(), self.side_panel.collapsed)
+        self._side_start_ts = time.time()
+        # v6.66 fix：删掉旧版遗留的常驻任务把手（chat 与侧栏之间那个 22×40 的 📋 方块）——
+        # 它与侧栏自带的 ◀/▶ 按钮功能重叠，使用者反馈“折叠后多出个像任务栏的按钮”，只保留 ▶。
         chat_body = QHBoxLayout()
         chat_body.setSpacing(6)
         chat_body.addWidget(self.chat_history_scroll, 1)
-        chat_body.addWidget(self.task_toggle_tab, 0)
         chat_body.addWidget(self.chat_task_sidebar, 0)
         chat_layout.addLayout(chat_body, 1)
 
@@ -625,6 +603,17 @@ class PetWidget(QWidget):
         input_row = QHBoxLayout()
         input_row.setSpacing(4)
         input_row.addWidget(self.chat_input, 1)
+        # v6.66：语音输入按钮（点一下开始听 → 离线识别 → 填进输入框，不自动发送）
+        self.mic_btn = QPushButton('🎤', self.chat_panel)
+        self.mic_btn.setFixedSize(30, 30)
+        self.mic_btn.setCursor(Qt.PointingHandCursor)
+        self.mic_btn.setToolTip('语音输入（离线识别；再点一次取消）')
+        self._set_themed_qss(self.mic_btn, lambda: (
+            'QPushButton{background:%s;color:%s;border:none;border-radius:6px;font-size:13px;}'
+            'QPushButton:hover{background:%s;}'
+            % (self._tk('ui_popup_btn_bg'), self._tk('ui_text_soft'), self._tk('ui_popup_btn_hover'))))
+        self.mic_btn.clicked.connect(self._toggle_listen)
+        input_row.addWidget(self.mic_btn)
         input_row.addWidget(self.chat_attach_btn)
         chat_layout.addLayout(input_row)
 
@@ -816,6 +805,24 @@ class PetWidget(QWidget):
                 self.strict_tools = bool(cfg.get('strict_tools', False))
                 self.vision_files_api = bool(cfg.get('vision_files_api', False))
                 self.holidays_auto_update = bool(cfg.get('holidays_auto_update', True))
+                # v6.63：语音朗读开关与声线（默认在线神经声线，离线作兜底）
+                self.voice_enabled = bool(cfg.get('voice_enabled', False))
+                self.voice_engine = str(cfg.get('voice_engine', 'auto') or 'auto')
+                self.voice_name = str(cfg.get('voice_name', '') or '')
+                self.voice_night_quiet = bool(cfg.get('voice_night_quiet', True))
+                # v6.64：本地自建 TTS 服务（自训练/克隆模型）
+                self.voice_local_url = str(cfg.get('voice_local_url', '') or '')
+                self.voice_local_ref = str(cfg.get('voice_local_ref', '') or '')
+                self.voice_local_prompt = str(cfg.get('voice_local_prompt', '') or '')
+                try:
+                    if getattr(self, 'voice', None) is not None:
+                        self.voice.set_config(enabled=self.voice_enabled, engine=self.voice_engine,
+                                              voice=self.voice_name, night_quiet=self.voice_night_quiet,
+                                              local_url=self.voice_local_url,
+                                              local_ref=self.voice_local_ref,
+                                              local_prompt=self.voice_local_prompt)
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:voice', _exc)
         except Exception as _exc:
             _silent_log('_load_ai_config:734', _exc)   # v6.54
 
@@ -901,26 +908,160 @@ class PetWidget(QWidget):
             _silent_log('_next_task:812', _exc)   # v6.54
 
     def _refresh_task_sidebar(self):
-        """v6.43b：刷新任务侧栏（首行=执行中，其后排队可拖拽）"""
+        """v6.43b / v6.65：刷新右侧信息栏的「任务」页（首行 = 执行中，其后排队可拖拽）"""
         try:
-            self.task_list.clear()
-            if self._cur_task_text:
-                it = QListWidgetItem('⏳ ' + str(self._cur_task_text)[:13])
-                it.setFlags(it.flags() & ~Qt.ItemIsDropEnabled & ~Qt.ItemIsDragEnabled)
-                self.task_list.addItem(it)
-            for i, t in enumerate(self._task_queue):
-                it = QListWidgetItem(f'⏸ {i + 1}. ' + str(t.get('text', ''))[:13])
-                it.setData(Qt.UserRole, t)
-                self.task_list.addItem(it)
+            self.side_panel.refresh_tasks(self._cur_task_text, self._task_queue)
         except Exception:
             pass
 
-    def _toggle_task_sidebar(self):
-        """v6.43b：收缩/展开任务侧栏"""
+    # ---------- v6.65：信息栏页签的持久化与数据 ----------
+    @staticmethod
+    def _solid(color, fallback=''):
+        """把主题色转成不透明色（v6.66 fix）
+
+        主题里的弹层面板色是**半透明的（alpha 0.5）**—— 当右侧信息栏用这种底色时，
+        后面的聊天文字会透出来，看起来“标题串了内容”。侧栏要看得清，就得用实底。
+
+        注意：不写任何颜色字面量（主题 token 只减不增的护栏会抦）；换算失败就原样返回。
+        """
         try:
-            vis = self.chat_task_sidebar.isVisible()
-            self.chat_task_sidebar.setVisible(not vis)
-            self.task_collapse_btn.setText('▶' if vis else '◀')
+            s = str(color or '').strip()
+            if s.startswith('#') and len(s) in (7, 9):
+                return s[:7]
+            if s.lower().startswith('rgba'):
+                nums = [x.strip() for x in s[s.index('(') + 1:s.rindex(')')].split(',')]
+                r, g, b = (int(float(nums[i])) for i in range(3))
+                return '#' + ''.join('%02x' % v for v in (r, g, b))
+            return s
+        except Exception:
+            return fallback or str(color or '')
+
+    def _read_side_cfg(self):
+        """读信息栏配置（页签列表 + 折叠状态），不依赖任何加载顺序"""
+        try:
+            with open(CONFIG_PATH, encoding='utf-8') as f:
+                cfg = json.load(f) or {}
+            return {'tabs': cfg.get('side_panel_tabs'),
+                    'collapsed': bool(cfg.get('side_panel_collapsed', False))}
+        except Exception:
+            return {'tabs': None, 'collapsed': False}
+
+    def _save_side_panel(self, tabs, collapsed):
+        """保存页签（打字时会频繁触发 → 800ms 防抖后再写盘）"""
+        self._side_pending = {'tabs': [dict(t) for t in (tabs or [])],
+                              'collapsed': bool(collapsed)}
+        try:
+            if getattr(self, '_side_save_timer', None) is None:
+                self._side_save_timer = QTimer(self)
+                self._side_save_timer.setSingleShot(True)
+                self._side_save_timer.setInterval(800)
+                self._side_save_timer.timeout.connect(self._flush_side_panel)
+            self._side_save_timer.start()
+        except Exception as _exc:
+            _silent_log('_save_side_panel', _exc)
+
+    def _flush_side_panel(self):
+        try:
+            data = dict(getattr(self, '_side_pending', {}) or {})
+            if 'tabs' in data:
+                self._save_cfg_value('side_panel_tabs', data['tabs'])
+            if 'collapsed' in data:
+                self._save_cfg_value('side_panel_collapsed', data['collapsed'])
+        except Exception as _exc:
+            _silent_log('_flush_side_panel', _exc)
+
+    @staticmethod
+    def _fmt_num(n):
+        try:
+            n = float(n or 0)
+        except Exception:
+            return '0'
+        if n >= 1e8:
+            return '%.1f亿' % (n / 1e8)
+        if n >= 1e4:
+            return '%.1f万' % (n / 1e4)
+        return '%d' % int(n)
+
+    def _side_panel_data(self):
+        """给信息栏的动态数据（状态 / 花费 / 待办 / 系统页共用）"""
+        d = {}
+        try:
+            st = self.api_stats
+            with st.lock:
+                today = dict(st.today)
+                total = dict(st.total)
+                last = dict(st.last or {})
+            d['today_count'] = today.get('count', 0)
+            d['today_tokens'] = self._fmt_num(today.get('total', 0))
+            d['today_cost'] = '%.4f' % float(today.get('cost', 0) or 0)
+            d['total_count'] = total.get('count', 0)
+            d['total_cost'] = '%.4f' % float(total.get('cost', 0) or 0)
+            d['unknown'] = int(today.get('unknown', 0) or 0)
+            d['balance'] = st.balance_text(False) or '未查询'
+            if last:
+                d['last'] = '%s ¥%.4f' % (str(last.get('model', '?'))[:16], float(last.get('cost', 0) or 0))
+            d['hint'] = ('有 %d 次调用没配价格，已不计入 —— 可在设置 → 模型 → 🎯 模型管理 里填'
+                         % d['unknown']) if d['unknown'] else ''
+            try:
+                import server_clock as _sc
+                bj = _sc.beijing_now()
+                d['peak'] = ('%s（北京 %s）' % ('高峰' if st.is_peak_now(bj) else '空闲',
+                                              bj.strftime('%m-%d %H:%M')))
+            except Exception:
+                d['peak'] = '—'
+        except Exception:
+            pass
+        try:
+            d['model'] = self._current_model()
+        except Exception:
+            pass
+        d['voice'] = (getattr(self, 'voice_name', '') or '(默认)') + \
+                     ('' if getattr(self, 'voice_enabled', False) else '（未开朗读）')
+        try:
+            snap = self.affection.snapshot() or {}
+            lv = snap.get('level') or snap.get('affection')
+            d['affection'] = str(lv) if lv is not None else '—'
+        except Exception:
+            d['affection'] = '—'
+        try:
+            d['todos'] = [dict(t) for t in (self.todos or [])]
+        except Exception:
+            d['todos'] = []
+        try:
+            d['cpu'] = str(os.cpu_count() or '—')
+            mem = ''
+            try:
+                import ctypes
+
+                class _MS(ctypes.Structure):
+                    _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong),
+                                ('ullTotalPhys', ctypes.c_ulonglong),
+                                ('ullAvailPhys', ctypes.c_ulonglong),
+                                ('ullTotalPageFile', ctypes.c_ulonglong),
+                                ('ullAvailPageFile', ctypes.c_ulonglong),
+                                ('ullTotalVirtual', ctypes.c_ulonglong),
+                                ('ullAvailVirtual', ctypes.c_ulonglong),
+                                ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+                ms = _MS()
+                ms.dwLength = ctypes.sizeof(_MS)
+                ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
+                used = (ms.ullTotalPhys - ms.ullAvailPhys) / 1073741824.0
+                mem = '%.1f / %.1f GB（%d%%）' % (used, ms.ullTotalPhys / 1073741824.0,
+                                                int(ms.dwMemoryLoad))
+            except Exception:
+                mem = '—'
+            d['mem'] = mem or '—'
+            up = max(0, int(time.time() - getattr(self, '_side_start_ts', time.time())))
+            d['uptime'] = '%d 小时 %d 分' % (up // 3600, (up % 3600) // 60)
+            d['version'] = 'Python %s' % __import__('platform').python_version()
+        except Exception:
+            pass
+        return d
+
+    def _toggle_task_sidebar(self):
+        """v6.43b / v6.65：收缩/展开右侧信息栏（状态记进配置）"""
+        try:
+            self.side_panel.set_collapsed(not self.side_panel.collapsed)
             if hasattr(self, '_sync_window_to_panel'):
                 self._sync_window_to_panel()
         except Exception:
@@ -1243,9 +1384,9 @@ class PetWidget(QWidget):
             try:
                 target = (target or '').strip()
                 if target and target.lower().endswith(('.exe', '.lnk', '.bat', '.cmd')):
-                    os.startfile(target)
+                    pl.open_path(target)
                 elif target and os.path.isdir(target):
-                    os.startfile(target)
+                    pl.open_path(target)
                 elif target and os.path.exists(target):
                     # 非可执行文件（如 .ico/.url）：同目录找 exe 兜底
                     import glob as _glob
@@ -1256,12 +1397,12 @@ class PetWidget(QWidget):
                             exe_found = cands[0]
                             break
                     if exe_found:
-                        os.startfile(exe_found)
+                        pl.open_path(exe_found)
                     else:
-                        _open_shell_target(display)
+                        pl.open_path(display)
                 else:
                     # 只有名字没有路径（如 UWP）：尝试 start
-                    _open_shell_target(display)
+                    pl.open_path(display)
                 return f'已打开 {display}'
             except Exception as e:
                 return f'打开 {display} 失败：{e}'
@@ -1272,11 +1413,11 @@ class PetWidget(QWidget):
             target = self.app_aliases[alias_key]
             try:
                 if os.path.isdir(target):
-                    os.startfile(target)
+                    pl.open_path(target)
                 elif os.path.exists(target):
-                    os.startfile(target)
+                    pl.open_path(target)
                 else:
-                    _open_shell_target(target)
+                    pl.open_path(target)
                 return f'已打开 {app}（{target}）'
             except Exception as e:
                 return f'打开 {app} 失败：{e}'
@@ -1295,7 +1436,7 @@ class PetWidget(QWidget):
         if key in appmap:
             target = appmap[key]
             if target is None:  # 浏览器 → 打开主页
-                _open_url('http://www.baidu.com')
+                pl.open_url('http://www.baidu.com')
                 return f'已打开浏览器'
             try:
                 subprocess.Popen([target])
@@ -1315,14 +1456,14 @@ class PetWidget(QWidget):
             # 网站类应用：直接浏览器打开，不尝试 start（避免错误弹窗）
             site_map = {'bilibili': 'https://www.bilibili.com', 'wechat': 'https://weixin.qq.com'}
             if target in site_map:
-                _open_url(site_map[target])
+                pl.open_url(site_map[target])
                 return f'已用浏览器打开 {app}'
             # 桌面应用：尝试 start（查找 PATH / 关联）
-            result = 1 if _open_shell_target(target) else 0
+            result = 1 if pl.open_path(target) else 0
             if result == 0:
                 return f'已尝试打开 {app}'
             # 失败则用浏览器兜底
-            _open_search_url(app)
+            pl.open_search(app)
             return f'已尝试打开 {app}，若失败已用浏览器搜索'
 
         # 3. 检查是否含网址关键词 → 浏览器打开
@@ -1331,7 +1472,7 @@ class PetWidget(QWidget):
             url = app
             if not app.startswith('http'):
                 url = f'https://www.{app}.com' if '.' not in app else f'https://{app}'
-            _open_url(url)
+            pl.open_url(url)
             return f'已用浏览器打开 {app}'
 
         # 4. 尝试 where 查找命令
@@ -1346,12 +1487,12 @@ class PetWidget(QWidget):
 
         # 5. 尝试文件路径（存在则用默认程序打开）
         if os.path.exists(app):
-            os.startfile(app)
+            pl.open_path(app)
             return f'已打开 {app}'
 
         # 6. 尝试开始菜单搜索（shell:AppsFolder 或直接 start 尝试）
         try:
-            result = _open_shell_target(app)
+            result = pl.open_path(app)
             if result == 0:
                 return f'已尝试打开 {app}'
         except Exception as _exc:
@@ -1919,6 +2060,8 @@ class PetWidget(QWidget):
         'manage_todo': '_tool_manage_todo',
         'memorize': '_tool_memorize',
         'offer_choices': '_tool_offer_choices',
+        'office_doc': '_tool_office_doc',   # v6.66 办公文档（WPS/Office COM）
+        'skill_pack': '_tool_skill_pack',   # v6.67 技能包管理（安装/权限/启停/卸载）
         'open_app': '_tool_open_app',
         'query_weather': '_tool_query_weather',
         'read_clipboard': '_tool_read_clipboard',
@@ -1938,14 +2081,45 @@ class PetWidget(QWidget):
     }
 
     def _execute_tool(self, name, args):
-        """执行 AI 请求的工具，返回结果文本"""
+        """执行 AI 请求的工具，返回结果文本（v6.69：统一记审计 + 额度限制）"""
+        import governance as gov
+        t0 = time.time()
+        actor = None
+        if name.startswith('mcp_'):
+            actor = 'mcp:' + name.split('_', 2)[1]
+        elif name in self.plugin_mgr.tool_names():
+            actor = 'skill:' + self.plugin_mgr.tool_owner(name)
+        if actor:
+            ok_q, why_q, _used = gov.check_quota(actor)
+            if not ok_q:
+                gov.log_event('deny', actor, name, why_q, allowed=False)
+                return '（已限额）%s' % why_q
         try:
             if name.startswith('mcp_'):
+                # v6.68：写类 MCP 工具**先问过使用者再执行**（默认开，可在设置→MCP 关）
+                need, why = self.mcp.needs_confirm(name)
+                if need:
+                    try:
+                        arg_txt = json.dumps(args, ensure_ascii=False)[:220]
+                    except Exception:
+                        arg_txt = str(args)[:220]
+                    if not self._request_confirm(
+                            '要调用外部 MCP 工具（%s）：\n%s\n参数：%s\n\n允许这一次吗？'
+                            % (why, name, arg_txt)):
+                        gov.log_event('deny', actor, name, '使用者拒绝（%s）' % why, allowed=False,
+                                      ms=(time.time() - t0) * 1000)
+                        return '（使用者拒绝了这次 MCP 工具调用：%s）' % name
                 # v6.20 MCP 工具转发：mcp_<server>_<tool>
-                return self.mcp.call_tool(name, args)
+                out = self.mcp.call_tool(name, args)
+                gov.log_event('call', actor, name, out[:200], allowed=True,
+                              ms=(time.time() - t0) * 1000)
+                return out
             if name in self.plugin_mgr.tool_names():
                 # v6.21 插件工具转发
-                return self.plugin_mgr.handle_tool(name, args)
+                out = self.plugin_mgr.handle_tool(name, args)
+                gov.log_event('call', actor, name, out[:200], allowed=True,
+                              ms=(time.time() - t0) * 1000)
+                return out
             handler = self._TOOL_HANDLERS.get(name)
             if handler is None:
                 return f'未知工具 {name}'
@@ -1961,6 +2135,44 @@ class PetWidget(QWidget):
             args.get('entry_content'),
             args.get('rules_content'))
         return msg
+
+    def _tool_skill_pack(self, args):
+        """技能包管理（v6.67）：list/info/install/grant/enable/disable/uninstall"""
+        import skill_pack
+        args = args or {}
+        action = str(args.get('action') or 'list').strip()
+        name = str(args.get('name') or '').strip()
+        if action == 'list':
+            packs = self.plugin_mgr.packs()
+            if not packs:
+                return '还没装技能包。'
+            lines = ['已装技能包 %d 个：' % len(packs)]
+            for p in packs:
+                state = '启用' if p['enabled'] else ('待确认权限' if p['pending'] else '已禁用')
+                lines.append('· %s（%s v%s，来源 %s，%s）权限：%s'
+                             % (p['title'], p['name'], p['version'], p['source'], state,
+                                '、'.join(p['declared']) or '无'))
+            for n, why in (self.plugin_mgr.rejected or {}).items():
+                lines.append('· ⚠ %s 被安全策略拦下未载入：%s' % (n, why))
+            return '\n'.join(lines)
+        if action == 'info':
+            if not name:
+                return '请告诉我要看哪个技能包（name）。'
+            return skill_pack.permissions_card(self.plugin_mgr.dir, name) or '没找到技能包 %s' % name
+        if action == 'install':
+            ok, msg = self.plugin_mgr.install_pack(args.get('path'))
+            return msg
+        if action == 'grant':
+            perms = [x.strip() for x in str(args.get('permissions') or '').replace('，', ',').split(',') if x.strip()]
+            ok, msg = self.plugin_mgr.grant(name, perms)
+            return msg
+        if action in ('enable', 'disable'):
+            ok, msg = self.plugin_mgr.set_enabled(name, action == 'enable')
+            return msg
+        if action == 'uninstall':
+            ok, msg = self.plugin_mgr.uninstall(name)
+            return msg
+        return '未知 action：%s' % action
 
     def _tool_uninstall_plugin(self, args):
         _, msg = self.plugin_mgr.uninstall(args.get('name', ''))
@@ -1981,6 +2193,93 @@ class PetWidget(QWidget):
         self._run_on_ui(self._apply_theme)
         self._save_cfg_value('theme', tname)
         return f'✅ 已切换主题：{tname}（样式已生效）'
+
+    # ---------- v6.66：办公文档工具（表格 / 报表 / PDF） ----------
+    OFFICE_OUT_DIR = os.path.join(BASE_DIR, '输出')
+
+    def _office_resolve(self, path, ext_default='.xlsx'):
+        """把 AI 给的路径收敛到 `输出/` 下（防穿越，与 write_file 同一策略）
+
+        AI 只能给出文件名，实际落在程序目录的 输出/ 里 —— 不让它往系统目录乱写。
+        """
+        safe = os.path.basename(str(path or '').strip().replace('\\', '/')) or ('报告' + ext_default)
+        root, ext = os.path.splitext(safe)
+        if ext.lower() not in ('.xlsx', '.xls', '.et', '.pdf', '.docx', '.doc', '.csv',
+                               '.pptx', '.ppt', '.dps'):
+            safe = (root or '报告') + ext_default
+        try:
+            os.makedirs(self.OFFICE_OUT_DIR, exist_ok=True)
+        except Exception:
+            pass
+        return os.path.join(self.OFFICE_OUT_DIR, safe)
+
+    def _tool_office_doc(self, args):
+        """AI 调用：本机 WPS/Office 生成或读取表格与报表"""
+        import office_skill as off
+        action = str(args.get('action') or 'info').strip().lower()
+        if action not in ('info', 'write_sheet', 'read_sheet', 'make_report', 'export_pdf',
+                          'write_doc', 'write_slides'):
+            return ('未知 action：%s（可用：info / write_sheet / read_sheet / make_report / '
+                    'export_pdf / write_doc / write_slides）' % action)
+        path = str(args.get('path') or '').strip()
+        if action == 'info':
+            data, err = off.office_info(refresh=True)
+            if err and not data:
+                return '本机没有可用的办公接口（WPS / Office 都没装或不可用）：%s' % err
+            lines = ['本机可用的办公接口：']
+            for kind, item in (data or {}).items():
+                lines.append('  · %s → %s（版本 %s）'
+                             % (off.APP_LABEL.get(kind, kind), item['prog_id'], item['version']))
+            lines.append('可用 office_doc 的 write_sheet / make_report / read_sheet / export_pdf 干活。')
+            return '\n'.join(lines)
+        if not path:
+            return '需要 path 参数（文件名即可，如 用量统计.xlsx / 报告.docx / 演示.pptx）'
+        # v6.67：按动作给对应的默认扩展名 —— 否则 PPT 会被“修正”成 .xlsx
+        _ext = {'write_doc': '.docx', 'write_slides': '.pptx', 'export_pdf': '.pdf'}.get(action, '.xlsx')
+        path = self._office_resolve(path, _ext)
+        if action == 'write_sheet':
+            return off.sheet_write(path, args.get('rows'),
+                                   sheet=str(args.get('sheet') or 'Sheet1'),
+                                   start=str(args.get('start') or 'A1'))[0]
+        if action == 'read_sheet':
+            rows, err = off.sheet_read(path, args.get('sheet'), args.get('cell_range'))
+            if err:
+                return err
+            if not rows:
+                return '表格是空的（或指定范围没有内容）'
+            shown = rows[:30]
+            body = '\n'.join(' | '.join(str(c) for c in r) for r in shown)
+            tail = '\n（共 %d 行，只显示前 30 行）' % len(rows) if len(rows) > 30 else ''
+            return '表格内容（%s）：\n%s%s' % (os.path.basename(path), body, tail)
+        if action == 'make_report':
+            return off.make_report(path, str(args.get('title') or ''),
+                                   args.get('headers'), args.get('rows'),
+                                   footer=str(args.get('footer') or ''))[0]
+        if action == 'export_pdf':
+            out = str(args.get('out') or '').strip()
+            out = self._office_resolve(out, '.pdf') if out else os.path.splitext(path)[0] + '.pdf'
+            return off.export_pdf(path, out)[0]
+        if action == 'write_doc':          # v6.67 Word 写入（python-docx）
+            paras = args.get('paragraphs')
+            if isinstance(paras, str):
+                try:
+                    paras = json.loads(paras)
+                except Exception:
+                    paras = [paras]
+            return off.make_doc(path, str(args.get('title') or ''),
+                                paras, args.get('headers'), args.get('rows'),
+                                subtitle=str(args.get('subtitle') or ''))[0]
+        if action == 'write_slides':       # v6.67 PPT 写入（python-pptx）
+            slides = args.get('slides')
+            if isinstance(slides, str):
+                try:
+                    slides = json.loads(slides)
+                except Exception:
+                    slides = [{'title': str(args.get('title') or ''), 'bullets': [slides]}]
+            msg, ok = off.make_slides(path, str(args.get('title') or ''), slides,
+                                      subtitle=str(args.get('subtitle') or ''))
+            return msg
+        return '（内部错误：未处理的 action %s）' % action
 
     def _tool_skill_run(self, args):
         # v6.23 复合技能：返回步骤清单，AI 逐步执行
@@ -2029,7 +2328,7 @@ class PetWidget(QWidget):
         return f'已设置 {sec} 秒后提醒：{text}'
 
     def _tool_lock_screen(self, args):
-        ctypes.windll.user32.LockWorkStation()
+        pl.lock_screen()
         return '已锁定屏幕'
 
     def _tool_offer_choices(self, args):
@@ -2077,7 +2376,7 @@ class PetWidget(QWidget):
         return f'已安排 {sec} 秒后回访：{reason}'
 
     def _tool_read_clipboard(self, args):
-        txt = _read_clipboard_text()
+        txt = pl.clipboard_get()
         if txt is None:
             return '剪贴板没有文本内容'
         return f'剪贴板内容（{len(txt)} 字符）：\n{txt[:1000]}' + ('…（过长已截断）' if len(txt) > 1000 else '')
@@ -2086,7 +2385,7 @@ class PetWidget(QWidget):
         txt = args.get('text', '')
         if not txt:
             return '没有可写入的内容'
-        return '已写入剪贴板，用户可直接粘贴' if _write_clipboard_text(txt) else '剪贴板写入失败'
+        return '已写入剪贴板，用户可直接粘贴' if pl.clipboard_set(txt) else '剪贴板写入失败'
 
     def _tool_get_system_info(self, args):
         return _run_ps('$os = Get-CimInstance Win32_OperatingSystem; $cpu = Get-CimInstance Win32_Processor; $cs = Get-CimInstance Win32_ComputerSystem; "系统: $($os.Caption) $($os.Version)"; "CPU: $($cpu.Name)"; "内存: $([math]::Round(($os.TotalVisibleMemorySize/1MB),1)) GB 总量, $([math]::Round(($os.FreePhysicalMemory/1MB),1)) GB 可用"; "开机: $($os.LastBootUpTime)"; "用户: $($cs.UserName)"')
@@ -2272,7 +2571,7 @@ class PetWidget(QWidget):
                     for _p in images:
                         try:
                             _fallback.append('【%s OCR】\n%s'
-                                             % (os.path.basename(str(_p)), ocr_image(_p, OCR_PS1)))
+                                             % (os.path.basename(str(_p)), pl.ocr_image(_p, OCR_PS1)))
                         except Exception:
                             _fallback.append('【%s】（OCR 失败）' % os.path.basename(str(_p)))
                     if _fallback:
@@ -2468,6 +2767,8 @@ class PetWidget(QWidget):
             if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
                 return  # v6.43：已被新任务取代，静默丢弃本次回复
             self.ai_reply_signal.emit(final_reply)
+            # v6.63：语音朗读（P0）—— 默认关；开着的话读一遍刚刚这句话
+            self._speak_reply(final_reply)   # v6.63
             # v6.41 自动记忆抽取（低频：间隔 30 分钟且 ≥4 轮对话）
             try:
                 self._maybe_extract_memory()
@@ -3267,7 +3568,7 @@ class PetWidget(QWidget):
         win.setWindowTitle('Live2D Preview' if getattr(self, 'language', 'zh') == 'en' else 'Live2D 预览')
         win.resize(420, 520)
         win.setCentralWidget(L2DWidget(win))
-        win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        pl.set_topmost(win, True)   # v6.72 批次2
         win.show()
         self._l2d_win = win
 
@@ -4523,6 +4824,7 @@ class PetWidget(QWidget):
                         _l.setText(_fm.elidedText(_t, Qt.ElideRight, _budget))
             except Exception:
                 pass
+            _fit_window()   # v6.70：内容变了就重新贴合窗口（余额/来源到达时不再挤压）
 
         timer = QTimer(win)  # 父对象 win，防止被 GC 导致悬浮窗不刷新
         timer.timeout.connect(refresh)
@@ -4575,16 +4877,31 @@ class PetWidget(QWidget):
             m.exec(win.mapToGlobal(pos))
         win.customContextMenuRequested.connect(_menu)
 
+        def _fit_window():
+            """v6.70：按内容自适应窗口宽高（含布局最小尺寸），任何时刻（含余额加载后）都不挤压。
+
+            旧实现的问题：`win.setFixedHeight(panel.sizeHint().height())` 取的是**刷新前**的
+            估值，且第二次 refresh() 之后没有重算布局 → 字体正常（文字有真实宽高）时
+            “最胖内容”装不下 → 真机出现挤压 / 拖不动（使用者反馈）。
+            另外旧实现只在开窗时算一次，余额 / 来源行后来变胖就不会再贴合。
+            """
+            nonlocal WIN_W
+            try:
+                v.activate()
+                _need_w = max(panel.sizeHint().width(), v.minimumSize().width())
+                WIN_W = min(460, max(320, _need_w))
+                panel.setFixedWidth(WIN_W)
+                win.setFixedWidth(WIN_W)
+                v.activate()
+                _need_h = max(panel.sizeHint().height(), v.minimumSize().height())
+                win.setFixedHeight(max(120, _need_h + 2))
+            except Exception as e:
+                log.debug('统计窗自适应尺寸失败：%s', e)
+
         panel.setFixedWidth(WIN_W)
         refresh()
         panel.adjustSize()
-        # v6.62 fix：高度按内容算（原先写死 142，加了两行余额内容后装不下 → 挤压/拖动发沏）；
-        # 宽度也取「内容需要」与基准宽的较大者（上限 460，防止来源行把窗口拉长）
-        WIN_W = min(460, max(WIN_W, panel.sizeHint().width()))
-        panel.setFixedWidth(WIN_W)
-        win.setFixedWidth(WIN_W)
-        refresh()
-        win.setFixedHeight(max(120, panel.sizeHint().height()))
+        _fit_window()
         win.setToolTip('按住窗口任意位置拖动 · 右键菜单可关闭')
         try:
             with open(CONFIG_PATH, encoding='utf-8') as _f:
@@ -4640,7 +4957,7 @@ class PetWidget(QWidget):
     def _copy_message_text(self, text):
         """复制单条消息文本到剪贴板（用气泡提示，不污染对话历史）"""
         try:
-            if _write_clipboard_text(str(text)):
+            if pl.clipboard_set(str(text)):
                 self.say_plain('✅ 已复制该消息', immediate=True)
             else:
                 self.say_plain('复制失败', immediate=True)
@@ -5420,7 +5737,7 @@ class PetWidget(QWidget):
                 Image.open(path).convert('RGB').save(dst, 'PNG')
                 self._notify('🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing text…')
                 import threading
-                threading.Thread(target=lambda: self.ocr_signal.emit(ocr_image(dst, OCR_PS1)), daemon=True).start()
+                threading.Thread(target=lambda: self.ocr_signal.emit(pl.ocr_image(dst, OCR_PS1)), daemon=True).start()
             except Exception as e:
                 self._notify(f'图片处理失败：{e}' if not is_en else f'Image error: {e}')
         elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
@@ -5473,7 +5790,7 @@ class PetWidget(QWidget):
                 return
             def worker():
                 try:
-                    self.ocr_signal.emit(ocr_image(path, OCR_PS1))
+                    self.ocr_signal.emit(pl.ocr_image(path, OCR_PS1))
                 except Exception:
                     pass
             threading.Thread(target=worker, daemon=True).start()
@@ -5546,7 +5863,7 @@ class PetWidget(QWidget):
                         else:
                             for a in images:
                                 try:
-                                    ocr_text = ocr_image(a['path'], OCR_PS1)
+                                    ocr_text = pl.ocr_image(a['path'], OCR_PS1)
                                     parts.append(f'【图片 {a["name"]} OCR】\n{ocr_text}')
                                 except Exception:
                                     parts.append(f'【图片 {a["name"]}】（OCR 失败）')
@@ -5586,7 +5903,7 @@ class PetWidget(QWidget):
             self._notify('聊天记录已清空')
             return
         if low == '/help':
-            self._append_chat('桌宠', '指令：/clear 清空 · /time 时间 · /calc 算式 · /weather 天气 · /person 性格 · /run 程序 · /remind 秒 内容 · /pomo 番茄钟 · /lock 锁屏 · /sound 音效 · /todo 待办清单；直接聊天即可，Ctrl+V 可粘贴截图识别')
+            self._append_chat('桌宠', '指令：/clear 清空 · /time 时间 · /calc 算式 · /weather 天气 · /person 性格 · /run 程序 · /remind 秒 内容 · /pomo 番茄钟 · /lock 锁屏 · /sound 音效 · /todo 待办清单 · /回忆 关键词；直接聊天即可，Ctrl+V 可粘贴截图识别')
             return
         if low == '/todo':
             self._append_chat('桌宠', self._manage_todo('list'))
@@ -5612,7 +5929,7 @@ class PetWidget(QWidget):
             return
         if low == '/lock':
             try:
-                ctypes.windll.user32.LockWorkStation()
+                pl.lock_screen()
             except Exception:
                 self._notify('锁屏失败')
             return
@@ -5632,6 +5949,15 @@ class PetWidget(QWidget):
         if low == '/sound':
             self._play_sound('msg')
             self._notify('🔔 测试音效')
+            return
+        if low.startswith('/回忆') or low.startswith('/recall'):
+            # v6.63：搜共同经历（纯本地，不花 API）
+            parts = text.split(' ', 1)
+            q = parts[1].strip() if len(parts) > 1 else ''
+            if not q:
+                self._append_chat('桌宠', '用法：/回忆 关键词（例如 /回忆 扫雷）—— 会在「记住的事」和「共同经历」里搜')
+                return
+            self._append_chat('桌宠', self._recall_text(q))
             return
         # 其他走 AI
         self.ask_ai(text)
@@ -5677,7 +6003,7 @@ class PetWidget(QWidget):
             return
         is_en = getattr(self, 'language', 'zh') == 'en'
         if on:
-            cur = fgwin.foreground_process_name() or '—'
+            cur = pl.foreground_process() or '—'
             msg = (f'前台程序感知：已开启（当前检测到 {cur}）。只读程序名，不读窗口标题。'
                    if not is_en else f'Foreground awareness ON (now: {cur})')
         else:
@@ -5906,6 +6232,273 @@ class PetWidget(QWidget):
                               '已开启：图片上传官方文件接口后复用（同图只传一次）',
                               '已关闭：图片按 base64 直发')
 
+    # ---------- v6.63：语音朗读（只做输出，不做语音输入） ----------
+    def _speak_reply(self, text):
+        """朗读一段回复：默认关；夜间静音；先剥标签/清洗再念"""
+        try:
+            from voice_io import clean_for_speech
+            clean = clean_for_speech(text)
+            if clean:
+                self._last_spoken_text = clean          # 供「朗读上一条」手动使用
+            if not clean or not getattr(self, 'voice_enabled', False):
+                return False
+            v = getattr(self, 'voice', None)
+            return bool(v and v.speak(clean))
+        except Exception as _exc:
+            _silent_log('_speak_reply', _exc)
+            return False
+
+    def _speak_last_reply(self):
+        """手动朗读上一条回复（force：不受开关/夜间静音限制，用户主动要求就该出声）"""
+        txt = getattr(self, '_last_spoken_text', '') or ''
+        v = getattr(self, 'voice', None)
+        if not txt or v is None:
+            self._notify('还没有可朗读的回复')
+            return
+        if v.speak(txt, force=True):
+            self._notify('🔊 正在朗读上一条回复')
+
+    def _toggle_voice(self):
+        """开关「朗读 AI 回复」（写 config.json，立即生效）"""
+        want = not bool(getattr(self, 'voice_enabled', False))
+        if not self._save_cfg_value('voice_enabled', want):
+            return
+        self.voice_enabled = want
+        v = getattr(self, 'voice', None)
+        if v is not None:
+            v.set_config(enabled=want)
+        if not want and v is not None:
+            try:
+                v.stop()
+            except Exception:
+                pass
+        self._notify('🔊 已开启朗读回复（离线声线；23:00–08:00 自动静音）' if want
+                     else '🔇 已关闭朗读回复')
+
+    def _toggle_voice_night(self):
+        """夜间静音开关（23:00–08:00 不出声）"""
+        want = not bool(getattr(self, 'voice_night_quiet', True))
+        if not self._save_cfg_value('voice_night_quiet', want):
+            return
+        self.voice_night_quiet = want
+        v = getattr(self, 'voice', None)
+        if v is not None:
+            v.set_config(night_quiet=want)
+        self._notify('🌙 已开启夜间静音（23:00–08:00 不出声）' if want else '已关闭夜间静音')
+
+    def _set_voice_name(self, name):
+        """选声线（值形如 'edge:zh-CN-XiaoxiaoNeural' / 'offline:Huihui'）
+
+        v6.64：不再靠“字符串猜引擎”，而是把引擎+声线一起存进配置，默认在线声线。
+        """
+        from voice_io import parse_voice_spec, DEFAULT_VOICE
+        raw = str(name or '').strip()
+        if not raw or raw.startswith('自动'):
+            val = DEFAULT_VOICE
+        else:
+            eng, vname = parse_voice_spec(raw)
+            val = '%s:%s' % (eng, vname) if vname else DEFAULT_VOICE
+        if not self._save_cfg_value('voice_name', val):
+            return
+        self.voice_name = val
+        v = getattr(self, 'voice', None)
+        if v is not None:
+            v.set_config(voice=val)
+        label = dict((k, lab) for k, lab, _e in _VOICE_CHOICES).get(val, val)
+        self._notify('朗读声线：%s' % label)
+
+    def _set_voice_local(self, url=None, ref=None, prompt=None):
+        """设置本地自建 TTS 服务（v6.64）：地址 / 参考音频 / 参考文本"""
+        changed = []
+        for key, val in (('voice_local_url', url), ('voice_local_ref', ref),
+                         ('voice_local_prompt', prompt)):
+            if val is None:
+                continue
+            if self._save_cfg_value(key, str(val).strip()):
+                changed.append(key)
+        if url is not None:
+            self.voice_local_url = str(url).strip()
+        if ref is not None:
+            self.voice_local_ref = str(ref).strip()
+        if prompt is not None:
+            self.voice_local_prompt = str(prompt).strip()
+        v = getattr(self, 'voice', None)
+        if v is not None:
+            v.set_config(local_url=self.voice_local_url or '',
+                         local_ref=self.voice_local_ref or '',
+                         local_prompt=self.voice_local_prompt or '')
+        if changed:
+            self._notify('本地语音服务已保存；用「🔌 测试连接」确认它是否在跑')
+
+    # ---------- v6.66：语音输入（离线识别，结果只填入不发送） ----------
+    def _set_mic_button(self, listening):
+        try:
+            self.mic_btn.setText('⏺' if listening else '🎤')
+            self.mic_btn.setToolTip('正在听…（再点一次取消）' if listening else '语音输入（离线识别；再点一次取消）')
+        except Exception:
+            pass
+
+    def _toggle_listen(self):
+        """点 🎤：开始/取消语音输入"""
+        if getattr(self, '_listening', False):
+            try:
+                self.asr.cancel()
+            except Exception:
+                pass
+            self._listening = False
+            self._set_mic_button(False)
+            self._notify('🎤 已取消语音输入')
+            return
+        ok, info = self.asr.available()
+        if not ok:
+            # 没能力时明确说原因，并给出替代方案（不静默失败）
+            self._notify('本机暂时不能语音识别（%s）；可用系统自带的 Win+H 语音输入' % str(info)[:40])
+            return
+        self._listening = True
+        self._set_mic_button(True)
+        self._notify('🎤 正在听…（说完停顿会自动结束；再点一次 🎤 可取消）')
+
+        def work():
+            try:
+                text, conf, err = self.asr.listen()
+            except Exception as e:
+                text, conf, err = '', '', '%s: %s' % (type(e).__name__, str(e)[:60])
+
+            def done():
+                self._listening = False
+                self._set_mic_button(False)
+                if err:
+                    self._notify('😶 没听清（%s）' % str(err)[:70])
+                    return
+                _txt = (text or '').strip()   # 别叫 text：与闭包变量同名会被当成局部变量
+                if not _txt:
+                    self._notify('😶 没听到内容，再试一次？')
+                    return
+                try:
+                    # 注意：聊天输入框是 QTextEdit 子类（_DropChatEdit）—— 没有 text()/setText()
+                    if hasattr(self.chat_input, 'toPlainText'):
+                        cur = self.chat_input.toPlainText().strip()
+                        self.chat_input.setPlainText((cur + ' ' + _txt) if cur else _txt)
+                    else:
+                        cur = self.chat_input.text().strip()
+                        self.chat_input.setText((cur + ' ' + _txt) if cur else _txt)
+                    self.chat_input.setFocus()
+                except Exception as _exc:
+                    _silent_log('_toggle_listen:fill', _exc)
+                self._notify('🎤 已填入输入框（确认后按回车发送）')
+            self._run_on_ui(done)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_model_help(self):
+        """“怎么接入自己的模型 / 自己的声音”说明（v6.64，给其他使用者看的）"""
+        from PySide6.QtWidgets import QMessageBox
+        txt = (
+            "【接入你自己的模型】\n"
+            "  设置 → 🎯 模型管理 → 新增档案，填：模型 ID、接口地址、API Key 所在配置项、价格。\n"
+            "  · 计价方式选“自动”：官方地址按峰谷算，第三方/中转按固定价（不会被误加倍）。\n"
+            "  · 非官方地址不支持余额查询；没填价格时费用记 0 并不计入（不会编数字）。\n"
+            "  · 官方改价时可用「💰 核对官方价格」一键比对（只提示，确认后才写入）。\n\n"
+            "【用你自己的声音】\n"
+            "  三种做法，从简单到折腾：\n"
+            "  1) 系统自带：设置 → 朗读声线 → 「📃 列出系统声线」，或填 offline:<声线名>\n"
+            "     （在 Windows 里装好语音包就会出现）。\n"
+            "  2) 在线神经声线：填 edge:<声线名>（如 edge:zh-CN-XiaoyiNeural），\n"
+            "     「🌐 列出在线声线」可挑；不需要 Key、不计费，但要联网。\n"
+            "  3) 你自己的模型（训练/克隆好的）：在本机把它跑成一个 HTTP 服务，\n"
+            "     在「本地服务地址」填 http://127.0.0.1:端口 → 「🔌 测试连接」，\n"
+            "     再把声线设为 local:<那个地址>。\n"
+            "     约定：POST {地址}/tts 返回音频（兼容 GPT-SoVITS 的 api_v2 / CosyVoice / ChatTTS）；\n"
+            "     想用自己的音色，填「参考音频」+「参考文本」即可做零样本克隆。\n\n"
+            "【降级顺序】本地服务 → 在线 → 离线，任一级不可用自动往下走，不会没声音。\n"
+            "详细说明见项目 README 的「接入你自己的模型 / 自己的声音」一节。")
+        QMessageBox.information(self, '接入说明', txt)
+
+    def _test_local_tts(self):
+        """测试本地自建 TTS 服务是否在线（后台线程，不卡界面）"""
+        import threading
+        url = (getattr(self, 'voice_local_url', '') or '').strip()
+        if not url:
+            self._notify('先填「本地服务地址」，例如 http://127.0.0.1:9880')
+            return
+        self._notify('正在测试本地语音服务…')
+
+        def work():
+            from voice_io import probe_local_service
+            ok, info = probe_local_service(url)
+            msg = ('✅ 本地语音服务在跑（%s）—— 把声线设成 local:%s 就能用它念' % (info, url)
+                   if ok else '❌ 连不上：%s' % info)
+            self._run_on_ui(lambda: self._notify(msg))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _voice_choices(self):
+        """声线清单（给设置窗口用；值为 '引擎:声线'）"""
+        return tuple(_VOICE_CHOICES)
+
+    def _voice_edit_apply(self, text):
+        """应用“自定义声线”输入框的内容（v6.64）
+
+        允许两种写法（顺序不敏感）：
+        - `offline:<声线名>`（如用户自己装的 Windows 语音包）
+        - `edge:<微软声线名>`（任意语言都行，如 zh-CN-XiaoyiNeural / en-US-AriaNeural）
+        只写声线名时：包含 `-Neural` / 以语言码开头 → 当在线；否则当离线。
+        """
+        from voice_io import parse_voice_spec
+        raw = str(text or '').strip()
+        if not raw:
+            self._notify('请先填一个声线名，或从「列出…声线」里选')
+            return
+        eng, name = parse_voice_spec(raw)
+        if not name:
+            self._notify('认不出这个声线名：%s' % raw[:40])
+            return
+        self._set_voice_name('%s:%s' % (eng, name))
+
+    def _list_voices_dialog(self, kind, parent=None):
+        """列举可选声线（后台线程，不卡界面）：kind = 'system' | 'edge'"""
+        import threading
+        from PySide6.QtWidgets import QInputDialog
+        self._notify('正在获取声线列表…')
+
+        def work():
+            items = []
+            try:
+                from voice_io import list_system_voices, list_edge_voices
+                if kind == 'system':
+                    items = list_system_voices(getattr(self.voice, 'ps1', ''))
+                else:
+                    items = list_edge_voices()
+            except Exception as _exc:
+                _silent_log('_list_voices_dialog', _exc)
+
+            def show():
+                if not items:
+                    self._notify('没取到声线（离线列表读不到；在线需联网）' if kind == 'system'
+                                 else '没取到在线声线（需联网，或未打包 edge_tts）')
+                    return
+                labels = [lab for _spec, lab in items]
+                pick, ok = QInputDialog.getItem(parent or self, '选择朗读声线',
+                                                '挑一个（选中后会自动填入声线条）：',
+                                                labels, 0, False)
+                if ok and pick:
+                    for spec, lab in items:
+                        if lab == pick:
+                            self._set_voice_name(spec)
+                            break
+            self._run_on_ui(show)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _test_voice(self):
+        """试听一句（force：不受开关限制，方便选声线）"""
+        v = getattr(self, 'voice', None)
+        if v is None:
+            return
+        sample = '你好呀，我是%s，这是当前的朗读声线。' % CHARACTERS.get(
+            getattr(self, 'current', 'flash'), {}).get('name', '桌宠')
+        if v.speak(sample, force=True):
+            self._notify('🔊 正在试听…')
+        else:
+            self._notify('试听失败：%s' % (getattr(v, 'last_error', '') or '未知原因'))
+
     # ---- v6.62：节假日表（峰谷计价用；不消耗搜索额度） ----
     HOLIDAYS_CACHE = os.path.join(BASE_DIR, 'holidays_cache.json')
 
@@ -6017,18 +6610,8 @@ class PetWidget(QWidget):
 
     # ---------- 音效 ----------
     def _play_sound(self, kind):
-        """播放提示音（winsound）"""
-        try:
-            if kind == 'msg':
-                winsound.Beep(880, 80)
-                winsound.Beep(1320, 80)
-            elif kind == 'remind':
-                winsound.Beep(660, 200)
-                winsound.Beep(990, 200)
-            else:
-                winsound.Beep(660, 100)
-        except Exception:
-            pass
+        """播放提示音（v6.73 批次3：收口到平台抽象层）"""
+        pl.beep(kind)
 
     # ---------- 贴边交互（双模式） ----------
     def _edge_dock_check(self):
@@ -6383,7 +6966,7 @@ class PetWidget(QWidget):
         self._save_position()
         if self._hotkey_installed:
             try:
-                ctypes.windll.user32.UnregisterHotKey(None, 1)
+                pl.unregister_hotkey(1)
             except Exception:
                 pass
         QApplication.quit()
@@ -6393,121 +6976,29 @@ class PetWidget(QWidget):
         event.ignore()
 
     # ---------- 开机自启 ----------
-    def _autostart_pythonw(self):
-        """定位 pythonw.exe（优先独立 Python 安装，兜底当前解释器同目录）"""
-        import shutil
-        # 当前解释器同目录的 pythonw（最常见的可靠来源）
-        base = os.path.dirname(sys.executable)
-        local = os.path.join(base, 'pythonw.exe')
-        if os.path.exists(local):
-            return local
-        # 常见安装位置兜底
-        candidates = [
-            os.path.expanduser(r'~\AppData\Local\Programs\Python\Python314\pythonw.exe'),
-        ]
-        for p in candidates:
-            if os.path.exists(p):
-                return p
-        # PATH 搜索
-        found = shutil.which('pythonw.exe')
-        if found:
-            return found
-        return local
-
-    def _autostart_command(self):
-        """自启命令：打包版用 exe 本身，开发版用 pythonw + 脚本"""
-        if getattr(sys, 'frozen', False):
-            # 打包版：直接启动 exe（无 pythonw/脚本文件）
-            return f'"{sys.executable}"'
-        python = self._autostart_pythonw()
-        script = os.path.abspath(__file__)
-        return f'"{python}" "{script}"'
-
-    def _autostart_startup_path(self):
-        """启动文件夹中的自启快捷方式路径（.lnk 指向启动文件，用户可见可改）"""
-        appdata = os.environ.get('APPDATA', os.path.expanduser(r'~\AppData\Roaming'))
-        return os.path.join(appdata, r'Microsoft\Windows\Start Menu\Programs\Startup', 'DeepSeekPet.lnk')
-
-    def _create_autostart_lnk(self, path):
-        """创建启动快捷方式：开发版指向 启动桌宠.bat，打包版指向 exe 本身"""
-        try:
-            if getattr(sys, 'frozen', False):
-                target = sys.executable
-                workdir = os.path.dirname(sys.executable)
-            else:
-                bat = os.path.join(BASE_DIR, '启动桌宠.bat')
-                target = bat if os.path.exists(bat) else self._autostart_command()
-                workdir = BASE_DIR
-            ps = (
-                f"$ws = New-Object -ComObject WScript.Shell; "
-                f"$s = $ws.CreateShortcut({_ps_quote(path)}); "
-                f"$s.TargetPath = {_ps_quote(target)}; "
-                f"$s.WorkingDirectory = {_ps_quote(workdir)}; "
-                f"$s.Description = 'DeepSeek Pet'; "
-                f"$s.Save()"
-            )
-            # -EncodedCommand：Base64 UTF-16LE，彻底规避引号/中文路径/分号转义问题
-            import base64 as _b64
-            enc = _b64.b64encode(ps.encode('utf-16-le')).decode('ascii')
-            r = _subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
-                                capture_output=True, timeout=20)
-            return os.path.exists(path)
-        except Exception:
-            return False
-
+    # ---------- 开机自启（v6.72 批次2：实现收编到 platform_layer）----------
     def is_autostart_enabled(self):
-        """检查启动文件夹中是否有自启文件"""
-        return os.path.exists(self._autostart_startup_path())
+        """启动文件夹里有没有自启快捷方式"""
+        return pl.autostart_enabled()
 
     def toggle_autostart(self):
-        """开关开机自启（启动文件夹快捷方式方案，指向启动文件）"""
-        try:
-            path = self._autostart_startup_path()
-            if os.path.exists(path):
-                os.remove(path)
-            # 一并清理旧版 .bat/.cmd 启动项
-            startup_dir = os.path.dirname(path)
-            for old in ('DeepSeekPet.bat', 'DeepSeekPet.cmd'):
-                oldp = os.path.join(startup_dir, old)
-                if os.path.exists(oldp):
-                    try:
-                        os.remove(oldp)
-                    except Exception as _exc:
-                        _silent_log('toggle_autostart:5603', _exc)   # v6.54
-            if True:
-                self._notify('❌ 开机自启已关闭（下次开机需手动启动桌宠）')
-                self.say_plain('已关闭开机自启', immediate=True)
-            else:
-                # 清理旧版启动项（.bat 残留），防止开机双启动
-                startup_dir = os.path.dirname(path)
-                for old in ('DeepSeekPet.bat', 'DeepSeekPet.cmd'):
-                    oldp = os.path.join(startup_dir, old)
-                    if os.path.exists(oldp):
-                        try:
-                            os.remove(oldp)
-                        except Exception as _exc:
-                            _silent_log('toggle_autostart:5616', _exc)   # v6.54
-                ok = self._create_autostart_lnk(path)
-                if ok:
-                    # 清理旧注册表条目（若存在，避免重复启动）
-                    try:
-                        import winreg as _wr
-                        rk = _wr.OpenKey(_wr.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Run', 0, _wr.KEY_SET_VALUE)
-                        try:
-                            _wr.DeleteValue(rk, 'DeepSeekPet')
-                        except FileNotFoundError as _exc:
-                            _silent_log('toggle_autostart:5626', _exc)   # v6.54
-                        _wr.CloseKey(rk)
-                    except Exception as _exc:
-                        _silent_log('toggle_autostart:5629', _exc)   # v6.54
-                    self._notify('✅ 开机自启已开启（启动文件夹快捷方式）')
-                    self.say_plain('已开启开机自启', immediate=True)
-                else:
-                    self._notify('❌ 自启写入失败')
-                    self.say_plain('自启写入失败', immediate=True)
-        except Exception as e:
-            self._notify(f'自启设置失败：{e}')
-            self.say_plain(f'自启设置失败: {e}', immediate=True)
+        """开关开机自启：实现交给平台抽象层，UI 提示留在宿主
+
+        历史 bug：旧实现删完文件后写 `if True: … else: …`，恒真 → 只会关不会开
+        （打开自启的代码是死代码）。现在用显式 set(on)，返回新状态。
+        """
+        on, ok, msg = pl.autostart_toggle()
+        if not ok:
+            self._notify(f'自启设置失败：{msg}')
+            self.say_plain(f'自启设置失败: {msg}', immediate=True)
+            return on
+        if on:
+            self._notify('✅ 开机自启已开启（启动文件夹快捷方式）')
+            self.say_plain('已开启开机自启', immediate=True)
+        else:
+            self._notify('❌ 开机自启已关闭（下次开机需手动启动桌宠）')
+            self.say_plain('已关闭开机自启', immediate=True)
+        return on
 
     # ---------- 随机动作 ----------
     # ============ 主动关心系统（v6.18 链式+回访） ============
@@ -6544,7 +7035,7 @@ class PetWidget(QWidget):
                 record_cb=self._record_api_usage,
                 endpoint=self._current_endpoint(),
                 # v6.59：仅在用户显式开启「前台程序感知」时才附带信号（默认 None 不影响原逻辑）
-                busy_hint=(fgwin.busy_hint() if getattr(self, 'foreground_aware', False) else None),
+                busy_hint=(pl.busy_hint() if getattr(self, 'foreground_aware', False) else None),
             )
         except Exception:
             return None
@@ -6642,7 +7133,7 @@ class PetWidget(QWidget):
     def _note_foreground(self, proc):
         """采样前台程序类别（仅前台感知开启时调用）——用于「休息间隙」场景触发"""
         try:
-            cat = fgwin.categorize(proc) or 'other'
+            cat = pl.foreground_categorize(proc) or 'other'
         except Exception:
             return
         prev = getattr(self, '_fg_cat', '')
@@ -6746,7 +7237,7 @@ class PetWidget(QWidget):
             return
         now = time.time()
         if getattr(self, 'foreground_aware', False):
-            self._note_foreground(fgwin.foreground_process_name())
+            self._note_foreground(pl.foreground_process())
         scene = self._scene_ready()
         if now < self._active_chat_next and not scene:
             return
@@ -7118,8 +7609,25 @@ class PetWidget(QWidget):
 
     # ---------- 回忆相册（v6.30 Phase3） ----------
     def _open_memories(self):
-        dlg = MemoriesDialog(self.memories, self.current, CHARACTERS[self.current]['name'], self)
+        dlg = MemoriesDialog(self.memories, self.current, CHARACTERS[self.current]['name'], self,
+                             searcher=self._search_memories)   # v6.63：相册里可搜共同经历
         dlg.exec()
+
+    def _search_memories(self, query, top_k=8):
+        """v6.63：本地检索「记住的事 + 共同经历」（不调 LLM、不花 API）"""
+        from memory_search import search_memories
+        return search_memories(self.memory_facts, self.memories.all(self.current),
+                               query, top_k=top_k)
+
+    def _recall_text(self, query):
+        """v6.63：把搜索结果整理成一段话（供 /回忆 与相册共用）"""
+        from memory_search import format_hits
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        try:
+            res = self._search_memories(query)
+            return format_hits(res, is_en=is_en)
+        except Exception as e:
+            return ('回忆检索失败：%s' % str(e)[:80]) if not is_en else ('Recall search failed: %s' % str(e)[:80])
 
     def _open_settings(self, page=0):
         """打开统一设置窗口（page 指定初始分类）"""
@@ -7158,6 +7666,14 @@ class PetWidget(QWidget):
         imenu.addSeparator()
         imenu.addAction(T('sleep')).triggered.connect(lambda: self.toggle_sleep())
         imenu.addAction(T('toggle_chat')).triggered.connect(lambda: self.toggle_chat_panel())
+        imenu.addSeparator()
+        # v6.63：语音朗读（P0）
+        act_voice = imenu.addAction('🔊 朗读开关' + (T('on') if getattr(self, 'voice_enabled', False) else T('off')))
+        act_voice.setCheckable(True)
+        act_voice.setChecked(bool(getattr(self, 'voice_enabled', False)))
+        act_voice.triggered.connect(lambda *_: self._toggle_voice())
+        imenu.addAction('🗣️ 朗读上一条回复').triggered.connect(self._speak_last_reply)
+        imenu.addAction('🎤 语音输入').triggered.connect(self._toggle_listen)   # v6.66
         imenu.addSeparator()
         # 场景动作：原先「常用 5 个 + 更多动作 7 个」两级嵌套，合并成一层 12 项
         scene_menu = imenu.addMenu('🎬 场景动作')
@@ -7285,7 +7801,7 @@ def main():
         ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_DPI_AWARE
     except Exception:
         try:
-            ctypes.windll.user32.SetProcessDPIAware()  # 回退：SYSTEM_DPI_AWARE
+            pl.enable_dpi_awareness()  # 回退：SYSTEM_DPI_AWARE
         except Exception:
             pass
     app = QApplication(sys.argv)

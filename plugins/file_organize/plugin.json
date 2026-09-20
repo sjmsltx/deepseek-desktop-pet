@@ -1,0 +1,34 @@
+{
+  "manifest_version": 2,
+  "name": "file_organize",
+  "title": "文件整理",
+  "version": "1.0.0",
+  "author": "AutoClaw 官方",
+  "description": "把乱文件夹理清楚：按类型/修改日期归类到子文件夹、找出重复文件、按规则重命名。**先预览再执行**，不会不看一眼就动你的文件",
+  "type": "tool",
+  "entry": "plugin.py",
+  "enabled": true,
+  "builtin": true,
+  "license": "MIT",
+  "permissions": {
+    "files.read": "扫描你指定文件夹里的文件",
+    "files.write": "把你确认过的整理动作真正执行（移动/改名）"
+  },
+  "tools": [
+    {
+      "name": "organize_files",
+      "description": "文件整理（先预览后执行）：action=preview 只统计不改动；run 按类型或日期归类到子文件夹；dupes 找重复文件（按内容哈希）；rename 批量重命名。用户说“帮我理理这个文件夹/归类/找重复文件”时用。**必须先用 preview 给用户看结果，得到同意再 run**",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["preview", "run", "dupes", "rename"], "description": "操作类型"},
+          "src": {"type": "string", "description": "要整理的文件夹绝对路径"},
+          "by": {"type": "string", "description": "归类依据：type（按扩展名，默认）或 date（按修改年月）"},
+          "prefix": {"type": "string", "description": "rename 的前缀"},
+          "confirm": {"type": "boolean", "description": "run 时必须显式 true（表示用户已同意）"}
+        },
+        "required": ["action", "src"]
+      }
+    }
+  ]
+}

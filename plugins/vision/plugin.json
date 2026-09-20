@@ -1,9 +1,16 @@
 {
+  "manifest_version": 2,
   "name": "vision",
   "version": "1.0.0",
   "description": "看图能力：用 deepseek-v4-flash-vision-exp 描述图片/OCR 识图/图表分析（v6.22 内置示例插件）",
   "type": "tool",
   "entry": "plugin.py",
+  "builtin": true,
+  "author": "AutoClaw 官方",
+  "permissions": {
+    "files.read": "读取你指定的图片文件",
+    "network": "把图片发给视觉模型接口做识别（需要联网）"
+  },
   "tools": [
     {
       "name": "vision_describe",

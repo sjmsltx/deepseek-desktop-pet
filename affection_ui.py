@@ -7,7 +7,8 @@ LiveGalGame 式可视化（变化动效 +N↑ 在 Phase 2 与余额气泡一起�
 """
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QProgressBar, QPushButton, QScrollArea, QWidget, QFrame,
-                               QGraphicsOpacityEffect, QListWidget, QListWidgetItem)
+                               QGraphicsOpacityEffect, QListWidget, QListWidgetItem,
+                               QLineEdit)   # v6.63：回忆相册搜索框
 from PySide6.QtCore import (Qt, QPropertyAnimation, QPoint, QEasingCurve,
                             QSequentialAnimationGroup, QParallelAnimationGroup)
 
@@ -82,21 +83,71 @@ class MemoriesDialog(QDialog):
 
     _EMOJI = {'milestone': '🏆', 'event': '✨', 'user_mark': '📌', 'memory': '🧠'}
 
-    def __init__(self, memories, role: str, role_name: str, parent=None):
+    def __init__(self, memories, role: str, role_name: str, parent=None, searcher=None):
         super().__init__(parent)
         self.memories = memories
         self.role = role
+        self.searcher = searcher          # v6.63：传进来就能搜「共同经历 / 记住的事」
         self.setWindowTitle(f'📖 回忆相册 · {role_name}')
-        self.resize(380, 460)
+        self.resize(380, 480)
         self.setStyleSheet(memories_qss())                  # v6.58 主题化
         self.apply_theme = lambda: self.setStyleSheet(memories_qss())
         _OPEN_DIALOGS.append(self)
         lay = QVBoxLayout(self)
         self.lb_count = QLabel('')
         lay.addWidget(self.lb_count)
+        # v6.63：搜索框（本地检索，即时；清空回到完整时间线）
+        self.ed_search = QLineEdit()
+        self.ed_search.setPlaceholderText('搜「共同经历 / 记住的事」…')
+        self.ed_search.setClearButtonEnabled(True)
+        self.ed_search.textChanged.connect(lambda *_: self._apply_search())
+        self.ed_search.setEnabled(bool(searcher))
+        if not searcher:
+            self.ed_search.setPlaceholderText('（本版未接入检索）')
+        lay.addWidget(self.ed_search)
         self.list = QListWidget()
         lay.addWidget(self.list)
         self._refresh()
+
+    def _apply_search(self):
+        """v6.63：有关键词就走检索（事实 + 共同经历分组展示），没有就回到时间线"""
+        try:
+            q = self.ed_search.text().strip()
+        except Exception:
+            q = ''
+        if not q or not self.searcher:
+            self._refresh()
+            return
+        try:
+            res = self.searcher(q) or {}
+        except Exception as e:
+            self.lb_count.setText('检索失败：%s' % str(e)[:60])
+            self.list.clear()
+            return
+        facts = res.get('facts') or []
+        events = res.get('events') or []
+        self.lb_count.setText('🔍 「%s」命中 %d 条（事实 %d · 经历 %d）'
+                              % (q, len(facts) + len(events), len(facts), len(events)))
+        self.list.clear()
+        for f in facts:
+            text = ('🧠 ★%s %s' % (f.get('importance', 3), f.get('text', '')))
+            if f.get('time'):
+                text += '\n    （%s）' % f['time']
+            it = QListWidgetItem(text)
+            it.setToolTip(text)
+            self.list.addItem(it)
+        for e in events:
+            aff = ('  ·  当时好感 %s' % e['affection_at']) if e.get('affection_at') is not None else ''
+            text = '%s [%s]%s\n%s' % (self._EMOJI.get(e.get('type', 'event'), '✨'),
+                                      e.get('time', ''), aff, e.get('title', ''))
+            if e.get('detail'):
+                text += '\n    %s' % e['detail']
+            it = QListWidgetItem(text)
+            it.setToolTip(text)
+            self.list.addItem(it)
+        if not facts and not events:
+            it = QListWidgetItem('（没找到相关回忆，换个关键词试试）')
+            self.list.addItem(it)
 
     def _refresh(self):
         items = self.memories.all(self.role)

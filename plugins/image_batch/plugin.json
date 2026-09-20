@@ -1,0 +1,36 @@
+{
+  "manifest_version": 2,
+  "name": "image_batch",
+  "title": "图片批处理",
+  "version": "1.0.0",
+  "author": "AutoClaw 官方",
+  "description": "批量处理图片：缩放、转格式（jpg/png/webp）、按序号重命名、看尺寸信息。纯本地（Pillow），不联网、不上传",
+  "type": "tool",
+  "entry": "plugin.py",
+  "enabled": true,
+  "builtin": true,
+  "license": "MIT",
+  "permissions": {
+    "files.read": "读取你指定文件夹/文件里的图片",
+    "files.write": "把处理结果写到程序目录的 输出/ 下"
+  },
+  "tools": [
+    {
+      "name": "image_batch",
+      "description": "批量图片处理（本地 Pillow）：action=info 看尺寸/格式；resize 等比缩放（给 width 或 height）；convert 转格式（jpg/png/webp）；rename 按序号重命名。用户说“把这些图片缩小/转成 jpg/批量改名”时用；一次最多 50 张",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["info", "resize", "convert", "rename"], "description": "操作类型"},
+          "src": {"type": "string", "description": "图片所在文件夹路径，或单个图片文件路径"},
+          "width": {"type": "number", "description": "缩放目标宽（等比，给一个即可）"},
+          "height": {"type": "number", "description": "缩放目标高（等比）"},
+          "format": {"type": "string", "description": "convert 的目标格式：jpg / png / webp"},
+          "prefix": {"type": "string", "description": "rename 的前缀（默认图片名）"},
+          "name": {"type": "string", "description": "输出子目录名（默认 图片处理）"}
+        },
+        "required": ["action", "src"]
+      }
+    }
+  ]
+}

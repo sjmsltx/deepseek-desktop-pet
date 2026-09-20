@@ -17,19 +17,29 @@ settings_ui.py — 统一设置窗口（Phase 5）
 import os
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton,
-                               QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
+                               QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 import pet_foreground as fgwin  # v6.59 前台程序感知（只读进程名，隐私边界见模块头部）
+import platform_layer as pl  # v6.73 批次3：平台能力统一门面
 from pet_theme import DEFAULT_THEME  # v6.57 主题 token 唯一源（消除本模块里的"第二套配色"）
 
-PAGES = ('通用', '对话', '外观', '模型与 API', '记忆与数据', '系统')
+PAGES = ('通用', '对话', '外观', '模型', '语音', '用量与计费', '记忆与数据', '技能', 'MCP', '系统')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))   # 本模块就在桌宠项目目录下
 
 STYLE_HINT = 'color:%s;font-size:11.5px;' % DEFAULT_THEME['hint_text']  # v6.57 取自唯一源
 STYLE_HEAD = 'font-weight:600;font-size:15px;'
 TOKEN_PRESETS = [500, 1000, 2000, 4000, 16000, 32000, 64000, 128000]
+
+
+def _mcp_catalog():
+    """MCP 推荐清单（单一来源：mcp_bridge.CATALOG，避免两边各写一份）"""
+    try:
+        import mcp_bridge
+        return list(mcp_bridge.CATALOG)
+    except Exception:
+        return []
 
 
 class SettingsDialog(QDialog):
@@ -67,7 +77,8 @@ class SettingsDialog(QDialog):
         root.addLayout(col, 1)
 
         for fn in (self._page_general, self._page_chat, self._page_appearance,
-                   self._page_model, self._page_memory, self._page_system):
+                   self._page_model, self._page_voice, self._page_usage,
+                   self._page_memory, self._page_skills, self._page_mcp, self._page_system):
             self.stack.addWidget(fn())
         self._apply_theme()
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -146,7 +157,7 @@ class SettingsDialog(QDialog):
         self.ck_fg = QCheckBox('开启（默认关闭）')
         self.ck_fg.toggled.connect(self._toggle_foreground)
         f.addRow('前台程序感知', self.ck_fg)
-        self.lb_fg_note = QLabel(fgwin.privacy_note())
+        self.lb_fg_note = QLabel(pl.foreground_privacy_note())
         self.lb_fg_note.setWordWrap(True)
         self.lb_fg_note.setStyleSheet(STYLE_HINT)
         f.addRow('', self.lb_fg_note)
@@ -183,13 +194,13 @@ class SettingsDialog(QDialog):
             if not bool(getattr(self.host, 'foreground_aware', False)):
                 self.lb_fg_now.setText('当前检测：—（未开启）')
                 return
-            name = fgwin.foreground_process_name() or '—'
-            cat = fgwin.categorize(name)
-            level = fgwin.busy_level(name)
+            name = pl.foreground_process() or '—'
+            cat = pl.foreground_categorize(name)
+            level = pl.foreground_busy_level(name)
             zh = {'high': '高度专注、建议不打扰',
                   'mid': '专注但可打断',
                   'none': '不表态，按原规则'}.get(level, '不表态')
-            label = fgwin.category_label(cat) if cat and cat != 'other' else '其他'
+            label = pl.foreground_label(cat) if cat and cat != 'other' else '其他'
             self.lb_fg_now.setText('当前检测：%s（%s · %s）' % (name, label, zh))
         except Exception:
             pass
@@ -285,11 +296,11 @@ class SettingsDialog(QDialog):
         f.addRow('', tip)
         return p
 
-    # ---------- ④ 模型与 API ----------
+    # ---------- ④ 模型（v6.64：从原「模型与 API」拆出，26 行 → 三页各 ≤12 行） ----------
     def _page_model(self):
-        p = self._page('模型与 API',
-                       '当前角色的模型、思考模式、采样温度与输出上限都按「模型档案」保存；'
-                       '要改别的模型请进「模型管理」。')
+        p = self._page('模型',
+                       '当前角色的模型、思考方式、采样参数与 API 细节开关。'
+                       '要改别的模型/价格/接口地址请进「🎯 模型管理」。')
         f = p.form
         self.cb_char = QComboBox()
         self.cb_char.currentIndexChanged.connect(
@@ -365,7 +376,86 @@ class SettingsDialog(QDialog):
         lb_tip.setWordWrap(True)
         f.addRow('', lb_tip)
 
-        # v6.61：余额 —— 手动查询 + 对话后自动刷新 + 低余额提醒（阈值可手改）
+        self._buttons(f, '模型档案', [('🎯 模型管理…', self.host._open_model_manager)])
+        self._buttons(f, '密钥', [('🔑 修改 API Key…', self.host._set_api_key_dialog),
+                                  ('🌐 修改联网搜索 Key…', self.host._set_search_key_dialog)])
+
+        # v6.64：接入自己的模型 / 声音的说明（其他使用者最容易卡在这里）
+        self._buttons(f, '接入说明', [('❓ 怎么填自己的模型 / 自己的声音', self.host._show_model_help)])
+        return p
+
+    # ---------- ④b 语音（v6.64 新拆分） ----------
+    def _page_voice(self):
+        p = self._page('语音',
+                       'AI 回复可自动念出来：默认走在线神经声线（音质最好、不需 Key 且不计费，需联网），'
+                       '不可用时自动降级到系统内置离线声线；也可接入你自己的模型服务。')
+        f = p.form
+        self.ck_voice = QCheckBox('朗读 AI 回复')
+        self.ck_voice.toggled.connect(
+            lambda *_: not self._building and self.host._toggle_voice())
+        f.addRow('语音朗读', self.ck_voice)
+
+        self.cb_voice_name = QComboBox()
+        # 声线清单含在线神经声线（默认）与离线系统声线；值形如 'edge:zh-CN-XiaoxiaoNeural'
+        for _v, _lab, _eng in getattr(self.host, '_voice_choices', lambda: ())():
+            self.cb_voice_name.addItem(_lab, _v)
+        self.cb_voice_name.currentIndexChanged.connect(
+            lambda *_: not self._building and self.cb_voice_name.currentData()
+            and self.host._set_voice_name(self.cb_voice_name.currentData()))
+        self.cb_voice_name.setToolTip('在线声线音质最好（需联网，失败会自动转离线）；'
+                                      '离线声线不联网但偏机械')
+        f.addRow('朗读声线', self.cb_voice_name)
+
+        self.ed_voice_custom = QLineEdit()
+        self.ed_voice_custom.setPlaceholderText('如 edge:zh-CN-XiaoyiNeural 或 offline:Huihui')
+        self.ed_voice_custom.setToolTip('填自己的语音包名字也行（需先在 Windows 里装好该语音包）：\n'
+                                        '· 离线：offline:<声线名>（可用下方按钮列出系统已装声线）\n'
+                                        '· 在线：edge:<微软声线名>（可用下方按钮列出，含其他语言）')
+        f.addRow('自定义声线', self.ed_voice_custom)
+        self._buttons(f, '声线', [
+            ('✔ 应用自定义声线', lambda: self.host._voice_edit_apply(self.ed_voice_custom.text())),
+            ('📃 列出系统声线', lambda: self.host._list_voices_dialog('system', self)),
+            ('🌐 列出在线声线', lambda: self.host._list_voices_dialog('edge', self)),
+        ])
+
+        self.ed_voice_local = QLineEdit()
+        self.ed_voice_local.setPlaceholderText('http://127.0.0.1:9880')
+        self.ed_voice_local.setToolTip('本地 TTS 服务的地址；服务需提供 POST {地址}/tts（返回音频）——\n'
+                                       'GPT-SoVITS 的 api_v2.py / CosyVoice / ChatTTS 都符合这个约定。\n'
+                                       '填好后把声线设为 local:<这个地址> 即用它朗读')
+        self.ed_voice_local.editingFinished.connect(
+            lambda: not self._building and self.host._set_voice_local(url=self.ed_voice_local.text()))
+        f.addRow('本地服务地址', self.ed_voice_local)
+
+        self.ed_voice_ref = QLineEdit()
+        self.ed_voice_ref.setPlaceholderText('（可选）参考音频路径，如 D:\\voice\\my.wav')
+        self.ed_voice_ref.setToolTip('零样本克隆用：给 3～10 秒你的录音，很多模型不用训练就能用你的声音')
+        self.ed_voice_ref.editingFinished.connect(
+            lambda: not self._building and self.host._set_voice_local(ref=self.ed_voice_ref.text()))
+        f.addRow('参考音频', self.ed_voice_ref)
+
+        self.ed_voice_prompt = QLineEdit()
+        self.ed_voice_prompt.setPlaceholderText('（可选）参考音频里说的话')
+        self.ed_voice_prompt.editingFinished.connect(
+            lambda: not self._building
+            and self.host._set_voice_local(prompt=self.ed_voice_prompt.text()))
+        f.addRow('参考文本', self.ed_voice_prompt)
+
+        self.ck_voice_night = QCheckBox('夜间静音（23:00–08:00 不出声）')
+        self.ck_voice_night.toggled.connect(
+            lambda *_: not self._building and self.host._toggle_voice_night())
+        self.ck_voice_night.setToolTip('按**本机本地时间**判断夜里（与计价用北京时间无关）')
+        f.addRow('夜间静音', self.ck_voice_night)
+        self._buttons(f, '语音', [('🔊 试听一句', self.host._test_voice),
+                                  ('🔌 测试本地服务', self.host._test_local_tts)])
+        self._buttons(f, '文档', [('❓ 怎么填自己的模型 / 自己的声音', self.host._show_model_help)])
+        return p
+
+    # ---------- ④c 用量与计费（v6.64 新拆分） ----------
+    def _page_usage(self):
+        p = self._page('用量与计费',
+                       '余额查询、低余额提醒与峰谷计价。官方峰谷按北京时间判定，不受本机时区/时间影响。')
+        f = p.form
         self.sp_bal = QDoubleSpinBox()
         self.sp_bal.setRange(0.0, 10000.0)
         self.sp_bal.setDecimals(2)
@@ -378,7 +468,6 @@ class SettingsDialog(QDialog):
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
                                         ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
 
-        # v6.62：峰谷计价要认法定节假日（表内置；可手动更新，不消耗搜索额度）
         try:
             import server_clock as _sc
             _local_peak = _sc.peak_ranges_in_local_text()
@@ -394,10 +483,6 @@ class SettingsDialog(QDialog):
         f.addRow('', _hd_tip)
         self._buttons(f, '峰谷计价', [('📅 更新节假日表（免费，不占搜索额度）',
                                        self.host._update_holidays_now)])
-
-        self._buttons(f, '模型档案', [('🎯 模型管理…', self.host._open_model_manager)])
-        self._buttons(f, '密钥', [('🔑 修改 API Key…', self.host._set_api_key_dialog),
-                                  ('🌐 修改联网搜索 Key…', self.host._set_search_key_dialog)])
         return p
 
     # ---------- ⑤ 记忆与数据 ----------
@@ -419,6 +504,335 @@ class SettingsDialog(QDialog):
         f.addRow('', tip)
         return p
 
+    # ---------- ⑧ 技能（v6.67 / Batch 3-1）----------
+    def _page_skills(self):
+        p = self._page('技能', '技能包 = 一个清单（plugin.json）+ 一个实现（plugin.py）。'
+                              '申请了权限的包，你确认后才启用；危险操作（os.system / eval / winreg…）'
+                              '写任何权限都不放行。装完即时生效，不用重启。')
+        f = p.form
+        self.lst_skills = QListWidget()
+        self.lst_skills.setMinimumHeight(150)
+        f.addRow('已装技能包', self.lst_skills)
+        self._buttons(f, '操作', [
+            ('🔄 刷新', self._refresh_skills),
+            ('📂 从目录安装', lambda: self._skills_install(True)),
+            ('🗜 从 zip 安装', lambda: self._skills_install(False)),
+            ('✅ 启用 / ⛔ 禁用', self._skills_toggle),
+            ('🔑 权限', self._skills_perms),
+            ('🧾 审计日志', self._show_audit),
+            ('🗑 卸载', self._skills_uninstall),
+        ])
+        self.lb_skills_msg = QLabel('')
+        self.lb_skills_msg.setStyleSheet(STYLE_HINT)
+        self.lb_skills_msg.setWordWrap(True)
+        f.addRow('', self.lb_skills_msg)
+        return p
+
+    # ---------- 技能页动作 ----------
+    def _skills_mgr(self):
+        return getattr(self.host, 'plugin_mgr', None)
+
+    def _skills_selected(self):
+        it = self.lst_skills.currentItem()
+        return ((it.data(Qt.UserRole) if it else '') or '')
+
+    def _refresh_skills(self):
+        m = self._skills_mgr()
+        if m is None:
+            self.lb_skills_msg.setText('宿主没有插件管理器（开发模式下可能未接线）')
+            return
+        self.lst_skills.clear()
+        try:
+            packs = m.packs()
+        except Exception as e:
+            self.lb_skills_msg.setText('读取技能包失败：%s' % e)
+            return
+        for pk in packs:
+            it = QListWidgetItem('%s  v%s  ·  %s  ·  %s'
+                                 % (pk['title'], pk['version'], pk['source'],
+                                    pk.get('state') or ('启用' if pk['enabled'] else '已禁用')))
+            it.setData(Qt.UserRole, pk['name'])
+            lines = ['%s（%s）' % (pk['title'], pk['name']), '权限：%s' % pk['permissions_text']]
+            if pk['pending']:
+                lines.append('待你确认：%s' % '、'.join(pk['pending']))
+            it.setToolTip('\n'.join(lines))
+            self.lst_skills.addItem(it)
+        for name, why in (getattr(m, 'rejected', {}) or {}).items():
+            it = QListWidgetItem('⚠ %s —— 被安全策略拦下未载入：%s' % (name, why))
+            it.setData(Qt.UserRole, name)
+            self.lst_skills.addItem(it)
+        self.lb_skills_msg.setText('共 %d 个技能包。流程：安装 → 看权限 → 确认 → 启用。'
+                                   % len(packs))
+        try:
+            import governance as gov
+            if not gov.audit_enabled():
+                self.lb_skills_msg.setText(self.lb_skills_msg.text() + '（审计日志已关闭）')
+            else:
+                st = gov.audit_stats()
+                self.lb_skills_msg.setText(self.lb_skills_msg.text() +
+                                           '｜今日审计 %d 条，拒 %d 条'
+                                           % (st['total'], st['denied']))
+        except Exception:
+            pass
+
+    def _skills_install(self, from_dir=True):
+        m = self._skills_mgr()
+        if m is None:
+            return
+        if from_dir:
+            path = QFileDialog.getExistingDirectory(self, '选技能包目录（里面要有 plugin.json）')
+        else:
+            path, _f = QFileDialog.getOpenFileName(self, '选技能包 zip', '', '技能包 (*.zip)')
+        if not path:
+            return
+        _ok, msg = m.install_pack(path)
+        QMessageBox.information(self, '安装技能包', msg)
+        self._refresh_skills()
+
+    def _skills_toggle(self):
+        m, name = self._skills_mgr(), self._skills_selected()
+        if not (m and name):
+            return
+        reg = {p['name']: p for p in m.packs()}.get(name)
+        if not reg:
+            QMessageBox.information(self, '启用/禁用', '这一个不是技能包（可能是被拦下的项）')
+            return
+        if reg['pending']:
+            QMessageBox.information(self, '启用/禁用',
+                                    '这个包还等你确认权限：%s。先点「🔑 权限」确认。'
+                                    % '、'.join(reg['pending']))
+            return
+        _ok, msg = m.set_enabled(name, not reg['enabled'])
+        QMessageBox.information(self, '启用/禁用', msg)
+        self._refresh_skills()
+
+    def _skills_perms(self):
+        m, name = self._skills_mgr(), self._skills_selected()
+        if not (m and name):
+            return
+        import skill_pack
+        QMessageBox.information(self, '权限', skill_pack.permissions_card(m.dir, name) or '没有该技能包')
+        reg = {p['name']: p for p in m.packs()}.get(name)
+        if reg and reg['pending']:
+            ans = QMessageBox.question(self, '确认权限',
+                                       '确认授权这些权限吗？\n%s' % '、'.join(reg['pending']))
+            if ans == QMessageBox.Yes:
+                _ok, msg = m.grant(name, reg['pending'])
+                QMessageBox.information(self, '结果', msg)
+            self._refresh_skills()
+
+    def _skills_uninstall(self):
+        m, name = self._skills_mgr(), self._skills_selected()
+        if not (m and name):
+            return
+        if QMessageBox.question(self, '卸载', '卸载技能包 %s？\n（会移进 plugins\\_uninstalled，可手动找回）' % name) != QMessageBox.Yes:
+            return
+        _ok, msg = m.uninstall(name)
+        QMessageBox.information(self, '卸载', msg)
+        self._refresh_skills()
+
+    # ---------- ⑨ MCP（v6.68 / Batch 3-3）----------
+    def _page_mcp(self):
+        p = self._page('MCP', '接外部工具服务（MCP 是跨工具的行业标准协议，社区有几千个 server）。'
+                              '写类工具默认**调用前会问你**；连接失败会在下面写明原因。')
+        f = p.form
+        self.lst_mcp = QListWidget()
+        self.lst_mcp.setMinimumHeight(130)
+        f.addRow('已配置', self.lst_mcp)
+        self.ck_mcp_confirm = QCheckBox('写类工具调用前先问我（推荐开）')
+        self.ck_mcp_confirm.toggled.connect(self._mcp_toggle_confirm)
+        f.addRow('权限', self.ck_mcp_confirm)
+        self.cb_mcp_catalog = QComboBox()
+        for item in _mcp_catalog():
+            self.cb_mcp_catalog.addItem('%s —— %s' % (item['title'], item['note']), item)
+        f.addRow('推荐清单', self.cb_mcp_catalog)
+        self._buttons(f, '操作', [
+            ('🔄 刷新', self._refresh_mcp),
+            ('🧩 添加推荐', self._mcp_add_catalog),
+            ('➕ 加 stdio…', self._mcp_add_stdio),
+            ('➕ 加 HTTP…', self._mcp_add_http),
+            ('✅ 启用 / ⛔ 禁用', self._mcp_toggle),
+            ('🧪 测试连接', self._mcp_test),
+            ('📋 工具与权限', self._mcp_tools),
+            ('🧾 审计日志', self._show_audit),
+            ('🗑 删除', self._mcp_remove),
+        ])
+        self.lb_mcp_msg = QLabel('')
+        self.lb_mcp_msg.setStyleSheet(STYLE_HINT)
+        self.lb_mcp_msg.setWordWrap(True)
+        f.addRow('', self.lb_mcp_msg)
+        return p
+
+    # ---------- MCP 页动作 ----------
+    def _mcp(self):
+        return getattr(self.host, 'mcp', None)
+
+    def _mcp_selected(self):
+        it = self.lst_mcp.currentItem()
+        return ((it.data(Qt.UserRole) if it else '') or '')
+
+    def _refresh_mcp(self):
+        m = self._mcp()
+        if m is None:
+            self.lb_mcp_msg.setText('宿主没有 MCP 桥接器')
+            return
+        self.lst_mcp.clear()
+        try:
+            servers = m.servers()
+        except Exception as e:
+            self.lb_mcp_msg.setText('读取 MCP 状态失败：%s' % e)
+            return
+        for s in servers:
+            text = '%s  ·  %s  ·  %s  ·  %d 个工具'
+            it = QListWidgetItem(text % (s['title'], s['transport'], s['state'], s['tool_count']))
+            it.setData(Qt.UserRole, s['name'])
+            lines = [s['target'] or '（未填目标）']
+            if s['error']:
+                lines.append('错误：%s' % s['error'])
+            if s['need_confirm']:
+                lines.append('调用前会先问：%s' % '、'.join(s['need_confirm'][:6]))
+            it.setToolTip('\n'.join(lines))
+            self.lst_mcp.addItem(it)
+        self._building = True
+        try:
+            self.ck_mcp_confirm.setChecked(bool(m.auto_confirm_writes()))
+        finally:
+            self._building = False
+        if not servers:
+            self.lb_mcp_msg.setText('还没配置 MCP server。可以从「推荐清单」一键添加，或自己填命令/地址。')
+        else:
+            conn = sum(1 for s in servers if s['state'] == '已连接')
+            self.lb_mcp_msg.setText('共 %d 个，已连接 %d 个。' % (len(servers), conn))
+
+    def _mcp_toggle_confirm(self, flag):
+        if self._building:
+            return
+        m = self._mcp()
+        if m is None:
+            return
+        _ok, msg = m.set_auto_confirm_writes(flag)
+        self.lb_mcp_msg.setText(msg)
+
+    def _mcp_add_catalog(self):
+        m = self._mcp()
+        item = self.cb_mcp_catalog.currentData()
+        if m is None or not item:
+            return
+        args = list(item['args'])
+        if any('路径' in a for a in args):
+            val, ok = QInputDialog.getText(self, '填一下路径',
+                                           '%s 需要你给一个本地路径（目录或文件）：' % item['title'])
+            if not ok or not val.strip():
+                return
+            args = [val.strip() if '路径' in a else a for a in args]
+        _ok, msg = m.add_server({'name': item['key'], 'title': item['title'],
+                                 'command': item['command'], 'args': args})
+        QMessageBox.information(self, '添加 MCP server', msg)
+        self._refresh_mcp()
+
+    def _mcp_add_stdio(self):
+        m = self._mcp()
+        if m is None:
+            return
+        name, ok = QInputDialog.getText(self, '加 stdio MCP', '名字（字母/数字）：')
+        if not ok or not name.strip():
+            return
+        cmd, ok = QInputDialog.getText(self, '加 stdio MCP',
+                                       '命令（如 npx 或 uvx，也可写完整路径）：', text='npx')
+        if not ok or not cmd.strip():
+            return
+        args, ok = QInputDialog.getText(self, '加 stdio MCP',
+                                        '参数（空格分隔，可留空）：',
+                                        text='-y @modelcontextprotocol/server-filesystem')
+        if not ok:
+            return
+        _ok, msg = m.add_server({'name': name.strip(), 'command': cmd.strip(),
+                                 'args': [a for a in args.split() if a]})
+        QMessageBox.information(self, '添加 MCP server', msg)
+        self._refresh_mcp()
+
+    def _mcp_add_http(self):
+        m = self._mcp()
+        if m is None:
+            return
+        name, ok = QInputDialog.getText(self, '加 HTTP MCP', '名字：')
+        if not ok or not name.strip():
+            return
+        url, ok = QInputDialog.getText(self, '加 HTTP MCP', '服务地址（http(s)://…/mcp）：')
+        if not ok or not url.strip():
+            return
+        _ok, msg = m.add_server({'name': name.strip(), 'url': url.strip()})
+        QMessageBox.information(self, '添加 MCP server', msg)
+        self._refresh_mcp()
+
+    def _mcp_toggle(self):
+        m, name = self._mcp(), self._mcp_selected()
+        if not (m and name):
+            return
+        cur = next((s for s in m.servers() if s['name'] == name), None)
+        if not cur:
+            return
+        _ok, msg = m.set_enabled(name, not cur['enabled'])
+        QMessageBox.information(self, 'MCP', msg)
+        self._refresh_mcp()
+
+    def _mcp_test(self):
+        m, name = self._mcp(), self._mcp_selected()
+        if not (m and name):
+            return
+        _ok, msg = m.restart(name)
+        QMessageBox.information(self, 'MCP', msg + '\n（连接结果 1～2 秒后反映在列表里，点刷新看）')
+        QTimer.singleShot(2500, self._refresh_mcp)
+
+    def _mcp_tools(self):
+        m, name = self._mcp(), self._mcp_selected()
+        if not (m and name):
+            return
+        cur = next((s for s in m.servers() if s['name'] == name), None)
+        if not cur:
+            return
+        lines = ['%s（%s）状态：%s' % (cur['title'], cur['transport'], cur['state']), cur['target']]
+        if cur['error']:
+            lines.append('错误：%s' % cur['error'])
+        if not cur['tools']:
+            lines.append('（没拿到工具 —— 没连上或该 server 没暴露工具）')
+        for t in cur['tools']:
+            lines.append('· %s%s —— %s'
+                         % ('（只读）' if t['read_only'] else '（调用前会问）', t['name'],
+                            (t['description'] or '')[:40]))
+        QMessageBox.information(self, 'MCP 工具与权限', '\n'.join(lines)[:1800])
+
+    def _mcp_remove(self):
+        m, name = self._mcp(), self._mcp_selected()
+        if not (m and name):
+            return
+        if QMessageBox.question(self, '删除', '删除 MCP server %s？（只删配置，不动你电脑上的东西）' % name) != QMessageBox.Yes:
+            return
+        _ok, msg = m.remove_server(name)
+        QMessageBox.information(self, 'MCP', msg)
+        self._refresh_mcp()
+
+    def _show_audit(self):
+        """看最近审计（技能/MCP 安装、授权、调用、拒绝都记在内）"""
+        try:
+            import governance as gov
+        except Exception as e:
+            QMessageBox.information(self, '审计日志', '治理模块不可用：%s' % e)
+            return
+        items = gov.read_recent(limit=40)
+        st = gov.audit_stats()
+        if not items:
+            QMessageBox.information(self, '审计日志',
+                                    '今天还没有记录。\n日志文件：%s' % st['path'])
+            return
+        lines = ['今天 %d 条记录，其中被拒 %d 条\n文件：%s\n' % (st['total'], st['denied'], st['path'])]
+        for e in items:
+            mark = '✓' if e.get('allowed', True) else '✗'
+            lines.append('%s %s [%s] %s %s —— %s'
+                         % (mark, e.get('ts', '')[11:], e.get('kind'), e.get('actor'),
+                            e.get('action'), (e.get('detail') or '')[:70]))
+        QMessageBox.information(self, '审计日志（最近 40 条）', '\n'.join(lines)[:3000])
+
     # ---------- ⑥ 系统 ----------
     def _page_system(self):
         p = self._page('系统', '开机自启与运行信息。')
@@ -431,7 +845,34 @@ class SettingsDialog(QDialog):
         self.lb_ver.setStyleSheet('font-family:Consolas,monospace;font-size:12.5px;')
         f.addRow('程序目录', self.lb_ver)
         self._buttons(f, '窗口', [('🏠 最小化到托盘', self.host.hide_to_tray)])
+        # ---- 平台能力（只读诊断块，v6.74 批次5：直接渲染 platform_layer.report()）----
+        box = QWidget()
+        vb = QVBoxLayout(box)
+        vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(4)
+        self.lb_platform = QLabel('—')
+        self.lb_platform.setStyleSheet('font-family:Consolas,monospace;font-size:12.5px;')
+        self.lb_platform.setWordWrap(True)
+        self.lb_platform.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        vb.addWidget(self.lb_platform)
+        row = QWidget()
+        hb = QHBoxLayout(row)
+        hb.setContentsMargins(0, 0, 0, 0)
+        hb.setSpacing(8)
+        bt = QPushButton('🔄 重新检测')
+        bt.clicked.connect(lambda *_: self._refresh_platform())
+        hb.addWidget(bt)
+        hb.addStretch(1)
+        vb.addWidget(row)
+        f.addRow('平台能力', box)
         return p
+
+    def _refresh_platform(self):
+        """只读平台能力报告（platform_layer 的 13 项能力：经谁实现 / 是否可用）"""
+        try:
+            self.lb_platform.setText(pl.report())
+        except Exception as e:
+            self.lb_platform.setText('能力检测失败：%s' % e)
 
     # ---------- 主题 ----------
     def _apply_theme(self):
@@ -479,6 +920,8 @@ class SettingsDialog(QDialog):
     # ---------- 刷新 ----------
     def _refresh(self):
         """从宿主重读状态回填控件（屏蔽信号，避免把回填当成用户操作）"""
+        if hasattr(self, "lb_platform"):
+            self._refresh_platform()
         h = self.host
         self._building = True
         try:
@@ -546,6 +989,17 @@ class SettingsDialog(QDialog):
             self.ck_pass_rsn.setChecked(bool(getattr(h, 'pass_reasoning_history', True)))
             self.ck_strict.setChecked(bool(getattr(h, 'strict_tools', False)))
             self.ck_vfiles.setChecked(bool(getattr(h, 'vision_files_api', False)))
+            # v6.63/6.64：语音朗读
+            self.ck_voice.setChecked(bool(getattr(h, 'voice_enabled', False)))
+            from voice_io import DEFAULT_VOICE, parse_voice_spec
+            _spec = str(getattr(h, 'voice_name', '') or '') or DEFAULT_VOICE
+            _eng, _vn = parse_voice_spec(_spec)
+            _i = self.cb_voice_name.findData('%s:%s' % (_eng, _vn))
+            self.cb_voice_name.setCurrentIndex(_i if _i >= 0 else 0)
+            self.ck_voice_night.setChecked(bool(getattr(h, 'voice_night_quiet', True)))
+            self.ed_voice_local.setText(str(getattr(h, 'voice_local_url', '') or ''))
+            self.ed_voice_ref.setText(str(getattr(h, 'voice_local_ref', '') or ''))
+            self.ed_voice_prompt.setText(str(getattr(h, 'voice_local_prompt', '') or ''))
             # v6.51：同「回复长度」——温度非预设值时也要能看见当前值
             for _i in range(self.cb_temp.count() - 1, -1, -1):
                 if self.cb_temp.itemText(_i).endswith('（当前）'):
@@ -562,6 +1016,9 @@ class SettingsDialog(QDialog):
             except Exception:
                 self.ck_boot.setChecked(False)
             self.lb_ver.setText(BASE_DIR)
+            # 技能（v6.67）/ MCP（v6.68）
+            self._refresh_skills()
+            self._refresh_mcp()
         finally:
             self._building = False
 

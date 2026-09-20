@@ -93,6 +93,7 @@ def test_dock_probe_toggle_controls_popup():
     p = _pet()
     p.ai_enabled = False                 # 走随机台词兜底，避免联网
     p.active_chat_enabled = True
+    p._is_night = lambda *a, **k: False   # 锁掉深夜静默，免得晚上跑用例时莫名失败
     p.sleeping = False
     p._edge_side, p._edge_mode, p._edge_popped = 'left', 'peek', False
     p._active_chat_next = 0              # 已到点

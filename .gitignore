@@ -36,7 +36,8 @@ reminders.json
 聊天记录/
 _screenshot_ocr.png
 _dropped_img.png
-_pasted_ocr.png
+_pasted_ocr*.png
+_pet_tts_*
 输出/
 
 # API 自监控运行时数据
@@ -64,3 +65,12 @@ chat_memory*.json
 功能体检报告_*.md
 排障与修复记录_*.md
 后续展望-*.md
+
+# 技能包运行时状态（登记表与卸载停放区，不进仓库）
+plugins/_registry.json
+plugins/_uninstalled/
+plugins/_tmp/
+
+# 治理：审计日志（本地运行数据，不进仓库）
+logs/
+

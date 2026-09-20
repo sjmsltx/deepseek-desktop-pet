@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 QMessageBox.information = staticmethod(lambda *a, **k: None)
 app = QApplication([])
 
-BASE = r'E:\ai工作站\desktop-pet'
+BASE = os.path.dirname(os.path.abspath(__file__))   # v6.74 发布前隐私清理：不再写本机绝对路径
 
 print('===== A. 模块与构造 =====')
 
@@ -842,17 +842,28 @@ def t_h20():
 test('H20 每档案独立 key 字段（多服务商/中转）', t_h20)
 
 def t_h21():
-    """统一设置窗口：六个分类 + 控件回填 + 改动回写 + 按钮齐备"""
+    """统一设置窗口：**十个分类**（v6.67/6.68 拆页后）+ 控件回填 + 改动回写 + 按钮齐备
+
+    历史：2026-09-03 时为六分类（通用/对话/外观/模型与 API/记忆与数据/系统）；
+    2026-09-20 v6.65 拆为 8 页（模型与 API 拆出模型/语音/用量与计费），
+    v6.67 加「技能」页、v6.68 加「MCP」页 → **共 10 页**。本用例随之更新口径。
+    """
     import desktop_pet
+    import settings_ui as su
     from settings_ui import SettingsDialog
     from PySide6.QtWidgets import QPushButton
     dlg = SettingsDialog(W, desktop_pet.MODEL_REGISTRY)
-    assert dlg.nav.count() == dlg.stack.count() == 6
-    names = [dlg.nav.item(i).text() for i in range(6)]
-    assert names == ['通用', '对话', '外观', '模型与 API', '记忆与数据', '系统'], names
-    for i in range(6):
+    assert len(su.PAGES) == 10, su.PAGES
+    assert dlg.nav.count() == dlg.stack.count() == 10
+    names = [dlg.nav.item(i).text() for i in range(10)]
+    assert names == ['通用', '对话', '外观', '模型', '语音', '用量与计费',
+                     '记忆与数据', '技能', 'MCP', '系统'], names
+    for i in range(10):
         dlg.nav.setCurrentRow(i)
         assert dlg.stack.currentIndex() == i
+    # 每页都不该再挤成一条长表（拆分前模型页 26 行）
+    rows = {names[i]: dlg.stack.widget(i).form.rowCount() for i in range(10)}
+    assert max(rows.values()) <= 14, rows
     # 控件回填应等于宿主状态
     assert dlg.cb_lang.currentData() == getattr(W, 'language', 'zh')
     assert dlg.cb_char.currentData() == getattr(W, 'current', '')
@@ -875,7 +886,7 @@ def t_h21():
         assert need in btns, '缺按钮 %s：%s' % (need, btns)
 
 
-test('H21 统一设置窗口（六分类 / 回填 / 回写 / 按钮齐备）', t_h21)
+test('H21 统一设置窗口（十分类 / 回填 / 回写 / 按钮齐备）', t_h21)
 
 print('===== G. 输出汇总 =====')
 total = len(RESULTS)

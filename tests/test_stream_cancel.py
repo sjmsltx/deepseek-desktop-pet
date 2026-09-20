@@ -29,11 +29,20 @@ def _sse(lines):
     return _Resp()
 
 
-def _patch_urlopen(monkey_lines):
-    """把 deepseek_client 里用到的 urllib.request.urlopen 换成假的"""
+def _patch_urlopen(monkey_lines, monkeypatch=None):
+    """把 deepseek_client 里用到的 urllib.request.urlopen 换成假的
+
+    v6.64：优先用 pytest 的 monkeypatch（用例结束自动恢复）。
+    之前是直接赋值 `dc.urllib.request.urlopen = _fake` 且**从未恢复** ——
+    会污染后续所有用例（本人排查本地 TTS 用例时被这个坑扰很久：
+    后续用例的 urlopen 拿到的是这里伪造的 SSE 流，导致本地服务调用莫名失败）。
+    """
     def _fake(req, timeout=300):
         return _sse(monkey_lines)
-    dc.urllib.request.urlopen = _fake
+    if monkeypatch is not None:
+        monkeypatch.setattr(dc.urllib.request, 'urlopen', _fake)
+    else:
+        dc.urllib.request.urlopen = _fake
 
 
 def _chunks(n):
@@ -44,9 +53,9 @@ def _chunks(n):
     return out
 
 
-def test_cancel_stops_early():
+def test_cancel_stops_early(monkeypatch):
     """取消回调返回 True 后，应立即停止产出（远少于总块数）"""
-    _patch_urlopen(_chunks(200))
+    _patch_urlopen(_chunks(200), monkeypatch)
     state = {'calls': 0}
 
     def should_cancel():
@@ -63,9 +72,9 @@ def test_cancel_stops_early():
     assert state['calls'] <= 6, '取消检查频率异常：%d 次' % state['calls']
 
 
-def test_without_cancel_completes():
+def test_without_cancel_completes(monkeypatch):
     """不传 should_cancel 时行为不变：正常收满并产出 done"""
-    _patch_urlopen(_chunks(5))
+    _patch_urlopen(_chunks(5), monkeypatch)
     got = []
     for evt, val in dc.stream_chat_completions('fake-key', b'{}'):
         got.append((evt, val))

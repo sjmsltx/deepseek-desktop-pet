@@ -12,6 +12,7 @@ tools_executor.py — 工具执行器·纯逻辑层（方案 A 收官）
 复杂工具（open_app/read_file/write_file/edit_own_code/插件/主题等）深度依赖
 PetWidget 状态（别名库/文件系统/插件管理器/主题），保留在主文件 _execute_tool。
 """
+import platform_layer as pl  # v6.73 批次3：平台能力统一门面
 import ast
 import datetime
 import operator
@@ -94,7 +95,7 @@ def lock_screen_now():
     """锁定 Windows 屏幕"""
     try:
         import ctypes
-        ctypes.windll.user32.LockWorkStation()
+        pl.lock_screen()
         return '已锁定屏幕'
     except Exception:
         return '锁屏失败'

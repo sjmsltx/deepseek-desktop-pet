@@ -39,6 +39,7 @@ def test_night_silence():
 
 def test_cooldown_blocks_then_allows():
     p = _pet()
+    p._is_night = lambda *a, **k: False        # 锁掉深夜静默，让用例与运行时刻无关
     p._care_last_at = time.time() - 60
     ok, why = p._care_allowed()
     assert not ok and '冷却' in why, '冷却期内应被拦下'
@@ -49,6 +50,7 @@ def test_cooldown_blocks_then_allows():
 
 def test_daily_cap_and_reset():
     p = _pet()
+    p._is_night = lambda *a, **k: False        # 同上：不因跑在深夜而提前被静默拦掉
     p._care_last_at = 0
     day = datetime.datetime.now().strftime('%Y-%m-%d')
     p._care_today = {'date': day, 'n': p.CARE_DAILY_MAX}

@@ -190,7 +190,8 @@ def test_vision_falls_back_to_ocr(monkeypatch):
 
     import desktop_pet as dp
     monkeypatch.setattr(dp, 'stream_chat_completions', fake_stream)
-    monkeypatch.setattr(dp, 'ocr_image', lambda path, ps1: 'OCR识别出来的文字')
+    import platform_layer as pl   # v6.73 批次3：OCR 调用已收口到平台抽象层
+    monkeypatch.setattr(pl, 'ocr_image', lambda path, ps1_path=None: 'OCR识别出来的文字')
     p.vision_enabled = True
     p._ai_worker('看图', ['C:/definitely/not/here.png'])
     content = calls['payload']['messages'][-1]['content']
