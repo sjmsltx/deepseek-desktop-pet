@@ -36,14 +36,22 @@
   button.danger{border-color:var(--warn);color:var(--warn)}
   button[disabled]{opacity:.45;cursor:not-allowed}
 
-  /* ★ 布局：默认“阅读模式”—— L1 群聊流占满宽，L2/L3 堆到下方；
-        “看板模式”—— 三层并排，用于盯投递轨道 */
-  .cols{display:grid;gap:12px;align-items:start}
+  /* ★ 布局：默认“阅读模式”—— L1 占满宽；行宽**跟窗格走**（可切档）
+        “看板模式”—— 三层并排 + **可拖动竖向分隔条**（像 ArcGIS Pro） */
+  .cols{display:grid;gap:0;align-items:start}
   .cols.reading{grid-template-columns:minmax(0,1fr)}
-  .cols.board{grid-template-columns:minmax(320px,1.05fr) minmax(320px,1fr)}
+  .cols.board{grid-template-columns:var(--colA,54%) 8px calc(100% - var(--colA,54%) - 8px)}
   .cols.reading .stream{max-height:none}
   .cols.reading .lane-scroll{max-height:38vh}
   .cols.board .stream{max-height:60vh}
+  /* 可拖动分隔条 */
+  .split-v{cursor:col-resize;background:var(--rule2);border-left:1px solid var(--rule);border-right:1px solid var(--rule)}
+  .split-v:hover,.split-v.drag{background:var(--acc)}
+  .split-h{height:8px;cursor:row-resize;background:var(--rule2);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:12px 0}
+  .split-h:hover,.split-h.drag{background:var(--acc)}
+  .cols.reading .split-v{display:none}
+  .cols.board .split-h{display:none}
+  .m-b{max-width:var(--readw, none)}   /* 行宽：默认满宽（跟窗格），可切档 */
 
   .panel{border:1px solid var(--rule);background:#fff}
   .panel-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:8px 11px;border-bottom:1px solid var(--rule2);background:var(--card);display:flex;justify-content:space-between;align-items:center}
@@ -53,7 +61,7 @@
   .m-h{font-size:12px;color:var(--ink3);display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
   .m-h b{color:var(--ink);font-size:13.5px}
   .m-b{background:var(--card);border:1px solid var(--rule2);border-radius:3px;padding:9px 12px;margin-top:4px;
-       white-space:pre-wrap;word-break:break-word;max-width:88ch}
+       white-space:pre-wrap;word-break:break-word}
   .row.me .m-b{background:var(--acc-soft);border-color:#bfe0e0}
   .row.sys .m-b{background:#f4f4f2}
   /* 长回复折叠：默认只露 16 行，点“展开全文” */
@@ -105,6 +113,7 @@
   <button class="primary" id="btn-step">▶ 推进一回合</button>
   <button class="danger" id="btn-interrupt">⏸ 打断（人类接管）</button>
   <button id="btn-resume">⏵ 继续（显式）</button>
+  <button id="btn-width">↔ 行宽：满宽</button>
   <button id="btn-refresh">⟳ 刷新</button>
   <button id="btn-export-l1">⤓ 导出 L1 视图</button>
   <button id="btn-export-l2">⤓ 导出 L2 视图</button>
@@ -117,10 +126,12 @@
 
 <div class="cols reading" id="cols">
   <div class="panel">
-    <div class="panel-h"><span>L1 · 群聊流（human）—— 默认占满宽，长回复不憋</span><span id="c1">0</span></div>
+    <div class="panel-h"><span>L1 · 群聊流（human）—— 阅读模式占满宽；行宽可切档</span><span id="c1">0</span></div>
     <div class="stream" id="stream-l1"></div>
   </div>
-  <div>
+  <div class="split-v" id="split-v" title="拖动调整左右宽度（双击重置）"></div>
+  <div id="side">
+    <div class="split-h" id="split-h" title="拖动调整下方面板高度（双击重置）"></div>
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-h"><span>L2 · 投递轨道（meta）</span><span id="c2">0</span></div>
       <div class="lane-scroll">
@@ -353,6 +364,44 @@
   };
   $('btn-raw').onclick = function () { window.open('/api/log.jsonl', '_blank'); };
   $('btn-refresh').onclick = refresh;
+
+  // ---- 行宽档位（回应：阅读模式不能“名宽而实窄”）----
+  var WIDTHS = [['none', '满宽'], ['88ch', '舒适 88ch'], ['64ch', '窄 64ch']];
+  var wi = 0;
+  $('btn-width').onclick = function () {
+    wi = (wi + 1) % WIDTHS.length;
+    var w = WIDTHS[wi];
+    document.documentElement.style.setProperty('--readw', w[0]);
+    this.textContent = '↔ 行宽：' + w[1];
+  };
+
+  // ---- 可拖动分隔条（竖向=左右宽度；横向=下方面板高度）----
+  function drag(el, onMove) {
+    var dragging = false;
+    el.addEventListener('pointerdown', function (e) {
+      dragging = true; el.classList.add('drag');
+      el.setPointerCapture && el.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', function (e) { if (dragging) { onMove(e); } });
+    el.addEventListener('pointerup', function () { dragging = false; el.classList.remove('drag'); });
+    el.addEventListener('pointercancel', function () { dragging = false; el.classList.remove('drag'); });
+  }
+  drag($('split-v'), function (e) {
+    var r = $('cols').getBoundingClientRect();
+    var pct = Math.min(82, Math.max(22, (e.clientX - r.left) / r.width * 100));
+    $('cols').style.setProperty('--colA', pct.toFixed(1) + '%');
+  });
+  $('split-v').ondblclick = function () { $('cols').style.setProperty('--colA', '54%'); };
+  drag($('split-h'), function (e) {
+    var top = $('side').getBoundingClientRect().top;
+    var h = Math.min(70, Math.max(18, e.clientY - top));
+    $('side').style.setProperty('--sideH', 'calc(' + h + 'vh)');
+    document.querySelectorAll('#side .lane-scroll').forEach(function (el) { el.style.maxHeight = 'calc(' + h + 'vh)'; });
+  });
+  $('split-h').ondblclick = function () {
+    document.querySelectorAll('#side .lane-scroll').forEach(function (el) { el.style.maxHeight = ''; });
+  };
 
   $('btn-mode').onclick = function () {
     var c = $('cols');
