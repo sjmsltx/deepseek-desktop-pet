@@ -34,6 +34,150 @@ LOG_CANDIDATES = [
     os.path.join(os.environ.get('TEMP', ''), 'dsh_web.log'),
 ]
 
+# ---- 端口 / 安装位置的来源顺序（解决“别人的 DSH 自定义了端口怎么整”）-------
+#   1) 用户配置  桌宠目录下 dsh_config.json： {"root": "...", "port": 3081}
+#   2) 环境变量  DSH_ROOT / DSH_PORT
+#   3) 运行中进程 扫描 node 进程命令行里的 bin.js 路径与 --port（真实发现，不靠猜）
+#   4) 日志       从启动日志里出现的 127.0.0.1:<port> 反推
+#   5) 默认值    D:\dsh + 3080
+USER_CONFIG_NAME = 'dsh_config.json'
+USER_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), USER_CONFIG_NAME)
+_DISCOVERY_CACHE = {'ts': 0.0, 'data': None}
+_DISCOVERY_TTL = 30.0
+
+
+def load_user_config() -> dict:
+    """读桌宠目录下的 dsh_config.json（用户显式配置，优先级最高）。损坏就当没有。"""
+    try:
+        if os.path.exists(USER_CONFIG_PATH):
+            import json
+            with open(USER_CONFIG_PATH, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        _log('load_user_config 失败：%r' % exc)
+    return {}
+
+
+def _running_dsh_processes(timeout: int = 15) -> list:
+    """扫描正在运行的 DSH web 进程（只读进程信息，不碰它的任何文件）。
+
+    返回 [{'pid': int, 'cmdline': str, 'root': str|None, 'port': int|None}]
+    """
+    found = []
+    if sys.platform != 'win32':
+        return found
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | "
+          "Where-Object { $_.CommandLine -and $_.CommandLine -like '*bin.js*' -and "
+          "$_.CommandLine -like '*web*' } | "
+          "ForEach-Object { $_.ProcessId.ToString() + '|' + $_.CommandLine }")
+    try:
+        out = subprocess.run(['powershell', '-NoProfile', '-Command', ps],
+                             capture_output=True, text=True, timeout=timeout)
+    except Exception as exc:
+        _log('_running_dsh_processes 失败：%r' % exc)
+        return found
+    for line in (out.stdout or '').splitlines():
+        line = line.strip()
+        if '|' not in line:
+            continue
+        pid_s, _, cmd = line.partition('|')
+        try:
+            pid = int(pid_s.strip())
+        except Exception:
+            pid = 0
+        port = None
+        m = re.search(r'--port\s+(\d+)', cmd)
+        if m:
+            port = int(m.group(1))
+        root = None
+        m2 = re.search(r'([A-Za-z]:\\[^"\s]*?)\\node_modules\\@deepseek-ai\\dsh\\', cmd)
+        if m2:
+            root = m2.group(1)
+        found.append({'pid': pid, 'cmdline': cmd, 'root': root, 'port': port})
+    return found
+
+
+def _port_from_logs():
+    """从启动日志里反推端口（形如 http://127.0.0.1:3081/?token=...）"""
+    for path in LOG_CANDIDATES:
+        try:
+            if not path or not os.path.exists(path):
+                continue
+            with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
+                for line in fh:
+                    m = re.search(r'http://127\.0\.0\.1:(\d+)/', line)
+                    if m:
+                        return int(m.group(1))
+        except Exception:
+            continue
+    return None
+
+
+def discover(force: bool = False) -> dict:
+    """一次算出 root / port 与各自来源（带 30 秒缓存，避免反复拉进程列表）。"""
+    import time
+    now = time.time()
+    if not force and _DISCOVERY_CACHE['data'] and (now - _DISCOVERY_CACHE['ts']) < _DISCOVERY_TTL:
+        return _DISCOVERY_CACHE['data']
+
+    cfg = load_user_config()
+    procs = _running_dsh_processes()
+    proc_root = next((p['root'] for p in procs if p['root']), None)
+    proc_port = next((p['port'] for p in procs if p['port']), None)
+
+    if cfg.get('root'):
+        root, root_src = str(cfg['root']), '用户配置 dsh_config.json'
+    elif os.environ.get('DSH_ROOT'):
+        root, root_src = os.environ['DSH_ROOT'], '环境变量 DSH_ROOT'
+    elif proc_root:
+        root, root_src = proc_root, '运行中进程'
+    else:
+        root, root_src = DSH_ROOT, '默认值 D:\\dsh'
+
+    if cfg.get('port'):
+        port, port_src = int(cfg['port']), '用户配置 dsh_config.json'
+    elif os.environ.get('DSH_PORT'):
+        port, port_src = int(os.environ['DSH_PORT']), '环境变量 DSH_PORT'
+    elif proc_port:
+        port, port_src = int(proc_port), '运行中进程的 --port'
+    elif _port_from_logs():
+        port, port_src = int(_port_from_logs()), '启动日志'
+    else:
+        port, port_src = DEFAULT_PORT, '默认值 3080'
+
+    data = {
+        'root': root, 'root_source': root_src,
+        'port': port, 'port_source': port_src,
+        'running': len(procs),
+        'processes': procs,
+    }
+    _DISCOVERY_CACHE.update({'ts': now, 'data': data})
+    return data
+
+
+def resolve_root() -> str:
+    return discover()['root']
+
+
+def resolve_port() -> int:
+    return discover()['port']
+
+
+def _candidate_logs() -> list:
+    """日志候选：先看发现到的安装位置，再看静态候选（去重）。"""
+    paths = []
+    try:
+        p = os.path.join(resolve_root(), 'dsh-web.log')
+        if p not in paths:
+            paths.append(p)
+    except Exception:
+        pass
+    for p in LOG_CANDIDATES:
+        if p and p not in paths:
+            paths.append(p)
+    return paths
+
 
 def _log(msg: str) -> None:
     """轻量日志：写项目 logs/ 下（失败就算了，绝不影响主流程）。"""
@@ -48,8 +192,9 @@ def _log(msg: str) -> None:
         pass
 
 
-def is_serving(port: int = DEFAULT_PORT, timeout: float = 2.0) -> bool:
-    """端口是否在监听（不发起 HTTP，最便宜的存活判断）。"""
+def is_serving(port: int = None, timeout: float = 2.0) -> bool:
+    """端口是否在监听（不发起 HTTP，最便宜的存活判断）。port=None 时用自动发现的端口。"""
+    port = port or resolve_port()
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=timeout):
             return True
@@ -57,13 +202,14 @@ def is_serving(port: int = DEFAULT_PORT, timeout: float = 2.0) -> bool:
         return False
 
 
-def read_token_url(port: int = DEFAULT_PORT):
+def read_token_url(port: int = None):
     """从启动日志里取带令牌的访问地址；取不到返回 None。
 
     日志形如：  dsh web: http://127.0.0.1:3080/?token=xxxxxxxx
     """
+    port = port or resolve_port()
     pattern = re.compile(r'http://127\.0\.0\.1:%d/\S*' % port)
-    for path in LOG_CANDIDATES:
+    for path in _candidate_logs():
         try:
             if not path or not os.path.exists(path):
                 continue
@@ -129,14 +275,15 @@ def _http_status_urllib(url: str, timeout: int = HTTP_TIMEOUT):
 
 
 def read_version(timeout: int = 20):
-    """取 DSH 版本号（跑 dsh --version）；取不到返回 None。"""
-    cands = [os.path.join(DSH_ROOT, 'dsh.cmd'), os.path.join(DSH_ROOT, 'dsh.ps1')]
+    """取 DSH 版本号（跑 dsh --version）；取不到返回 None。用自动发现到的安装位置。"""
+    root = resolve_root()
+    cands = [os.path.join(root, 'dsh.cmd'), os.path.join(root, 'dsh.ps1')]
     for exe in cands:
         if not os.path.exists(exe):
             continue
         try:
             out = subprocess.run([exe, '--version'], capture_output=True, text=True,
-                                 timeout=timeout, cwd=DSH_ROOT, shell=False)
+                                 timeout=timeout, cwd=root, shell=False)
             text = (out.stdout or '') + (out.stderr or '')
             m = re.search(r'(\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?)', text)
             if m:
@@ -152,7 +299,8 @@ def read_settings():
     成功返回 dict；文件不存在 / 解析不了 / 没有 YAML 库 → 返回 {}
     （调用方据此降级：不显示模型信息，改为"打开它的设置页"）。
     """
-    path = os.path.join(DSH_HOME, 'settings.yaml')
+    home = load_user_config().get('home') or DSH_HOME
+    path = os.path.join(home, 'settings.yaml')
     if not os.path.exists(path):
         return {}
     try:
@@ -178,8 +326,10 @@ def read_settings():
     return out
 
 
-def probe(port: int = DEFAULT_PORT) -> dict:
-    """一次拿到全部状态，供桌宠决定"显示什么 / 隐藏什么"。"""
+def probe(port: int = None) -> dict:
+    """一次拿到全部状态，供桌宠决定"显示什么 / 隐藏什么"。port=None 时自动发现。"""
+    disc = discover()
+    port = port or disc['port']
     info = {
         'serving': False,
         'url': None,
@@ -189,12 +339,14 @@ def probe(port: int = DEFAULT_PORT) -> dict:
         'settings_ok': False,
         'settings_keys': [],
         'port': port,
-        'root': DSH_ROOT,
+        'port_source': disc['port_source'],
+        'root': disc['root'],
+        'root_source': disc['root_source'],
         'reason': '',
     }
     info['serving'] = is_serving(port)
     if not info['serving']:
-        info['reason'] = '服务未运行（端口 %d 没有监听）' % port
+        info['reason'] = '服务未运行（端口 %d 没有监听；端口来源：%s）' % (port, disc['port_source'])
         info['version'] = read_version()
         return info
 

@@ -10,10 +10,20 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import dsh_adapter as ad  # noqa: E402
 import dsh_panel as panel  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_discovery(monkeypatch, tmp_path):
+    """所有测试都不去发现真实环境（否则会读到本机正在跑的 DSH，导致断言不确定）。"""
+    monkeypatch.setattr(ad, "resolve_root", lambda: str(tmp_path / "no-real-root"))
+    monkeypatch.setattr(ad, "resolve_port", lambda: ad.DEFAULT_PORT)
+    monkeypatch.setattr(ad, "_DISCOVERY_CACHE", {"ts": 0.0, "data": None})
 
 
 # ---------- 令牌地址解析 ----------
@@ -136,3 +146,60 @@ def test_panel_opens_with_edge_app_mode(monkeypatch, tmp_path):
     assert ok is True and "Edge" in msg
     assert calls and calls[0][0] == str(fake_edge)
     assert any(str(a).startswith("--app=") for a in calls[0])
+
+
+# ---------- 端口/位置自动发现（“别人的 DSH 自定义了端口”怎么整）----------
+
+def test_discovery_user_config_wins(monkeypatch, tmp_path):
+    cfg = tmp_path / "dsh_config.json"
+    cfg.write_text('{"root": "D:\\\\custom\\\\dsh", "port": 4444}', encoding="utf-8")
+    monkeypatch.setattr(ad, "USER_CONFIG_PATH", str(cfg))
+    monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [])
+    d = ad.discover(force=True)
+    assert d["port"] == 4444 and d["root"] == "D:\\custom\\dsh"
+    assert "用户配置" in d["port_source"] and "用户配置" in d["root_source"]
+
+
+def test_discovery_reads_running_process_port(monkeypatch):
+    """没配置、没环境变量时，从运行中进程的 --port 真发现出来。"""
+    monkeypatch.setattr(ad, "USER_CONFIG_PATH", "no-such-config.json")
+    monkeypatch.delenv("DSH_PORT", raising=False)
+    monkeypatch.delenv("DSH_ROOT", raising=False)
+    monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [
+        {"pid": 111, "cmdline": "node bin.js web --port 3900", "root": "E:\\somewhere\\dsh", "port": 3900}
+    ])
+    d = ad.discover(force=True)
+    assert d["port"] == 3900 and d["root"] == "E:\\somewhere\\dsh"
+    assert "运行中进程" in d["port_source"]
+
+
+def test_discovery_env_overrides_process(monkeypatch):
+    monkeypatch.setattr(ad, "USER_CONFIG_PATH", "no-such-config.json")
+    monkeypatch.setenv("DSH_PORT", "4100")
+    monkeypatch.setenv("DSH_ROOT", "F:\\env\\dsh")
+    monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [
+        {"pid": 1, "cmdline": "x", "root": "E:\\other", "port": 3900}
+    ])
+    d = ad.discover(force=True)
+    assert d["port"] == 4100 and d["root"] == "F:\\env\\dsh"
+    assert "环境变量" in d["port_source"]
+
+
+def test_discovery_falls_back_to_default(monkeypatch):
+    monkeypatch.setattr(ad, "USER_CONFIG_PATH", "no-such-config.json")
+    monkeypatch.delenv("DSH_PORT", raising=False)
+    monkeypatch.delenv("DSH_ROOT", raising=False)
+    monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [])
+    monkeypatch.setattr(ad, "_port_from_logs", lambda: None)
+    d = ad.discover(force=True)
+    assert d["port"] == 3080 and "默认值" in d["port_source"]
+
+
+def test_discovery_uses_log_port_when_process_unknown(monkeypatch):
+    """进程命令行看不到端口（例如 npx 启动），退一步从启动日志里的 URL 反推。"""
+    monkeypatch.setattr(ad, "USER_CONFIG_PATH", "no-such-config.json")
+    monkeypatch.delenv("DSH_PORT", raising=False)
+    monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [])
+    monkeypatch.setattr(ad, "_port_from_logs", lambda: 3210)
+    d = ad.discover(force=True)
+    assert d["port"] == 3210 and "日志" in d["port_source"]
