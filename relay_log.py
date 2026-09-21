@@ -210,11 +210,11 @@ class RelayLog:
                     if 'cost_micro' in meta and meta.get('billable', True):
                         self.cost_micro += int(meta.get('cost_micro') or 0)
                     elif msg.kind != 'system' and meta.get('billable', True):
-                        self.warnings.append('条目 %s 缺 cost_micro,按 0 计并留痕' % msg.id)
+                        self.warnings.append('条目 %s 缺 cost_micro，按 0 计并留痕' % msg.id)
                     tno = int(meta.get('turn_no') or 0)
                     if tno > self.turn_no:
                         self.turn_no = tno
-                    # ★ 状态必须能从日志重建（“可回放”验收要求）
+                    # ★ 状态必须能从日志重建("可回放"验收要求)
                     if msg.kind == 'system' and meta.get('arbitrate'):
                         self.concluded = True
                         self.stopped = True
@@ -307,7 +307,7 @@ class RelayLog:
         if 'cost_micro' in meta and meta.get('billable', True):
             self.cost_micro += int(meta.get('cost_micro') or 0)
         elif out.kind != 'system' and meta.get('billable', True):
-            self.warnings.append('条目 %s 缺 cost_micro,按 0 计并留痕' % out.id)
+            self.warnings.append('条目 %s 缺 cost_micro，按 0 计并留痕' % out.id)
         tno = int(meta.get('turn_no') or 0)
         if tno > self.turn_no:
             self.turn_no = tno
@@ -350,12 +350,19 @@ class RelayLog:
         self._maybe_reload()
         return int(self.tokens)
 
+    # 告警分级（供界面用）：**严重告警**才应该打扰人；“缺 cost_micro”属于告知级 ✓
+    _INFO_MARK = '缺 cost_micro'
+
+    def alerts(self):
+        """只返回**严重**告警（拒绝/失败/截断/重复等）；告知级不进这里。"""
+        return [w for w in self.warnings if RelayLog._INFO_MARK not in w]
+
     def snapshot(self) -> dict:
         return {
             'turn_no': self.turn_no, 'cost_micro': self.cost_micro, 'tokens': self.tokens,
             'interrupted': self.interrupted, 'concluded': self.concluded,
             'stopped': self.stopped, 'stop_reason': self.stop_reason,
-            'warnings': list(self.warnings), 'seq': self._seq,
+            'warnings': list(self.warnings), 'alerts': self.alerts(), 'seq': self._seq,
             'issue': asdict(self.issue) if self.issue else None,
         }
 
@@ -375,7 +382,7 @@ class RelayLog:
         return msg
 
     def resume(self, text: str) -> bool:
-        """仅显式“继续”才恢复；其余话语不得视为继续（N2）。（恢复也写日志 → 状态可回放）"""
+        """仅显式"继续"才恢复;其余话语不得视为继续(N2)。(恢复也写日志 → 状态可回放)"""
         if (text or '').strip().lower() not in {w.lower() for w in RESUME_WORDS}:
             return False
         if not self.interrupted:
@@ -383,7 +390,7 @@ class RelayLog:
         self.append({
             'id': self._next_id('resume'), 'channel': self._use_current_issue_channel,
             'sender': 'human:owner', 'recipients': [], 'kind': 'system', 'visibility': 'human',
-            'body': '［已恢复］人类显式“继续”，轮转恢复（回合计数不重置）。',
+            'body': '[已恢复]人类显式"继续",轮转恢复(回合计数不重置)。',
             'meta': {'resumed': True, 'billable': False},
         })
         self.interrupted = False

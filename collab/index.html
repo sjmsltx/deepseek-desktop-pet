@@ -14,8 +14,8 @@
     --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.7}
-  .wrap{max-width:1400px;margin:0 auto;padding:20px 22px 48px}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.72}
+  .wrap{max-width:1460px;margin:0 auto;padding:20px 22px 48px}
   header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:flex-end}
   h1{font-family:var(--serif);font-size:24px;margin:0;font-weight:600}
   .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin-bottom:6px}
@@ -28,25 +28,46 @@
   .status.running{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
   .status.interrupted{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
   .status.stopped{background:var(--card);color:var(--ink2)}
-  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
   button{font-family:var(--sans);font-size:13px;padding:7px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
   button:hover{background:var(--card)}
   button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
   button.primary:hover{background:#094c51}
-  button[disabled]{opacity:.45;cursor:not-allowed}
   button.danger{border-color:var(--warn);color:var(--warn)}
-  .cols{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(320px,1fr);gap:12px;align-items:start}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+
+  /* ★ 布局：默认“阅读模式”—— L1 群聊流占满宽，L2/L3 堆到下方；
+        “看板模式”—— 三层并排，用于盯投递轨道 */
+  .cols{display:grid;gap:12px;align-items:start}
+  .cols.reading{grid-template-columns:minmax(0,1fr)}
+  .cols.board{grid-template-columns:minmax(320px,1.05fr) minmax(320px,1fr)}
+  .cols.reading .stream{max-height:none}
+  .cols.reading .lane-scroll{max-height:38vh}
+  .cols.board .stream{max-height:60vh}
+
   .panel{border:1px solid var(--rule);background:#fff}
   .panel-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:8px 11px;border-bottom:1px solid var(--rule2);background:var(--card);display:flex;justify-content:space-between;align-items:center}
-  .stream{padding:10px;max-height:58vh;overflow-y:auto}
-  .row{display:grid;grid-template-columns:34px 1fr;gap:9px;margin-bottom:10px}
-  .av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;background:#8b949c;font-family:var(--serif)}
+  .stream{padding:12px 14px;overflow-y:auto}
+  .row{display:grid;grid-template-columns:36px minmax(0,1fr);gap:10px;margin-bottom:14px}
+  .av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;background:#8b949c;font-family:var(--serif)}
   .m-h{font-size:12px;color:var(--ink3);display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
-  .m-h b{color:var(--ink);font-size:13px}
-  .m-b{background:var(--card);border:1px solid var(--rule2);border-radius:3px;padding:7px 10px;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+  .m-h b{color:var(--ink);font-size:13.5px}
+  .m-b{background:var(--card);border:1px solid var(--rule2);border-radius:3px;padding:9px 12px;margin-top:4px;
+       white-space:pre-wrap;word-break:break-word;max-width:88ch}
   .row.me .m-b{background:var(--acc-soft);border-color:#bfe0e0}
   .row.sys .m-b{background:#f4f4f2}
-  .lane-scroll{max-height:58vh;overflow-y:auto}
+  /* 长回复折叠：默认只露 16 行，点“展开全文” */
+  .m-b.clip{max-height:17em;overflow:hidden;position:relative}
+  .m-b.clip::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2.4em;
+    background:linear-gradient(rgba(243,245,243,0),var(--card))}
+  .more{font-family:var(--mono);font-size:11.5px;color:var(--acc);cursor:pointer;user-select:none;
+        border:1px solid var(--rule);background:#fff;border-radius:3px;padding:2px 8px;margin-top:5px;display:inline-block}
+  .more:hover{background:var(--card)}
+  /* 代码：围栏块不换行、横向滚动（排版不丢 ✓）；行内代码等宽 */
+  .m-b pre{background:#fff;border:1px solid var(--rule);border-radius:3px;padding:8px 10px;overflow-x:auto;
+           white-space:pre;font-family:var(--mono);font-size:12.5px;margin:7px 0;max-width:100%}
+  .m-b code{font-family:var(--mono);font-size:.92em;background:#fff;border:1px solid var(--rule2);border-radius:3px;padding:0 4px}
+  .lane-scroll{max-height:44vh;overflow-y:auto}
   table{width:100%;border-collapse:collapse;font-size:12px}
   th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--rule2)}
   thead th{font-family:var(--mono);font-size:10.5px;color:var(--ink3);background:var(--card);position:sticky;top:0}
@@ -55,7 +76,7 @@
   .empty{color:var(--ink3);padding:14px 12px;font-size:13px}
   .err{border-left:3px solid var(--warn);background:var(--warn-soft);padding:8px 12px;margin:10px 0;font-size:13px}
   footer{margin-top:22px;border-top:1px solid var(--rule);padding-top:12px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
-  @media (max-width:900px){.cols{grid-template-columns:1fr}.stream,.lane-scroll{max-height:none}}
+  @media (max-width:900px){.cols.reading,.cols.board{grid-template-columns:1fr}.stream,.lane-scroll{max-height:none}}
 </style>
 </head>
 <body>
@@ -67,7 +88,7 @@
     <h1>投递可见化 · 三层同源</h1>
     <div class="meta" id="meta">数据源：—</div>
   </div>
-  <div class="meta" id="state-wrap">
+  <div class="meta">
     状态：<span class="status stopped" id="state" data-state="unknown" data-reason="">—</span>
   </div>
 </header>
@@ -80,10 +101,10 @@
 </div>
 
 <div class="actions">
+  <button class="primary" id="btn-mode">⇄ 切到看板模式</button>
   <button class="primary" id="btn-step">▶ 推进一回合</button>
   <button class="danger" id="btn-interrupt">⏸ 打断（人类接管）</button>
   <button id="btn-resume">⏵ 继续（显式）</button>
-  <span class="sep"></span>
   <button id="btn-refresh">⟳ 刷新</button>
   <button id="btn-export-l1">⤓ 导出 L1 视图</button>
   <button id="btn-export-l2">⤓ 导出 L2 视图</button>
@@ -94,9 +115,9 @@
 
 <div id="errs"></div>
 
-<div class="cols">
+<div class="cols reading" id="cols">
   <div class="panel">
-    <div class="panel-h"><span>L1 · 群聊流（human）</span><span id="c1">0</span></div>
+    <div class="panel-h"><span>L1 · 群聊流（human）—— 默认占满宽，长回复不憋</span><span id="c1">0</span></div>
     <div class="stream" id="stream-l1"></div>
   </div>
   <div>
@@ -115,8 +136,8 @@
 </div>
 
 <footer>
-  M2 只做<b>渲染</b>：所有条目一律来自后端 <code>/api/view|inbox|snapshot|log.jsonl</code>（内核投影原样，不二次过滤/重排）。
-  复核脚本请只依赖 <code>data-*</code> 属性：行级 <code>data-id / data-seq / data-layer / data-kind / data-sender</code>，
+  M2 只做<b>渲染</b>：条目一律来自后端 <code>/api/view|inbox|snapshot|log.jsonl</code>（内核投影原样，不二次过滤/重排）。
+  复核脚本请只依赖 <code>data-*</code>：行级 <code>data-id / data-seq / data-layer / data-kind / data-sender</code>，
   L2 行另有 <code>data-cost-micro / data-tokens</code>，状态节点 <code>data-state / data-reason</code>。
 </footer>
 </div>
@@ -124,7 +145,7 @@
 <script>
 (function () {
   'use strict';
-  var CHANNEL = 'group:main';           // 单议题演示：固定群频道
+  var CHANNEL = 'group:main';
   var $ = function (id) { return document.getElementById(id); };
 
   function esc(s) {
@@ -132,10 +153,42 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+  // 轻量正文渲染：``` 围栏 → <pre>（不换行、横向滚动，排版不丢）；`行内` → <code>
+  // 安全性：先整体 esc()，再只插入白名单标签
+  function renderBody(text) {
+    var s = String(text == null ? '' : text);
+    var parts = s.split('```');
+    var out = '';
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        var code = parts[i].replace(/^[a-zA-Z0-9_+-]*\n/, '');
+        out += '<pre>' + esc(code) + '</pre>';
+      } else {
+        out += esc(parts[i]).replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      }
+    }
+    return out;
+  }
+  function isLong(t) { return String(t || '').length > 300 || String(t || '').indexOf('```') >= 0; }
+
   function getJSON(url) {
     return fetch(url, { cache: 'no-store' }).then(function (r) {
-      if (!r.ok) { return r.text().then(function (t) { throw new Error(url + ' → HTTP ' + r.status + ' ' + t); }); }
-      return r.json();
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error(url + ' → HTTP ' + r.status + ' ' + t); }
+        return t ? JSON.parse(t) : {};
+      });
+    });
+  }
+  function post(path, payload) {
+    return fetch(path, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error(path + ' → HTTP ' + r.status + ' ' + t); }
+        return t ? JSON.parse(t) : {};
+      });
     });
   }
   function err(msg) {
@@ -165,19 +218,28 @@
     msgs.forEach(function (m) {
       var d = document.createElement('div');
       d.className = rowClass(m.sender);
-      // ★ 行级 data-*（复核脚本唯一允许依赖的选择器）
       d.setAttribute('data-id', m.id);
       d.setAttribute('data-seq', m.seq);
       d.setAttribute('data-layer', 'L1');
       d.setAttribute('data-kind', m.kind);
       d.setAttribute('data-sender', m.sender);
+      var long = isLong(m.body);
       d.innerHTML =
         '<div class="av">' + esc(avatarText(m.sender)) + '</div>' +
         '<div><div class="m-h"><b>' + esc(m.sender) + '</b>' +
-        '<span>' + esc(m.kind) + '</span>' +
-        '<span>seq ' + m.seq + '</span>' +
+        '<span>' + esc(m.kind) + '</span><span>seq ' + m.seq + '</span>' +
         (m.recipients && m.recipients.length ? '<span>→ ' + esc(m.recipients.join(',')) + '</span>' : '') +
-        '</div><div class="m-b">' + esc(m.body) + '</div></div>';
+        '</div><div class="m-b' + (long ? ' clip' : '') + '">' + renderBody(m.body) + '</div>' +
+        (long ? '<span class="more">▾ 展开全文（共 ' + String(m.body).length + ' 字）</span>' : '') +
+        '</div>';
+      var more = d.querySelector('.more');
+      if (more) {
+        more.onclick = function () {
+          var b = d.querySelector('.m-b');
+          var on = b.classList.toggle('clip');
+          more.textContent = on ? '▾ 展开全文（共 ' + String(m.body).length + ' 字）' : '▴ 收起';
+        };
+      }
       box.appendChild(d);
     });
     $('c1').textContent = msgs.length;
@@ -235,18 +297,22 @@
     $('g-cost').textContent = (snap.cost_micro / 1e6).toFixed(4);
     $('g-tokens').textContent = snap.tokens;
     $('meta').textContent = '数据源：' + (snap.issue ? snap.issue.title : '（未开议题）') + ' ｜ seq=' + snap.seq;
+    if (snap.alerts && snap.alerts.length) {
+      err('严重告警 ' + snap.alerts.length + ' 条（首条：' + snap.alerts[0] + '）');
+    }
     if (snap.warnings && snap.warnings.length) {
-      err('内核有 ' + snap.warnings.length + ' 条告警（首条：' + snap.warnings[0] + '）');
+      $('last').textContent += ' ｜ 告知 ' + snap.warnings.length + ' 条';
     }
   }
 
   function refresh() {
     $('errs').innerHTML = '';
+    var c = encodeURIComponent(CHANNEL);
     return Promise.all([
       getJSON('/api/snapshot'),
-      getJSON('/api/view?channel=' + encodeURIComponent(CHANNEL) + '&layer=L1'),
-      getJSON('/api/view?channel=' + encodeURIComponent(CHANNEL) + '&layer=L2'),
-      getJSON('/api/view?channel=' + encodeURIComponent(CHANNEL) + '&layer=L3')
+      getJSON('/api/view?channel=' + c + '&layer=L1'),
+      getJSON('/api/view?channel=' + c + '&layer=L2'),
+      getJSON('/api/view?channel=' + c + '&layer=L3')
     ]).then(function (r) {
       renderState(r[0]); renderL1(r[1]); renderL2(r[2]); renderL3(r[3]);
       $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
@@ -264,46 +330,41 @@
   }
   function stamp() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19); }
 
-  // ★ 导出"当前视图"= 界面上正在渲染的那份数据（不是重新拉一次后端）
+  function dumpRows(sel, extra) {
+    var rows = [].slice.call(document.querySelectorAll(sel));
+    return rows.map(function (r) {
+      var o = { id: r.getAttribute('data-id'), seq: +r.getAttribute('data-seq'),
+                layer: r.getAttribute('data-layer'), kind: r.getAttribute('data-kind'),
+                sender: r.getAttribute('data-sender') };
+      (extra || []).forEach(function (k) { o[k] = r.getAttribute('data-' + k.replace('_', '-')); });
+      return o;
+    });
+  }
   $('btn-export-l1').onclick = function () {
-    var rows = [].slice.call(document.querySelectorAll('#stream-l1 [data-seq]'));
-    download('view_export_L1_' + stamp() + '.json',
-      JSON.stringify(rows.map(function (r) {
-        return { id: r.getAttribute('data-id'), seq: +r.getAttribute('data-seq'),
-                 layer: r.getAttribute('data-layer'), kind: r.getAttribute('data-kind'),
-                 sender: r.getAttribute('data-sender') };
-      }), null, 2));
+    download('view_export_L1_' + stamp() + '.json', JSON.stringify(dumpRows('#stream-l1 [data-seq]'), null, 2));
   };
   $('btn-export-l2').onclick = function () {
-    var rows = [].slice.call(document.querySelectorAll('#lane-l2 [data-seq]'));
     download('view_export_L2_' + stamp() + '.json',
-      JSON.stringify(rows.map(function (r) {
-        return { id: r.getAttribute('data-id'), seq: +r.getAttribute('data-seq'),
-                 layer: r.getAttribute('data-layer'), kind: r.getAttribute('data-kind'),
-                 sender: r.getAttribute('data-sender'),
-                 cost_micro: r.getAttribute('data-cost-micro'),
-                 tokens: r.getAttribute('data-tokens') };
-      }), null, 2));
+      JSON.stringify(dumpRows('#lane-l2 [data-seq]', ['cost_micro', 'tokens']), null, 2));
   };
   $('btn-export-snap').onclick = function () {
-    getJSON('/api/snapshot').then(function (s) { download('snapshot_' + stamp() + '.json', JSON.stringify(s, null, 2)); });
+    getJSON('/api/snapshot').then(function (s) { download('snapshot_' + stamp() + '.json', JSON.stringify(s, null, 2)); })
+      .catch(function (e) { err(e.message); });
   };
   $('btn-raw').onclick = function () { window.open('/api/log.jsonl', '_blank'); };
   $('btn-refresh').onclick = refresh;
 
-  // ---- 动作端点（服务端需 --enable-actions；否则后端返 403，这里会显式报出来）----
-  function post(path, payload) {
-    return fetch(path, {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {})
-    }).then(function (r) {
-      return r.text().then(function (t) {
-        if (!r.ok) { throw new Error(path + ' → HTTP ' + r.status + ' ' + t); }
-        return t ? JSON.parse(t) : {};
-      });
-    });
-  }
+  $('btn-mode').onclick = function () {
+    var c = $('cols');
+    if (c.classList.contains('reading')) {
+      c.classList.remove('reading'); c.classList.add('board');
+      this.textContent = '⇄ 切到阅读模式';
+    } else {
+      c.classList.remove('board'); c.classList.add('reading');
+      this.textContent = '⇄ 切到看板模式';
+    }
+  };
+
   function act(path, payload) {
     return post(path, payload).then(function () { return refresh(); })
       .catch(function (e) { err(e.message); });
@@ -312,10 +373,8 @@
   $('btn-interrupt').onclick = function () { act('/api/interrupt', { body: '［人类接管］先停一下' }); };
   $('btn-resume').onclick = function () { act('/api/resume', { text: '继续' }); };
 
-  // 每 2 秒轮询：界面上能实时看到“打断后不再有新投递”✓
-  setInterval(refresh, 2000);
-
   refresh();
+  setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
 })();
 </script>
 </body>
