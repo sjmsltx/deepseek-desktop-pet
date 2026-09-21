@@ -33,7 +33,11 @@ RGBA = re.compile(r'\brgba?\s*\(')  # theme-exempt（本行是护栏自身的正
 ALLOW_FILES = {'pet_theme.py', 'prompt_builder.py', 'tools_registry.py', 'test_theme_tokens.py',
                'regression_test.py'}
 SKIP_DIRS = {'__pycache__', 'backup', 'build', 'dist', 'release_build', 'logs',
-             '.git', '.pytest_cache', 'screenshots', '视频介绍', 'tests'}
+             '.git', '.pytest_cache', 'screenshots', '视频介绍', 'tests',
+             # v2.74：素材目录与离线工具不算“产品代码”——
+             # assets/ 与 assets_3.0/ 是立绘/素材管线（如 tools/normalize_bg.py 需要写“纯白底”字面量），
+             # 不参与桌宠 UI 主题化，不应计入“硬编码色”护栏。
+             'assets', 'assets_3.0'}
 # 说明：tests/ 不在护栏范围内——测试需要写颜色字面量来断言主题色（夹具不算产品代码）。
 
 
