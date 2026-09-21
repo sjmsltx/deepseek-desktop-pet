@@ -20,14 +20,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def test_core_subset_of_all():
     all_names = {t['function']['name'] for t in tr.AI_TOOLS}
     assert set(tr.CORE_TOOLS) <= all_names, 'CORE_TOOLS 有拼错的工具名：%s' % (set(tr.CORE_TOOLS) - all_names)
-    assert 5 <= len(tr.CORE_TOOLS) <= 20, 'core 工具数量应保持精简，当前 %d' % len(tr.CORE_TOOLS)
+    assert 5 <= len(tr.CORE_TOOLS) <= 21, 'core 工具数量应保持精简，当前 %d' % len(tr.CORE_TOOLS)
 
 
 def test_mode_switch():
     core = tr.tools_for_mode(False)
     full = tr.tools_for_mode(True)
     assert len(core) == len(tr.CORE_TOOLS), '默认模式应只给 core：%d' % len(core)
-    assert len(full) == len(tr.AI_TOOLS) == 31, '进阶模式应给全部：%d' % len(full)
+    assert len(full) == len(tr.AI_TOOLS) == 32, '进阶模式应给全部：%d' % len(full)
     assert {t['function']['name'] for t in core} == set(tr.CORE_TOOLS)
 
 
@@ -72,6 +72,16 @@ def test_office_tool_in_core():
     core = {t['function']['name'] for t in tr.tools_for_mode(False)}
     assert 'office_doc' in core, '日常任务工具不在默认集合'
     assert 'office_doc' in {t['function']['name'] for t in tr.AI_TOOLS}
+
+
+def test_voice_summary_tool_in_core():
+    """朗读摘要工具必须默认可用（否则长回复永远只能念全文）"""
+    import tools_registry as tr
+    assert 'set_voice_summary' in tr.CORE_TOOLS
+    names = {t['function']['name'] for t in tr.AI_TOOLS}
+    assert 'set_voice_summary' in names
+    schema = next(t['function'] for t in tr.AI_TOOLS if t['function']['name'] == 'set_voice_summary')
+    assert schema['parameters']['required'] == ['text']
 
 
 def test_source_guards():

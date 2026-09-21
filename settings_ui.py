@@ -15,11 +15,14 @@ settings_ui.py — 统一设置窗口（Phase 5）
 - 只做「入口搬家」，不删功能：每个条目在设置里都能找到。
 """
 import os
+import time
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QStackedWidget, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 import pet_foreground as fgwin  # v6.59 前台程序感知（只读进程名，隐私边界见模块头部）
 import platform_layer as pl  # v6.73 批次3：平台能力统一门面
 from pet_theme import DEFAULT_THEME  # v6.57 主题 token 唯一源（消除本模块里的"第二套配色"）
@@ -231,6 +234,16 @@ class SettingsDialog(QDialog):
             return
         self.host.set_balance_low(self.sp_bal.value())
 
+    def _apply_cost_limit(self):
+        """v6.78 · 治理增强③：日成本上限（超限暂停模型调用；0 = 不限）"""
+        if self._building:
+            return
+        try:
+            self.host._save_cfg_value('cost_limit_enabled', bool(self.ck_cost.isChecked()))
+            self.host._save_cfg_value('cost_limit_daily', round(float(self.sp_cost.value()), 2))
+        except Exception as e:
+            self._notify('成本上限设置失败：%s' % e)
+
     # ---------- ② 对话 ----------
     def _toggle_advanced_tools(self, on):
         """v6.53：进阶工具模式开关（默认关 → 只放开 core 工具）"""
@@ -406,6 +419,39 @@ class SettingsDialog(QDialog):
                                       '离线声线不联网但偏机械')
         f.addRow('朗读声线', self.cb_voice_name)
 
+        # v6.76：语速控制（使用者：念得太慢了）
+        self.cb_voice_rate = QComboBox()
+        for _lab, _val in (('默认语速', ''), ('稍慢 -10%', '-10%'), ('慢 -20%', '-20%'),
+                           ('稍快 +15%', '+15%'), ('快 +30%', '+30%'), ('很快 +50%', '+50%'),
+                           ('极快 +80%', '+80%')):
+            self.cb_voice_rate.addItem(_lab, _val)
+        self.cb_voice_rate.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_voice_rate(self.cb_voice_rate.currentData()))
+        self.cb_voice_rate.setToolTip('在线声线用百分比调速；离线声线（系统声线）会换算成 -10..10 的档位；\n'
+                                      '本地自建服务若支持 speed 字段也会一并传过去')
+        f.addRow('语速', self.cb_voice_rate)
+
+        # v6.76：朗读内容策略（使用者反馈“会直接念完整篇”）
+        self.cb_voice_content = QComboBox()
+        for _lab, _val in (('要点优先（长回复只念要点）', 'summary'),
+                           ('全文（念完整篇）', 'full'),
+                           ('只念我选中的（不自动念）', 'manual')):
+            self.cb_voice_content.addItem(_lab, _val)
+        self.cb_voice_content.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_voice_content_mode(self.cb_voice_content.currentData()))
+        self.cb_voice_content.setToolTip('「要点优先」：模型长回复时会额外给一句朗读摘要；没给就念“首段+末段”，\n'
+                                         '跳过代码块/表格/长列表。「只念我选中的」则完全靠你在气泡里选中后右键朗读。')
+        f.addRow('朗读内容', self.cb_voice_content)
+        # v6.77：语音输入后端 + 插口（whisper/http）—— 共 5 个控件，
+        # 为了不让语音页涨到 18 行（撞“单页 ≤14 行”护栏），收进一个子对话框
+        self._buttons(f, '语音输入', [
+            ('🎙 语音输入设置…', self._open_asr_dialog),
+        ])
+        self._buttons(f, '试听', [
+            ('🔊 试听当前声线与语速', lambda: self.host._voice_test('这句用来试听当前的声线和语速，'
+                                                              '如果太快或太慢，就调上面的滑条。')),
+        ])
+
         self.ed_voice_custom = QLineEdit()
         self.ed_voice_custom.setPlaceholderText('如 edge:zh-CN-XiaoyiNeural 或 offline:Huihui')
         self.ed_voice_custom.setToolTip('填自己的语音包名字也行（需先在 Windows 里装好该语音包）：\n'
@@ -465,6 +511,18 @@ class SettingsDialog(QDialog):
         self.sp_bal.setToolTip('余额低于此值时提醒一次（每天最多一次）；设为 0 关闭提醒')
         self.sp_bal.editingFinished.connect(self._apply_balance_low)
         f.addRow('低余额提醒', self.sp_bal)
+        self.ck_cost = QCheckBox('启用日成本上限（超过就暂停模型调用，防手滑烧钱）')
+        self.ck_cost.toggled.connect(self._apply_cost_limit)
+        f.addRow('成本上限', self.ck_cost)
+        self.sp_cost = QDoubleSpinBox()
+        self.sp_cost.setRange(0.0, 10000.0)
+        self.sp_cost.setDecimals(2)
+        self.sp_cost.setSingleStep(1.0)
+        self.sp_cost.setSuffix(' 元/天')
+        self.sp_cost.setSpecialValueText('不限')
+        self.sp_cost.setToolTip('当日累计模型费用超过此值就不再发起请求（设为 0 = 不限）')
+        self.sp_cost.editingFinished.connect(self._apply_cost_limit)
+        f.addRow('', self.sp_cost)
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
                                         ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
 
@@ -654,6 +712,7 @@ class SettingsDialog(QDialog):
             ('✅ 启用 / ⛔ 禁用', self._mcp_toggle),
             ('🧪 测试连接', self._mcp_test),
             ('📋 工具与权限', self._mcp_tools),
+            ('🌐 出网白名单', self._open_net_dialog),
             ('🧾 审计日志', self._show_audit),
             ('🗑 删除', self._mcp_remove),
         ])
@@ -813,25 +872,30 @@ class SettingsDialog(QDialog):
         self._refresh_mcp()
 
     def _show_audit(self):
-        """看最近审计（技能/MCP 安装、授权、调用、拒绝都记在内）"""
+        """审计日志窗口（v6.78）：今日统计 + 对象/类型筛选 + 只看被拒 + 导出 + 清空当日"""
         try:
             import governance as gov
+            if not gov.audit_enabled():
+                QMessageBox.information(self, '审计日志',
+                                        '审计日志当前是关闭的（config.json 的 audit_log = false）。')
+                return
         except Exception as e:
             QMessageBox.information(self, '审计日志', '治理模块不可用：%s' % e)
             return
-        items = gov.read_recent(limit=40)
-        st = gov.audit_stats()
-        if not items:
-            QMessageBox.information(self, '审计日志',
-                                    '今天还没有记录。\n日志文件：%s' % st['path'])
-            return
-        lines = ['今天 %d 条记录，其中被拒 %d 条\n文件：%s\n' % (st['total'], st['denied'], st['path'])]
-        for e in items:
-            mark = '✓' if e.get('allowed', True) else '✗'
-            lines.append('%s %s [%s] %s %s —— %s'
-                         % (mark, e.get('ts', '')[11:], e.get('kind'), e.get('actor'),
-                            e.get('action'), (e.get('detail') or '')[:70]))
-        QMessageBox.information(self, '审计日志（最近 40 条）', '\n'.join(lines)[:3000])
+        _AuditDialog(self).exec()
+
+    def _open_net_dialog(self):
+        """出网白名单可视化（v6.78）：增删规则 + 试算"""
+        _NetDialog(self.host, self).exec()
+
+    def _open_asr_dialog(self):
+        """语音输入设置对话框（v6.77）：后端 + whisper 路径 + 联网接口"""
+        dlg = _AsrDialog(self.host, self)
+        self._asr_sub = dlg
+        try:
+            dlg.exec()
+        finally:
+            self._asr_sub = None
 
     # ---------- ⑥ 系统 ----------
     def _page_system(self):
@@ -935,6 +999,12 @@ class SettingsDialog(QDialog):
                 self.sp_bal.setValue(float(getattr(h, 'balance_low_threshold', 5.0) or 0))
             except Exception:
                 self.sp_bal.setValue(5.0)
+            try:
+                import governance as _gov_r
+                self.ck_cost.setChecked(bool(_gov_r.cost_limit_enabled()))
+                self.sp_cost.setValue(float(_gov_r.cost_limit_daily() or 0))
+            except Exception:
+                pass
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()
@@ -997,6 +1067,22 @@ class SettingsDialog(QDialog):
             _i = self.cb_voice_name.findData('%s:%s' % (_eng, _vn))
             self.cb_voice_name.setCurrentIndex(_i if _i >= 0 else 0)
             self.ck_voice_night.setChecked(bool(getattr(h, 'voice_night_quiet', True)))
+            # v6.76：语速回填
+            from voice_io import normalize_rate as _nr
+            _rv = _nr(getattr(h, 'voice_rate', '') or '')
+            _ri = self.cb_voice_rate.findData(_rv)
+            self.cb_voice_rate.setCurrentIndex(_ri if _ri >= 0 else 0)
+            # v6.76：朗读内容回填
+            _cm = str(getattr(h, 'voice_content_mode', 'summary') or 'summary')
+            _ci = self.cb_voice_content.findData(_cm)
+            self.cb_voice_content.setCurrentIndex(_ci if _ci >= 0 else 0)
+            # v6.77：语音输入后端与插口回填
+            # v6.77：语音输入后端在子对话框里 —— 开着就刷一下它的值
+            if getattr(self, '_asr_sub', None) is not None:
+                try:
+                    self._asr_sub.reload()
+                except Exception:
+                    pass
             self.ed_voice_local.setText(str(getattr(h, 'voice_local_url', '') or ''))
             self.ed_voice_ref.setText(str(getattr(h, 'voice_local_ref', '') or ''))
             self.ed_voice_prompt.setText(str(getattr(h, 'voice_local_prompt', '') or ''))
@@ -1025,3 +1111,354 @@ class SettingsDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self._refresh()
+
+
+class _AsrDialog(QDialog):
+    """语音输入后端设置（v6.77）—— 从语音页拆出来，避免该页行数超限
+
+    · auto：系统（WinRT→SAPI）
+    · winh：闱起系统 Win+H（质量好、零依赖，结果由系统直接打进输入框）
+    · whisper：本地 whisper.cpp（插口，需配 exe 与模型）
+    · http：联网 ASR 接口（插口，需配 URL/Key）
+    """
+
+    def __init__(self, host, parent=None):
+        super().__init__(parent)
+        self.host = host
+        self._building = True
+        self.setWindowTitle('🎙 语音输入设置')
+        self.setMinimumWidth(560)
+        v = QVBoxLayout(self)
+        f = QFormLayout()
+        v.addLayout(f)
+        self.form = f
+
+        self.cb_backend = QComboBox()
+        for lab, val in (('系统（WinRT→SAPI，默认）', 'auto'),
+                         ('系统 Win+H 应急（质量好、零依赖）', 'winh'),
+                         ('本地 whisper.cpp（需配路径）', 'whisper'),
+                         ('联网 ASR 接口（需配 URL）', 'http')):
+            self.cb_backend.addItem(lab, val)
+        self.cb_backend.currentIndexChanged.connect(
+            lambda *_: not self._building and host._set_asr_backend(self.cb_backend.currentData()))
+        f.addRow('识别后端', self.cb_backend)
+
+        self.ed_exe = QLineEdit()
+        self.ed_exe.setPlaceholderText('whisper.cpp 的 main.exe 路径')
+        self.ed_exe.editingFinished.connect(
+            lambda: not self._building and host._set_asr_extra(whisper_exe=self.ed_exe.text()))
+        f.addRow('whisper 程序', self.ed_exe)
+
+        self.ed_model = QLineEdit()
+        self.ed_model.setPlaceholderText('模型文件，如 D:\\models\\ggml-small.bin')
+        self.ed_model.editingFinished.connect(
+            lambda: not self._building and host._set_asr_extra(whisper_model=self.ed_model.text()))
+        f.addRow('whisper 模型', self.ed_model)
+
+        self.ed_url = QLineEdit()
+        self.ed_url.setPlaceholderText('https://你的接口/asr（POST JSON: audio_b64 + lang）')
+        self.ed_url.editingFinished.connect(
+            lambda: not self._building and host._set_asr_extra(asr_http_url=self.ed_url.text()))
+        f.addRow('ASR 接口', self.ed_url)
+
+        self.ed_key = QLineEdit()
+        self.ed_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ed_key.setPlaceholderText('（可选）接口 Key，只存本地')
+        self.ed_key.editingFinished.connect(
+            lambda: not self._building and host._set_asr_extra(asr_http_key=self.ed_key.text()))
+        f.addRow('ASR Key', self.ed_key)
+
+        self.ed_hotkey = QLineEdit()
+        self.ed_hotkey.setPlaceholderText('win+h（默认）')
+        self.ed_hotkey.setToolTip('唤起系统语音输入的热键。Win10/11 上系统固定就是 Win+H；\n'
+                                  '若被其他软件抢占/旧系统不支持，可改成 win+alt+h 或 ctrl+shift+space 等。\n'
+                                  '填完点一下别处即可生效。')
+        self.ed_hotkey.editingFinished.connect(
+            lambda: not self._building and host._set_asr_extra(winh_hotkey=self.ed_hotkey.text()))
+        f.addRow('Win+H 热键', self.ed_hotkey)
+
+        tip = QLabel('系统那套（WinRT/SAPI）中文质量一般；Win+H 会把识别结果直接打进输入框；\n'
+                     'whisper / 联网接口需自己填路径或地址，填完在设置里选对应后端即生效。')
+        tip.setStyleSheet(STYLE_HINT)
+        tip.setWordWrap(True)
+        v.addWidget(tip)
+
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        btn = QPushButton('关闭')
+        btn.clicked.connect(self.accept)
+        bar.addWidget(btn)
+        v.addLayout(bar)
+        self.reload()
+        self._building = False
+
+    def reload(self):
+        h = self.host
+        self._building = True
+        try:
+            i = self.cb_backend.findData(str(getattr(h, 'asr_backend', 'auto') or 'auto'))
+            self.cb_backend.setCurrentIndex(i if i >= 0 else 0)
+            self.ed_exe.setText(str(getattr(h, 'asr_whisper_exe', '') or ''))
+            self.ed_model.setText(str(getattr(h, 'asr_whisper_model', '') or ''))
+            self.ed_url.setText(str(getattr(h, 'asr_http_url', '') or ''))
+            self.ed_key.setText(str(getattr(h, 'asr_http_key', '') or ''))
+            self.ed_hotkey.setText(str(getattr(h, 'asr_winh_hotkey', 'win+h') or 'win+h'))
+        finally:
+            self._building = False
+
+
+class _AuditDialog(QDialog):
+    """审计查看窗口（v6.78 · 治理增强①）—— **只读**
+
+    入口：设置 → 技能页 / MCP 页的「🧾 审计日志」
+    能力：今日统计 + 对象/类型筛选 + 只看被拒 + 刷新 + 导出 CSV + 清空当日（二次确认，先备份）
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        import governance as gov
+        self.gov = gov
+        self.setWindowTitle('🧾 审计日志')
+        self.resize(900, 540)
+        v = QVBoxLayout(self)
+
+        self.lb_stat = QLabel('')
+        self.lb_stat.setStyleSheet(STYLE_HEAD)
+        v.addWidget(self.lb_stat)
+
+        bar = QHBoxLayout()
+        bar.addWidget(QLabel('对象'))
+        self.cb_actor = QComboBox()
+        self.cb_actor.setMinimumWidth(160)
+        self.cb_actor.currentIndexChanged.connect(lambda *_: self.reload())
+        bar.addWidget(self.cb_actor)
+        bar.addWidget(QLabel('类型'))
+        self.cb_kind = QComboBox()
+        self.cb_kind.setMinimumWidth(110)
+        self.cb_kind.currentIndexChanged.connect(lambda *_: self.reload())
+        bar.addWidget(self.cb_kind)
+        self.ck_denied = QCheckBox('只看被拒')
+        self.ck_denied.toggled.connect(lambda *_: self.reload())
+        bar.addWidget(self.ck_denied)
+        bar.addStretch(1)
+        _b = QPushButton('🔄 刷新')
+        _b.clicked.connect(self.reload)
+        bar.addWidget(_b)
+        v.addLayout(bar)
+
+        self.tb = QTableWidget(0, 5)
+        self.tb.setHorizontalHeaderLabels(['时间', '类型', '对象', '动作', '结果 / 详情'])
+        self.tb.verticalHeader().setVisible(False)
+        self.tb.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tb.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tb.setColumnWidth(0, 90)
+        self.tb.setColumnWidth(1, 70)
+        self.tb.setColumnWidth(2, 130)
+        self.tb.setColumnWidth(3, 140)
+        self.tb.horizontalHeader().setStretchLastSection(True)
+        v.addWidget(self.tb)
+
+        self.lb_hint = QLabel('')
+        self.lb_hint.setStyleSheet(STYLE_HINT)
+        self.lb_hint.setWordWrap(True)
+        v.addWidget(self.lb_hint)
+
+        foot = QHBoxLayout()
+        self.lb_path = QLabel('')
+        self.lb_path.setStyleSheet(STYLE_HINT)
+        foot.addWidget(self.lb_path)
+        foot.addStretch(1)
+        _b2 = QPushButton('📤 导出 CSV')
+        _b2.clicked.connect(self._export)
+        foot.addWidget(_b2)
+        _b3 = QPushButton('🗑 清空当日')
+        _b3.clicked.connect(self._clear)
+        foot.addWidget(_b3)
+        _b4 = QPushButton('关闭')
+        _b4.clicked.connect(self.accept)
+        foot.addWidget(_b4)
+        v.addLayout(foot)
+        self.reload()
+
+    def _fill_choices(self, st):
+        ka, kk = self.cb_actor.currentText(), self.cb_kind.currentText()
+        self.cb_actor.blockSignals(True)
+        self.cb_kind.blockSignals(True)
+        self.cb_actor.clear()
+        self.cb_actor.addItem('全部')
+        for a in st.get('actors', []):
+            self.cb_actor.addItem(a)
+        self.cb_kind.clear()
+        self.cb_kind.addItem('全部')
+        for k in st.get('kinds', []):
+            self.cb_kind.addItem(k)
+        i = self.cb_actor.findText(ka)
+        self.cb_actor.setCurrentIndex(i if i >= 0 else 0)
+        i = self.cb_kind.findText(kk)
+        self.cb_kind.setCurrentIndex(i if i >= 0 else 0)
+        self.cb_actor.blockSignals(False)
+        self.cb_kind.blockSignals(False)
+
+    def reload(self):
+        gov = self.gov
+        st = gov.audit_stats()
+        self._fill_choices(st)
+        kind = self.cb_kind.currentText() or '全部'
+        actor = self.cb_actor.currentText() or '全部'
+        items = gov.read_filtered(kind=kind, actor=actor,
+                                  only_denied=self.ck_denied.isChecked(), limit=500)
+        self.lb_stat.setText('今日 %d 条 · 被拒 %d 条 · 涉及对象 %d 个　——　当前筛选出 %d 条'
+                             % (st['total'], st['denied'], len(st['actors']), len(items)))
+        denied_color = QColor(DEFAULT_THEME['ui_red_soft'])
+        self.tb.setRowCount(0)
+        for e in items:
+            r = self.tb.rowCount()
+            self.tb.insertRow(r)
+            ok = e.get('allowed', True)
+            cells = [str(e.get('ts', ''))[11:], str(e.get('kind', '')), str(e.get('actor', '')),
+                     str(e.get('action', '')),
+                     ('✓ ' if ok else '✗ 被拒 · ') + str(e.get('detail', ''))]
+            for c, txt in enumerate(cells):
+                it = QTableWidgetItem(txt)
+                if not ok:
+                    it.setForeground(denied_color)
+                self.tb.setItem(r, c, it)
+        if items:
+            self.lb_hint.setText('最多显示 500 条（新→旧）。日志按天落在 logs/audit_YYYY-MM-DD.jsonl。')
+        else:
+            self.lb_hint.setText('当前条件下没有记录。每次技能/MCP 调用、安装、授权、拒绝都会写一条。')
+        self.lb_path.setText('文件：%s' % st.get('path', ''))
+
+    def _export(self):
+        path, _f = QFileDialog.getSaveFileName(
+            self, '导出当日审计', 'audit_%s.csv' % time.strftime('%Y-%m-%d'), 'CSV (*.csv)')
+        if not path:
+            return
+        ok, n = self.gov.export_csv(path)
+        QMessageBox.information(self, '导出审计',
+                                ('已导出 %d 条 →\n%s' % (n, path)) if ok else ('导出失败：%s' % n))
+
+    def _clear(self):
+        if QMessageBox.question(self, '清空当日',
+                                '清空今天的审计日志？\n会先改名备份成 .bak-<时间>，不会直接删。') != QMessageBox.Yes:
+            return
+        ok, msg = self.gov.clear_day()
+        QMessageBox.information(self, '清空当日', msg if ok else '没清成：%s' % msg)
+        self.reload()
+
+
+class _NetDialog(QDialog):
+    """出网白名单（v6.78 · 治理增强②）—— 可视化增删 + 试算
+
+    安全底线：**白名单为空 = 技能一律禁止出网**（默认如此，本窗口不改变这个语义）。
+    """
+
+    def __init__(self, host=None, parent=None):
+        super().__init__(parent)
+        import governance as gov
+        self.gov = gov
+        self.host = host
+        self.setWindowTitle('🌐 出网白名单')
+        self.resize(780, 480)
+        v = QVBoxLayout(self)
+        tip = QLabel('白名单为空 = 技能一律禁止出网（安全底线）。规则支持 *.example.com 这种通配；'
+                     '「试算」用的是与真实拦截同一套判定，结果一定一致。')
+        tip.setStyleSheet(STYLE_HINT)
+        tip.setWordWrap(True)
+        v.addWidget(tip)
+
+        self.tb = QTableWidget(0, 2)
+        self.tb.setHorizontalHeaderLabels(['规则', '来源'])
+        self.tb.verticalHeader().setVisible(False)
+        self.tb.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tb.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tb.horizontalHeader().setStretchLastSection(True)
+        self.tb.setColumnWidth(0, 320)
+        v.addWidget(self.tb)
+
+        self.lb_msg = QLabel('')
+        self.lb_msg.setStyleSheet(STYLE_HINT)
+        self.lb_msg.setWordWrap(True)
+        v.addWidget(self.lb_msg)
+
+        bar = QHBoxLayout()
+        for text, fn in (('➕ 添加规则…', self._add), ('🗑 删除选中', self._remove),
+                        ('🧪 试算一个地址…', self._explain), ('🔄 刷新', self.reload)):
+            _b = QPushButton(text)
+            _b.clicked.connect(fn)
+            bar.addWidget(_b)
+        bar.addStretch(1)
+        _b = QPushButton('关闭')
+        _b.clicked.connect(self.accept)
+        bar.addWidget(_b)
+        v.addLayout(bar)
+        self.reload()
+
+    def _mcp_hosts(self):
+        """从已配置的 MCP server 里抽出域名，用来标注规则的来源（不臆造，能对上才标）"""
+        hosts = set()
+        try:
+            for s in (self.host.mcp.servers() if self.host is not None and getattr(self.host, 'mcp', None) else []):
+                for key in ('url', 'endpoint', 'command'):
+                    val = str(s.get(key, '') or '')
+                    if val.startswith('http'):
+                        h = self.gov.host_of(val)
+                        if h:
+                            hosts.add(h)
+        except Exception:
+            pass
+        return hosts
+
+    def reload(self):
+        rules = self.gov.net_allowlist()
+        mcp_hosts = self._mcp_hosts()
+        self.tb.setRowCount(0)
+        for r in rules:
+            row = self.tb.rowCount()
+            self.tb.insertRow(row)
+            src = '手动添加'
+            if any(self.gov.host_of('http://' + h) and (h == r.lower() or h.endswith(r.lower().lstrip('*.'))) for h in mcp_hosts):
+                src = '来自 MCP 配置'
+            self.tb.setItem(row, 0, QTableWidgetItem(r))
+            self.tb.setItem(row, 1, QTableWidgetItem(src))
+        if rules:
+            self.lb_msg.setText('当前 %d 条规则。规则只影响**第三方技能包**的出网；桌宠自身的 API 调用不受它管。'
+                                % len(rules))
+        else:
+            self.lb_msg.setText('当前是空的 —— 技能一律不能出网（这是安全默认）。需要时再加域名。')
+
+    def _add(self):
+        text, ok = QInputDialog.getText(self, '添加规则', '域名或通配模式（如 api.deepseek.com / *.github.com）：')
+        p = (text or '').strip()
+        if not (ok and p):
+            return
+        if ' ' in p or '/' in p or ('.' not in p and p not in ('*', '*.*')):
+            QMessageBox.information(self, '格式不对', '填域名就行，不要带协议/路径，例如 api.deepseek.com')
+            return
+        self.gov.add_net_rule(p)
+        self.reload()
+
+    def _remove(self):
+        r = self.tb.currentRow()
+        if r < 0:
+            return
+        item = self.tb.item(r, 0)
+        rule = item.text() if item else ''
+        if not rule:
+            return
+        if QMessageBox.question(self, '删除规则', '删除规则 %s？' % rule) != QMessageBox.Yes:
+            return
+        left = [x for x in self.gov.net_allowlist() if x != rule]
+        self.gov.set_net_allowlist(left)
+        self.reload()
+
+    def _explain(self):
+        text, ok = QInputDialog.getText(self, '试算', '输入一个完整地址（含 http(s)://）：', text='https://')
+        if not (ok and text):
+            return
+        good, why, rule, host = self.gov.net_explain(text)
+        QMessageBox.information(
+            self, '试算结果',
+            '地址：%s\n域名：%s\n\n结果：%s\n原因：%s%s'
+            % (text, host or '（解析不出）', '✅ 能过' if good else '⛔ 不能过', why,
+               ('\n命中规则：%s' % rule) if rule else ''))

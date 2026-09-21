@@ -85,11 +85,20 @@ def check_code_blocks(text):
 
 
 def message_label_qss(theme, is_user=False):
-    """消息文本标签的样式（创建时与切主题刷新时共用同一处规则，避免两处写法漂移）"""
+    """消息文本标签的样式（创建时与切主题刷新时共用同一处规则，避免两处写法漂移）
+
+    v6.76 fix：补上**选中配色** —— 使用者反馈“文本选不了”：
+      实测控件本身是可选中的（TextSelectableByMouse=True），但样式里没写 selection-background-color
+      → 拖选后高亮几乎看不见，看着就像“选不中”。这里把选中底色/前景色显式给上。
+    """
     t = theme or {}
     bg = (t.get('user_bubble') if is_user else t.get('ai_bubble')) or _THEME['panel_bg']
+    # 选中配色：只用主题 token，不写颜色字面量（主题护栏要求产品代码里硬编码颜色为 0）
+    sel_bg = t.get('accent') or _THEME['accent']
+    sel_fg = t.get('panel_bg') or _THEME['panel_bg']
     return (f'color:{t.get("bubble_text") or _THEME["bubble_text"]}; font-size:13px; background:{bg};'
-            f' border-radius:8px; padding:6px 10px;')
+            f' border-radius:8px; padding:6px 10px;'
+            f' selection-background-color:{sel_bg}; selection-color:{sel_fg};')
 
 
 def apply_message_label_theme(lbl, theme, is_user=False):

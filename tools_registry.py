@@ -449,6 +449,21 @@ AI_TOOLS = [
             }
         }
     },
+    # v6.76：朗读摘要（AI 主动声明“这段该怎么念”，只影响朗读不进正文）
+    {
+        "type": "function",
+        "function": {
+            "name": "set_voice_summary",
+            "description": "当本次回复很长（多段/列表/代码/表格）时，用这个工具给 1~2 句「朗读版摘要」，让语音朗读只念要点而不是整篇。短回复不需要调。只影响朗读，不会出现在正文里。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "要念出来的 1~2 句摘要（口语化，不带 markdown 标记）"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
 ]
 
 
@@ -488,6 +503,8 @@ CORE_TOOLS = (
     'skill_run',
     # v6.66：办公文档（日常任务：表格 / 报表 / PDF）
     'office_doc',
+    # v6.76：朗读摘要（长回复时告诉桌宠“该念什么”）
+    'set_voice_summary',
 )
 
 

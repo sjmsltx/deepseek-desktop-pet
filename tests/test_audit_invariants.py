@@ -104,11 +104,11 @@ def test_official_tools_are_exposed():
 def test_counts_match_docs():
     import tools_registry as tr
     import settings_ui as su
-    assert len(tr.AI_TOOLS) == 31, len(tr.AI_TOOLS)
+    assert len(tr.AI_TOOLS) == 32, len(tr.AI_TOOLS)
     assert len(su.PAGES) == 10, len(su.PAGES)
     txt = (open(os.path.join(BASE, 'README.md'), encoding='utf-8').read() +
            open(os.path.join(BASE, 'CHANGELOG.md'), encoding='utf-8').read())
-    assert '31' in txt and '十页' in txt, '文档没说清数量'
+    assert '32' in txt and '十页' in txt, '文档没说清数量'
 
 
 # 5 -------------------------------------------------------------------

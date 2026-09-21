@@ -401,6 +401,21 @@ class PetWidget(QWidget):
         self._last_turn_reasoning = None   # v6.62 上一轮思考内容（带 tools 时回传）
         # v6.66：离线语音输入（WinRT，单句识别；点 🎤 开始，识别结果只填输入框不自动发）
         self.asr = AsrEngine(BASE_DIR, lang=str(getattr(self, 'asr_lang', 'zh-CN') or 'zh-CN'))
+        # v6.77：可插拔后端（auto / winh / whisper / http）+ 各后端需要的配置
+        _asr_cfg = {
+            'backend_name': str(getattr(self, 'asr_backend', 'auto') or 'auto'),
+            'whisper_exe': str(getattr(self, 'asr_whisper_exe', '') or ''),
+            'whisper_model': str(getattr(self, 'asr_whisper_model', '') or ''),
+            'asr_http_url': str(getattr(self, 'asr_http_url', '') or ''),
+            'asr_http_key': str(getattr(self, 'asr_http_key', '') or ''),
+            'record_seconds': int(getattr(self, 'asr_record_seconds', 6) or 6),
+            'winh_hotkey': str(getattr(self, 'asr_winh_hotkey', 'win+h') or 'win+h'),
+        }
+        for _k, _v in _asr_cfg.items():
+            try:
+                setattr(self.asr, _k, _v)
+            except Exception:
+                pass
         self._listening = False
         # v6.63：语音朗读（P0）—— 默认关闭；离线合成（WinRT→SAPI 兜底）+ winsound 播放可打断
         self.voice = VoiceIO(BASE_DIR, enabled=bool(getattr(self, 'voice_enabled', False)),
@@ -409,7 +424,12 @@ class PetWidget(QWidget):
                              night_quiet=bool(getattr(self, 'voice_night_quiet', True)),
                              local_url=str(getattr(self, 'voice_local_url', '') or ''),
                              local_ref=str(getattr(self, 'voice_local_ref', '') or ''),
-                             local_prompt=str(getattr(self, 'voice_local_prompt', '') or ''))
+                             local_prompt=str(getattr(self, 'voice_local_prompt', '') or ''),
+                             max_chars=int(getattr(self, 'voice_max_chars', 1200) or 1200),
+                             rate=str(getattr(self, 'voice_rate', '') or ''))   # v6.76 语速
+        # v6.76：「朗读内容」策略（summary 要点优先 / full 全文 / manual 只念选中的）
+        self._voice_summary = ''
+        self.voice_content_mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
         # v6.62：峰谷计价要认法定节假日（表内置，可从公共静态 JSON 年度更新，不花搜索额度）
         ApiStats.HOLIDAYS_CACHE = os.path.join(BASE_DIR, 'holidays_cache.json')
         self._maybe_update_holidays()
@@ -869,8 +889,19 @@ class PetWidget(QWidget):
         """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）
 
         v6.62：images 随任务一起带入（图片直送模型）
+        v6.78：先过**日成本上限**（治理增强③）——超限直接拒绝并说明，不静默失败
         """
         import threading as _th
+        # v6.78 · 日成本上限：扣在“花钱的动作”前面，且不动 busy/代次状态
+        try:
+            import governance as _gov_c
+            _ok_c, _why_c, _used_c = _gov_c.check_cost()
+            if not _ok_c:
+                _gov_c.log_event('deny', 'ai.calls', '模型调用', _why_c, allowed=False)
+                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % _why_c)
+                return
+        except Exception as _exc:
+            _silent_log('_run_task:cost', _exc)   # 成本门出问题不影响正常对话
         self._ai_generation = getattr(self, '_ai_generation', 0) + 1
         self._cur_task_text = text
         self._ai_busy = True
@@ -2061,6 +2092,7 @@ class PetWidget(QWidget):
         'memorize': '_tool_memorize',
         'offer_choices': '_tool_offer_choices',
         'office_doc': '_tool_office_doc',   # v6.66 办公文档（WPS/Office COM）
+        'set_voice_summary': '_tool_set_voice_summary',   # v6.76 朗读摘要（只影响朗读）
         'skill_pack': '_tool_skill_pack',   # v6.67 技能包管理（安装/权限/启停/卸载）
         'open_app': '_tool_open_app',
         'query_weather': '_tool_query_weather',
@@ -2769,6 +2801,7 @@ class PetWidget(QWidget):
             self.ai_reply_signal.emit(final_reply)
             # v6.63：语音朗读（P0）—— 默认关；开着的话读一遍刚刚这句话
             self._speak_reply(final_reply)   # v6.63
+            self._voice_summary = ''          # v6.76：摘要只对当前这一轮有效
             # v6.41 自动记忆抽取（低频：间隔 30 分钟且 ≥4 轮对话）
             try:
                 self._maybe_extract_memory()
@@ -2838,6 +2871,9 @@ class PetWidget(QWidget):
     # ---------- v6.40 真流式渲染（思考+正文同卡片，AutoClaw 风格） ----------
     def _chat_type_stream_begin(self):
         """流式渲染开始：创建气泡（思考折叠区 + 正文流式区）"""
+        # v6.76：增量渲染的进度跟踪（每个气泡重新计数）
+        self._stream_done_blocks = 0
+        self._stream_last_render = 0.0
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self._remove_status_line()
@@ -2925,8 +2961,52 @@ class PetWidget(QWidget):
             if self._stream_label is not None:
                 self._stream_label.setText(self._stream_text)
                 self._chat_scroll_bottom()
+            # ★ v6.76 增量 markdown 渲染：不等全文，按“整块+节流”边出边渲染
+            self._maybe_incremental_render()
         except Exception as _exc:
             _silent_log('_on_stream:2405', _exc)   # v6.54
+
+    def _stream_new_label(self):
+        """建一个新的流式正文 label（重渲染后需要重建，因为重渲染会清掉布局里的控件）"""
+        lb = QLabel('')
+        lb.setWordWrap(True)
+        lb.setTextFormat(Qt.PlainText)
+        self._set_themed_qss(lb, lambda: f'color:{self._tk("bubble_text")}; font-size:14px;')
+        content = getattr(self, '_chat_type_content', None)
+        if content is not None:
+            content.addWidget(lb)
+        return lb
+
+    def _maybe_incremental_render(self):
+        """增量渲染（v6.76）——使用者反馈“想边输出边渲染”
+
+        策略（保守、不打扰流式手感）：
+          · 只在正文里出现 markdown 迹象时才做（纯文本仍走快路径）
+          · 只在“已完成块数增加”时做（块级提交，不会每字重渲染）
+          · 硬限流：最快每 200ms 一次（避免长回复时把主线程抽干）
+        重渲染会清掉布局里的正文控件（含流式 label）→ 重建一个空 label 继续接后续 chunk。
+        """
+        import time as _t
+        try:
+            text = getattr(self, '_stream_text', '') or ''
+            if not text.strip() or not self._has_md_markup(text):
+                return
+            blocks = self._split_rich_blocks(text)
+            done_blocks = max(0, len(blocks) - 1)      # 最后一块可能还没写完 → 先不提交
+            if done_blocks <= 0 or done_blocks <= getattr(self, '_stream_done_blocks', 0):
+                return
+            now = _t.monotonic()
+            if now - getattr(self, '_stream_last_render', 0.0) < 0.2:
+                return
+            self._stream_done_blocks = done_blocks
+            self._stream_last_render = now
+            self._rerender_rich(text)
+            # 重渲染清掉了所有正文控件 → 重建流式 label 接着接 chunk
+            self._stream_label = self._stream_new_label()
+            self._stream_label.setText(text.split('\n\n')[-1] if '\n\n' in text else text)
+            self._chat_scroll_bottom()
+        except Exception as _exc:
+            _silent_log('_maybe_incremental_render', _exc)
 
     def _on_reasoning(self, chunk):
         """主线程槽：流式思考 chunk → 同卡片灰色思考区（可折叠）；过滤 emotion 标签"""
@@ -2995,6 +3075,27 @@ class PetWidget(QWidget):
             thinking.setVisible(not getattr(self, '_thinking_collapsed', False) and bool(thinking.text().strip()))
         self._chat_scroll_bottom()
 
+    def _has_md_markup(self, text):
+        """判断文本里有没有需要渲染的 markdown 迹象（v6.75）
+
+        旧逻辑只认代码块与表格 → 标题/加粗/列表在流式路径下会显示成原始 .md。
+        这里把常见的行内/块级 markdown 都算上；纯文本（无标记）仍走快路径不重渲染。
+        """
+        s = str(text or '')
+        if not s.strip():
+            return False
+        if '```' in s or self._looks_like_table(s):
+            return True
+        import re as _re
+        pats = (r'\*\*[^*\n]+\*\*',      # **加粗**
+                r'(?m)^\s{0,3}#{1,6}\s+\S',  # # 标题
+                r'(?m)^\s{0,3}[-*+]\s+\S',   # - 列表
+                r'(?m)^\s{0,3}\d+[.)]\s+\S',  # 1. 列表
+                r'(?m)^\s{0,3}>\s+\S',        # > 引用
+                r'`[^`\n]+`',             # `行内代码`
+                r'\[[^\]\n]+\]\([^)\n]+\)')  # [链接](url)
+        return any(_re.search(p, s) for p in pats)
+
     def _display_ai_reply(self, reply):
         """主线程槽：显示 AI 回复（解析情绪标签切换立绘）"""
         # v6.42 fix：任何回复路径先清状态行（工具轮耗尽/超时后的非流式回复会残留 ⏳）
@@ -3017,8 +3118,13 @@ class PetWidget(QWidget):
                 self._attach_bubble_actions(self._chat_type_bubble, _display)  # v6.40 fix：复制按钮存剥标签后的正文（原始reply含[emotion:xxx]）
             except Exception as _exc:
                 _silent_log('_display_ai_reply:2495', _exc)   # v6.54
-            # v6.40+ 富文本恢复：含代码块/表格 → 同气泡重渲染成卡片（复制按钮回归）
-            if ('```' in _display) or self._looks_like_table(_display):
+            # v6.40+ 富文本恢复：含 markdown（**加粗** / 标题 / 列表 / 引用 / 链接 / 代码 / 表格）
+            #   → 同气泡重渲染成富文本（复制按钮回归）
+            # ★ v6.75 fix：旧条件只认 ``` 和表格 ✗ → 标题/加粗/列表这类普通 markdown
+            #   在流式路径下永远是“原始 .md”（使用者的“有时不渲染”就是这个：
+            #   取决于内容里有没有代码块/表格，他出选项那次内容恰好都是普通 markdown）
+            #   新版：只要看出 markdown 迹象就重渲染。
+            if self._has_md_markup(_display):
                 try:
                     self._rerender_rich(_display)
                 except Exception as _exc:
@@ -5163,8 +5269,8 @@ class PetWidget(QWidget):
         cp = QLabel('⧉')
         cp.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
         cp.setCursor(Qt.PointingHandCursor)
-        cp.setToolTip('复制该消息')
-        cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
+        cp.setToolTip('复制该消息（含图）')
+        cp.mousePressEvent = lambda e, t=text: self._copy_rich_text(t)   # v6.76：升级为富剪贴板（图不丢）
         cp.hide()
         head.addWidget(cp)
         sv = QLabel('🖼')
@@ -5177,6 +5283,130 @@ class PetWidget(QWidget):
         bubble._action_btns = [cp, sv]
         bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
         bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
+        bubble._msg_text = text
+        # v6.76：气泡右键菜单（**新增**，hover 那两个按钮保留不动 —— 使用者明确要求保留）
+        for _w in [bubble] + bubble.findChildren(QWidget):
+            try:
+                _w.setContextMenuPolicy(Qt.CustomContextMenu)
+                _w.customContextMenuRequested.connect(
+                    lambda pos, b=bubble, t=text: self._bubble_context_menu(b, t))
+            except Exception as _exc:
+                _silent_log('_attach_bubble_actions:menu', _exc)
+
+    def _bubble_context_menu(self, bubble, text):
+        """气泡右键菜单（v6.76）：朗读选中 / 复制（含图）/ 只复制文字 / 存为图片
+
+        设计取舍：**不替代 hover 按钮**，只是多一个入口（使用者要求保留原交互）。
+        """
+        try:
+            text = str(text or '')
+            sel = ''
+            try:
+                for lb in bubble.findChildren(QLabel):
+                    if lb.hasSelectedText():
+                        sel = lb.selectedText()
+                        break
+                if not sel:
+                    for te in bubble.findChildren(QTextEdit):
+                        c = te.textCursor()
+                        if c and c.hasSelection():
+                            sel = c.selectedText()
+                            break
+            except Exception:
+                sel = sel or ''
+            m = QMenu(self)
+            if sel.strip():
+                m.addAction('🔊 朗读选中', lambda: self._speak_text_now(sel))
+                m.addAction('📋 复制选中', lambda: self._copy_rich_text(sel))
+                m.addSeparator()
+            m.addAction('📋 复制（含图）', lambda: self._copy_rich_text(text))
+            m.addAction('📋 只复制文字', lambda: self._copy_message_text(text))
+            m.addAction('🖼 存为图片', lambda: self._save_bubble_image(bubble))
+            m.addAction('🔊 朗读这条（按当前策略）', lambda: self._speak_text_now(text))
+            m.exec(QCursor.pos())
+        except Exception as _exc:
+            _silent_log('_bubble_context_menu', _exc)
+
+    def _speak_text_now(self, text):
+        """朗读指定文本（用户主动 → force=True，忽略开关与夜间静音）"""
+        try:
+            v = getattr(self, 'voice', None)
+            if v is None:
+                return False
+            if v.speak(str(text or ''), force=True):
+                self._notify('🔊 正在朗读')
+                return True
+            self._notify('没能出声（看日志里的原因）')
+        except Exception as _exc:
+            _silent_log('_speak_text_now', _exc)
+        return False
+
+    def _copy_rich_text(self, text):
+        """复制为**富剪贴板**（v6.76）：text/plain + text/html，其中本地图片内联成 data URI
+
+        为什么：原先的复制只写纯文本 → 粘到 Word/飞书/微信**图片会丢**（使用者反馈）。
+        取舍：单条消息图片总量限 `MAX_IMG_BYTES`；超限就把那张图降级为原链接并提示一句，
+        **绝不静默丢图**；远程图片保留链接（不联网下载、不膖胀）。
+        """
+        import base64
+        import re as _re
+        from PySide6.QtCore import QMimeData
+        MAX_IMG_BYTES = 8 * 1024 * 1024
+        text = str(text or '')
+        try:
+            blocks = self._split_rich_blocks(text)
+            parts, img_bytes, degraded = [], 0, 0
+            for kind, content in blocks:
+                if kind == 'code':
+                    esc = (content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
+                    parts.append('<pre style="font-family:Consolas,monospace;white-space:pre-wrap">%s</pre>'
+                                 % esc)
+                elif kind == 'table':
+                    parts.append(self._md_table_from_text(content))
+                else:
+                    parts.append(self._md_to_html(content))
+            html_body = ''.join(parts)
+
+            def _inline(m):
+                nonlocal img_bytes, degraded
+                src = m.group(1)
+                if src.startswith(('data:', 'http://', 'https://')):
+                    return m.group(0)                      # 远程/已内联：不动
+                p = src if os.path.isabs(src) else os.path.join(BASE_DIR, src)
+                if not os.path.isfile(p):
+                    return m.group(0)
+                try:
+                    raw = open(p, 'rb').read()
+                except Exception:
+                    return m.group(0)
+                if img_bytes + len(raw) > MAX_IMG_BYTES:
+                    degraded += 1
+                    return m.group(0)                      # 超限：保留原路径（降级不丢）
+                img_bytes += len(raw)
+                ext = os.path.splitext(p)[1].lower().lstrip('.')
+                mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif',
+                        'webp': 'webp', 'bmp': 'bmp'}.get(ext, 'png')
+                b64 = base64.b64encode(raw).decode('ascii')
+                return m.group(0).replace(src, 'data:image/%s;base64,%s' % (mime, b64))
+
+            html_body = _re.sub(r'src="([^"]+)"', _inline, html_body)
+            mime = QMimeData()
+            mime.setText(text)
+            mime.setHtml('<div style="font-size:13px;line-height:1.7">%s</div>' % html_body)
+            QApplication.clipboard().setMimeData(mime)
+            if degraded:
+                self.say_plain('⚠️ 已复制（有 %d 张图超过 %d MB 上限，保留为原链接）'
+                               % (degraded, MAX_IMG_BYTES // 1048576), immediate=True)
+            else:
+                self.say_plain('✅ 已复制（含图 %d KB）' % (img_bytes // 1024)
+                               if img_bytes else '✅ 已复制', immediate=True)
+            return True
+        except Exception as _exc:
+            _silent_log('_copy_rich_text', _exc)
+            try:
+                return self._copy_message_text(text)   # 兑底：至少把文字复制过去
+            except Exception:
+                return False
 
     @staticmethod
     def _md_to_html(text):
@@ -6234,19 +6464,63 @@ class PetWidget(QWidget):
 
     # ---------- v6.63：语音朗读（只做输出，不做语音输入） ----------
     def _speak_reply(self, text):
-        """朗读一段回复：默认关；夜间静音；先剥标签/清洗再念"""
+        """朗读一段回复（v6.76：按「朗读内容」策略取要念的文本）
+
+        voice_content_mode：
+          summary（默认）→ 有 AI 摘要就念摘要；没有就“首段 + 末段”“未选中不自动念”
+          full           → 全文（旧行为）
+          manual         → 不自动念（只在你选中后右键朗读）
+        """
         try:
-            from voice_io import clean_for_speech
-            clean = clean_for_speech(text)
-            if clean:
-                self._last_spoken_text = clean          # 供「朗读上一条」手动使用
-            if not clean or not getattr(self, 'voice_enabled', False):
+            from voice_io import choose_speech_text, clean_for_speech
+            mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
+            picked, note = choose_speech_text(text, mode, summary=getattr(self, '_voice_summary', ''))
+            if note:
+                _silent_log('_speak_reply.policy', note)
+            if picked:
+                self._last_spoken_text = clean_for_speech(picked)   # 供「朗读上一条」手动使用
+            if not picked:
+                return False
+            if not getattr(self, 'voice_enabled', False):
                 return False
             v = getattr(self, 'voice', None)
-            return bool(v and v.speak(clean))
+            return bool(v and v.speak(picked))
         except Exception as _exc:
             _silent_log('_speak_reply', _exc)
             return False
+
+    def _set_voice_content_mode(self, mode):
+        """设置「朗读内容」策略（v6.76）：summary（默认）/ full / manual"""
+        val = str(mode or '').strip().lower()
+        if val not in ('summary', 'full', 'manual'):
+            val = 'summary'
+        self.voice_content_mode = val
+        try:
+            self._save_cfg_value('voice_content_mode', val)
+        except Exception as e:
+            _silent_log('_set_voice_content_mode', e)
+        try:
+            self._notify('朗读内容：%s' % {'summary': '要点优先', 'full': '全文',
+                                          'manual': '只念我选中的'}[val])
+        except Exception:
+            pass
+        return val
+
+    def _tool_set_voice_summary(self, args):
+        """AI 声明“这段该怎么念”（v6.76）——只影响朗读，不进正文
+
+        约定：长回复时调用它给 1~2 句朗读摘要；短回复不用调。
+        """
+        txt = str((args or {}).get('text') or '').strip()
+        if not txt:
+            return '没收到要念的内容（text 为空）'
+        self._voice_summary = txt[:600]
+        mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
+        if mode == 'manual':
+            return '已记下朗读摘要，但当前设置为「只念我选中的」，不会自动念'
+        if not getattr(self, 'voice_enabled', False):
+            return '已记下朗读摘要（朗读开关关着，不会出声）'
+        return '已记下朗读摘要：%s' % txt[:80]
 
     def _speak_last_reply(self):
         """手动朗读上一条回复（force：不受开关/夜间静音限制，用户主动要求就该出声）"""
@@ -6275,6 +6549,43 @@ class PetWidget(QWidget):
         self._notify('🔊 已开启朗读回复（离线声线；23:00–08:00 自动静音）' if want
                      else '🔇 已关闭朗读回复')
 
+    def _set_asr_backend(self, backend):
+        """设置语音识别后端（v6.77）：auto / winh / whisper / http"""
+        val = str(backend or '').strip().lower()
+        if val not in ('auto', 'winh', 'whisper', 'http'):
+            val = 'auto'
+        self.asr_backend = val
+        try:
+            self._save_cfg_value('asr_backend', val)
+        except Exception as e:
+            _silent_log('_set_asr_backend', e)
+        try:
+            self.asr.backend_name = val
+            self.asr._avail = None          # 换后端 → 能力缓存作废
+        except Exception:
+            pass
+        self._notify('语音识别后端：%s' % {'auto': '系统（WinRT→SAPI）', 'winh': '系统 Win+H 应急',
+                                          'whisper': '本地 whisper', 'http': '联网接口'}[val])
+        return val
+
+    def _set_asr_extra(self, **kw):
+        """改 whisper/http 后端的配置键（写 config + 同步到引擎）"""
+        mp = {'whisper_exe': 'asr_whisper_exe', 'whisper_model': 'asr_whisper_model',
+              'asr_http_url': 'asr_http_url', 'asr_http_key': 'asr_http_key',
+              'winh_hotkey': 'asr_winh_hotkey'}
+        for k, v in (kw or {}).items():
+            val = str(v or '').strip()
+            setattr(self, mp.get(k, k), val)
+            try:
+                self._save_cfg_value(mp.get(k, k), val)
+            except Exception as e:
+                _silent_log('_set_asr_extra', e)
+            try:
+                setattr(self.asr, k, val)
+            except Exception:
+                pass
+        return True
+
     def _toggle_voice_night(self):
         """夜间静音开关（23:00–08:00 不出声）"""
         want = not bool(getattr(self, 'voice_night_quiet', True))
@@ -6285,6 +6596,44 @@ class PetWidget(QWidget):
         if v is not None:
             v.set_config(night_quiet=want)
         self._notify('🌙 已开启夜间静音（23:00–08:00 不出声）' if want else '已关闭夜间静音')
+
+    def _set_voice_rate(self, rate):
+        """设置语速（v6.76）：写配置 + 立即生效（在线声线用百分比，离线换算成档位）"""
+        from voice_io import normalize_rate
+        val = normalize_rate(rate)
+        self.voice_rate = val
+        try:
+            self._save_cfg_value('voice_rate', val)
+        except Exception as e:
+            _silent_log('_set_voice_rate.save', e)
+        try:
+            self.voice.set_config(rate=val)
+        except Exception as e:
+            _silent_log('_set_voice_rate.apply', e)
+        try:
+            self._notify('语速：%s' % (val or '默认'))
+        except Exception:
+            pass
+        return val
+
+    def _voice_test(self, text):
+        """试听（v6.76）：用户主动点，忽略开关与夜间静音；先把当前语速推给引擎"""
+        try:
+            self.voice.set_config(rate=str(getattr(self, 'voice_rate', '') or ''))
+            ok = self.voice.speak(str(text or '试听'), force=True)
+            if not ok:
+                try:
+                    self._notify('试听没出声（看日志里的原因）')
+                except Exception:
+                    pass
+            return ok
+        except Exception as e:
+            _silent_log('_voice_test', e)
+            try:
+                self._notify('试听失败：%s' % e)
+            except Exception:
+                pass
+            return False
 
     def _set_voice_name(self, name):
         """选声线（值形如 'edge:zh-CN-XiaoxiaoNeural' / 'offline:Huihui'）
@@ -6339,7 +6688,7 @@ class PetWidget(QWidget):
             pass
 
     def _toggle_listen(self):
-        """点 🎤：开始/取消语音输入"""
+        """点 🎤：开始/取消语音输入（v6.77：按当前后端分发；winh 走“把系统拉起来”那条）"""
         if getattr(self, '_listening', False):
             try:
                 self.asr.cancel()
@@ -6348,6 +6697,16 @@ class PetWidget(QWidget):
             self._listening = False
             self._set_mic_button(False)
             self._notify('🎤 已取消语音输入')
+            return
+        # winh 后端：不是我们自己识别，而是唤起系统 Win+H（结果由系统直接打进当前输入框）
+        if str(getattr(self.asr, 'backend_name', 'auto') or 'auto').lower() == 'winh':
+            try:
+                self.chat_input.setFocus()          # 焦点必须在输入框上，系统才会把字写进来
+            except Exception:
+                pass
+            _t, _c, _err = self.asr.trigger_win_h()
+            self._set_mic_button(False)
+            self._notify('🎤 %s' % str(_err or '已唤起 Win+H'))
             return
         ok, info = self.asr.available()
         if not ok:

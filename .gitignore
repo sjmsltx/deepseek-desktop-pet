@@ -18,6 +18,7 @@ logs/
 build/
 dist/
 *.spec
+!tools/DeepSeekPet.spec
 
 # Python
 __pycache__/

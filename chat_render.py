@@ -116,6 +116,14 @@ def md_to_html(text):
     t = re.sub(r'\*([^*\n]+)\*', r'<i>\1</i>', t)
     t = re.sub(r'^[-*]\s+', '• ', t, flags=re.M)
     t = re.sub(r'^\d+\.\s+', lambda m: '&nbsp;&nbsp;' + m.group(0), t, flags=re.M)
+    # v6.76：图片语法 → <img>（原先完全没处理 → 回复里的图既不在聊天里显示，
+    #   复制到 Word/飞书/微信 也一并丢失）
+    #   注意：必须放在“链接”规则之前，否则 ![](x) 会被当成普通链接。
+    t = re.sub(r'!\[([^\]]*)\]\(([^)\s]+)\)',
+               lambda m: '<img src="%s" alt="%s" style="max-width:100%%;">'
+               % (m.group(2), m.group(1)), t)
+    t = re.sub(r'\[([^\]\n]+)\]\(([^)\s]+)\)',
+               lambda m: '<a href="%s">%s</a>' % (m.group(2), m.group(1)), t)
     t = t.replace('\n', '<br>')
 
     # ③ 还原保护内容（逆序：先外层后内层，支持表格内嵌行内代码）

@@ -195,6 +195,49 @@ def check_quota(actor):
     return True, '', day_used
 
 
+# ---------------------------------------------------------------- 成本限额（治理增强③）
+
+def cost_limit_enabled():
+    return bool(_cfg().get('cost_limit_enabled', True))
+
+
+def cost_limit_daily():
+    try:
+        return float(_cfg().get('cost_limit_daily', 20) or 0)
+    except Exception:
+        return 20.0
+
+
+def today_cost(path=None):
+    """今日累计成本（元）——**直接读 API 统计的持久化文件**，不另立第二套计价
+
+    口径与「用量与计费」页、费用气泡完全一致（都来自 api_stats.py 算好的 today.cost）。
+    """
+    p = path or os.path.join(BASE_DIR, 'api_stats.json')
+    try:
+        with open(p, encoding='utf-8') as f:
+            data = json.load(f)
+        if data.get('date') != time.strftime('%Y-%m-%d'):
+            return 0.0                      # 跨天自动归零（统计文件自己也会重置）
+        return float((data.get('today') or {}).get('cost') or 0.0)
+    except Exception:
+        return 0.0
+
+
+def check_cost(estimate=0.0):
+    """(ok, why, used) —— 日成本是否还在限额内（含本次预估）；关上限或上限为 0 时一律放行"""
+    if not cost_limit_enabled():
+        return True, '', 0.0
+    lim = cost_limit_daily()
+    if lim <= 0:
+        return True, '', 0.0
+    used = today_cost()
+    if used + max(0.0, float(estimate or 0.0)) > lim:
+        return False, ('今日模型调用已花 ¥%.2f，达到你设的日上限 ¥%.2f；'
+                       '可在「设置 → 用量与计费 → 日成本上限」调高或关掉') % (used, lim), used
+    return True, '', used
+
+
 def purge_old(days=KEEP_DAYS):
     """删掉超过保留期的审计文件（默认 30 天）"""
     removed = []
@@ -228,6 +271,72 @@ def audit_stats(day=None):
 
 # ------------------------------------------------------------------ 出网白名单
 
+def read_filtered(kind=None, actor=None, only_denied=False, limit=500, day=None):
+    """按条件筛审计（新→旧）—— 供审计查看窗口用
+
+    kind / actor 传 None 或 '全部' 表示不过滤；only_denied=True 时只留被拒（allowed=False）。
+    """
+    skip = (None, '', '全部', 'all', 'ALL')
+    out = []
+    for e in read_recent(limit=100000, day=day):
+        if kind not in skip and e.get('kind') != kind:
+            continue
+        if actor not in skip and e.get('actor') != actor:
+            continue
+        if only_denied and e.get('allowed', True):
+            continue
+        out.append(e)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def export_csv(path, day=None):
+    """把当日审计导出为 CSV（utf-8-sig，Excel 双击不乱码）。返回 (ok, 条数或错误信息)"""
+    import csv
+    items = list(reversed(read_recent(limit=100000, day=day)))   # 时间正序，便于阅读
+    try:
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['时间', '类型', '对象', '动作', '是否允许', '耗时ms', '详情', '附加'])
+            for e in items:
+                extra = e.get('extra')
+                w.writerow([
+                    e.get('ts', ''), e.get('kind', ''), e.get('actor', ''), e.get('action', ''),
+                    '是' if e.get('allowed', True) else '否',
+                    e.get('ms', ''), e.get('detail', ''),
+                    json.dumps(extra, ensure_ascii=False) if extra else '',
+                ])
+        return True, len(items)
+    except Exception as ex:
+        return False, str(ex)
+
+
+def clear_day(day=None, keep_backup=True):
+    """清空当日审计。默认**先改名备份**（audit_<day>.jsonl.bak-HHMMSS）而不是直接删，
+    并补写一条自身的审计（说明是谁在什么时候清的）。返回 (ok, 说明)"""
+    path = audit_path(day)
+    if not os.path.isfile(path):
+        return False, '当前没有审计文件'
+    bak = ''
+    try:
+        if keep_backup:
+            bak = path + '.bak-' + time.strftime('%H%M%S')
+            os.replace(path, bak)
+        else:
+            os.remove(path)
+        _cache['mtime'] = None            # 计数缓存失效
+        log_event('deny', 'audit', '清空当日日志',
+                  detail='备份为 %s' % (os.path.basename(bak) if bak else '（未备份，已直接删除）'),
+                  allowed=True)
+        return True, ('已清空。原日志已备份为 %s' % os.path.basename(bak)) if bak else '已清空（未备份）'
+    except Exception as ex:
+        return False, str(ex)
+
+
 def net_allowlist():
     return [str(x).strip() for x in (_cfg().get('net_allowlist') or []) if str(x).strip()]
 
@@ -255,21 +364,33 @@ def host_of(url):
         return ''
 
 
-def net_allowed(url):
-    """(ok, why)：域名是否在白名单里。支持 *.example.com 这种通配"""
+def net_explain(url):
+    """试算用：返回 (ok, why, rule, host) —— rule 是命中的那条规则（未命中为 None）
+
+    与 net_allowed 是**同一套判定**（net_allowed 直接调本函数），不写第二遍逻辑。
+    """
     host = host_of(url)
     if not host:
-        return False, '看不懂的地址（要给完整 http(s):// 地址）'
+        return False, '看不懂的地址（要给完整 http(s):// 地址）', None, ''
     rules = net_allowlist()
     if not rules:
-        return False, '出网白名单是空的（默认禁止技能出网；可在需要时添加域名）'
+        return False, '出网白名单是空的（默认禁止技能出网；可在需要时添加域名）', None, host
     for rule in rules:
         r = rule.lower()
         if r in ('*', '*.*'):
-            return True, '白名单全放行'
+            return True, '白名单全放行', rule, host
         if fnmatch.fnmatch(host, r):
-            return True, '命中白名单（%s）' % rule
-    return False, '域名 %s 不在出网白名单里' % host
+            return True, '命中白名单（%s）' % rule, rule, host
+    return False, '域名 %s 不在出网白名单里' % host, None, host
+
+
+def net_allowed(url):
+    """(ok, why)：域名是否在白名单里。支持 *.example.com 这种通配
+
+    判定统一走 net_explain（保证「试算」与「真实拦截」永远一致）
+    """
+    ok, why, _rule, _host = net_explain(url)
+    return ok, why
 
 
 def http_get(url, timeout=15, max_bytes=4 * 1024 * 1024):

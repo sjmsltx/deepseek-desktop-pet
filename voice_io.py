@@ -35,7 +35,45 @@ from pet_log import get_logger
 
 _log = get_logger('voice_io')
 
-DEFAULT_MAX_CHARS = 300
+# 朗读文本上限（v6.75：300 → 1200，且可被配置覆盖）
+# 使用者反馈“念到一半就停、不知道为啥”——根因就是这个硬上限 300 字：
+# 超过就静默截断（只加一个“…”），既不报错也不提示，所以看着像“被系统截断”。
+DEFAULT_MAX_CHARS = 1200
+
+# 语速（v6.76）：统一用百分比表示，内部再按引擎换算
+#   在线 edge-tts：'+25%' / '-10%'（直接支持）
+#   离线 SAPI（System.Speech）：Rate = -10..10，换算 percent//10 并限幅
+RATE_MIN, RATE_MAX = -50, 100
+
+
+def normalize_rate(rate):
+    """把用户输入的语速归一成 '+25%' / '-10%' / ''（非法或 0 都归一成 ''）"""
+    s = str(rate or '').strip().replace('％', '%')
+    if not s:
+        return ''
+    m = re.match(r'^([+-]?\d+)\s*%?$', s)
+    if not m:
+        return ''
+    val = max(RATE_MIN, min(RATE_MAX, int(m.group(1))))
+    if val == 0:
+        return ''
+    return '%+d%%' % val
+
+
+def rate_to_sapi(rate):
+    """'+25%' → 3（SAPI 的 -10..10）；无设置 → 0"""
+    s = normalize_rate(rate)
+    if not s:
+        return 0
+    return max(-10, min(10, int(s.rstrip('%')) // 10))
+
+
+def rate_to_multiplier(rate):
+    """'+25%' → 1.25（供本地 TTS 服务的 speed 字段用）"""
+    s = normalize_rate(rate)
+    if not s:
+        return 1.0
+    return 1.0 + int(s.rstrip('%')) / 100.0
 DEFAULT_TIMEOUT = 30
 EDGE_TIMEOUT = 20              # 在线合成超时（秒）；超了转离线
 NIGHT_START_HOUR = 23          # 23:00 起静音
@@ -65,8 +103,56 @@ _EMOJI_RE = re.compile(
     '[\U0001F300-\U0001FAFF\U0001F000-\U0001F2FF\u2600-\u27BF\uFE0F\u2B00-\u2BFF]')
 
 
+def choose_speech_text(text, mode='summary', summary=''):
+    """按「朗读内容」策略挑出要念的文本（v6.76）。返回 (要念的文本, 备注)
+
+    mode：
+      'full'    → 全文（旧行为）
+      'summary' → 有 AI 摘要（工具 set_voice_summary）就念摘要；
+                  否则**兜底自动选段**：首段 + 末段，跳过代码块/表格/长列表
+      'manual'  → 不自动念（使用者选中后右键朗读）
+    """
+    s = str(text or '')
+    if not s.strip():
+        return '', '空文本'
+    m = str(mode or 'summary').strip().lower()
+    if m == 'manual':
+        return '', 'manual：不自动念'
+    if m == 'full':
+        return s, ''
+    sm = str(summary or '').strip()
+    if sm:
+        return sm, '用 AI 摘要'
+    # —— 兜底：首段 + 末段 ——
+    blocks = [b.strip() for b in re.split(r'\n\s*\n', s) if b.strip()]
+    keep = []
+    for b in blocks:
+        if b.startswith('```'):                    # 代码块
+            continue
+        if b.lstrip().startswith('|'):             # 表格
+            continue
+        listy = [ln for ln in b.splitlines() if re.match(r'^\s*([-*+]|\d+[.)])\s+', ln)]
+        if listy and len(listy) >= 4 and len(listy) >= len(b.splitlines()) - 1:
+            continue                               # 长列表（要点项）→ 跳过，听着累
+        keep.append(b)
+    if not keep:
+        return s, '兜底失败，改念全文'
+    if len(keep) == 1:
+        picked = keep[0]
+    else:
+        picked = keep[0] + '\n' + keep[-1]
+        if len(picked) < 20 and len(keep) > 2:     # 首尾都太短 → 补一段
+            picked = keep[0] + '\n' + keep[1] + '\n' + keep[-1]
+    return picked, '兜底：首段+末段'
+
+
 def clean_for_speech(text, max_chars=DEFAULT_MAX_CHARS):
-    """把回复文本处理成「适合念出来」的样子。返回 '' 表示没什么可念的。"""
+    """把回复文本处理成「适合念出来」的样子。返回 '' 表示没什么可念的。
+
+    v6.75：超长时不再静默截断 —— 返回的文本末尾会带「（后略）」，
+    并且调用方（VoiceIO.speak）会记一条日志说明“原 N 字 → 念 M 字”，
+    避免再出现“莫名其妙被截断”的排查困境。
+    """
     s = str(text or '')
     if not s.strip():
         return ''
@@ -81,7 +167,7 @@ def clean_for_speech(text, max_chars=DEFAULT_MAX_CHARS):
     s = re.sub(r'[ \t]+', ' ', s)
     s = re.sub(r'\n{2,}', '\n', s).strip()
     if len(s) > max_chars:
-        s = s[:max_chars].rstrip() + '…'
+        s = s[:max_chars].rstrip() + '（后略）'
     if not re.search(r'[\u4e00-\u9fffA-Za-z0-9]', s):
         return ''
     return s
@@ -249,12 +335,13 @@ class VoiceIO:
     def __init__(self, base_dir, enabled=False, engine='auto', voice='',
                  night_quiet=True, max_chars=DEFAULT_MAX_CHARS, timeout=DEFAULT_TIMEOUT,
                  runner=None, local_url='', local_ref='', local_prompt='', local_lang='zh',
-                 local_timeout=20):
+                 local_timeout=20, rate=''):
         self.base_dir = base_dir
         self.ps1 = os.path.join(base_dir, 'tts_helper.ps1')
         self.enabled = bool(enabled)
         self.engine = engine or 'auto'          # auto / edge / offline / local
         self.voice = voice or DEFAULT_VOICE     # 'edge:…' / 'offline:…' / 'local:http://…'
+        self.rate = normalize_rate(rate)        # v6.76 语速，统一存成 '+25%' / '-10%' / ''
         self.local_url = local_url or ''        # 本地自建 TTS 服务（自训练/克隆模型）
         self.local_ref = local_ref or ''        # 参考音频（零样本克隆用）
         self.local_prompt = local_prompt or ''  # 参考音频对应的文本
@@ -278,7 +365,7 @@ class VoiceIO:
 
     # ---------- 对外接口 ----------
     def set_config(self, enabled=None, engine=None, voice=None, night_quiet=None,
-                   local_url=None, local_ref=None, local_prompt=None):
+                   local_url=None, local_ref=None, local_prompt=None, rate=None):
         with self._lock:
             if enabled is not None:
                 self.enabled = bool(enabled)
@@ -286,6 +373,8 @@ class VoiceIO:
                 self.engine = engine
             if voice is not None:
                 self.voice = voice
+            if rate is not None:
+                self.rate = normalize_rate(rate)
             if night_quiet is not None:
                 self.night_quiet = bool(night_quiet)
             if local_url is not None:
@@ -316,6 +405,11 @@ class VoiceIO:
         spoken = clean_for_speech(text, self.max_chars)
         if not spoken:
             return False
+        # v6.75：截断不再“莫名其妙”—— 过长时把“原 N 字 → 念 M 字”写进日志
+        if len(str(text or '')) > self.max_chars:
+            _log.info('朗读文本超限，已截断：原 %d 字 → 念 %d 字'
+                      '（上限 %d，可在 config.json 改 voice_max_chars）',
+                      len(str(text or '')), self.max_chars, self.max_chars)
         self._q.put(spoken)
         self._wake.set()
         return True
@@ -407,7 +501,8 @@ class VoiceIO:
             vname = 'zh-CN-XiaoxiaoNeural'
 
         async def _run():
-            comm = edge_tts.Communicate(text, vname)
+            # v6.76：语速（'+25%' / '-10%'；'/' → 默认语速）
+            comm = edge_tts.Communicate(text, vname, rate=(self.rate or '+0%'))
             await asyncio.wait_for(comm.save(out_path), timeout=EDGE_TIMEOUT)
 
         try:
@@ -433,6 +528,10 @@ class VoiceIO:
         if not url:
             return '', '', '未配置本地服务地址'
         payload = {'text': text, 'text_lang': (self.local_lang or 'zh'), 'media_type': 'auto'}
+        # v6.76：语速（可选字段，服务端不认识会忽略；认的话按倍数调速）
+        _spd = rate_to_multiplier(self.rate)
+        if _spd != 1.0:
+            payload['speed'] = _spd
         if self.local_ref:
             payload['ref_audio_path'] = self.local_ref
         if self.local_prompt:
@@ -472,6 +571,9 @@ class VoiceIO:
                 cmd += ['-Engine', self.engine]
             if vname:
                 cmd += ['-Voice', vname]
+            _sapi_rate = rate_to_sapi(self.rate)     # v6.76 语速：percent → SAPI -10..10
+            if _sapi_rate:
+                cmd += ['-Rate', str(_sapi_rate)]
             # v6.64：CREATE_NO_WINDOW —— 不再先闪一下控制台黑框（使用者反馈很突兀）
             proc = subprocess.run(cmd, capture_output=True, timeout=self.timeout,
                                   creationflags=_win_flags())

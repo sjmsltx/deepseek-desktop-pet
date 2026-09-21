@@ -216,7 +216,7 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 - **安装来源**：本地目录 / `.zip` / GitHub 仓库（`owner/repo`）。装前会校验清单字段、Python 语法、
   危险代码、zip 路径穿越（`../`、盘符）、文件数与体积上限，并登记来源与内容哈希
 - **可管理**：启用/禁用（热生效）、看来源与版本、卸载（移进 `plugins/_uninstalled/`，**可找回**）
-- 模型侧工具 `skill_pack`（在进阶工具集里）；规范全文见 [`docs/技能包规范_20260920.md`](docs/技能包规范_20260920.md)
+- 模型侧工具 `skill_pack`（在进阶工具集里，**v6.76 后共 32 个工具、core 19**）；规范全文见 [`docs/技能包规范_20260920.md`](docs/技能包规范_20260920.md)
 - **管理界面**：设置 → 「技能」页 —— 列表（名称/版本/来源/有效状态，悬浮看权限）、从目录或 zip 安装、启用/禁用、
   权限卡片（可当场确认）、卸载；被安全策略拦下的包会以 `⚠` 行显示原因
 - **官方技能（随程序自带）**：
@@ -252,8 +252,15 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 - 说明：v2 且非随程序自带的技能包，**直接用 urllib/requests 会在安装时被拒**，要求改走 `pet_net`（否则白名单形同虚设）
 - ⚠️ **白名单管的是第三方技能包**：随程序自带的官方包（`builtin`）视为已信任，**不走白名单** ——
   目前只有 `vision` 需要联网（调视觉模型）。别把“白名单”理解成“能拦住所有出网”；
-  让内置包也受约束已列入 **2.9.1 候选**（给白名单预置必要域名）
+  让内置包也受约束是 **3.0 待办**（给白名单预置必要域名）
 - 审计结论已固化为常驻不变量测试（`tests/test_audit_invariants.py`）：以后再改动也不会静默破坏这些底线
+
+- **朗读内容策略（v6.76）**：语音页新增「朗读内容」三选一 —— **要点优先**（默认：模型长回复时会给一句朗读摘要；
+  没给就自动念“首段+末段”，跳过代码块/表格/长列表）/ **全文** / **只念我选中的**；
+  配套新增默认可用的工具 `set_voice_summary`（模型用它声明“这段该怎么念”，不进正文）；
+  **语速**控制（默认/-10/-20/+15/+30/+50/+80%）+ 「🔊 试听」按钮
+- **增量 markdown 渲染 + 文本可选中高亮（v6.76）**：流式期间已完成块即时渲染成富文本；
+  消息标签补上选中配色（之前“选不中”其实是没有高亮色）
 
 ### 🎭 双角色系统
 | 角色 | 模型 | 特征 |
@@ -477,22 +484,48 @@ desktop-pet/
 
 ## 📦 打包为 exe
 
+### 一条命令出包（推荐）
+
 ```powershell
-python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet `
-  --collect-all PySide6 --collect-all shiboken6 `
-  --collect-all edge_tts `
-  --collect-all win32com --hidden-import pythoncom --hidden-import pywintypes `
-  --specpath release_build --workpath release_build\build --distpath release_build\dist `
-  desktop_pet.py
+powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 2.9.1
 ```
 
-> ⚠️ PyInstaller 必须 ≥ 6.21（支持 Python 3.14）；打包后删除 `_internal` 里的 `icu*.dll`（会干扰 Qt6Core，spec 已内置排除规则）。
+它会按顺序做四件事，任何一步不通过就**直接失败、不让你发出半成品**：
+
+| 步骤 | 做什么 | 为什么必须有 |
+|---|---|---|
+| 1 构建 | PyInstaller 按 `tools\DeepSeekPet.spec` 构建 | spec 已纳入仓库（旧位置在 `release_build\`，那里被 .gitignore 排除，clone 下来会缺失）；已含 PySide6 / shiboken6 / edge_tts / win32com 的 `collect_all` |
+| 2 staging | `tools\stage_portable.py` 把 assets / plugins / `*.ps1` / 说明与示例配置拷进包目录，并清除本地运行期数据 | **不跑这步 = 用户装完没有立绘、没有技能、语音与 OCR 不可用**（素材路径写死在 exe 旁边，而 spec 的 `datas=[]`） |
+| 3 压包 | `tools\zip_portable.py`（Python zipfile，写 UTF-8 名字） | **别用 tar 压**：实测中文名（`使用说明.txt`）会被写成坏编码，解压出来是乱码 |
+| 4 自检 | `tools\check_release_package.py` 三类核对 | 必需资产（含 assets 子目录与插件数动态对齐）/ Qt 运行时（含 `qwebp.dll`）/ 禁止入包项 |
+
+只重跑后半段：加 `-SkipBuild`（已构建过）或 `-SkipCheck`（自己要看中间产物）。
+
+> 🔒 **不能随包发的东西**（staging 会自动清掉）：`logs/`、`memories.json`、`models.json`、
+> `config.json`、`files_cache.json`、`holidays_cache.json`、`plugins/_registry.json`、`__pycache__`。
 >
-> 🗣️ `--collect-all edge_tts` 让便携包带上**在线神经声线**（晓晓等）；漏掉这个参数也能跑 ——
-> 朗读会自动降级到系统内置的离线声线（偏机械），不会报错。
+> ⚠️ 不要在命令行再叠加 `--collect-all PySide6` 之类参数：spec 里已经有了，重复收集会把包从
+> ~209 MB 撑到 ~305 MB（v2.9.0 实测）。
 >
-> 📊 `--collect-all win32com --hidden-import pythoncom --hidden-import pywintypes` 让便携包带上
-> **办公文档能力**（COM 驱动 WPS/Office）；漏掉时桌宠仍能跑，只是 `office_doc` 会回答“缺少 pywin32”。
+> 📝 PyInstaller 需 ≥ 6.21（支持 Python 3.14）。曾以为要手工删 `_internal` 里的 `icu*.dll`——
+> 2026-09-21 复核实测：当前构建产物与最终发布包里 **icu*.dll 数量为 0**，无需删除。
+
+### 手工等价命令（参考）
+
+下面是把上面的步骤拆开写的样子，仅供排查问题时对照：
+
+```powershell
+# 1) 构建
+python -m PyInstaller --noconfirm --clean --distpath release_build\dist --workpath release_build\build tools\DeepSeekPet.spec
+# 2) staging → 3) 压包 → 4) 自检
+python tools\stage_portable.py release_build\dist\DeepSeekPet
+python tools\zip_portable.py release_build\dist\DeepSeekPet release_build\DeepSeekPet_v2.9.1_portable.zip
+python tools\check_release_package.py release_build\DeepSeekPet_v2.9.1_portable.zip
+```
+
+> 🗣️ `edge_tts` 决定便携包是否带**在线神经声线**（晓晓等）；缺了仍能跑，朗读会自动降级到系统离线声线（偏机械）。
+>
+> 📊 `win32com` + `pythoncom`/`pywintypes` 决定**办公文档能力**（COM 驱动 WPS/Office）；缺了仍能跑，只是 `office_doc` 会回答「缺少 pywin32」。
 
 ## 🔌 接入你自己的模型 / 自己的声音
 

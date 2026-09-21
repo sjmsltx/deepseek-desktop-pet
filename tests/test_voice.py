@@ -15,6 +15,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import pytest
+
 import voice_io as vio      # noqa: E402
 
 
@@ -53,9 +55,48 @@ def test_clean_strips_tags_markdown_and_noise():
     assert '第一点' in out and '很重要' in out
 
 
-def test_clean_caps_length_and_keeps_speech():
-    out = vio.clean_for_speech('啊' * 500)
-    assert len(out) <= vio.DEFAULT_MAX_CHARS + 1 and out.endswith('…')
+def test_clean_caps_length_and_marks_truncation():
+    """v6.75：上限从 300 提到 1200，且截断不再静默 —— 末尾标出「（后略）」
+
+    旧断言只看“<= 上限 + 1 且以 … 结尾”；使用者反馈的“莫名被截断”就是那个 300 硬上限
+    （且只加了个省略号、不报不提示）。现在：上限可配、截断可见。
+    """
+    out = vio.clean_for_speech('啊' * 5000)
+    assert len(out) <= vio.DEFAULT_MAX_CHARS + len('（后略）'), len(out)
+    assert out.endswith('（后略）'), out[-10:]
+    # 没超限的就不该加标记
+    mid = vio.clean_for_speech('啊' * 100)
+    assert not mid.endswith('（后略）')
+
+
+def test_default_max_chars_raised():
+    assert vio.DEFAULT_MAX_CHARS >= 1000, '默认上限不该再是 300（会把正常长回复念断）'
+
+
+# ---------- 语速（v6.76）----------
+
+@pytest.mark.parametrize('raw,expect', [
+    ('+25%', '+25%'), ('25', '+25%'), ('-10%', '-10%'), ('0', ''), ('', ''),
+    ('abc', ''), ('+999%', '+100%'), ('-99%', '-50%'),
+    ('１５％', '+15%'),      # 全角数字/百分号也认（中文用户从文档里拷过来很常见）
+])
+def test_normalize_rate(raw, expect):
+    assert vio.normalize_rate(raw) == expect
+
+
+def test_rate_engines_conversions():
+    assert vio.rate_to_sapi('+25%') == 2 and vio.rate_to_sapi('-30%') == -3
+    assert vio.rate_to_sapi('') == 0
+    assert abs(vio.rate_to_multiplier('+25%') - 1.25) < 1e-6
+    assert abs(vio.rate_to_multiplier('-50%') - 0.5) < 1e-6
+    assert vio.rate_to_multiplier('') == 1.0
+
+
+def test_voiceio_accepts_rate_and_updates():
+    v = vio.VoiceIO('.', enabled=False, rate='25')
+    assert v.rate == '+25%'
+    v.set_config(rate='-20%')
+    assert v.rate == '-20%'
 
 
 def test_clean_returns_empty_for_noise():
