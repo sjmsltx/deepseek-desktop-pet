@@ -40,6 +40,26 @@ import relay_log as relay  # noqa: E402
 
 LAYERS = ('L1', 'L2', 'L3')
 
+# 动作端点默认关闭：默认只暴露**只读**导出面（契约 v1）；
+# 需 --enable-actions 才打开（契约补遗 v2：/api/step /api/interrupt /api/resume）
+ACTIONS_ALLOWED = False
+
+
+def demo_provider(msg, issue):
+    """演示用 provider：**不发任何真实请求**，返回固定回复（用于 UI/复核自动化）。
+
+    特点：内容里带新数字与实体 → 不会误触“无新信息”收敛；可被 --max-turns 停下。
+    """
+    n = getattr(demo_provider, 'n', 0) + 1
+    demo_provider.n = n
+    return relay.ProviderReply(
+        body='（演示回复 %d）基于议题「%s」，我建议先做方案 %d：把动作端点独立开关，'
+             '默认只读、需要时才开；验证指标：接口 200 率 100%%，回合 %d/8。'
+             % (n, getattr(issue, 'title', ''), (n % 3) + 1, n),
+        tokens=40 + n, cost_micro=120 + n * 5,
+        meta={'model': 'demo-provider', 'latency_ms': 300 + n * 10},
+    )
+
 
 def _msg(m) -> dict:
     """Msg → 契约规定的字段集（与内核一一对应，不增不减核心字段）。"""
@@ -84,6 +104,38 @@ class Handler(BaseHTTPRequestHandler):
         return layer if layer in LAYERS else ''
 
     # ---- 路由 ----
+    def _json_body(self) -> dict:
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+            raw = self.rfile.read(n) if n else b''
+            return json.loads(raw.decode('utf-8')) if raw else {}
+        except Exception:
+            return {}
+
+    def do_POST(self):
+        """动作端点（默认关闭）。只做三件事：推一回合 / 打断 / 继续 —— 全部落到内核公开 API。"""
+        u = urlparse(self.path)
+        path = u.path.rstrip('/')
+        if not ACTIONS_ALLOWED:
+            return self._err(403, '动作端点未开启（需服务端 --enable-actions）')
+        body = self._json_body()
+        try:
+            if path == '/api/step':
+                r = self.log.step()
+                return self._json({'ok': r.ok, 'stopped': r.stopped, 'reason': r.reason,
+                                   'turn_no': r.turn_no, 'notice_human': r.notice_human,
+                                   'cost_micro': r.cost_micro, 'provider_calls': r.provider_calls})
+            if path == '/api/interrupt':
+                m = self.log.interrupt(str(body.get('body') or '（人类插队）'))
+                return self._json({'ok': True, 'id': m.id, 'seq': m.seq,
+                                   'interrupted': self.log.snapshot()['interrupted']})
+            if path == '/api/resume':
+                ok = self.log.resume(str(body.get('text') or '继续'))
+                return self._json({'ok': ok, 'interrupted': self.log.snapshot()['interrupted']})
+        except Exception as exc:
+            return self._err(500, repr(exc))
+        return self._err(404, '未知动作：%s' % path)
+
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
@@ -132,8 +184,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def create_server(log: relay.RelayLog, host: str = '127.0.0.1', port: int = 0,
-                  ui_path: str = ''):
+                  ui_path: str = '', enable_actions: bool = False):
     """返回 (httpd, port)。**host 默认且仅建议 127.0.0.1**。"""
+    global ACTIONS_ALLOWED
+    ACTIONS_ALLOWED = bool(enable_actions)
     cls = type('BoundHandler', (Handler,), {'log': log, 'ui_path': ui_path})
     httpd = ThreadingHTTPServer((host, port), cls)
     return httpd, httpd.server_address[1]
@@ -145,13 +199,23 @@ def main():
     ap.add_argument('--port', type=int, default=0)
     ap.add_argument('--ui', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html'))
     ap.add_argument('--open', action='store_true')
+    ap.add_argument('--enable-actions', action='store_true',
+                    help='打开动作端点 /api/step|interrupt|resume（默认只读）')
+    ap.add_argument('--demo-provider', action='store_true',
+                    help='用不发真实请求的演示 provider（供 UI/复核用）')
+    ap.add_argument('--issue-title', default='')
     args = ap.parse_args()
 
-    log = relay.RelayLog(args.log)
-    httpd, port = create_server(log, '127.0.0.1', args.port, args.ui)
+    log = relay.RelayLog(args.log, provider=demo_provider if args.demo_provider else None)
+    if args.issue_title:
+        log.open_issue(relay.Issue(args.issue_title, '给出 3 条方案并收敛到 1 条', '出现可执行方案即停'))
+    httpd, port = create_server(log, '127.0.0.1', args.port, args.ui,
+                                enable_actions=args.enable_actions)
     url = 'http://127.0.0.1:%d/' % port
-    print('协作台后端已启动：%s' % url)
+    print('协作台已启动：%s' % url)
     print('  只读导出：/api/view /api/inbox /api/snapshot /api/log.jsonl')
+    print('  动作端点：%s' % ('已开启 /api/step /api/interrupt /api/resume'
+                              if args.enable_actions else '关闭（默认只读）'))
     if args.open:
         try:
             os.startfile(url)      # 本机默认浏览器

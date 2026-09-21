@@ -34,6 +34,7 @@
   button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
   button.primary:hover{background:#094c51}
   button[disabled]{opacity:.45;cursor:not-allowed}
+  button.danger{border-color:var(--warn);color:var(--warn)}
   .cols{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(320px,1fr);gap:12px;align-items:start}
   .panel{border:1px solid var(--rule);background:#fff}
   .panel-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:8px 11px;border-bottom:1px solid var(--rule2);background:var(--card);display:flex;justify-content:space-between;align-items:center}
@@ -79,7 +80,11 @@
 </div>
 
 <div class="actions">
-  <button class="primary" id="btn-refresh">⟳ 刷新</button>
+  <button class="primary" id="btn-step">▶ 推进一回合</button>
+  <button class="danger" id="btn-interrupt">⏸ 打断（人类接管）</button>
+  <button id="btn-resume">⏵ 继续（显式）</button>
+  <span class="sep"></span>
+  <button id="btn-refresh">⟳ 刷新</button>
   <button id="btn-export-l1">⤓ 导出 L1 视图</button>
   <button id="btn-export-l2">⤓ 导出 L2 视图</button>
   <button id="btn-export-snap">⤓ 导出快照</button>
@@ -285,6 +290,30 @@
   };
   $('btn-raw').onclick = function () { window.open('/api/log.jsonl', '_blank'); };
   $('btn-refresh').onclick = refresh;
+
+  // ---- 动作端点（服务端需 --enable-actions；否则后端返 403，这里会显式报出来）----
+  function post(path, payload) {
+    return fetch(path, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error(path + ' → HTTP ' + r.status + ' ' + t); }
+        return t ? JSON.parse(t) : {};
+      });
+    });
+  }
+  function act(path, payload) {
+    return post(path, payload).then(function () { return refresh(); })
+      .catch(function (e) { err(e.message); });
+  }
+  $('btn-step').onclick = function () { act('/api/step', {}); };
+  $('btn-interrupt').onclick = function () { act('/api/interrupt', { body: '［人类接管］先停一下' }); };
+  $('btn-resume').onclick = function () { act('/api/resume', { text: '继续' }); };
+
+  // 每 2 秒轮询：界面上能实时看到“打断后不再有新投递”✓
+  setInterval(refresh, 2000);
 
   refresh();
 })();
