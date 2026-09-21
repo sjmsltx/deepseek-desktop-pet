@@ -145,6 +145,7 @@ UI_ZH = {
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
     'export_chat': '📤 导出聊天记录', 'mem_time': '时间', 'mem_who': '谁', 'mem_select_all': '全选', 'mem_select_none': '全不选', 'mem_select_me': '只选我', 'mem_select_pet': '只选桌宠', 'mem_export': '导出', 'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
     'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
+    'dsh_panel': '🐳 打开 DSH 面板（3.0）', 'dsh_panel_fail': '🫧 DSH 面板打不开：',
     'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
     'person_gentle': '温柔', 'person_tsundere': '傲娇', 'person_sarcastic': '吐槽', 'person_energetic': '元气', 'person_cold': '高冷',
@@ -178,6 +179,7 @@ UI_EN = {
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
     'export_chat': '📤 Export chat', 'mem_time': 'Time', 'mem_who': 'Who', 'mem_select_all': 'All', 'mem_select_none': 'None', 'mem_select_me': 'Me only', 'mem_select_pet': 'Pet only', 'mem_export': 'Export', 'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
     'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
+    'dsh_panel': '🐳 Open DSH panel (3.0)', 'dsh_panel_fail': '🫧 Cannot open DSH panel: ',
     'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
     'person_gentle': 'Gentle', 'person_tsundere': 'Tsundere', 'person_sarcastic': 'Sarcastic', 'person_energetic': 'Energetic', 'person_cold': 'Cold',
@@ -8119,11 +8121,39 @@ class PetWidget(QWidget):
                 plmenu.addAction('%s' % label).triggered.connect(
                     lambda checked, c=cmd: self._run_plugin_menu(c))
 
+        # 8. DSH 面板（3.0 · 载体）：只做宿主窗口，不解析它的前端；
+        #    模块不可用/服务未起时安静地不显示或提示，绝不抛异常影响桌宠本体。
+        try:
+            from dsh_panel import open_panel as _dsh_open_panel
+        except Exception:
+            _dsh_open_panel = None
+        if _dsh_open_panel is not None:
+            acts['dsh_panel'] = menu.addAction(T('dsh_panel'))
+            acts['dsh_panel'].triggered.connect(self._open_dsh_panel)
+
         menu.addSeparator()
         acts['hide'] = menu.addAction(T('hide_tray'))
         menu.addSeparator()
         acts['exit'] = menu.addAction(T('exit'))
         return menu, acts
+    def _open_dsh_panel(self):
+        """3.0（P0）：把 DSH 面板作为独立窗口打开。
+
+        铁律：只做宿主 —— 不解析它的前端、不读凭据、不写它的文件。
+        失败只提示，不影响桌宠任何现有功能。
+        """
+        try:
+            from dsh_panel import open_panel
+            ok, msg = open_panel()
+        except Exception as exc:
+            ok, msg = False, repr(exc)
+        if not ok:
+            try:
+                self.say_plain('%s%s' % (T('dsh_panel_fail'), msg))
+            except Exception:
+                pass
+        return ok
+
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:
