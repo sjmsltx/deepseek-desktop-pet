@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>协作台原型（假数据）· 投递可见化</title>
+<style>
+  :root{
+    --ink:#14181c;--ink2:#3c444c;--ink3:#6d767f;--rule:#d9dde0;--rule2:#eceff1;
+    --paper:#fafaf8;--card:#f3f5f3;--acc:#0b5d63;--acc-soft:#e4f0f0;
+    --warn:#8a4b12;--warn-soft:#fbf1e6;--ok:#136b3a;--ok-soft:#e8f4ec;
+    --c-flash:#2f6fb0;--c-pro:#7a4fb5;--c-mao:#b3702a;--c-me:#0b5d63;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.7}
+  .wrap{max-width:1420px;margin:0 auto;padding:26px 26px 60px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin-bottom:8px}
+  h1{font-family:var(--serif);font-size:27px;margin:0;font-weight:600;line-height:1.25}
+  .sub{color:var(--ink3);font-size:13px;margin-top:6px}
+  .topic{font-family:var(--mono);font-size:12.5px;background:var(--card);border:1px solid var(--rule2);padding:8px 12px;border-radius:3px;color:var(--ink2);max-width:620px}
+  /* 顶部仪表 */
+  .gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:16px}
+  .g{background:#fff;padding:11px 14px}
+  .g .k{font-family:var(--mono);font-size:11px;color:var(--ink3);letter-spacing:.08em}
+  .g .v{font-size:17px;font-weight:600;margin-top:2px}
+  .g .v small{font-size:12px;font-weight:400;color:var(--ink3)}
+  .bar{height:4px;background:var(--rule2);margin-top:6px;position:relative}
+  .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--acc);width:0%}
+  .bar.w i{background:var(--warn)}
+  .status{font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:3px;border:1px solid var(--rule);display:inline-block}
+  .status.run{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
+  .status.pause{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
+  .status.done{background:var(--card);color:var(--ink2)}
+  /* 工具条 */
+  .bar-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  button{font-family:var(--sans);font-size:13.5px;padding:8px 14px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
+  button:hover{background:var(--card)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  button.primary:hover{background:#094c51}
+  button.danger{border-color:var(--warn);color:var(--warn)}
+  /* 三栏 */
+  .cols{display:grid;grid-template-columns:232px minmax(360px,1fr) 380px;gap:14px;align-items:start}
+  .panel{border:1px solid var(--rule);background:#fff}
+  .panel-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);
+           padding:9px 12px;border-bottom:1px solid var(--rule2);background:var(--card);display:flex;justify-content:space-between;align-items:center}
+  .panel-body{padding:10px 12px}
+  /* 会话列表 */
+  .conv{padding:7px 9px;border-radius:3px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:13.5px}
+  .conv:hover{background:var(--card)}
+  .conv.on{background:var(--acc-soft);border:1px solid #bfe0e0}
+  .conv.muted{color:var(--ink3)}
+  .conv .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .conv .badge{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+  /* 消息流 */
+  .stream{padding:12px;max-height:560px;overflow-y:auto;background:#fff}
+  .msg{display:grid;grid-template-columns:38px 1fr;gap:10px;margin-bottom:12px}
+  .av{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      color:#fff;font-size:15px;font-weight:600;font-family:var(--serif)}
+  .av.me{background:var(--c-me)}
+  .av.flash{background:var(--c-flash)}
+  .av.pro{background:var(--c-pro)}
+  .av.mao{background:var(--c-mao)}
+  .av.sys{background:#8b949c;font-size:12px}
+  .m-h{font-size:12.5px;color:var(--ink3);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .m-h b{color:var(--ink);font-size:13.5px;font-weight:600}
+  .m-b{background:var(--card);border:1px solid var(--rule2);border-radius:3px;padding:8px 11px;margin-top:4px;white-space:pre-wrap}
+  .msg.me .m-b{background:var(--acc-soft);border-color:#bfe0e0}
+  .msg.meta .m-b{background:#f7f8f7;border-style:dashed;color:var(--ink2);font-family:var(--mono);font-size:12.5px}
+  .msg.sys .m-b{background:#f4f4f2;border-color:var(--rule);color:var(--ink2)}
+  .m-t{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap}
+  /* 投递轨道 */
+  .lane{padding:0}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--rule2)}
+  thead th{font-family:var(--mono);font-size:11px;color:var(--ink3);font-weight:600;background:var(--card);position:sticky;top:0}
+  td.num{font-family:var(--mono);text-align:right}
+  .arrow{font-family:var(--mono);color:var(--ink2)}
+  .kind{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:3px;border:1px solid var(--rule);background:var(--card)}
+  .kind.ask{border-color:#c9d8ef;background:#eef3fb;color:#2f5fa8}
+  .kind.reply{border-color:#c6e0d0;background:var(--ok-soft);color:var(--ok)}
+  .kind.delegate{border-color:#e2d3c0;background:#faf3e9;color:#8a5a1a}
+  .kind.arbitrate{border-color:#dbc7ea;background:#f4edfb;color:#6a3fa8}
+  .kind.tool{border-color:var(--rule);background:var(--card);color:var(--ink2)}
+  .lane-scroll{max-height:330px;overflow-y:auto}
+  .hidden{display:none}
+  /* 角色与规格 */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:14px 0}
+  .card{border:1px solid var(--rule);background:#fff;padding:13px 15px}
+  .card h4{margin:0 0 6px;font-family:var(--serif);font-size:16px}
+  .card p{margin:4px 0;font-size:13.5px;color:var(--ink2)}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--ink3);border:1px solid var(--rule2);background:var(--card);padding:1px 6px;border-radius:3px;margin-right:4px}
+  h2{font-family:var(--serif);font-size:20px;margin:38px 0 8px;padding-top:18px;border-top:1px solid var(--rule);font-weight:600}
+  h2 .num{font-family:var(--mono);font-size:12.5px;color:var(--acc);margin-right:8px;vertical-align:2px}
+  h3{font-size:15.5px;margin:22px 0 6px}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);border:1px solid var(--rule2);padding:1px 5px;border-radius:3px}
+  pre{font-family:var(--mono);font-size:12px;background:var(--card);border:1px solid var(--rule2);padding:12px 14px;overflow-x:auto;border-radius:3px}
+  .note{border-left:2px solid var(--acc);padding:11px 0 11px 15px;margin:16px 0;background:linear-gradient(90deg,var(--acc-soft) 0%,rgba(228,240,240,0) 80%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 80%)}
+  .note b{font-weight:600}
+  .muted{color:var(--ink3)}
+  footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:11.5px;color:var(--ink3)}
+  @media (max-width:1100px){.cols{grid-template-columns:1fr}.stream{max-height:none}.lane-scroll{max-height:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <div class="kicker">DeepSeekPet 3.0 · P1 原型 · 假数据</div>
+    <h1>协作台：AI↔AI 投递可见化</h1>
+    <div class="sub">这一页不连任何模型 —— 全部是脚本化的假数据，用来把 UI 与投递语义先验证透。按钮都可点。</div>
+  </div>
+  <div class="topic">议题：把桌宠的 DSH 面板做成什么样（目标：给出 3 条可选方案并收敛到 1 条；结束条件：出现可执行方案即停）</div>
+</header>
+
+<div class="gauges">
+  <div class="g"><div class="k">回合</div><div class="v"><span id="g-turn">0</span> <small>/ 8</small></div><div class="bar"><i id="b-turn"></i></div></div>
+  <div class="g"><div class="k">时长</div><div class="v"><span id="g-time">0:00</span> <small>/ 5:00</small></div><div class="bar"><i id="b-time"></i></div></div>
+  <div class="g"><div class="k">成本</div><div class="v">¥<span id="g-cost">0.000</span> <small>/ ¥5.00</small></div><div class="bar"><i id="b-cost"></i></div></div>
+  <div class="g"><div class="k">状态</div><div class="v"><span id="g-state" class="status done">待开始</span></div></div>
+</div>
+
+<div class="bar-actions">
+  <button id="btn-run" class="primary">▶ 开始讨论</button>
+  <button id="btn-pause" class="danger" disabled>⏸ 人类接管（暂停）</button>
+  <button id="btn-speak" disabled>👤 插一句话</button>
+  <button id="btn-reset">⟳ 重放</button>
+  <button id="btn-l3">👁 展开后台总线</button>
+</div>
+
+<div class="cols">
+  <!-- 左：会话列表 -->
+  <div class="panel">
+    <div class="panel-h"><span>会话</span><span class="badge" id="conv-count">4</span></div>
+    <div class="panel-body">
+      <div class="conv on"><span class="av sys">#</span><span class="n">讨论组 · DSH 面板</span><span class="badge">群</span></div>
+      <div class="conv"><span class="av me">我</span><span class="n">我 ↔ pro</span><span class="badge">单聊</span></div>
+      <div class="conv"><span class="av me">我</span><span class="n">我 ↔ mao</span><span class="badge">单聊</span></div>
+      <div class="conv"><span class="av flash">f</span><span class="n">flash ↔ pro</span><span class="badge">单聊</span></div>
+      <div class="conv muted"><span class="av sys">↳</span><span class="n">线程 · 方案 A 细节</span><span class="badge">线程</span></div>
+    </div>
+  </div>
+
+  <!-- 中：L1 群聊流 -->
+  <div class="panel">
+    <div class="panel-h"><span>L1 · 群聊流（人读的）</span><span class="muted" style="font-family:var(--mono);font-size:11px">投递元数据在右侧</span></div>
+    <div class="stream" id="stream">
+      <div class="msg sys"><div class="av sys">#</div><div><div class="m-h"><b>系统</b><span>议题已建立</span></div><div class="m-b">议题：把桌宠的 DSH 面板做成什么样
+参与者：flash（快嘴）· pro（分析）· mao（实干）
+上限：8 回合 / 5 分钟 / ¥5.00 —— 任一到顶即收敛并 @人类
+规则：人类消息随时插队，插队后自动轮转暂停。</div></div></div>
+    </div>
+  </div>
+
+  <!-- 右：L2 投递轨道 -->
+  <div class="panel">
+    <div class="panel-h"><span>L2 · 投递轨道（机器读的）</span><span class="badge" id="lane-count">0 条</span></div>
+    <div class="lane-scroll">
+      <table class="lane">
+        <thead><tr><th>时间</th><th>投递</th><th>类型</th><th>模型</th><th>tok</th><th>成本</th><th>耗时</th></tr></thead>
+        <tbody id="lane"></tbody>
+      </table>
+    </div>
+    <div id="l3box" class="hidden">
+      <div class="panel-h" style="border-top:1px solid var(--rule2)"><span>L3 · 后台总线（默认隐藏）</span></div>
+      <div class="panel-body" id="l3" style="font-family:var(--mono);font-size:11.5px;color:var(--ink3);max-height:150px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="num">01</span>角色四件套（每个角色都要有，缺一不可）</h2>
+<div class="cards">
+  <div class="card">
+    <h4>flash · 快嘴</h4>
+    <p><span class="tag">人格</span>反应快、爱先抛结论、口语化，负责把气氛推起来</p>
+    <p><span class="tag">模型</span>deepseek-flash（便宜、快）</p>
+    <p><span class="tag">声线</span>晓晓（女声，语速偏快）</p>
+    <p><span class="tag">立绘</span>沿用 <code>assets/flash</code>，6 情绪：idle/happy/thinking/sleep/waving/blink</p>
+  </div>
+  <div class="card">
+    <h4>pro · 分析</h4>
+    <p><span class="tag">人格</span>冷静、结构化，爱给对比表和取舍依据，负责把话说准</p>
+    <p><span class="tag">模型</span>deepseek-reasoner（思考型）</p>
+    <p><span class="tag">声线</span>云希（男声，平稳）</p>
+    <p><span class="tag">立绘</span>沿用 <code>assets/pro</code>，同上 6 情绪</p>
+  </div>
+  <div class="card">
+    <h4>mao · 实干</h4>
+    <p><span class="tag">人格</span>话少、直接给做法，主张"先做个最小的试试"</p>
+    <p><span class="tag">模型</span>deepseek-chat</p>
+    <p><span class="tag">声线</span>云健（男声，干脆）</p>
+    <p><span class="tag">立绘</span>沿用 <code>assets/mao</code>，同上 6 情绪</p>
+  </div>
+</div>
+<div class="note">
+  <b>为什么是 3 个而不是 6 个？</b>多智能体研究里唯一稳定的增益来自"<b>模型异构</b>"；而群聊的工程实践建议角色不超过 3 个 —— 再多既贵又难收敛。要加人，优先加"模型不同"的，而不是"人设不同"的。
+</div>
+
+<h2><span class="num">02</span>立绘规格（给我样图，或我按这套自己出）</h2>
+<table>
+  <thead><tr><th>项</th><th>要求</th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr><td class="k">画幅</td><td>正方形 <b>2048×2048</b>（与现有 assets 一致）</td><td>桌宠按方图缩放布局，换尺寸会错位</td></tr>
+    <tr><td class="k">构图</td><td>半身或全身居中、人物占画面 70% 左右、底部留一点空间</td><td>缩放后不会被裁到脸或脚</td></tr>
+    <tr><td class="k">背景</td><td><b>纯白或纯色</b>、边缘干净、无阴影无杂点</td><td>要过 rembg 抠图，杂背景会抠出毛边</td></tr>
+    <tr><td class="k">情绪集</td><td>6 张：<code>idle / happy / thinking / sleep / waving / blink</code></td><td>对应桌宠现有的状态机，缺的会退回 idle</td></tr>
+    <tr><td class="k">最终交付</td><td>我这边管线：生成或你给图 → rembg 抠图 → <b>透明 PNG</b> → 放进 <code>assets/&lt;角色名&gt;/&lt;角色名&gt;_&lt;情绪&gt;.png</code></td><td>和现有角色同一套目录约定，渲染路径不用改</td></tr>
+    <tr><td class="k">一致性</td><td>同一角色的 6 张要同一发型/服装/配色（建议同一次生成里换表情）</td><td>否则切换表情时"像换了一个人"</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">03</span>消息模型（一份日志，三层视图）</h2>
+<table>
+  <thead><tr><th>字段</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td class="k">id / ts</td><td>单调递增 + 时间戳（排序与回放依据）</td></tr>
+    <tr><td class="k">channel_id</td><td><code>group:xxx</code> / <code>dm:me-pro</code> / <code>thread:xxx</code></td></tr>
+    <tr><td class="k">sender / recipients</td><td>收件人为空 = 广播；定向投递只进收件人收件箱</td></tr>
+    <tr><td class="k">kind</td><td><code>speak / ask / reply / delegate / arbitrate / tool / system</code></td></tr>
+    <tr><td class="k">visibility</td><td><code>human</code>→进 L1 ｜ <code>meta</code>→只进 L2 ｜ <code>debug</code>→只进 L3</td></tr>
+    <tr><td class="k">meta</td><td>model / tokens / cost / latency / parent_id / turn_no</td></tr>
+  </tbody>
+</table>
+<div class="note warn">
+  <b>为什么不全量贴进群聊流？</b>AI 之间会互相说很多机器话，全贴出来就是刷屏 + 让人看不见重点。所以：<b>给人看的进 L1，机器投递进 L2，噪音进 L3</b> —— 三层读的是<b>同一份日志</b>，不会出现两套数据。
+</div>
+
+<h2><span class="num">04</span>这一页演示了什么（点按钮看）</h2>
+<ul>
+  <li><b>▶ 开始讨论</b>：按脚本推进回合，L1 冒人话、L2 同步冒投递行、顶部三个仪表一起涨。</li>
+  <li><b>⏸ 人类接管</b>：立刻暂停自动轮转（对应"人类消息最高优先级"），L2 会记一条 <code>arbitrate</code>。</li>
+  <li><b>👤 插一句话</b>：以人类身份插队发言，插队后轮转暂停，等你说继续。</li>
+  <li><b>👁 展开后台总线</b>：看 L3 的心跳与重试 —— 平时藏起来，不干扰阅读。</li>
+  <li><b>成本到顶</b>：演示触顶行为 —— <b>停 + 出结论 + @人类</b>，绝不静默继续烧钱。</li>
+</ul>
+
+<footer>
+  协作台原型（假数据）· 2026-09-21 · 不连接任何模型，全部脚本化 ｜ 配套：3.0-主线与分支决策 / 3.0-协作层与本地能力边界 / 3.0-总方案
+</footer>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var LIMITS = {turn: 8, ms: 5*60*1000, cost: 5.00};
+  var COST = {flash: 0.0009, pro: 0.0021, mao: 0.0012};   // 假价：元/千 token 折算后的单次
+  var NAME = {flash: 'flash（快嘴）', pro: 'pro（分析）', mao: 'mao（实干）', me: '李滨宇', sys: '系统'};
+  var MODEL = {flash: 'deepseek-flash', pro: 'deepseek-reasoner', mao: 'deepseek-chat'};
+  var AV = {flash: 'f', pro: 'p', mao: 'm', me: '我', sys: '#'};
+
+  // 脚本化的一局讨论（假数据）：seq 决定投递顺序，mid 是这条投递归属的"回合"
+  var SCRIPT = [
+    {kind:'ask',      from:'pro',  to:['flash','mao'], mid:1, text:'先对齐三种可能：①桌宠内嵌面板 ②独立窗口 ③做进 DSH。各自给一句最想说的。', tok:180},
+    {kind:'reply',    from:'flash',to:['group'],       mid:1, text:'我选②独立窗口。理由：①会让桌宠越来越胖，③等于把命门交出去；②最省事而且以后好换。', tok:150},
+    {kind:'reply',    from:'mao',  to:['group'],       mid:2, text:'同意②，但先别讨论架构。今天就能做的：Edge 应用模式打开带令牌地址，先跑起来看手感。', tok:132},
+    {kind:'delegate', from:'pro',  to:['mao'],         mid:3, text:'那你去试一下窗口手感，顺便记一下系统主题跟随情况；我来补②的边界条件。', tok:96},
+    {kind:'reply',    from:'mao',  to:['pro'],         mid:3, text:'试了。系统主题跟随没问题，看着比浏览器标签清爽。唯一缺点是窗口位置记不住。', tok:110},
+    {kind:'ask',      from:'flash',to:['pro'],         mid:4, text:'位置记不住算问题吗？还是说以后自绘窗口再解决？', tok:64},
+    {kind:'reply',    from:'pro',  to:['group'],       mid:4, text:'不算阻塞项。位置记忆可以放在"桌宠记住窗口几何"这一层，和窗口谁来画解耦。先②。', tok:143},
+    {kind:'arbitrate',from:'sys',  to:['group'],       mid:5, text:'收敛检查：连续 2 回合无新增信息，自动收束并输出结论。', tok:0}
+  ];
+
+  var state = {turn:0, cost:0, elapsed:0, running:false, timer:null, idx:0, laneCount:0, paused:false};
+
+  var $ = function(id){ return document.getElementById(id); };
+  var fmtMoney = function(v){ return v.toFixed(3); };
+  var fmtTime = function(ms){ var s=Math.floor(ms/1000); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+
+  function gauge(){
+    $('g-turn').textContent = state.turn;
+    $('b-turn').style.width = Math.min(100, state.turn/LIMITS.turn*100)+'%';
+    $('g-time').textContent = fmtTime(state.elapsed);
+    $('b-time').className = 'bar' + (state.elapsed/LIMITS.ms>0.8?' w':'');
+    $('b-time').firstElementChild.style.width = Math.min(100, state.elapsed/LIMITS.ms*100)+'%';
+    $('g-cost').textContent = fmtMoney(state.cost);
+    $('b-cost').className = 'bar' + (state.cost/LIMITS.cost>0.8?' w':'');
+    $('b-cost').firstElementChild.style.width = Math.min(100, state.cost/LIMITS.cost*100)+'%';
+  }
+
+  function setState(kind, text){
+    var el = $('g-state'); el.className = 'status '+kind; el.textContent = text;
+  }
+
+  function pushMsg(kind, who, text, meta){
+    var d = document.createElement('div');
+    d.className = 'msg' + (who==='me'?' me':'') + (kind==='meta'?' meta':'') + (kind==='sys'?' sys':'');
+    var head = '<div class="m-h"><b>'+NAME[who]+'</b>' + (meta?'<span>'+meta+'</span>':'') + '</div>';
+    d.innerHTML = '<div class="av '+who+'">'+AV[who]+'</div><div>'+head+'<div class="m-b">'+text+'</div></div>';
+    $('stream').appendChild(d);
+    $('stream').scrollTop = $('stream').scrollHeight;
+  }
+
+  function pushLane(kind, from, to, tok, latency){
+    var cost = tok/1000*COST[from];
+    if(from!=='me' && from!=='sys') state.cost += cost;
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td class="num">'+fmtTime(state.elapsed)+'</td>' +
+      '<td class="arrow">'+from+' → '+(to.join(','))+'</td>' +
+      '<td><span class="kind '+kind+'">'+kind+'</span></td>' +
+      '<td>'+(MODEL[from]||'—')+'</td>' +
+      '<td class="num">'+tok+'</td>' +
+      '<td class="num">'+(cost?fmtMoney(cost):'—')+'</td>' +
+      '<td class="num">'+(latency||Math.round(400+tok*8))+'ms</td>';
+    $('lane').appendChild(tr);
+    var box = document.querySelector('.lane-scroll'); box.scrollTop = box.scrollHeight;
+    state.laneCount++; $('lane-count').textContent = state.laneCount+' 条';
+    gauge();
+  }
+
+  function pushL3(text){
+    var d = document.createElement('div'); d.textContent = fmtTime(state.elapsed)+'  '+text;
+    $('l3').appendChild(d);
+  }
+
+  function step(){
+    if(state.idx >= SCRIPT.length){ finish('讨论自然结束'); return; }
+    var s = SCRIPT[state.idx++];
+    if(s.mid > state.turn){ state.turn = s.mid; }
+    pushLane(s.kind, s.from, s.to, s.tok);
+    if(s.kind !== 'arbitrate' && s.kind !== 'delegate'){
+      pushMsg(s.from==='me'?'me':'ai', s.from, s.text, '第 '+state.turn+' 回合 · '+(MODEL[s.from]||''));
+    } else if(s.from === 'sys'){
+      pushMsg('sys', 'sys', s.text);
+    } else {
+      pushMsg('meta', 'sys', '［委派］'+NAME[s.from]+' → '+NAME[s.to[0]]+'：'+s.text, '仅投递轨道可见');
+    }
+    if(state.turn >= LIMITS.turn || state.cost >= LIMITS.cost || state.elapsed >= LIMITS.ms){
+      finish('到达上限'); return;
+    }
+    state.timer = setTimeout(step, 1100);
+  }
+
+  function finish(why){
+    state.running = false; clearTimeout(state.timer);
+    pushMsg('sys','sys','［收敛］'+why+'，暂停轮转。\n结论：选②独立窗口承载（Edge 应用模式先跑，形状不对再换自绘）；\n位置记忆下沉到"桌宠记住窗口几何"，与窗口由谁绘制解耦。\n@李滨宇 需要你拍板：要不要顺手把窗口做成可调大小。');
+    pushLane('arbitrate','sys',['group'],0);
+    setState('done','已收敛');
+    $('btn-pause').disabled = true; $('btn-speak').disabled = false;
+    $('btn-run').disabled = false; $('btn-run').textContent = '▶ 继续讨论';
+  }
+
+  function tick(){
+    if(!state.running) return;
+    state.elapsed += 200; gauge();
+    state.timer = setTimeout(tick, 200);
+  }
+
+  $('btn-run').onclick = function(){
+    if(state.running) return;
+    state.running = true; state.paused = false;
+    setState('run','运行中');
+    $('btn-pause').disabled = false; $('btn-speak').disabled = false; $('btn-run').disabled = true;
+    tick(); step();
+  };
+
+  $('btn-pause').onclick = function(){
+    if(!state.running) return;
+    state.running = false; clearTimeout(state.timer); state.paused = true;
+    pushLane('arbitrate','me',['group'],0,120);
+    pushMsg('me','me','［人类接管］先停一下，我要问个问题。','最高优先级 · 插队');
+    setState('pause','已暂停（等人类）');
+    $('btn-pause').disabled = true; $('btn-run').disabled = false; $('btn-run').textContent = '▶ 继续讨论';
+  };
+
+  $('btn-speak').onclick = function(){
+    state.running = false; clearTimeout(state.timer);
+    pushLane('speak','me',['group'],0,90);
+    pushMsg('me','me','［插话］你们先别急着定，我想知道：窗口大小能不能让我拖？','最高优先级 · 插队');
+    pushMsg('meta','sys','［仲裁］检测到人类消息：暂停自动轮转，等待人类说继续（超时 60 秒后恢复）。','仅投递轨道可见');
+    setState('pause','已暂停（等人类）');
+    $('btn-run').disabled = false; $('btn-run').textContent = '▶ 继续讨论';
+  };
+
+  $('btn-l3').onclick = function(){
+    var box = $('l3box'), on = box.classList.toggle('hidden');
+    this.textContent = on ? '👁 展开后台总线' : '🙈 收起后台总线';
+  };
+
+  $('btn-reset').onclick = function(){
+    location.reload();
+  };
+
+  pushL3('心跳 ok · 收件箱投影已建（3 个 agent）');
+  pushL3('成本上限已装载：¥5.00 / 回合 8 / 5 分钟');
+  gauge();
+})();
+</script>
+</body>
+</html>
