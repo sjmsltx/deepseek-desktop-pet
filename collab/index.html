@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>协作台 · M2（后端同源渲染）</title>
+<style>
+  :root{
+    --ink:#14181c;--ink2:#3c444c;--ink3:#6d767f;--rule:#d9dde0;--rule2:#eceff1;
+    --paper:#fafaf8;--card:#f3f5f3;--acc:#0b5d63;--acc-soft:#e4f0f0;
+    --warn:#8a4b12;--warn-soft:#fbf1e6;--ok:#136b3a;--ok-soft:#e8f4ec;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.7}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px 22px 48px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:flex-end}
+  h1{font-family:var(--serif);font-size:24px;margin:0;font-weight:600}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin-bottom:6px}
+  .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:6px}
+  .gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:12px}
+  .g{background:#fff;padding:9px 12px}
+  .g .k{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .g .v{font-size:16px;font-weight:600;margin-top:2px}
+  .status{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:3px;border:1px solid var(--rule);display:inline-block}
+  .status.running{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
+  .status.interrupted{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
+  .status.stopped{background:var(--card);color:var(--ink2)}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  button{font-family:var(--sans);font-size:13px;padding:7px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
+  button:hover{background:var(--card)}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  button.primary:hover{background:#094c51}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+  .cols{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(320px,1fr);gap:12px;align-items:start}
+  .panel{border:1px solid var(--rule);background:#fff}
+  .panel-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:8px 11px;border-bottom:1px solid var(--rule2);background:var(--card);display:flex;justify-content:space-between;align-items:center}
+  .stream{padding:10px;max-height:58vh;overflow-y:auto}
+  .row{display:grid;grid-template-columns:34px 1fr;gap:9px;margin-bottom:10px}
+  .av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;background:#8b949c;font-family:var(--serif)}
+  .m-h{font-size:12px;color:var(--ink3);display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+  .m-h b{color:var(--ink);font-size:13px}
+  .m-b{background:var(--card);border:1px solid var(--rule2);border-radius:3px;padding:7px 10px;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+  .row.me .m-b{background:var(--acc-soft);border-color:#bfe0e0}
+  .row.sys .m-b{background:#f4f4f2}
+  .lane-scroll{max-height:58vh;overflow-y:auto}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--rule2)}
+  thead th{font-family:var(--mono);font-size:10.5px;color:var(--ink3);background:var(--card);position:sticky;top:0}
+  td.num{font-family:var(--mono);text-align:right}
+  .kind{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;border:1px solid var(--rule);background:var(--card)}
+  .empty{color:var(--ink3);padding:14px 12px;font-size:13px}
+  .err{border-left:3px solid var(--warn);background:var(--warn-soft);padding:8px 12px;margin:10px 0;font-size:13px}
+  footer{margin-top:22px;border-top:1px solid var(--rule);padding-top:12px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  @media (max-width:900px){.cols{grid-template-columns:1fr}.stream,.lane-scroll{max-height:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <div class="kicker">3.0 · M2 协作台（渲染面）</div>
+    <h1>投递可见化 · 三层同源</h1>
+    <div class="meta" id="meta">数据源：—</div>
+  </div>
+  <div class="meta" id="state-wrap">
+    状态：<span class="status stopped" id="state" data-state="unknown" data-reason="">—</span>
+  </div>
+</header>
+
+<div class="gauges">
+  <div class="g"><div class="k">回合</div><div class="v" id="g-turn">—</div></div>
+  <div class="g"><div class="k">成本（元）</div><div class="v" id="g-cost">—</div></div>
+  <div class="g"><div class="k">tokens</div><div class="v" id="g-tokens">—</div></div>
+  <div class="g"><div class="k">L1/L2/L3 条目</div><div class="v" id="g-counts">—</div></div>
+</div>
+
+<div class="actions">
+  <button class="primary" id="btn-refresh">⟳ 刷新</button>
+  <button id="btn-export-l1">⤓ 导出 L1 视图</button>
+  <button id="btn-export-l2">⤓ 导出 L2 视图</button>
+  <button id="btn-export-snap">⤓ 导出快照</button>
+  <button id="btn-raw">查看原始日志</button>
+  <span class="meta" id="last">（未刷新）</span>
+</div>
+
+<div id="errs"></div>
+
+<div class="cols">
+  <div class="panel">
+    <div class="panel-h"><span>L1 · 群聊流（human）</span><span id="c1">0</span></div>
+    <div class="stream" id="stream-l1"></div>
+  </div>
+  <div>
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-h"><span>L2 · 投递轨道（meta）</span><span id="c2">0</span></div>
+      <div class="lane-scroll">
+        <table><thead><tr><th>seq</th><th>投递</th><th>类型</th><th>tok</th><th>成本(微元)</th></tr></thead>
+        <tbody id="lane-l2"></tbody></table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><span>L3 · 后台总线（debug）</span><span id="c3">0</span></div>
+      <div class="lane-scroll" id="lane-l3"></div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  M2 只做<b>渲染</b>：所有条目一律来自后端 <code>/api/view|inbox|snapshot|log.jsonl</code>（内核投影原样，不二次过滤/重排）。
+  复核脚本请只依赖 <code>data-*</code> 属性：行级 <code>data-id / data-seq / data-layer / data-kind / data-sender</code>，
+  L2 行另有 <code>data-cost-micro / data-tokens</code>，状态节点 <code>data-state / data-reason</code>。
+</footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var CHANNEL = 'group:main';           // 单议题演示：固定群频道
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function getJSON(url) {
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) { return r.text().then(function (t) { throw new Error(url + ' → HTTP ' + r.status + ' ' + t); }); }
+      return r.json();
+    });
+  }
+  function err(msg) {
+    var d = document.createElement('div');
+    d.className = 'err';
+    d.textContent = '取数失败：' + msg;
+    $('errs').appendChild(d);
+  }
+
+  function avatarText(sender) {
+    var s = String(sender || '?');
+    if (s.indexOf('human:') === 0) return '我';
+    if (s.indexOf('agent:') === 0) return s.slice(6, 7).toUpperCase();
+    return '#';
+  }
+  function rowClass(sender) {
+    var s = String(sender || '');
+    if (s.indexOf('human:') === 0) return 'row me';
+    if (s === 'system') return 'row sys';
+    return 'row';
+  }
+
+  function renderL1(msgs) {
+    var box = $('stream-l1');
+    box.innerHTML = '';
+    if (!msgs.length) { box.innerHTML = '<div class="empty">暂无记录（L1 为空）</div>'; }
+    msgs.forEach(function (m) {
+      var d = document.createElement('div');
+      d.className = rowClass(m.sender);
+      // ★ 行级 data-*（复核脚本唯一允许依赖的选择器）
+      d.setAttribute('data-id', m.id);
+      d.setAttribute('data-seq', m.seq);
+      d.setAttribute('data-layer', 'L1');
+      d.setAttribute('data-kind', m.kind);
+      d.setAttribute('data-sender', m.sender);
+      d.innerHTML =
+        '<div class="av">' + esc(avatarText(m.sender)) + '</div>' +
+        '<div><div class="m-h"><b>' + esc(m.sender) + '</b>' +
+        '<span>' + esc(m.kind) + '</span>' +
+        '<span>seq ' + m.seq + '</span>' +
+        (m.recipients && m.recipients.length ? '<span>→ ' + esc(m.recipients.join(',')) + '</span>' : '') +
+        '</div><div class="m-b">' + esc(m.body) + '</div></div>';
+      box.appendChild(d);
+    });
+    $('c1').textContent = msgs.length;
+  }
+
+  function renderL2(msgs) {
+    var tb = $('lane-l2');
+    tb.innerHTML = '';
+    msgs.forEach(function (m) {
+      var meta = m.meta || {};
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-id', m.id);
+      tr.setAttribute('data-seq', m.seq);
+      tr.setAttribute('data-layer', 'L2');
+      tr.setAttribute('data-kind', m.kind);
+      tr.setAttribute('data-sender', m.sender);
+      tr.setAttribute('data-cost-micro', meta.cost_micro == null ? '' : meta.cost_micro);
+      tr.setAttribute('data-tokens', meta.tokens == null ? '' : meta.tokens);
+      tr.innerHTML = '<td class="num">' + m.seq + '</td>' +
+        '<td>' + esc(m.sender) + ' → ' + esc((m.recipients || []).join(',') || '（广播）') + '</td>' +
+        '<td><span class="kind">' + esc(m.kind) + '</span></td>' +
+        '<td class="num">' + esc(meta.tokens == null ? '—' : meta.tokens) + '</td>' +
+        '<td class="num">' + esc(meta.cost_micro == null ? '—' : meta.cost_micro) + '</td>';
+      tb.appendChild(tr);
+    });
+    $('c2').textContent = msgs.length;
+  }
+
+  function renderL3(msgs) {
+    var box = $('lane-l3');
+    box.innerHTML = '';
+    if (!msgs.length) { box.innerHTML = '<div class="empty">暂无（后台总线为空）</div>'; }
+    msgs.forEach(function (m) {
+      var d = document.createElement('div');
+      d.className = 'empty';
+      d.setAttribute('data-id', m.id);
+      d.setAttribute('data-seq', m.seq);
+      d.setAttribute('data-layer', 'L3');
+      d.setAttribute('data-kind', m.kind);
+      d.setAttribute('data-sender', m.sender);
+      d.textContent = 'seq ' + m.seq + '  ' + m.sender + '  ' + m.kind + '  ' + m.body;
+      box.appendChild(d);
+    });
+    $('c3').textContent = msgs.length;
+  }
+
+  function renderState(snap) {
+    var el = $('state');
+    var st = snap.stopped ? 'stopped' : (snap.interrupted ? 'interrupted' : 'running');
+    el.className = 'status ' + st;
+    el.setAttribute('data-state', st);
+    el.setAttribute('data-reason', snap.stop_reason || '');
+    el.textContent = st + (snap.stop_reason ? '（' + snap.stop_reason + '）' : '');
+    $('g-turn').textContent = snap.turn_no;
+    $('g-cost').textContent = (snap.cost_micro / 1e6).toFixed(4);
+    $('g-tokens').textContent = snap.tokens;
+    $('meta').textContent = '数据源：' + (snap.issue ? snap.issue.title : '（未开议题）') + ' ｜ seq=' + snap.seq;
+    if (snap.warnings && snap.warnings.length) {
+      err('内核有 ' + snap.warnings.length + ' 条告警（首条：' + snap.warnings[0] + '）');
+    }
+  }
+
+  function refresh() {
+    $('errs').innerHTML = '';
+    return Promise.all([
+      getJSON('/api/snapshot'),
+      getJSON('/api/view?channel=' + encodeURIComponent(CHANNEL) + '&layer=L1'),
+      getJSON('/api/view?channel=' + encodeURIComponent(CHANNEL) + '&layer=L2'),
+      getJSON('/api/view?channel=' + encodeURIComponent(CHANNEL) + '&layer=L3')
+    ]).then(function (r) {
+      renderState(r[0]); renderL1(r[1]); renderL2(r[2]); renderL3(r[3]);
+      $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
+      $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
+    }).catch(function (e) { err(e.message); });
+  }
+
+  function download(name, text, mime) {
+    var blob = new Blob([text], { type: mime || 'application/json;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+  }
+  function stamp() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19); }
+
+  // ★ 导出"当前视图"= 界面上正在渲染的那份数据（不是重新拉一次后端）
+  $('btn-export-l1').onclick = function () {
+    var rows = [].slice.call(document.querySelectorAll('#stream-l1 [data-seq]'));
+    download('view_export_L1_' + stamp() + '.json',
+      JSON.stringify(rows.map(function (r) {
+        return { id: r.getAttribute('data-id'), seq: +r.getAttribute('data-seq'),
+                 layer: r.getAttribute('data-layer'), kind: r.getAttribute('data-kind'),
+                 sender: r.getAttribute('data-sender') };
+      }), null, 2));
+  };
+  $('btn-export-l2').onclick = function () {
+    var rows = [].slice.call(document.querySelectorAll('#lane-l2 [data-seq]'));
+    download('view_export_L2_' + stamp() + '.json',
+      JSON.stringify(rows.map(function (r) {
+        return { id: r.getAttribute('data-id'), seq: +r.getAttribute('data-seq'),
+                 layer: r.getAttribute('data-layer'), kind: r.getAttribute('data-kind'),
+                 sender: r.getAttribute('data-sender'),
+                 cost_micro: r.getAttribute('data-cost-micro'),
+                 tokens: r.getAttribute('data-tokens') };
+      }), null, 2));
+  };
+  $('btn-export-snap').onclick = function () {
+    getJSON('/api/snapshot').then(function (s) { download('snapshot_' + stamp() + '.json', JSON.stringify(s, null, 2)); });
+  };
+  $('btn-raw').onclick = function () { window.open('/api/log.jsonl', '_blank'); };
+  $('btn-refresh').onclick = refresh;
+
+  refresh();
+})();
+</script>
+</body>
+</html>
