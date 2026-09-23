@@ -4250,7 +4250,31 @@ class PetWidget(QWidget):
             pth = asset(self.current, key)
             if os.path.exists(pth):
                 self.scene_imgs[key] = QPixmap(pth)
+            # v6.79（采纳微信侧 89 号加固建议）：**资源漏配不再静默** ——
+            # `asset()` 对任何键都会兜底到 fallback / {role}_idle.png ✗ → “漏配”永远不被发现，
+            # 而它正是今天缺陷 75 的共同土壤 ✓ → 无专属素材时记一条审计 warning（每键只一次 ✓）
+            try:
+                exact = os.path.join(ASSETS, self.current, f'{self.current}_{key}.png')
+                if not os.path.exists(exact):
+                    self._warn_asset_fallback(key)
+            except Exception:
+                pass
         return self.scene_imgs.get(key)
+
+    def _warn_asset_fallback(self, key):
+        """场景键无专属素材（已回退）：写审计 warning，每键只记一次（防噪声）"""
+        seen = getattr(self, '_asset_fallback_warned', None)
+        if seen is None:
+            seen = self._asset_fallback_warned = set()
+        if key in seen:
+            return
+        seen.add(key)
+        try:
+            import governance as _gov
+            _gov.log_event('warn', 'ui.asset', '资源漏配',
+                           '场景键 %s 无专属素材，已回退（fallback/idle）' % key, allowed=True)
+        except Exception as _exc:
+            _silent_log('_warn_asset_fallback', _exc)
 
     def _render_frame(self, pixmap=None):
         """渲染一帧到 pet_label（默认待机图，等比缩放居中；缩放结果缓存复用）"""
@@ -5476,6 +5500,11 @@ class PetWidget(QWidget):
         return pb.to_table_html(m)
     def _remove_status_line(self):
         """删除状态行 widget（⏳/思考中）"""
+        try:
+            if getattr(self, '_ai_status_timer', None) is not None:
+                self._ai_status_timer.stop()     # v6.79 L1：状态行没了，秒表必须停（否则空转）
+        except Exception:
+            pass
         if self._status_widget is not None:
             try:
                 self.chat_history_layout.removeWidget(self._status_widget)
@@ -5486,14 +5515,47 @@ class PetWidget(QWidget):
             return True
         return False
 
+    AI_STATUS_TICK_MS = 1000      # v6.79 L1：在途状态每秒刷一帧（秒表）
+
     def _update_ai_status(self, text):
-        """更新 AI 处理状态（删旧状态行 + 追加新状态行，不残留）"""
-        self._remove_status_line()
-        self._status_widget = QLabel(f'⏳ {text}')
-        self._status_widget.setWordWrap(True)
-        self._status_widget.setStyleSheet(
-            f'color:{self._tk("ui_text_dim")}; font-size:11px; background:transparent; padding:2px 0;')
-        self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, self._status_widget)
+        """更新 AI 处理状态（v6.79 L1：**在途状态带秒表**）
+
+        原先每次状态变更都“删旧建新”11px 灰字 ✗ → ① 看不清 ② 重试文案一闪即过 ✗
+        ③ **看不出“已经等了多久”** ✗ —— 使用者遇到上游中断时无法区分“在正常等”与“已经死了”。
+        现在：状态行**原地刷新**，文本附上已等秒数（每秒更新）✓
+        """
+        if self._status_widget is None:      # 新一轮状态（任务开始）→ 重置秒表
+            self._ai_status_t0 = time.time()
+        self._ai_status_text = str(text or '')
+        self._render_ai_status(create=True)
+        if getattr(self, '_ai_status_timer', None) is None:
+            self._ai_status_timer = QTimer(self)
+            self._ai_status_timer.setInterval(self.AI_STATUS_TICK_MS)
+            self._ai_status_timer.timeout.connect(lambda: self._render_ai_status())
+        self._ai_status_timer.start()
+
+    def _render_ai_status(self, create=False):
+        """渲染在途状态行：`⏳ 正在思考… · 已等 12s`（v6.79 L1）"""
+        txt = getattr(self, '_ai_status_text', '') or ''
+        try:
+            waited = int(max(0.0, time.time() - float(getattr(self, '_ai_status_t0', 0) or 0)))
+        except Exception:
+            waited = 0
+        label = '⏳ %s · 已等 %ds' % (txt, waited)
+        if self._status_widget is None:
+            if not create:
+                return
+            self._status_widget = QLabel(label)
+            self._status_widget.setWordWrap(True)
+            self._status_widget.setStyleSheet(
+                f'color:{self._tk("ui_text_dim")}; font-size:11px; background:transparent; padding:2px 0;')
+            self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1,
+                                                  self._status_widget)
+        else:
+            try:
+                self._status_widget.setText(label)
+            except Exception:
+                return
         self._chat_scroll_bottom()
 
     def _panel_qss(self):
