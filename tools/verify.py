@@ -30,7 +30,16 @@ if not os.path.exists(PY):
     PY = sys.executable
     print("⚠ 未找到独立 python，已回退当前解释器：", PY)
 
-COUNT_RE = re.compile(r"(\d+) passed[,\s]*(?:(\d+) skipped)?[,\s]*(?:(\d+) xfailed)?", re.I)
+# 各自独立匹配（行内计数顺序不固定：可能夹 deselected / warnings / xfailed ✗）
+RE_PASSED = re.compile(r"(\d+) passed", re.I)
+RE_SKIPPED = re.compile(r"(\d+) skipped", re.I)
+RE_XFAILED = re.compile(r"(\d+) xfailed", re.I)
+RE_FAILED = re.compile(r"(\d+) (?:failed|error)", re.I)
+
+
+def _g(rx, s, d="0"):
+    m = rx.search(s)
+    return m.group(1) if m else d
 
 
 def run(name: str, argv: list[str]) -> tuple[int, str]:
@@ -42,11 +51,8 @@ def run(name: str, argv: list[str]) -> tuple[int, str]:
     out = p.stdout or ""
     lines = [l for l in out.splitlines() if l.strip()]
     last = lines[-1] if lines else ""
-    m = COUNT_RE.search(last)
-    passed = m.group(1) if m else "?"
-    skipped = (m.group(2) or "0") if m else "?"
-    xfailed = (m.group(3) or "0") if m else "?"
-    print(f"  通过 = {passed} ｜ 跳过 = {skipped} ｜ xfailed = {xfailed} ｜ 退出码 = {p.returncode} ｜ 耗时 = {dt:.1f}s", flush=True)
+    print(f"  通过 = {_g(RE_PASSED, last, '?')} ｜ 跳过 = {_g(RE_SKIPPED, last)} ｜ xfailed = {_g(RE_XFAILED, last)}"
+          f" ｜ 失败 = {_g(RE_FAILED, last)} ｜ 退出码 = {p.returncode} ｜ 耗时 = {dt:.1f}s", flush=True)
     print(f"  末行：{last[:150]}", flush=True)
     if p.returncode != 0:
         print("  ---- 失败摘要（最后 20 行）----", flush=True)
