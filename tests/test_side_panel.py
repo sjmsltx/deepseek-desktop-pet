@@ -220,6 +220,26 @@ def test_dynamic_texts():
     assert p._text_for('todo', {'todos': []}).startswith('当前没有待办事项')
 
 
+def test_status_page_shows_satiety():
+    """v6.79：饱食度写进「状态」页（原先只能在喂食气泡里闪一句）"""
+    p = _panel()
+    st = p._text_for('status', {'affection': '9', 'satiety': '99%', 'satiety_low': False})
+    assert '饱食：99%' in st, st
+    assert '饿' not in st, '不低饱食时不该出现「饿」提示：%r' % st
+    low = p._text_for('status', {'affection': '9', 'satiety': '18%', 'satiety_low': True})
+    assert '饱食：18%' in low and '饿' in low, low
+    # 取不到值时不许崩，显示占位
+    assert '饱食：—' in p._text_for('status', {})
+
+
+def test_status_page_wired_to_satiety():
+    """状态页必须真的接上宿主提供的饱食度（防只改文案、没接数据）"""
+    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    body = src.split('def _side_panel_data(self):', 1)[1].split('\n    def ', 1)[0]
+    assert "d['satiety']" in body, '宿主的 _side_panel_data 未提供饱食度'
+    assert 'satiety_low' in body, '未提供饥饿标记'
+
+
 def test_dynamic_refresh_only_touches_text_pages():
     seen = {'n': 0}
 
