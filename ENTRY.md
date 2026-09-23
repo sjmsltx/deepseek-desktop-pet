@@ -19,13 +19,13 @@ cd 'E:\ai工作站\desktop-pet'
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
-# 期望：758 passed / 8 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
-# 758 = 739（旧基线）+ 10（A 类维护护栏）+ 9（B 类：缺陷 74 回收护栏 7 条 + 成本冷却 2 条）
+# 期望：761 passed / 8 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 761 = 739（旧基线）+ 10（A 类维护护栏）+ 12（B 类：回收护栏 10 条 + 成本冷却 2 条）
 ```
 
-> ⚠️ **已知红灯（非回归）**：`tests\golden_ui.py check` 目前报 1 处差异（`markdown.sample_01`）✓
-> 根因已定位：`chat_render.py` 在 **`07bfe78`（v2.9.1 渲染修复）** 改过 ✓，但基线文件最后更新停在 **`d45f351`（v2.9.0）** ✗ → **发版时漏了重采基线** ✓
-> → 处置：**重采基线**（`python tests\golden_ui.py capture`，属改基线文件 ✗ 需单独批准）✓ 并把该检查**纳入发版前清单** ✗
+> ✅ **已重采（2026-09-23，Owner 批准）**：`markdown.sample_01` 差异已消除 —— **重采前红 ✗ / 重采后「黄金对照：完全一致 ✅（7 个分区）」✓**
+> 根因（供以后复盘）：`chat_render.py` 在 **`07bfe78`（v2.9.1 渲染修复）** 改过 ✓，但基线停在 **`d45f351`（v2.9.0）** ✗ → 发版时漏了重采 ✗
+> → 教训：**改了渲染/主题就要重采基线**；该检查已纳入发版前清单 ✓
 一键版（本 A 类新增 ✓）：
 ```powershell
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" tools\verify.py            # 全量
