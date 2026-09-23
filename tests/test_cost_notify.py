@@ -86,3 +86,30 @@ def test_source_guard_cost_notify_wired():
     assert 'show_bubble' not in body, '费用提示不应再创建顶部浮动气泡'
     ui = open(os.path.join(BASE, 'affection_ui.py'), encoding='utf-8').read()
     assert 'hold_ms' in ui, 'CostBubble 应支持「先静止再渐隐」'
+
+
+def test_cost_blocked_notify_cooldown_no_spam():
+    """v6.79 成本刷屏缺陷：同原因 60 分钟内对话栏只写一次；换原因立刻写；状态栏每次都可见。"""
+    p = _pet()
+    sent = []
+    p.ai_reply_signal.connect(lambda msg: sent.append(msg))
+    why1 = ('今日模型调用已花 ¥21.00，达到你设的日上限 ¥20.00；'
+            '可在「设置 → 用量与计费 → 日成本上限」调高或关掉')
+    why2 = why1.replace('¥21.00', '¥25.00')      # 仅金额数字变化 = 同一原因
+    p._notify_cost_blocked(why1)
+    assert len(sent) == 1, '首次拦截应写一条，实际 %d' % len(sent)
+    p._notify_cost_blocked(why2)
+    assert len(sent) == 1, \
+        '同原因冷却内不得再写（原先每次调用都灌一条 → 刷屏），实际 %d' % len(sent)
+    assert not p.status_bar.isHidden(), '状态栏应每次都显示（保留可见性）'
+    assert '成本闸门' in p.status_bar.text()
+    p._notify_cost_blocked('今日模型调用已花 ¥3.00，余额不足 ¥1.00')
+    assert len(sent) == 2, '换原因应立刻再写，实际 %d' % len(sent)
+
+
+def test_run_task_denies_go_through_cooldown_notifier():
+    """源码护栏：_run_task 的成本拦截必须走 _notify_cost_blocked，且审计仍不限频"""
+    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    body = src.split('def _run_task(self, text, images=None):', 1)[1].split('\n    def ', 1)[0]
+    assert '_notify_cost_blocked(_why_c)' in body, '成本拦截应走 _notify_cost_blocked'
+    assert "log_event('deny'" in body, '审计必须仍然每次都记 deny（不得被冷却吞掉）'
