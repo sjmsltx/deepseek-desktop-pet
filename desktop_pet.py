@@ -4714,16 +4714,17 @@ class PetWidget(QWidget):
             self._show_idle()
 
     def _restore_state_after_emotion(self):
-        """情绪立绘结束后恢复待机（实现已搬至 pet_anim.restore_after_emotion）"""
-        return anim.restore_after_emotion(self)
+        """情绪立绘结束后恢复（v6.79）：落点按优先级 —— 仍低饱食 → 回饥饿态，否则回待机
+        （Owner 2026-09-23 追加裁定：饥饿期间被情绪接管，情绪收尾后仍回饥饿状态）"""
+        return self._rest_idle_or_hungry()
     # ---------- 场景动作 ----------
     def play_scene(self, key):
         """播放场景动作立绘（6 秒后恢复待机）
         （实现已搬至 pet_anim.play_scene）"""
         return anim.play_scene(self, key)
     def _end_scene(self):
-        """场景动作结束：恢复待机（实现已搬至 pet_anim.end_scene）"""
-        return anim.end_scene(self)
+        """场景动作结束（v6.79）：落点按优先级 —— 仍低饱食 → 回饥饿态，否则回待机"""
+        return self._rest_idle_or_hungry()
     # ---------- 眨眼 ----------
     def _do_blink(self):
         """眨眼定时器回调（实现已搬至 pet_anim.blink_tick）"""
@@ -7265,8 +7266,26 @@ class PetWidget(QWidget):
             QTimer.singleShot(2500, lambda: self._end_state('happy'))
 
     def _end_state(self, st):
-        """临时状态收尾（实现已搬至 pet_anim.end_state）"""
-        return anim.end_state(self, st)
+        """临时状态收尾（v6.79）：仅当仍处该状态时收尾（否则空转 —— 不打断已接管的状态）；
+        落点按优先级 → 待机或饥饿态（见 _rest_idle_or_hungry）"""
+        if self.sleeping or self.state != st:
+            return
+        self._rest_idle_or_hungry()
+
+    def _rest_idle_or_hungry(self):
+        """临时状态收尾的统一落点（v6.79）：按优先级 —— 仍低饱食 → 回饥饿态（持续状态）；
+        否则回待机。Owner 2026-09-23 追加裁定：饥饿期间被情绪/小游戏/惊吓接管时，
+        收尾后仍应回到饥饿状态（优先级：睡眠 > scared > 情绪 > 小游戏 > hungry > 待机）。"""
+        if self.sleeping:
+            return
+        try:
+            if float(self.affection.satiety(self.current)) < 30:
+                self._enter_hungry()
+                return
+        except Exception:
+            pass
+        self.state = 'idle'
+        self._show_idle()
     # ---------- 鼠标 ----------
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
