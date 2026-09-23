@@ -30,13 +30,13 @@ if not os.path.exists(PY):
     PY = sys.executable
     print("⚠ 未找到独立 python，已回退当前解释器：", PY)
 
-COUNT_RE = re.compile(r"(\d+) passed[,\s]*(?:(\d+) skipped)?", re.I)
+COUNT_RE = re.compile(r"(\d+) passed[,\s]*(?:(\d+) skipped)?[,\s]*(?:(\d+) xfailed)?", re.I)
 
 
 def run(name: str, argv: list[str]) -> tuple[int, str]:
     t0 = time.time()
-    print(f"\n=== {name} ===")
-    print("  $ " + " ".join(argv))
+    print(f"\n=== {name} ===", flush=True)
+    print("  $ " + " ".join(argv), flush=True)
     p = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     dt = time.time() - t0
     out = p.stdout or ""
@@ -44,13 +44,14 @@ def run(name: str, argv: list[str]) -> tuple[int, str]:
     last = lines[-1] if lines else ""
     m = COUNT_RE.search(last)
     passed = m.group(1) if m else "?"
-    skipped = (m.group(2) if (m and m.group(2)) else "0") if m else "?"
-    print(f"  通过 = {passed} ｜ 跳过 = {skipped} ｜ 退出码 = {p.returncode} ｜ 耗时 = {dt:.1f}s")
-    print(f"  末行：{last[:150]}")
+    skipped = (m.group(2) or "0") if m else "?"
+    xfailed = (m.group(3) or "0") if m else "?"
+    print(f"  通过 = {passed} ｜ 跳过 = {skipped} ｜ xfailed = {xfailed} ｜ 退出码 = {p.returncode} ｜ 耗时 = {dt:.1f}s", flush=True)
+    print(f"  末行：{last[:150]}", flush=True)
     if p.returncode != 0:
-        print("  ---- 失败摘要（最后 20 行）----")
+        print("  ---- 失败摘要（最后 20 行）----", flush=True)
         for l in lines[-20:]:
-            print("   ", l[:150])
+            print("   ", l[:150], flush=True)
     return p.returncode, last
 
 
