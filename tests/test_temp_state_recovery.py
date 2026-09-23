@@ -70,16 +70,54 @@ def test_game_lose_returns_to_idle():
     assert p.state == 'idle', '「输」的收尾应回待机（原先永久卡在 defeat），实际 %r' % p.state
 
 
-def test_game_win_is_not_broken_by_defeat_path():
-    """对照：「赢」仍由 play_scene('happy') 接管（state → 'scene'），
-    2 秒后的 _end_state('victory') 因 state 不匹配而空转，不得打断庆祝。"""
+def test_game_win_celebration_ends_at_idle():
+    """⚠️ **v6.79 缺陷 75 修订版**（原版是**假绿** ✗）：
+    原断言写成 `state in ('scene','idle')` —— 而缺陷 75 恰好把 state 留在 'scene'，于是「通过」了 ✗。
+    按微信侧 88 号补的原则改严：**必须断言最终状态 == idle**，禁用或式断言。
+    """
     p = _pet()
     p.affection.trigger = lambda role, event: {}
+    p.affection.satiety = lambda role: 80.0
     p.state = 'idle'
     p._on_game_result(win=True)
-    _wait(2600)
-    assert p.state in ('scene', 'idle'), '赢的路径不应停在 victory，实际 %r' % p.state
-    assert p.state != 'victory', '庆祝动作不应被 _end_state(\'victory\') 打断'
+    assert p.state == 'scene', '赢时应进入庆祝场景态，实际 %r' % p.state
+    p._end_scene()          # 推进 6 秒收尾（等价于 timer 到点），不真等 6 秒
+    assert p.state == 'idle', \
+        '庆祝收尾后必须回待机（缺陷 75：原先永久卡在 scene），实际 %r' % p.state
+
+
+def test_scene_key_with_asset_but_unregistered_recovers(monkeypatch):
+    """缺陷 75 本体：`happy` 有素材（flash_happy.png 存在）但未登记在 SCENE_ACTIONS →
+    原先 KeyError → 收尾永远排不上 → 卡住。现必须：不抛异常 + 能收尾回待机 + 写审计 warning。"""
+    import governance as gov
+    p = _pet()
+    captured = []
+    monkeypatch.setattr(gov, 'log_event', lambda *a, **k: captured.append((a, k)))
+    p.state = 'idle'
+    p.play_scene('happy')          # ① 不得抛异常
+    assert p.state == 'scene', '未登记键也应进入场景态后正常收尾，实际 %r' % p.state
+    p._end_scene()                 # ② 收尾必须能回待机
+    assert p.state == 'idle', '未登记键也必须能收尾回待机，实际 %r' % p.state
+    # ③ 审计 warning 必须落（未知键 = 代码与数据不同步的信号，不能静默）
+    assert any('happy' in str(x) for x in captured), '未登记键应写审计 warning，实际 %r' % captured
+
+
+def test_arbitrary_unknown_scene_key_recovers(monkeypatch):
+    """⭐ 缺陷 75 比“只有 happy”更广：`asset()` 对**任何**键都会兜底到 `{role}_idle.png` ✓
+    → `_get_scene_img` 几乎不会返回 None ✗ → **任何未登记键**原先都会走到 KeyError → 卡住 ✗。
+    本测试用一个人为的键名字验证：不抛异常 + 能收尾回待机 + 写审计 warning。"""
+    import governance as gov
+    p = _pet()
+    captured = []
+    monkeypatch.setattr(gov, 'log_event', lambda *a, **k: captured.append((a, k)))
+    p.state = 'idle'
+    p.play_scene('这个键不存在')          # ① 不得抛异常
+    assert p.state == 'scene', '应进入场景态，实际 %r' % p.state
+    p._end_scene()                       # ② 收尾必须能回待机
+    assert p.state == 'idle', '未登记键必须能收尾回待机，实际 %r' % p.state
+    # ③ 审计 warning
+    assert any('这个键不存在' in str(x) for x in captured), \
+        '未登记键应写审计 warning，实际 %r' % captured
 
 
 # ---------- ③ 饥饿是持续态 ----------
@@ -230,3 +268,24 @@ def test_pet_anim_end_primitives_still_wired():
     for wrapper in ('def _end_state(', 'def _end_scene(', 'def _restore_state_after_emotion(',
                     'def _rest_idle_or_hungry('):
         assert wrapper in src, '缺少收尾 wrapper / 落点方法：%s' % wrapper
+
+
+# ---------- ⑦ 回待机类断言禁用或式（微信侧 88 号补的原则） ----------
+def test_no_or_style_state_assertions():
+    """护栏：'回待机 / 收尾'类断言**禁止或式**（`state in (a, b)`）——
+    或式断言天然能假绿：缺陷 75 就是这么漏过去的（KeyError 恰好把 state 留在 'scene' → 断言"通过"）。
+    正确写法：「推进 timer 后，最终状态 == idle」。"""
+    bad = []
+    tests_dir = os.path.join(BASE, 'tests')
+    for fn in sorted(os.listdir(tests_dir)):
+        if not (fn.startswith('test_') and fn.endswith('.py')):
+            continue
+        src = open(os.path.join(tests_dir, fn), encoding='utf-8').read()
+        # ⚠️ 先剔掉文档字符串与注释行 —— 否则护栏会扫到“举例说明”里的例句本身（自己报自己 ✗）
+        src = re.sub(r'"""[\s\S]*?"""', '', src)
+        src = re.sub(r"'''[\s\S]*?'''", '', src)
+        src = '\n'.join(ln for ln in src.split('\n') if not ln.strip().startswith('#'))
+        for m in re.finditer(r"state\s+in\s*\(([^)]*)\)", src):
+            if "'idle'" in m.group(1) or '"idle"' in m.group(1):
+                bad.append('%s → %s' % (fn, m.group(0).strip()))
+    assert not bad, '回待机类断言不得用或式（天然假绿）：\n  ' + '\n  '.join(bad)
