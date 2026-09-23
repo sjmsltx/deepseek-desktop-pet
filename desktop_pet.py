@@ -1084,6 +1084,15 @@ class PetWidget(QWidget):
         except Exception:
             d['affection'] = '—'
         try:
+            # v6.79：饱食度写进「状态」页 —— 原先只能在喂食气泡里闪一句
+            # （使用者反馈「饱食度没有明显显示，不确定什么时候降到 30 以下」）
+            _sat = float(self.affection.satiety(self.current))
+            d['satiety'] = '%.0f%%' % max(0.0, min(100.0, _sat))
+            d['satiety_low'] = _sat < 30        # 与 affection_engine.SATIETY_LOW 同口径
+        except Exception:
+            d['satiety'] = '—'
+            d['satiety_low'] = False
+        try:
             d['todos'] = [dict(t) for t in (self.todos or [])]
         except Exception:
             d['todos'] = []

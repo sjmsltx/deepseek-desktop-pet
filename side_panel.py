@@ -12,10 +12,10 @@
 | 页签 | 内容 | 能否删除 |
 |---|---|---|
 | 📋 任务 | FCFS 队列：拖拽排序 / 双击取消排队 / `/stop` 急停 | ❌（队列管理需要界面） |
-| 📊 状态 | 今日用量、余额、当前模型与声线、峰谷时段 | ✅ |
+| 📊 状态 | 今日用量、余额、当前模型与声线、峰谷时段、好感与饱食度 | ✅ |
 | 💰 花费 | 今日/累计花费、未配价格未计入次数 | ✅ |
 | ✔ 待办 | 待办清单概览 | ✅ |
-| 📝 便签 | 自己写点东西，自动保存（可加多个） | ✅ |
+| 📝 便签 | 自己写点东西，自动保存（可加多个；**纯文本**，单条 ≤4000 字） | ✅ |
 | 🖥 系统 | CPU 核数、内存占用、运行时长 | ✅ |
 
 - **自定义**：右上「＋」加页签；页签上右键「重命名 / 删除」；页签可拖拽排序
@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QInputDia
 
 TAB_KINDS = (
     ('tasks', '📋 任务', 'FCFS 队列：拖拽排序 · 双击取消排队 · /stop 急停'),
-    ('status', '📊 状态', '今日用量、余额、当前模型与声线、峰谷时段'),
+    ('status', '📊 状态', '今日用量、余额、模型与声线、峰谷时段、好感与饱食度'),
     ('cost', '💰 花费', '今日/累计花费与「未配价格未计入」次数'),
     ('todo', '✔ 待办', '待办清单概览（管理入口：设置 → 记忆与数据）'),
     ('note', '📝 便签', '随手记点东西，自动保存（可以加多个）'),
@@ -438,11 +438,13 @@ class SidePanel(QFrame):
         if kind == 'status':
             return ('今日：%s 次 · %s tok · ¥%s\n'
                     '余额：%s\n'
-                    '模型：%s\n声线：%s\n时段：%s\n好感：%s'
+                    '模型：%s\n声线：%s\n时段：%s\n好感：%s\n饱食：%s%s'
                     % (data.get('today_count', 0), data.get('today_tokens', '—'),
                        data.get('today_cost', '0.0000'), data.get('balance', '未查询'),
                        data.get('model', '—'), data.get('voice', '—'),
-                       data.get('peak', '—'), data.get('affection', '—')))
+                       data.get('peak', '—'), data.get('affection', '—'),
+                       data.get('satiety', '—'),
+                       '（饿了，喂点东西）' if data.get('satiety_low') else ''))
         if kind == 'cost':
             return ('今日：¥%s（%s 次）\n累计：¥%s（%s 次）\n未计入：%s 次\n最近：%s\n\n%s'
                     % (data.get('today_cost', '0.0000'), data.get('today_count', 0),
