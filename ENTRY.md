@@ -19,8 +19,8 @@ cd 'E:\ai工作站\desktop-pet'
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
-# 期望：761 passed / 8 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
-# 761 = 739（旧基线）+ 10（A 类维护护栏）+ 12（B 类：回收护栏 10 条 + 成本冷却 2 条）
+# 期望：762 passed / 8 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 762 = 739（旧基线）+ 10（A 类维护护栏）+ 13（B 类：回收/落点护栏 11 条 + 成本冷却 2 条）
 ```
 
 > ✅ **已重采（2026-09-23，Owner 批准）**：`markdown.sample_01` 差异已消除 —— **重采前红 ✗ / 重采后「黄金对照：完全一致 ✅（7 个分区）」✓**
