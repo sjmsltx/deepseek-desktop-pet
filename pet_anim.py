@@ -94,7 +94,14 @@ def restore_display_state(w):
 
 
 def play_scene(w, key):
-    """播放场景动作立绘（6 秒后恢复待机）"""
+    """播放场景动作立绘（6 秒后恢复待机）
+
+    v6.79 缺陷 75：**收尾必须先排**。原先 `QTimer.singleShot(...)` 排在 `SCENE_ACTIONS[key]` 取值**之后** ✗
+    → 未登记的键抛 KeyError → 收尾永远排不上 → **卡在 'scene' 回不去待机** ✗（与缺陷 74 同源）。
+
+    未登记的键**不再抛异常**：降级为「这个动作还没准备好」并**请宿主写一条审计 warning** ——
+    未知键是「代码与数据不同步」的信号，完全静默会把它丢掉（定稿依据：微信侧 88 号 ✓）。
+    """
     if w.sleeping:
         return
     img = w._get_scene_img(key)
@@ -103,10 +110,20 @@ def play_scene(w, key):
         return
     w.state = 'scene'  # 关键：锁定状态，防止 blink/光标跟随在播放期间切回待机
     w.phase = 0
-    w._render_frame(img)
-    desc = SCENE_ACTIONS[key][1]
-    w.say_plain(desc[:10])
+    # ★ 先排收尾：之后任何一步失败，都不会把状态卡在 'scene'
     QTimer.singleShot(6000, w._end_scene)
+    w._render_frame(img)
+    info = SCENE_ACTIONS.get(key)
+    if not info:
+        try:
+            hook = getattr(w, '_warn_unknown_scene', None)
+            if hook:
+                hook(key)
+        except Exception:
+            pass
+        w.say_plain('这个动作还没准备好~')
+        return
+    w.say_plain(info[1][:10])
 
 
 def end_scene(w):
