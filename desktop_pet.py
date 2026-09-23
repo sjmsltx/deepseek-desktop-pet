@@ -2849,7 +2849,8 @@ class PetWidget(QWidget):
             except Exception as _exc:
                 _silent_log('_post_stream:2256', _exc)   # v6.54
         except Exception as e:
-            # 400 等 HTTP 错误：显示响应体中的具体原因（DeepSeek error.message）
+            # 400 等 HTTP 错误：把响应体里的具体原因提出来，交 pet_diagnosis 做四段归因（L2 v0）
+            detail = ''
             try:
                 import urllib.error as _ue
                 if isinstance(e, _ue.HTTPError):
@@ -2859,10 +2860,15 @@ class PetWidget(QWidget):
                         detail = jsonlib.loads(body).get('error', {}).get('message') or body[:200]
                     except Exception as _exc:
                         _silent_log('_post_stream:2267', _exc)   # v6.54
-                    self.ai_reply_signal.emit(f'（AI 出错了：HTTP {e.code} — {detail}）')
-                else:
-                    self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
-            except Exception:
+            except Exception as _exc:
+                _silent_log('_post_stream:diag', _exc)   # 归因取数失败不影响原报错路径
+            try:
+                import pet_diagnosis as _diag
+                self.ai_reply_signal.emit(_diag.to_card(_diag.explain_error(
+                    e, status=getattr(e, 'code', None), detail=detail, context='对话')))
+            except Exception as _exc:
+                _silent_log('_post_stream:diag2', _exc)
+                # 兜底：归因不可用时，仍按旧文案报错（不静默失败）
                 self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
             # v6.43b：仅当代任务清 busy，然后自动执行队列下一任务（FCFS）
