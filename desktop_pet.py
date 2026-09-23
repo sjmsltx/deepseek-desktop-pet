@@ -887,6 +887,32 @@ class PetWidget(QWidget):
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
         return getattr(self, 'model_flash', 'deepseek-flash')
 
+    COST_BLOCKED_NOTIFY_COOLDOWN = 3600   # v6.79：同原因的拦截提示，对话栏 60 分钟内只写一次
+
+    def _notify_cost_blocked(self, why):
+        """成本闸门拦截提示（v6.79 成本刷屏缺陷）。
+
+        原行为：每次模型调用被拦都往对话栏灌一条 → 同原因反复刷屏。
+        现行为三件：① 审计不限频（调用方每次都记 deny）② 状态栏每次都刷新（保留可见性）
+        ③ 对话栏同原因 60 分钟只写一次。
+        """
+        why = str(why)
+        try:
+            self._notify('（成本闸门：%s）' % why, ms=self.COST_NOTIFY_MS)
+        except Exception as _exc:
+            _silent_log('_notify_cost_blocked:status', _exc)
+        try:
+            key = _re.sub(r'[\d.]+', '#', why)      # 金额数字变化不算换原因
+        except Exception:
+            key = why
+        now = time.time()
+        last = getattr(self, '_cost_blocked_notify', None)
+        if (last and last.get('key') == key
+                and now - float(last.get('t', 0)) < self.COST_BLOCKED_NOTIFY_COOLDOWN):
+            return                                  # 同原因且在冷却内 → 不刷屏
+        self._cost_blocked_notify = {'key': key, 't': now}
+        self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)
+
     def _run_task(self, text, images=None):
         """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）
 
@@ -899,8 +925,9 @@ class PetWidget(QWidget):
             import governance as _gov_c
             _ok_c, _why_c, _used_c = _gov_c.check_cost()
             if not _ok_c:
+                # v6.79：审计不限频（每次都记 deny）；对话栏提示改走 _notify_cost_blocked 做同原因冷却
                 _gov_c.log_event('deny', 'ai.calls', '模型调用', _why_c, allowed=False)
-                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % _why_c)
+                self._notify_cost_blocked(_why_c)
                 return
         except Exception as _exc:
             _silent_log('_run_task:cost', _exc)   # 成本门出问题不影响正常对话
@@ -2862,6 +2889,10 @@ class PetWidget(QWidget):
         target_state = self.EMOTION_STATE_MAP.get(emotion)
         if not target_state:
             return
+        # v6.79 缺陷 74④：补 state —— 原先只渲染不设 state，5 秒表情期内 state 仍是 'idle'，
+        # blink_tick/_blend_end 会按 idle 提前把情绪图刷回待机（与 _special_reaction 同类竞态）
+        self.state = target_state
+        self.phase = 0
         self._show_state_image(target_state)
         self.show_emotion(self.EMOTION_EMOJI_MAP.get(emotion, '✨'), 2000)
         if self._emotion_restore_timer is None:
@@ -7836,11 +7867,37 @@ class PetWidget(QWidget):
             self._show_pet_bubble('刚喂过啦，过会儿再喂～')
             return
         self._handle_affection(r)
+        _sat = float(r.get('satiety', 100) or 0)
         try:
+            # v6.79 缺陷 74①：补「设 state → 渲染 → 排收尾」三件套。
+            # 原先只渲染不设 state → end_state 的 state==st 门槛永远进不去 → 亲亲图回不到待机。
+            self.state = 'kiss'
+            self.phase = 0
             self._show_state_image('kiss')  # v6.30 喂食成功：撒娇亲亲
+            QTimer.singleShot(2500, lambda s=_sat: self._end_feed_reaction(s))
         except Exception:
             pass
-        self._show_pet_bubble(f'好吃！饱食度 {r.get("satiety", 100):.0f}%，好感 +2')
+        self._show_pet_bubble(f'好吃！饱食度 {_sat:.0f}%，好感 +2')
+
+    def _end_feed_reaction(self, satiety):
+        """喂食撒娇收尾（v6.79 缺陷 74①）：重判饱食度 ——
+        ≥30 → 回待机；仍 <30 → 回饥饿态（Owner 2026-09-23 79 号裁定：饿了常显）"""
+        if self.sleeping or self.state != 'kiss':
+            return                      # 期间被更高优先级状态接管 → 不抢
+        if float(satiety) < 30:
+            try:
+                self._enter_hungry()
+            except Exception:
+                self._end_state('kiss')
+        else:
+            self._end_state('kiss')
+
+    def _enter_hungry(self):
+        """进入饥饿态（v6.79 缺陷 74③）：持续状态 —— 只设 state + 渲染，
+        不排时间收尾；退出条件是「饱食度回升到 ≥30」（由巡检或喂食收尾判定）"""
+        self.state = 'hungry'
+        self.phase = 0
+        self._show_state_image('hungry')
 
     def _open_games(self):
         """打开小游戏窗口"""
@@ -7871,28 +7928,45 @@ class PetWidget(QWidget):
                         self.affection.trigger(self.current, 'chat')  # 破纪录额外好感
                 except Exception as _exc:
                     _silent_log('_on_game_result:5867', _exc)   # v6.54
+            _st = 'victory' if win else 'defeat'
             try:
-                self._show_state_image('victory' if win else 'defeat')
+                # v6.79 缺陷 74②：补「设 state → 渲染 → 排收尾」。原先只渲染 ——
+                # "赢"分支被 play_scene('happy') 接过 state，但"输"分支无后续 → 永久卡在 defeat。
+                self.state = _st
+                self.phase = 0
+                self._show_state_image(_st)
+                QTimer.singleShot(2000, lambda s=_st: self._end_state(s))
             except Exception as _exc:
                 _silent_log('_on_game_result:5871', _exc)   # v6.54
             if win:
+                # 保持原样：play_scene 会把 state 改成 'scene' → 2s 后的 _end_state('victory')
+                # 因 state 不匹配而空转，不打断庆祝动作。
                 self.play_scene('happy')
         except Exception as _exc:
             _silent_log('_on_game_result:5875', _exc)   # v6.54
 
     def _check_satiety(self):
-        """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）"""
+        """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）
+
+        v6.79 缺陷 74③（Owner 2026-09-23 79 号裁定「饿了常显」）：
+        饥饿是**持续状态**而非一次性动作 —— 进入后不排时间收尾，靠「饱食度回升 ≥30」退出；
+        且只在 idle 时进入，不与更高优先级状态相撞
+        （优先级：睡眠 > scared > 情绪 > 小游戏 > hungry > 待机）。
+        """
         try:
             s = self.affection.satiety(self.current)
             if s < 30:
-                # v6.30 饥饿状态图（素材已应用后生效）
-                try:
-                    self._show_state_image('hungry')
-                except Exception:
-                    pass
+                if self.state == 'idle':
+                    # v6.30 饥饿状态图（素材已应用后生效）
+                    try:
+                        self._enter_hungry()
+                    except Exception:
+                        pass
                 if time.time() - getattr(self, '_last_satiety_warn', 0) > 3600:
                     self._last_satiety_warn = time.time()
                     self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
+            elif self.state == 'hungry':
+                self._end_state('hungry')   # 饱食度已回到阈值以上 → 退出饥饿态回待机
         except Exception:
             pass
 
