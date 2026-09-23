@@ -1,0 +1,183 @@
+# -*- coding: utf-8 -*-
+"""临时状态回收护栏（v6.79 · 缺陷 74）
+
+使用者可见现象（2026-09-23 报）：
+  · 喂食后立绘停在「亲亲」、小游戏「输」了停在沮丧图 —— 都**回不到待机**。
+
+根因（已独立复核）：
+  `pet_anim.show_state_image()` 只渲染一帧，**既不设 state、也不排收尾**；
+  而收尾函数 `end_state(w, st)` 有 `w.state == st` 的前置门槛 →
+  调用点只渲染不设 state 时，收尾**永远进不去** → 图挂在屏幕上不动。
+  对照组：`_special_reaction` / `do_thinking` 是「设 state → 渲染 → 排收尾」三件套，所以正常。
+
+本文件 5 条护栏：
+  ① 喂食后回待机（真跑 QTimer 收尾）
+  ② 小游戏「输」后回待机（专抓被「赢→play_scene」掩盖的那一支）
+  ③ 饥饿是持续态：不被时间收尾清除 + 不抢更高优先级 + 饱食回升后回待机
+  ④ 喂食时仍低饱食 → 收尾落回饥饿态（Owner 79 号裁定「饿了常显」）
+  ⑤ 通用防线：`_show_state_image` 的每个调用点，所在方法必须同时有 `state =` 与收尾线索
+
+运行：python -m pytest tests/test_temp_state_recovery.py -q
+"""
+import os
+import re
+import sys
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE)
+
+
+def _pet():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication(sys.argv)
+    import desktop_pet as dp
+    p = dp.PetWidget()
+    p._save_cfg_value = lambda *a, **k: True
+    return p
+
+
+def _wait(ms):
+    """真跑事件循环 ms 毫秒 —— 让 QTimer.singleShot 的收尾**真的**触发。
+    （不 mock 定时器：缺陷本身就是「收尾没被排上 / 排上了也进不去」，
+     mock 掉就测不到真实行为。）"""
+    from PySide6.QtCore import QEventLoop, QTimer
+    loop = QEventLoop()
+    QTimer.singleShot(ms, loop.quit)
+    loop.exec()
+
+
+# ---------- ① 喂食回待机 ----------
+def test_feed_returns_to_idle():
+    p = _pet()
+    p.affection.feed = lambda role: {'satiety': 80.0, 'affection': 10}
+    p.affection.satiety = lambda role: 80.0
+    p.state = 'idle'
+    p._feed_pet()
+    assert p.state == 'kiss', '喂食应立即进入 kiss 态（证明设了 state），实际 %r' % p.state
+    _wait(3000)
+    assert p.state == 'idle', '喂食收尾后应回待机（原先停在 kiss 不回），实际 %r' % p.state
+
+
+# ---------- ② 小游戏「输」回待机 ----------
+def test_game_lose_returns_to_idle():
+    p = _pet()
+    p.affection.trigger = lambda role, event: {}
+    p.state = 'idle'
+    p._on_game_result(win=False)
+    assert p.state == 'defeat', '输时应进入 defeat 态，实际 %r' % p.state
+    _wait(2600)
+    assert p.state == 'idle', '「输」的收尾应回待机（原先永久卡在 defeat），实际 %r' % p.state
+
+
+def test_game_win_is_not_broken_by_defeat_path():
+    """对照：「赢」仍由 play_scene('happy') 接管（state → 'scene'），
+    2 秒后的 _end_state('victory') 因 state 不匹配而空转，不得打断庆祝。"""
+    p = _pet()
+    p.affection.trigger = lambda role, event: {}
+    p.state = 'idle'
+    p._on_game_result(win=True)
+    _wait(2600)
+    assert p.state in ('scene', 'idle'), '赢的路径不应停在 victory，实际 %r' % p.state
+    assert p.state != 'victory', '庆祝动作不应被 _end_state(\'victory\') 打断'
+
+
+# ---------- ③ 饥饿是持续态 ----------
+def test_hungry_is_persistent_and_respects_priority():
+    p = _pet()
+    p.affection.satiety = lambda role: 10.0
+    p.state = 'idle'
+    p._check_satiety()
+    assert p.state == 'hungry', '低饱食应从待机进入饥饿态，实际 %r' % p.state
+
+    _wait(2600)   # 超过 kiss/victory 那类一次性收尾的时长
+    assert p.state == 'hungry', '饥饿是持续状态，不得被时间收尾清除，实际 %r' % p.state
+
+    p.state = 'scared'   # 更高优先级（睡眠 > scared > 情绪 > 小游戏 > hungry > 待机）
+    p._check_satiety()
+    assert p.state == 'scared', 'hungry 不得抢 scared，实际 %r' % p.state
+
+    p.state = 'victory'  # 小游戏优先级也高于 hungry
+    p._check_satiety()
+    assert p.state == 'victory', 'hungry 不得抢 victory，实际 %r' % p.state
+
+    p.state = 'hungry'
+    p.affection.satiety = lambda role: 80.0   # 饱食回升 → 退出饥饿态
+    p._check_satiety()
+    assert p.state == 'idle', '饱食回升后应回待机，实际 %r' % p.state
+
+
+# ---------- ④ 喂食收尾重判饱食度 ----------
+def test_feed_reaction_falls_back_to_hungry_when_still_low():
+    p = _pet()
+    p.state = 'kiss'
+    p._end_feed_reaction(10.0)
+    assert p.state == 'hungry', '喂食后仍低饱食 → 应回到饥饿态，实际 %r' % p.state
+
+
+def test_feed_reaction_goes_idle_when_full():
+    p = _pet()
+    p.state = 'kiss'
+    p._end_feed_reaction(80.0)
+    assert p.state == 'idle', '喂食后饱食达标 → 应回待机，实际 %r' % p.state
+
+
+# ---------- ⑤ 通用防线（源码级） ----------
+# 白名单：这些方法**故意**不排时间收尾，理由写在下面（不是漏配）
+_WHITELIST = {
+    # 饥饿 = 持续状态，退出条件是「饱食度回升 ≥30」而非时间；
+    # 收尾落在 _check_satiety() 的 `elif self.state == 'hungry': self._end_state('hungry')`
+    '_enter_hungry': "_end_state('hungry')",
+}
+
+
+def _methods(src):
+    """枚举类方法区间 (name, start, end)（4 空格缩进的 def）"""
+    lines = src.split('\n')
+    out, cur = [], None
+    for i, ln in enumerate(lines):
+        if re.match(r'    def \w+', ln):
+            if cur:
+                out.append((cur[0], cur[1], i))
+            cur = (ln.strip()[4:].split('(')[0], i)
+    if cur:
+        out.append((cur[0], cur[1], len(lines)))
+    return out, lines
+
+
+def _enclosing(mets, i):
+    for name, a, b in mets:
+        if a <= i < b:
+            return name, a, b
+    return None, i, i
+
+
+def test_every_state_image_call_is_paired():
+    """护栏⑤：`_show_state_image(` 的每个调用点，所在方法必须同时出现
+    ① `self.state =`（否则 end_state 的 state==st 门槛进不去）
+    ② 收尾线索（`_end_state(` / `singleShot(` / `QTimer(` / `_emotion_restore_timer`）
+    谁不配收尾就红 —— 以后新增调用点会当场失败。"""
+    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    mets, lines = _methods(src)
+    end_clues = ('_end_state(', 'singleShot(', 'QTimer(', '_emotion_restore_timer')
+    offenders = []
+    checked = 0
+    for i, ln in enumerate(lines):
+        if '_show_state_image(' not in ln or 'def _show_state_image' in ln:
+            continue
+        name, a, b = _enclosing(mets, i)
+        if name is None:
+            continue
+        checked += 1
+        body = '\n'.join(lines[a:b])
+        has_state = bool(re.search(r'self\.state\s*=', body))
+        has_end = any(c in body for c in end_clues)
+        if name in _WHITELIST:
+            # 白名单方法：必须能全仓找到它约定的那处收尾（防止白名单变成"免死金牌"）
+            assert _WHITELIST[name] in src, \
+                '白名单方法 %s 约定的收尾 %r 在源码中找不到' % (name, _WHITELIST[name])
+            continue
+        if not (has_state and has_end):
+            offenders.append('%s(L%d) state=%s end=%s' % (name, i + 1, has_state, has_end))
+    assert checked >= 5, '扫描到的调用点太少（%d），护栏可能失效' % checked
+    assert not offenders, '这些 _show_state_image 调用点缺 state 或缺收尾：\n  ' + '\n  '.join(offenders)
