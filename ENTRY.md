@@ -19,8 +19,8 @@ cd 'E:\ai工作站\desktop-pet'
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
-# 期望：749 passed / 8 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
-# 749 = 739（旧基线）+ 10（本类新增护栏，已全部生效）
+# 期望：758 passed / 8 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 758 = 739（旧基线）+ 10（A 类维护护栏）+ 9（B 类：缺陷 74 回收护栏 7 条 + 成本冷却 2 条）
 ```
 
 > ⚠️ **已知红灯（非回归）**：`tests\golden_ui.py check` 目前报 1 处差异（`markdown.sample_01`）✓
