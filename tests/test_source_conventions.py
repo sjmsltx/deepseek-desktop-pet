@@ -115,9 +115,9 @@ def test_core_tools_not_removed():
         assert must in ks, f"core 必须保留 {must}（默认暴露给模型的陪伴高频能力）"
 
 
-# ── 10. assets_3.0 不得裸奔（待"第 0 步"落地后转为正式断言）────────────
-@pytest.mark.xfail(strict=False, reason="待第 0 步：.gitignore 忽略 assets_3.0/**（1.5 GB 素材，误 add 不可逆）")
+# ── 10. assets_3.0 不得裸奔（第 0 步已落地 ✓ 现为正式断言）────────────────
 def test_assets_3_0_is_ignored():
+    """3.0 素材库体量大且仍在迭代，必须被 .gitignore 挡住（一次 git add -A 就会把 1.5 GB 吞进历史·不可逆）"""
     if not (ROOT / "assets_3.0").exists():
         pytest.skip("本机无 assets_3.0，跳过")
     gi = read(".gitignore") if (ROOT / ".gitignore").exists() else ""
