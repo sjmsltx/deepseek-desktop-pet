@@ -122,6 +122,43 @@ def test_feed_reaction_goes_idle_when_full():
     assert p.state == 'idle', '喂食后饱食达标 → 应回待机，实际 %r' % p.state
 
 
+# ---------- ④b 收尾落点统一：仍饿则回饥饿（Owner 14:53 追加裁定） ----------
+def test_emotion_restore_falls_back_to_hungry():
+    """饥饿期间被情绪接管，情绪收尾后仍回饥饿状态（而不是回待机）"""
+    p = _pet()
+    p.affection.satiety = lambda role: 10.0
+    p.state = 'happy'
+    p._restore_state_after_emotion()
+    assert p.state == 'hungry', '情绪收尾后仍饿 → 应回饥饿态，实际 %r' % p.state
+
+    p.affection.satiety = lambda role: 80.0
+    p.state = 'happy'
+    p._restore_state_after_emotion()
+    assert p.state == 'idle', '情绪收尾后不饿 → 应回待机，实际 %r' % p.state
+
+
+def test_scene_end_falls_back_to_hungry():
+    p = _pet()
+    p.affection.satiety = lambda role: 10.0
+    p.state = 'scene'
+    p._end_scene()
+    assert p.state == 'hungry', '场景收尾后仍饿 → 应回饥饿态，实际 %r' % p.state
+
+
+def test_special_reaction_end_falls_back_to_hungry():
+    """惊吓/开心（_special_reaction）收尾走 _end_state，同样按优先级落回饥饿"""
+    p = _pet()
+    p.affection.satiety = lambda role: 10.0
+    p.state = 'scared'
+    p._end_state('scared')
+    assert p.state == 'hungry', '惊吓收尾后仍饿 → 应回饥饿态，实际 %r' % p.state
+
+    # 对照：状态不匹配时 _end_state 必须空转（不得抢后来接管的状态）
+    p.state = 'scene'
+    p._end_state('scared')
+    assert p.state == 'scene', '_end_state 不应抢走已接管的状态，实际 %r' % p.state
+
+
 # ---------- ⑤ 通用防线（源码级） ----------
 # 白名单：这些方法**故意**不排时间收尾，理由写在下面（不是漏配）
 _WHITELIST = {
