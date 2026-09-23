@@ -75,3 +75,8 @@ plugins/_tmp/
 # 治理：审计日志（本地运行数据，不进仓库）
 logs/
 
+
+# 第三方 agent 驱动仓库（禁止入库 ✗ 见 COORD.md 禁止清单）
+**/third_party/**
+**/claude.md
+**/.agents/
