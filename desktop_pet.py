@@ -453,6 +453,9 @@ class PetWidget(QWidget):
         self._load_memory()
         self.todos = []             # 待办清单
         self._load_todos()
+        self._task_queue = []       # v6.79 缺陷 76：FCFS 任务队列
+                                    # （原先在 __init__ 链路里**从未初始化** ✗ → _enqueue_task 抛 AttributeError、
+                                    #   _next_task / _refresh_task_sidebar 全部静默失败 → 队列功能整体失效 ✗）
         self._load_chat_memory()
         self._display_offset = 0   # 显示历史已加载起点（显示更多用）
         self.reminders = []
@@ -4734,6 +4737,16 @@ class PetWidget(QWidget):
     def _end_scene(self):
         """场景动作结束（v6.79）：仍低饱食 → 回饥饿态；否则交回 pet_anim 原语回待机"""
         return self._rest_idle_or_hungry(lambda: anim.end_scene(self))
+
+    def _warn_unknown_scene(self, key):
+        """未登记的场景动作键（v6.79 缺陷 75）：降级保可用，同时**写审计 warning 保可诊** ——
+        未知键是「代码与数据不同步」的信号 ✗，完全静默会把它丢掉（定稿依据：微信侧 88 号 ✓）。"""
+        try:
+            import governance as _gov
+            _gov.log_event('warn', 'ui.scene', '场景动作',
+                           '未登记的 key：%s（已降级为「还没准备好」）' % key, allowed=True)
+        except Exception as _exc:
+            _silent_log('_warn_unknown_scene', _exc)
     # ---------- 眨眼 ----------
     def _do_blink(self):
         """眨眼定时器回调（实现已搬至 pet_anim.blink_tick）"""
