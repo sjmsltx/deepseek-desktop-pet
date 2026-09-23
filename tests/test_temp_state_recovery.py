@@ -218,3 +218,15 @@ def test_every_state_image_call_is_paired():
             offenders.append('%s(L%d) state=%s end=%s' % (name, i + 1, has_state, has_end))
     assert checked >= 5, '扫描到的调用点太少（%d），护栏可能失效' % checked
     assert not offenders, '这些 _show_state_image 调用点缺 state 或缺收尾：\n  ' + '\n  '.join(offenders)
+
+
+# ---------- ⑥ pet_anim 收尾原语不得再变孤儿（微信侧 09 号建议） ----------
+def test_pet_anim_end_primitives_still_wired():
+    """pet_anim 的三个收尾原语必须仍被 desktop_pet 的 wrapper 调用 ——
+    防止「收尾逻辑搬家」后它们再次变成 0 调用点的死代码（v6.79 C 方案）。"""
+    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    for name in ('anim.end_state(', 'anim.end_scene(', 'anim.restore_after_emotion('):
+        assert name in src, 'pet_anim 收尾原语已变孤儿（无调用点）：%s' % name
+    for wrapper in ('def _end_state(', 'def _end_scene(', 'def _restore_state_after_emotion(',
+                    'def _rest_idle_or_hungry('):
+        assert wrapper in src, '缺少收尾 wrapper / 落点方法：%s' % wrapper
