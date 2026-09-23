@@ -80,3 +80,6 @@ logs/
 **/third_party/**
 **/claude.md
 **/.agents/
+
+# 3.0 素材库（体量大、仍在迭代中；Owner 2026-09-23 14:06 指示：不追踪）
+assets_3.0/
