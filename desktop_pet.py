@@ -118,6 +118,31 @@ def _silent_log(where, exc):
         pass          # 日志系统自己不能把主程序拖垮
 
 
+def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', detail=''):
+    """L5：把一次失败写进审计（kind=error），并返回归因结构（供卡片复用）。
+
+    为什么要两条路都走：``_silent_log`` 只给排查的人看 ✓ 而审计是“可解释”的根 ✗
+    —— 今天两个缺陷正是从 silent 日志里捞出来的 ✓ 所以关键失败要**同时**落审计（可被“最近错误”类入口读到 ✓）。
+    约束：不抛异常 ✓ 审计不可用不影响主流程 ✓ 归因不可用时仍写一条退化的审计 ✓
+    """
+    diag = None
+    try:
+        import pet_diagnosis as _diag
+        diag = _diag.explain_error(exc, detail=detail, context=context)
+    except Exception as _exc:
+        _silent_log('_audit_failure:diag', _exc)
+    try:
+        import governance as _gov
+        if diag is not None:
+            _detail = '%s ｜ 层=%s ｜ %s' % (diag.cause, diag.layer, diag.raw)
+        else:
+            _detail = '%s: %s' % (type(exc).__name__, exc)
+        _gov.log_event('error', actor, action, _detail, allowed=False)
+    except Exception as _exc:
+        _silent_log('_audit_failure:audit', _exc)
+    return diag
+
+
 def asset(role, state):
     p = os.path.join(ASSETS, role, f'{role}_{state}.png')
     if os.path.exists(p):
@@ -2862,10 +2887,12 @@ class PetWidget(QWidget):
                         _silent_log('_post_stream:2267', _exc)   # v6.54
             except Exception as _exc:
                 _silent_log('_post_stream:diag', _exc)   # 归因取数失败不影响原报错路径
+            # L2 v0 + L5：一次归因 → 既写审计（L5，kind=error）又渲染四段卡片（L2）
+            _d = _audit_failure(e, detail=detail, context='对话')
             try:
                 import pet_diagnosis as _diag
-                self.ai_reply_signal.emit(_diag.to_card(_diag.explain_error(
-                    e, status=getattr(e, 'code', None), detail=detail, context='对话')))
+                self.ai_reply_signal.emit(_diag.to_card(_d) if _d is not None
+                                          else f'（AI 出错了：{e}）')
             except Exception as _exc:
                 _silent_log('_post_stream:diag2', _exc)
                 # 兜底：归因不可用时，仍按旧文案报错（不静默失败）
