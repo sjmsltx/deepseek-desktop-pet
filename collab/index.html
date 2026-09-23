@@ -51,6 +51,19 @@
   .split-h:hover,.split-h.drag{background:var(--acc)}
   .cols.reading .split-v{display:none}
   .cols.board .split-h{display:none}
+
+  /* ★ 阶段① 页签：单页显示。**只切可见性、不重渲染**（DOM 行元素不动 → 同一 data-seq 仍只出现一次） */
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+  .tab{font-family:var(--mono);font-size:12px;padding:6px 11px;border:1px solid var(--rule);background:#fff;color:var(--ink2);cursor:pointer;border-radius:3px}
+  .tab:hover{background:var(--card)}
+  .tab[aria-selected="true"]{border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+  .tab:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+  .cols.single{grid-template-columns:minmax(0,1fr)}
+  .cols.single .split-v,.cols.single .split-h{display:none}
+  body.view-L1 #panel-l2,body.view-L1 #panel-l3,
+  body.view-L2 #panel-l1,body.view-L2 #panel-l3,
+  body.view-L3 #panel-l1,body.view-L3 #panel-l2{display:none}
+  body.view-L1 #side,body.view-L1 .split-v{display:none}
   .m-b{max-width:var(--readw, none)}   /* 行宽：默认满宽（跟窗格），可切档 */
 
   .panel{border:1px solid var(--rule);background:#fff}
@@ -124,22 +137,29 @@
 
 <div id="errs"></div>
 
+<div class="tabs" id="tabs" role="tablist" aria-label="面板页签（←/→ 切换，Enter 激活）">
+  <button class="tab" role="tab" id="tab-L1" data-view="L1" aria-selected="false" tabindex="-1" aria-controls="panel-l1">群聊流 L1</button>
+  <button class="tab" role="tab" id="tab-L2" data-view="L2" aria-selected="false" tabindex="-1" aria-controls="panel-l2">投递轨道 L2</button>
+  <button class="tab" role="tab" id="tab-L3" data-view="L3" aria-selected="false" tabindex="-1" aria-controls="panel-l3">后台总线 L3</button>
+  <button class="tab" role="tab" id="tab-all" data-view="all" aria-selected="true" tabindex="0">⧉ 全部显示</button>
+</div>
+
 <div class="cols reading" id="cols">
-  <div class="panel">
+  <div class="panel" id="panel-l1" data-panel="L1">
     <div class="panel-h"><span>L1 · 群聊流（human）—— 阅读模式占满宽；行宽可切档</span><span id="c1">0</span></div>
     <div class="stream" id="stream-l1"></div>
   </div>
   <div class="split-v" id="split-v" title="拖动调整左右宽度（双击重置）"></div>
   <div id="side">
     <div class="split-h" id="split-h" title="拖动调整下方面板高度（双击重置）"></div>
-    <div class="panel" style="margin-bottom:12px">
+    <div class="panel" id="panel-l2" data-panel="L2" style="margin-bottom:12px">
       <div class="panel-h"><span>L2 · 投递轨道（meta）</span><span id="c2">0</span></div>
       <div class="lane-scroll">
         <table><thead><tr><th>seq</th><th>投递</th><th>类型</th><th>tok</th><th>成本(微元)</th></tr></thead>
         <tbody id="lane-l2"></tbody></table>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel-l3" data-panel="L3">
       <div class="panel-h"><span>L3 · 后台总线（debug）</span><span id="c3">0</span></div>
       <div class="lane-scroll" id="lane-l3"></div>
     </div>
@@ -403,7 +423,60 @@
     document.querySelectorAll('#side .lane-scroll').forEach(function (el) { el.style.maxHeight = ''; });
   };
 
+  // ---- 阶段① 页签：单页 / 全显（只切可见性，不重渲染）----
+  var TAB_KEYS = ['L1', 'L2', 'L3'];
+  var view = 'all';
+  function applyView(v) {
+    view = v;
+    var single = TAB_KEYS.indexOf(v) >= 0;
+    document.body.classList.remove('view-L1', 'view-L2', 'view-L3');
+    if (single) { document.body.classList.add('view-' + v); }
+    $('cols').classList.toggle('single', single);
+    TAB_KEYS.concat(['all']).forEach(function (k) {
+      var t = $('tab-' + k);
+      if (!t) { return; }
+      var on = (k === v);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+    });
+  }
+  function activateTab(k) {
+    applyView(k);
+    if (k === 'all') {
+      // 「全部显示」= 回到三栏（看板模式，规格 §二）
+      var c = $('cols'); c.classList.remove('reading'); c.classList.add('board');
+      $('btn-mode').textContent = '⇄ 切到阅读模式';
+    }
+  }
+  try {
+    TAB_KEYS.concat(['all']).forEach(function (k) {
+      var t = $('tab-' + k);
+      if (t) { t.addEventListener('click', function () { activateTab(k); }); }
+    });
+    $('tabs').addEventListener('keydown', function (e2) {
+      var order = TAB_KEYS.concat(['all']);
+      var i = order.indexOf(view);
+      if (i < 0) { i = order.length - 1; }
+      if (e2.key === 'ArrowRight' || e2.key === 'ArrowLeft') {
+        var n = (i + (e2.key === 'ArrowRight' ? 1 : -1) + order.length) % order.length;
+        activateTab(order[n]);
+        var el = $('tab-' + order[n]);
+        if (el) { el.focus(); }
+        e2.preventDefault();
+      } else if (e2.key === 'Enter' || e2.key === ' ') {
+        activateTab(view);
+        e2.preventDefault();
+      }
+    });
+  } catch (e2) {
+    // 退化保护（规格 §三）：页签系统出错 → 回落三栏固定布局，不白屏
+    document.body.classList.remove('view-L1', 'view-L2', 'view-L3');
+    var cc = $('cols');
+    if (cc) { cc.classList.remove('single'); }
+  }
+
   $('btn-mode').onclick = function () {
+    if (view !== 'all') { applyView('all'); }
     var c = $('cols');
     if (c.classList.contains('reading')) {
       c.classList.remove('reading'); c.classList.add('board');
