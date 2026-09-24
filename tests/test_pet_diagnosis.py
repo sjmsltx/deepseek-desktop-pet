@@ -73,29 +73,36 @@ def test_module_hygiene_no_reverse_import_and_no_io():
 def test_http_401_is_auth_layer():
     err = ue.HTTPError('https://x', 401, 'Unauthorized', {}, None)
     d = _diag().explain_error(err)
-    assert d.layer == '认证' and 'Key' in d.next_step
+    assert d.layer == '鉴权' and 'Key' in d.next_step
 
 
 def test_http_429_is_rate_limited():
     err = ue.HTTPError('https://x', 429, 'Too Many Requests', {}, None)
     d = _diag().explain_error(err)
-    assert d.layer == '服务端' and '限流' in d.cause
+    assert d.layer == '上游限流' and '限流' in d.cause
 
 
 def test_http_500_is_server_side():
     err = ue.HTTPError('https://x', 500, 'Internal Server Error', {}, None)
     d = _diag().explain_error(err)
-    assert d.layer == '服务端'
+    assert d.layer == '上游故障'
 
 
-def test_timeout_is_network_layer():
+def test_timeout_is_local_network_by_default():
+    """未给 phase 时：超时按 v0 语义归「本地网络」（建连阶段）✓"""
     d = _diag().explain_error(socket.timeout('timed out'))
-    assert d.layer == '网络' and '超时' in d.cause
+    assert d.layer == '本地网络' and '超时' in d.cause
 
 
-def test_connection_error_is_network_layer():
+def test_timeout_during_streaming_is_upstream_timeout():
+    """⭐ v1-A 边界修正：已发出请求后的读超时 → 「上游超时」✗（不是“你的网络不行”✗）"""
+    d = _diag().explain_error(socket.timeout('timed out'), phase='streaming')
+    assert d.layer == '上游超时'
+
+
+def test_connection_error_is_local_network():
     d = _diag().explain_error(ConnectionError('connection refused'))
-    assert d.layer == '网络'
+    assert d.layer == '本地网络'
 
 
 def test_unknown_error_says_unknown_not_guess():
@@ -123,4 +130,4 @@ def test_context_prefix_is_used():
 
 def test_status_param_overrides_exception_code():
     d = _diag().explain_error(RuntimeError('boom'), status=403)
-    assert d.layer == '认证'
+    assert d.layer == '鉴权'
