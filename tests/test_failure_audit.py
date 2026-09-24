@@ -42,8 +42,8 @@ def test_audit_failure_maps_auth_error():
         captured.append(detail)
     try:
         d = dp._audit_failure(ue.HTTPError('https://x', 401, 'Unauthorized', {}, None), context='对话')
-        assert d.layer == '认证'
-        assert '认证' in captured[0]
+        assert d.layer == '鉴权'
+        assert '鉴权' in captured[0]
     finally:
         import importlib
         importlib.reload(gov)
