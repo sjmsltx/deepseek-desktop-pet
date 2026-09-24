@@ -63,6 +63,7 @@ def test_feed_returns_to_idle():
 def test_game_lose_returns_to_idle():
     p = _pet()
     p.affection.trigger = lambda role, event: {}
+    p.affection.satiety = lambda role: 80.0   # ★ 锁定饱食度状态源（否则收尾会重判实时值 → 状态依赖 ✗）
     p.state = 'idle'
     p._on_game_result(win=False)
     assert p.state == 'defeat', '输时应进入 defeat 态，实际 %r' % p.state
@@ -91,6 +92,7 @@ def test_scene_key_with_asset_but_unregistered_recovers(monkeypatch):
     原先 KeyError → 收尾永远排不上 → 卡住。现必须：不抛异常 + 能收尾回待机 + 写审计 warning。"""
     import governance as gov
     p = _pet()
+    p.affection.satiety = lambda role: 80.0   # ★ 锁定饱食度状态源（收尾会重判实时值 ✗）
     captured = []
     monkeypatch.setattr(gov, 'log_event', lambda *a, **k: captured.append((a, k)))
     p.state = 'idle'
@@ -108,6 +110,7 @@ def test_arbitrary_unknown_scene_key_recovers(monkeypatch):
     本测试用一个人为的键名字验证：不抛异常 + 能收尾回待机 + 写审计 warning。"""
     import governance as gov
     p = _pet()
+    p.affection.satiety = lambda role: 80.0   # ★ 锁定饱食度状态源（收尾会重判实时值 ✗）
     captured = []
     monkeypatch.setattr(gov, 'log_event', lambda *a, **k: captured.append((a, k)))
     p.state = 'idle'
@@ -155,6 +158,7 @@ def test_feed_reaction_falls_back_to_hungry_when_still_low():
 
 def test_feed_reaction_goes_idle_when_full():
     p = _pet()
+    p.affection.satiety = lambda role: 80.0   # ★ 锁定饱食度状态源（_end_state 会重判实时值 ✗）
     p.state = 'kiss'
     p._end_feed_reaction(80.0)
     assert p.state == 'idle', '喂食后饱食达标 → 应回待机，实际 %r' % p.state
