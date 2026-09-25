@@ -75,8 +75,20 @@ def set_state(w, **kw):
 
 
 def show_state_image(w, st):
-    """显示状态立绘（sleep/happy/thinking/scared/...；Live2D 模式由模型代替）"""
+    """显示状态立绘（sleep/happy/thinking/scared/...；Live2D 模式由模型代替）
+
+    缺陷 1（Owner 2026-09-25 23:22 实测复发 ✓）：**贴边优先** ✓
+    —— 原实现无条件 `w._render_frame(img)` ✗ → `_enter_hungry()` 一调就把**贴边渲染整个盖掉** ✗
+    （贴边时显示成“正常全身立绘”✓ 与 Owner 截图完全吻合 ✓）
+    现改为：**已贴边且未弹出** → 交给 `w._show_peek()` 统一渲染 ✓
+    （它自带 sleep / hungry 分支 + 缺图回落 + 审计 warning ✓）
+    → 一处拦截即覆盖**所有状态** ✓（含 `restore_display_state → _enter_hungry` 这条链 ✓）
+    """
     if getattr(w, 'display_mode', 'static') == 'live2d':
+        return
+    if (getattr(w, '_edge_side', None) is not None
+            and not getattr(w, '_edge_popped', False)):
+        w._show_peek()
         return
     img = w._get_state_img(st)
     if img is None:

@@ -247,6 +247,74 @@ def test_pro_peek_assets_waiting_for_hungry():
         assert (base / name).is_file(), f'{name} 缺失（pro 应有贴边态）✗'
 
 
+class _AnimWin:
+    """show_state_image 的最小替身（记录调用 ✓ 不碰 Qt 渲染 ✗）"""
+
+    def __init__(self, docked=True, popped=False, mode='static', img='IMG'):
+        self.display_mode = mode
+        self._edge_side = 'left' if docked else None
+        self._edge_popped = popped
+        self._img = img
+        self.calls = []
+
+    def _get_state_img(self, st):
+        self.calls.append(('get_state_img', st))
+        return self._img
+
+    def _show_peek(self):
+        self.calls.append(('show_peek',))
+
+    def _render_frame(self, img):
+        self.calls.append(('render_frame', img))
+
+    def _show_idle(self):
+        self.calls.append(('show_idle',))
+
+
+def test_show_state_image_routes_to_peek_when_docked():
+    """⭐ ① 贴边 + hungry → 调 `_show_peek` ✓ **不调 `_render_frame`** ✗（缺陷 1 复发根因 ✓）"""
+    import pet_anim
+    w = _AnimWin(docked=True, popped=False)
+    pet_anim.show_state_image(w, 'hungry')
+    assert ('show_peek',) in w.calls, '贴边时应走贴边渲染 ✗'
+    assert not any(c[0] == 'render_frame' for c in w.calls), \
+        '贴边时不得调 _render_frame（会把贴边渲染盖掉 ✗）'
+
+
+def test_show_state_image_not_intercepted_when_popped():
+    """④ `_edge_popped=True`（已弹出）→ 不拦 ✓ 仍走原路径 ✓"""
+    import pet_anim
+    w = _AnimWin(docked=True, popped=True)
+    pet_anim.show_state_image(w, 'hungry')
+    assert not any(c[0] == 'show_peek' for c in w.calls)
+    assert ('render_frame', 'IMG') in w.calls
+
+
+def test_show_state_image_unchanged_when_not_docked():
+    """③ 非贴边 + hungry → 行为不变 ✓（照旧 `_render_frame` ✓）"""
+    import pet_anim
+    w = _AnimWin(docked=False)
+    pet_anim.show_state_image(w, 'hungry')
+    assert ('render_frame', 'IMG') in w.calls
+    assert not any(c[0] == 'show_peek' for c in w.calls)
+
+
+def test_show_state_image_missing_img_still_falls_back():
+    """非贴边 + 图缺失 → 仍回落 `_show_idle` ✓（不静默 ✗）"""
+    import pet_anim
+    w = _AnimWin(docked=False, img=None)
+    pet_anim.show_state_image(w, 'hungry')
+    assert ('show_idle',) in w.calls
+
+
+def test_show_state_image_live2d_untouched():
+    """Live2D 模式不拦 ✓（原行为保留 ✓）"""
+    import pet_anim
+    w = _AnimWin(docked=True, mode='live2d')
+    pet_anim.show_state_image(w, 'hungry')
+    assert w.calls == [], w.calls
+
+
 def test_hungry_bubble_uses_random_food_emoji():
     src = _src(DP)
     m = re.search(r'HUNGRY_EMOJI_POOL\s*=\s*\(([^)]*)\)', src)
