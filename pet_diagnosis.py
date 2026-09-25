@@ -134,6 +134,25 @@ def explain_error(exc, *, status=None, detail='', context='', phase=None):
 ERROR_KINDS = ('error', 'deny')          # 判错类：error（失败）/ deny（拒绝）
 _LAYER_RX = re.compile(r'层=([^｜|]+)')
 
+# 13 类归因层名（与微信侧表逐字一致 ✓）—— 用于：独立出现的层名段在摘要里**去掉** ✓
+LAYERS = ('本地网络', '上游限流', '上游故障', '上游超时', '流中断', '鉴权', '请求错误',
+          '额度', '本地闸门', '内容安全', '工具失败', '本地异常', '上游公告', '未知')
+
+
+def _summary_of(detail, kind=''):
+    """从 detail 提取摘要：去掉 `层=xxx` 段、空段、**独立层名段**（如 `未知 ｜`）✓
+
+    修复（微信侧 2026-09-25 指出）：原文案拼接后摘要会残留 `未知   原因` 这类引导词 ✗
+    """
+    parts = []
+    for seg in str(detail or '').split('｜'):
+        s = seg.strip()
+        if not s or s.startswith('层=') or s in LAYERS:
+            continue                       # 无信息量段 → 去掉 ✓
+        parts.append(s)
+    joined = ' '.join(parts).strip()
+    return joined or (str(kind or '') or '（无摘要）')
+
 
 def recent_errors(records, *, limit=20, layer=None):
     """把**审计记录**整理成「最近错误」列表（纯函数 ✓）。
@@ -161,7 +180,7 @@ def recent_errors(records, *, limit=20, layer=None):
             lay = m.group(1).strip() if m else ''
             if layer and lay != str(layer):
                 continue
-            summary = _LAYER_RX.sub('', detail).replace('｜', ' ').strip() or kind or '（无摘要）'
+            summary = _summary_of(detail, kind)
             rows.append({
                 'time': str(r.get('ts', '') or r.get('time', '') or ''),
                 'kind': kind,

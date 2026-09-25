@@ -73,6 +73,21 @@ def test_only_failure_kinds_kept():
     assert [r['kind'] for r in rows] == ['error', 'deny']
 
 
+def test_summary_strips_layer_fragments():
+    """打磨（微信侧 2026-09-25 指出）：摘要不得残留 `未知 ｜` 这类引导词 ✗"""
+    import pet_diagnosis as d
+    rows = d.recent_errors([
+        _rec('2026-09-25T10:00:00', detail='未知 ｜ 层=本地网络 ｜ boom'),
+        _rec('2026-09-25T10:01:00', detail='对话时：连接超时 ｜ 层=上游超时 ｜ timed out'),
+    ])
+    by_time = {r['time']: r['summary'] for r in rows}
+    assert by_time['2026-09-25T10:00:00'] == 'boom', by_time
+    assert by_time['2026-09-25T10:01:00'] == '对话时：连接超时 timed out', by_time
+    for r in rows:
+        assert '｜' not in r['summary'] and '层=' not in r['summary'], r
+        assert '  ' not in r['summary'], '摘要不得有多余空格 ✗'
+
+
 def test_bad_records_do_not_crash():
     import pet_diagnosis as d
     rows = d.recent_errors([None, 42, 'x', {}, {'kind': 'error'}, _rec('2026-09-25T10:00:00')])
