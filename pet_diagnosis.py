@@ -161,14 +161,20 @@ def local_diag(exc, *, context=''):
                 '重试一次；仍然失败可把「原始错误」复制发我', raw)
 
 
-def to_card(diag: Diag) -> str:
-    """归因结构 → 用户可读的失败卡片文本（一行标题 + 三段明细 + 可选原始错误）"""
+def to_card(diag: Diag, notice: str = '') -> str:
+    """归因结构 → 用户可读的失败卡片文本（一行标题 + 三段明细 + 可选原始错误）
+
+    L3-1：``notice`` = **上游公告**（由 `pet_net.probe_status()` 取得 ✓ 纯函数不收网 ✗）；
+    **为空则整行不出现** ✓（护栏③：无公告不显示）
+    """
     lines = [
         '❌ 这一轮没答上：%s' % diag.cause,
         '　· 出在哪：%s' % diag.layer,
         '　· 影响：%s' % diag.impact,
         '　· 下一步：%s' % diag.next_step,
     ]
+    if notice:
+        lines.append('　· 上游公告：%s' % str(notice).strip())
     if diag.raw:
         lines.append('　· 原始错误：%s' % diag.raw)
     return '\n'.join(lines)

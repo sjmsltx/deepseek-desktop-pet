@@ -948,6 +948,7 @@ class PetWidget(QWidget):
         return getattr(self, 'model_flash', 'deepseek-flash')
 
     # ---------- v1-B：失败卡片**唯一出口**（护栏：源码里只此处能渲染 to_card ✓）----------
+    UPSTREAM_LAYERS = ('上游超时', '上游故障', '上游限流')   # L3-1：这些层才附「上游公告」✓
     # user_facing 标签 → 归因类别（层名字面与 13 类表逐字对齐 ✓）
     FAIL_CARD_TAG_KINDS = (
         ('_smart_open', '工具失败'),
@@ -975,6 +976,42 @@ class PetWidget(QWidget):
         """本轮是否已被 /stop 顶替（= 弃权 ✓）"""
         return getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1)
 
+    def _upstream_notice(self):
+        """L3-1：取上游公告（仅上游类失败用；带 5 分钟缓存 ✓）。
+
+        任何失败都返回 '' ✓（护栏②：绝不影响出卡与主流程 ✗）
+        """
+        try:
+            now = time.time()
+            c = getattr(self, '_upstream_notice_cache', None)
+            if c and now - float(c.get('t', 0)) < 300:
+                return str(c.get('text', ''))
+            import pet_net
+            r = pet_net.probe_status(self._upstream_status_url())
+            text = str(r.get('text', '')) if r.get('state') == 'notice' else ''
+            self._upstream_notice_cache = {'t': now, 'text': text}
+            return text
+        except Exception as _exc:
+            _silent_log('_upstream_notice', _exc)
+            return ''
+
+    def _upstream_status_url(self):
+        """上游状态/公告地址（config 可配 ✓ 未配置则空 → probe_status 返回 unknown ✓ 不显示行）"""
+        try:
+            cfg = getattr(self, 'config', None)
+            if isinstance(cfg, dict):
+                v = str(cfg.get('upstream_status_url') or '').strip()
+                if v:
+                    return v
+        except Exception:
+            pass
+        try:
+            import json as _json
+            with open(CONFIG_PATH, encoding='utf-8') as f:
+                return str((_json.load(f) or {}).get('upstream_status_url') or '').strip()
+        except Exception:
+            return ''
+
     def _notify_failure_card(self, diag, *, gen=None, source=''):
         """⭐ 失败卡片**唯一出口**。
 
@@ -992,7 +1029,14 @@ class PetWidget(QWidget):
                 if not (kind == '本地闸门' and prev != '本地闸门'):
                     return 'deduped'          # 同代次：只出一张卡 ✓（闸门例外 ✓）
             self._fail_card_gen, self._fail_card_kind = g, kind
-            self.ai_reply_signal.emit(_diag.to_card(diag))
+            # L3-1：仅上游类失败附「上游公告」行 ✓（取不到就不出这行 ✓ 护栏③）
+            # 护栏②：公告获取**自身不脆** —— 任何问题均降级为无公告，绝不影响出卡 ✗
+            try:
+                notice = self._upstream_notice() if kind in self.UPSTREAM_LAYERS else ''
+            except Exception as _exc:
+                _silent_log('_notify_failure_card:notice', _exc)
+                notice = ''
+            self.ai_reply_signal.emit(_diag.to_card(diag, notice=notice))
             return 'emitted'
         except Exception as _exc:
             _silent_log('_notify_failure_card', _exc)

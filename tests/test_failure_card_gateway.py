@@ -104,6 +104,10 @@ class _Sig:
 class _FakeWin:
     """只带出卡所需最小状态（不实例化整个 GUI ✓）"""
     FAIL_CARD_TAG_KINDS = ()
+    UPSTREAM_LAYERS = ('上游超时', '上游故障', '上游限流')
+
+    def _upstream_notice(self):
+        return ''          # L3-1：测试里不探测上游公告 ✓
 
     def __init__(self, gen=7):
         self._fail_card_gen = None
