@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """v6.58 修复回归：小游戏必须能真正**绘制**（不只是能构造）
 
 背景（使用者实测「游戏界面没了」）：A2-1 主题化迁移时，替换 import 块的锚点把
 `from PySide6.QtGui import QPainter, QPen, QColor, QBrush` 整行吃掉了 →
-所有画布类游戏（五子棋/扫雷/贪吃蛇/2048/俄罗斯方块…）的 `paintEvent` 抛
+所有画布类游戏（五子棋/扫雷/贪吃蛇/2048/方块下落类…）的 `paintEvent` 抛
 `NameError: name 'QPainter' is not defined` → 对话框能打开但**画面空白**。
 
 教训：只断言"能构造、样式表里有色"抓不到绘制期错误 —— 本测试补上"真触发一次绘制"。

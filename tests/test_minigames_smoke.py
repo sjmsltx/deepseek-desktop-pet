@@ -29,7 +29,36 @@ import pet_minigames as mg  # noqa: E402
 
 GAMES = ['RockPaperScissors', 'GuessNumber', 'Gomoku', 'Game2048', 'Minesweeper', 'Snake',
          'MemoryMatch', 'TicTacToe', 'Farkle', 'WhackAMole', 'Blackjack', 'Sudoku',
-         'Tetris', 'SlidingPuzzle', 'SimonSays']
+         'FallingBlocks', 'SlidingPuzzle', 'SequenceMemory']
+
+
+def test_legacy_game_class_aliases_kept():
+    """合规改名**保向后兼容**（v6.80）：旧类名别名必须仍在，否则老代码/老存档会断 ✗"""
+    import pet_minigames as mg
+    assert mg.Tetris is mg.FallingBlocks, 'Tetris 别名丢失（向后兼容被破坏）✗'
+    assert mg.SimonSays is mg.SequenceMemory, 'SimonSays 别名丢失（向后兼容被破坏）✗'
+
+
+def test_no_thirdparty_game_names_in_code_surface():
+    """合规护栏：用户可见代码面（显示名/规则文案/注册表）不得出现外部作品名 ✗
+
+    允许：显式登记 `legacy-alias-ok` 的兼容别名行、纯注释行 ✓
+    """
+    import io as _io
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    src = _io.open(_os.path.join(root, 'pet_minigames.py'), encoding='utf-8').read().splitlines()
+    banned = ('俄罗斯方块', '西蒙', '天国拯救', 'Tetris', 'Simon', 'Hasbro', 'Kingdom Come')
+    bad = []
+    for i, line in enumerate(src, 1):
+        if 'legacy-alias-ok' in line:      # 显式登记的兼容别名 ✓
+            continue
+        if line.lstrip().startswith('#'):  # 注释不计
+            continue
+        for b in banned:
+            if b in line:
+                bad.append((i, b, line.strip()[:60]))
+    assert not bad, f'用户可见代码面出现外部作品名 ✗：{bad}'
 
 RESTART_CANDIDATES = ('_new_game', '_reset', '_restart', '_rebuild', '_deal', '_start')
 
