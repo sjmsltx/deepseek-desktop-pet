@@ -221,23 +221,27 @@ def test_restore_display_state_sleep_wins():
 
 # ── ② 气泡 emoji 池 ─────────────────────────────────────────────────
 def test_hungry_peek_asset_present_and_spec():
-    """批 D：饥饿贴边资产**在库** ✓（尺寸/模式对齐参考图 ✓）—— 防以后被误删 ✗
+    """批 D/F：饥饿贴边资产**在库** ✓（尺寸/模式对齐参考图 ✓）—— 防以后被误删 ✗
 
-    ⚠️ 已知差异（微信侧 2026-09-25 提示 + 我方实测 ✓ **未动图** ✗ 等决策）：
-      本图 alpha 主体盒 = (0,143,682,1024) → **占满全宽 100%** ✗
-      参考 `flash_peek.png` = (12,233,452,1024) → **只占左侧 65%** ✗
-      → 渲染画布放置逻辑相同（同尺寸 682×1024 ✓）→ 差异在**主体占比** ✓ 贴边时会显更宽更高 ✗
-      → 若要对齐属**资产侧**调整（缩到 65% + 左对齐 + 顶边对齐 233）→ 待微信侧问 Owner ✓ 我不擅自改图 ✗
+    批 F：入库**裁版**（微信侧执行「裁」✓：左边界 4px 稀疏透明列已裁）。
+    ⚠️ 已知差异（微信侧提示 + 我方实测 ✓ **未动图** ✗ 等 Owner 定）：
+      左/右：本图主体盒 (0,143,678,1024) → **占满 99%** ✗；参考 `flash_peek.png` = (12,233,452,1024) → **65%** ✗
+      底部：本图主体盒 (331,195,693,662) → **仅 35%** ✗；参考 `flash_peek_bottom.png` = (0,1,1024,660) → **100%** ✗
+      → 贴边对齐**没问题**（同尺寸 → 同 scale/同 draw_x ✓），差异都在**主体占比** ✗
+      → 若要对齐属**资产侧**调整（缩/补透明画布 ✓ 已问 Owner ✓ 等定 ✗）
     """
     from PIL import Image
-    p = ROOT / 'assets' / 'flash' / 'flash_peek_hungry.png'
-    assert p.is_file(), 'flash_peek_hungry.png 缺失 ✗（贴边饥饿会回落到普通贴边图）'
-    with Image.open(p) as im:
-        assert im.size == (682, 1024), f'尺寸应与 flash_peek.png 一致 ✓ 实得 {im.size}'
-        assert im.mode == 'RGBA', im.mode
-        bb = im.split()[-1].getbbox()
-        assert bb is not None, '透明通道为空 ✗'
-        assert bb[3] == im.height, '主体应触底（贴边对齐用）✗'
+    specs = (('flash_peek_hungry.png', (682, 1024)),
+             ('flash_peek_bottom_hungry.png', (1024, 662)))
+    for name, size in specs:
+        p = ROOT / 'assets' / 'flash' / name
+        assert p.is_file(), f'{name} 缺失 ✗（贴边饥饿会回落到普通贴边图）'
+        with Image.open(p) as im:
+            assert im.size == size, f'{name} 尺寸应与参考图一致 ✓ 实得 {im.size}'
+            assert im.mode == 'RGBA', im.mode
+            bb = im.split()[-1].getbbox()
+            assert bb is not None, f'{name} 透明通道为空 ✗'
+            assert bb[3] == im.height, f'{name} 主体应触底（贴边对齐用）✗'
 
 
 def test_pro_peek_assets_waiting_for_hungry():
