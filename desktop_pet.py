@@ -976,6 +976,69 @@ class PetWidget(QWidget):
         """本轮是否已被 /stop 顶替（= 弃权 ✓）"""
         return getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1)
 
+    # ---------- L4-2：最近错误入口（**复用 L4-1 数据层** ✓ 不新造第二套 ✗）----------
+    RECENT_ERRORS_LIMIT = 20
+
+    def recent_errors_text(self, limit=None):
+        """最近错误文本（★ **空态有文案** ✓ 不出现空白 ✗；只读审计 ✓ 不写不删）"""
+        lim = int(limit or self.RECENT_ERRORS_LIMIT)
+        rows = []
+        try:
+            import governance as _gov
+            import pet_diagnosis as _diag
+            rows = _diag.recent_errors(_gov.recent_failure_records(days=2, limit=400), limit=lim)
+        except Exception as _exc:
+            _silent_log('recent_errors_text', _exc)
+        if not rows:
+            return ('最近没有失败记录 ✓\n\n'
+                    '这里会显示最近的失败类型、所在层（与 13 类归因一致）与一句话摘要；\n'
+                    '出现失败时再来看即可。')
+        out = ['最近失败 %d 条（新 → 旧）：' % len(rows), '']
+        for i, r in enumerate(rows, 1):
+            out.append('%2d. %s ｜ %s ｜ %s' % (i, str(r.get('time', '')).replace('T', ' '),
+                                               r.get('layer', ''), r.get('summary', '')))
+            out.append('      （类型 %s ｜ 对象 %s ｜ 动作 %s）'
+                       % (r.get('kind', ''), r.get('actor', ''), r.get('action', '')))
+        out += ['', '提示：点「📋 复制摘要」把这页内容复制出来反馈 ✓']
+        return '\n'.join(out)
+
+    def show_recent_errors(self):
+        """L4-2 入口：最近错误窗口（含**一键复制摘要** ✓）"""
+        text = self.recent_errors_text()
+        try:
+            from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton)
+            from PySide6.QtGui import QGuiApplication
+            dlg = QDialog(self)
+            dlg.setWindowTitle('最近错误')
+            dlg.resize(760, 480)
+            lay = QVBoxLayout(dlg)
+            te = QTextEdit()
+            te.setReadOnly(True)
+            te.setPlainText(text)
+            lay.addWidget(te)
+            row = QHBoxLayout()
+            btn = QPushButton('📋 复制摘要')
+
+            def _copy():
+                try:
+                    QGuiApplication.clipboard().setText(text)
+                    btn.setText('已复制 ✓')
+                except Exception as _exc:
+                    _silent_log('show_recent_errors:copy', _exc)
+            btn.clicked.connect(_copy)
+            row.addWidget(btn)
+            close = QPushButton('关闭')
+            close.clicked.connect(dlg.accept)
+            row.addWidget(close)
+            lay.addLayout(row)
+            dlg.exec()
+        except Exception as _exc:
+            _silent_log('show_recent_errors', _exc)
+            try:
+                self._notify(text[:200])          # 兜底：窗口开不了也要有反馈 ✓
+            except Exception as _e2:
+                _silent_log('show_recent_errors:fallback', _e2)
+
     def _upstream_notice(self):
         """L3-1：取上游公告（仅上游类失败用；带 5 分钟缓存 ✓）。
 
@@ -8466,6 +8529,8 @@ class PetWidget(QWidget):
         stmenu.addAction('❤️ 与 %s 的关系' % CHARACTERS[self.current]['name']).triggered.connect(
             self._open_relation)
         stmenu.addAction('📖 回忆相册').triggered.connect(self._open_memories)
+        # L4-2：最近错误入口（设置「系统」页也有同款入口 ✓）
+        stmenu.addAction('🧯 最近错误').triggered.connect(self.show_recent_errors)
         stmenu.addSeparator()
         umenu = stmenu.addMenu('📈 API 用量')
         umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())

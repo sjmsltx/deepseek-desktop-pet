@@ -909,6 +909,8 @@ class SettingsDialog(QDialog):
         self.lb_ver.setStyleSheet('font-family:Consolas,monospace;font-size:12.5px;')
         f.addRow('程序目录', self.lb_ver)
         self._buttons(f, '窗口', [('🏠 最小化到托盘', self.host.hide_to_tray)])
+        # L4-2：最近错误入口（右键菜单「状态」里也有同款入口 ✓）
+        self._buttons(f, '诊断', [('🧯 最近错误', self.host.show_recent_errors)])
         # ---- 平台能力（只读诊断块，v6.74 批次5：直接渲染 platform_layer.report()）----
         box = QWidget()
         vb = QVBoxLayout(box)
