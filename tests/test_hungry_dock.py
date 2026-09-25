@@ -220,6 +220,33 @@ def test_restore_display_state_sleep_wins():
 
 
 # ── ② 气泡 emoji 池 ─────────────────────────────────────────────────
+def test_hungry_peek_asset_present_and_spec():
+    """批 D：饥饿贴边资产**在库** ✓（尺寸/模式对齐参考图 ✓）—— 防以后被误删 ✗
+
+    ⚠️ 已知差异（微信侧 2026-09-25 提示 + 我方实测 ✓ **未动图** ✗ 等决策）：
+      本图 alpha 主体盒 = (0,143,682,1024) → **占满全宽 100%** ✗
+      参考 `flash_peek.png` = (12,233,452,1024) → **只占左侧 65%** ✗
+      → 渲染画布放置逻辑相同（同尺寸 682×1024 ✓）→ 差异在**主体占比** ✓ 贴边时会显更宽更高 ✗
+      → 若要对齐属**资产侧**调整（缩到 65% + 左对齐 + 顶边对齐 233）→ 待微信侧问 Owner ✓ 我不擅自改图 ✗
+    """
+    from PIL import Image
+    p = ROOT / 'assets' / 'flash' / 'flash_peek_hungry.png'
+    assert p.is_file(), 'flash_peek_hungry.png 缺失 ✗（贴边饥饿会回落到普通贴边图）'
+    with Image.open(p) as im:
+        assert im.size == (682, 1024), f'尺寸应与 flash_peek.png 一致 ✓ 实得 {im.size}'
+        assert im.mode == 'RGBA', im.mode
+        bb = im.split()[-1].getbbox()
+        assert bb is not None, '透明通道为空 ✗'
+        assert bb[3] == im.height, '主体应触底（贴边对齐用）✗'
+
+
+def test_pro_peek_assets_waiting_for_hungry():
+    """批 D：pro **有整套贴边图** ✓ → 所以 `pro_peek*_hungry` 也需要 ✓（登记现状，防以后忘 ✓）"""
+    base = ROOT / 'assets' / 'pro'
+    for name in ('pro_peek.png', 'pro_peek_top.png', 'pro_peek_bottom.png'):
+        assert (base / name).is_file(), f'{name} 缺失（pro 应有贴边态）✗'
+
+
 def test_hungry_bubble_uses_random_food_emoji():
     src = _src(DP)
     m = re.search(r'HUNGRY_EMOJI_POOL\s*=\s*\(([^)]*)\)', src)
