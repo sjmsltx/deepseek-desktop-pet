@@ -86,11 +86,19 @@ def show_state_image(w, st):
 
 
 def restore_display_state(w):
-    """恢复显示状态：睡眠→睡眠立绘，否则→待机（贴边拖出/弹出后用）"""
+    """恢复显示状态（贴边拖出 / 弹出后用）
+
+    缺陷 1（Owner 2026-09-25 22:58 裁定）：**先判饥饿** ✓
+    —— 原实现非睡眠一律 `w._show_idle()` 硬回待机 ✗ → **拖出时吃掉饥饿态** ✗✓
+    现口径与 `desktop_pet._rest_idle_or_hungry` **同源** ✓（仍低饱食 → 回饥饿态 ✓）
+    """
     if w.sleeping:
         w._show_state_image('sleep')
-    else:
-        w._show_idle()
+        return
+    if getattr(w, '_still_hungry', None) is not None and w._still_hungry():
+        w._enter_hungry()
+        return
+    w._show_idle()
 
 
 def play_scene(w, key):

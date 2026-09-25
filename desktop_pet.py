@@ -132,6 +132,9 @@ def _silent_log(where, exc, *, user_facing=False):
 
 
 _FAIL_CARD_HOOK = None      # v1-B：由 App 在 __init__ 注入（卡片唯一出口的桥）✓
+
+# 缺陷 1：饥饿气泡的**食物类表情池**（随机取 ✓ 不写死单一个 ✗；Owner 2026-09-25 22:58 裁定）
+HUNGRY_EMOJI_POOL = ('🍚', '🍜', '🍗', '🥢', '🍴', '😋', '🍖', '🥟', '🍞', '🍎')
 def _set_fail_card_hook(fn):
     global _FAIL_CARD_HOOK
     _FAIL_CARD_HOOK = fn
@@ -4527,6 +4530,15 @@ class PetWidget(QWidget):
         self.peek_sleep_pixmap = QPixmap(ps) if os.path.exists(ps) else None
         pbs = asset(key, 'peek_bottom_sleep')
         self.peek_bottom_sleep_pixmap = QPixmap(pbs) if os.path.exists(pbs) else None
+        # 缺陷 1（Owner 2026-09-25 22:58 裁定）：**饥饿贴边立绘** ✓ 资产由微信侧产
+        # 命名对齐现有：flash_peek_hungry.png / flash_peek_top_hungry.png / flash_peek_bottom_hungry.png
+        ph = asset(key, 'peek_hungry')
+        self.peek_hungry_pixmap = QPixmap(ph) if os.path.exists(ph) else None
+        pth = asset(key, 'peek_top_hungry')
+        self.peek_top_hungry_pixmap = QPixmap(pth) if os.path.exists(pth) else None
+        pbh = asset(key, 'peek_bottom_hungry')
+        self.peek_bottom_hungry_pixmap = QPixmap(pbh) if os.path.exists(pbh) else None
+        self._peek_hungry_warned = False
         # 状态/场景立绘：懒加载（首次用到才读盘，加速启动）
         self.state_imgs = {}
         self.scene_imgs = {}
@@ -4613,6 +4625,31 @@ class PetWidget(QWidget):
         """恢复显示状态：睡眠→睡眠立绘，否则→待机（贴边拖出/弹出后用）
         （实现已搬至 pet_anim.restore_display_state）"""
         return anim.restore_display_state(self)
+    def _peek_hungry_variant(self, side):
+        """缺陷 1：饥饿贴边图（**有则用 ✓ 缺则回落普通贴边图 ✓ 但不静默失败** ✗）
+
+        回落时写审计 warning（沿用 `_warn_asset_fallback` 口径 ✓；每角色只记一次 ✓）
+        """
+        if side in ('left', 'right'):
+            pm = getattr(self, 'peek_hungry_pixmap', None)
+            suffix = ''
+        elif side == 'top':
+            pm = getattr(self, 'peek_top_hungry_pixmap', None)
+            suffix = '_top'
+        else:
+            pm = getattr(self, 'peek_bottom_hungry_pixmap', None)
+            suffix = '_bottom'
+        if pm is not None and not pm.isNull():
+            return pm
+        if not getattr(self, '_peek_hungry_warned', False):
+            self._peek_hungry_warned = True
+            try:
+                self._warn_asset_fallback('%s_peek%s_hungry（饥饿贴边图缺失，已回落普通贴边图）'
+                                          % (self.current, suffix))
+            except Exception as _exc:
+                _silent_log('_peek_hungry_variant', _exc)
+        return None
+
     def _show_peek(self):
         """扒边立绘（四方向：左右竖条镜像对齐，上下横条；Live2D 模式由模型代替）"""
         if getattr(self, 'display_mode', 'static') == 'live2d':
@@ -4652,9 +4689,13 @@ class PetWidget(QWidget):
                 p.end()
                 self.pet_label.setPixmap(canvas)
                 return
-            if self.peek_pixmap is None or self.peek_pixmap.isNull():
+            src = None
+            if getattr(self, 'state', '') == 'hungry':
+                src = self._peek_hungry_variant(side)   # 饥饿贴边图（缺则回落 ✓）
+            if src is None:
+                src = self.peek_pixmap
+            if src is None or src.isNull():
                 return
-            src = self.peek_pixmap
             if side == 'right':
                 src = src.transformed(QTransform().scale(-1, 1))
             canvas = QPixmap(size, size)
@@ -4674,6 +4715,10 @@ class PetWidget(QWidget):
                     img = self.peek_bottom_sleep_pixmap
                 else:
                     img = self._get_state_img('sleep')
+            elif getattr(self, 'state', '') == 'hungry':
+                img = self._peek_hungry_variant(side)   # 饥饿贴边图（缺则回落 ✓）
+                if img is None:
+                    img = self.peek_top_pixmap if side == 'top' else self.peek_bottom_pixmap
             elif side == 'top':
                 img = self.peek_top_pixmap
             else:
@@ -8306,6 +8351,25 @@ class PetWidget(QWidget):
         self.phase = 0
         self._show_state_image('hungry')
 
+    HUNGRY_BLOCKING_STATES = ('sleep', 'scared')   # 优先级高于 hungry 的**硬**状态 ✓
+
+    def _hungry_entry_allowed(self):
+        """缺陷 1（Owner 2026-09-25 22:58 裁定）：进入条件从「仅 idle」→**优先级允许即进入** ✓
+
+        - ⛔ 硬阻挡（优先级高于 hungry ✓）：睡觉 / 惊吓
+        - ✅ 原本就允许：`idle`
+        - ⭐ **贴边不算抢占** ✓：贴边时即使 state 被临时表现（气泡/思考）占用，**也允许进入饥饿态** ✓
+          （贴边只是窗口形态，不是优先级状态 ✗）
+        - 退出仍靠「饱食度 ≥30」✓（不排时间收尾 ✓）
+        """
+        if getattr(self, 'sleeping', False) or getattr(self, 'state', '') in self.HUNGRY_BLOCKING_STATES:
+            return False
+        if getattr(self, 'state', '') == 'idle':
+            return True
+        docked = (getattr(self, '_edge_side', None) is not None
+                  and getattr(self, '_edge_mode', '') == 'peek')
+        return bool(docked)
+
     def _open_games(self):
         """打开小游戏窗口"""
         if getattr(self, '_game_window', None) is not None:
@@ -8364,7 +8428,7 @@ class PetWidget(QWidget):
             self._resume_active_care_if_new_day()   # 缺陷 2：跨天自动恢复被挂起的主动关心 ✓
             s = self.affection.satiety(self.current)
             if s < 30:
-                if self.state == 'idle':
+                if self._hungry_entry_allowed():   # 缺陷 1：优先级允许即进入 ✓（贴边不算抢占 ✓）
                     # v6.30 饥饿状态图（素材已应用后生效）
                     try:
                         self._enter_hungry()
@@ -8372,7 +8436,9 @@ class PetWidget(QWidget):
                         pass
                 if time.time() - getattr(self, '_last_satiety_warn', 0) > 3600:
                     self._last_satiety_warn = time.time()
-                    self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
+                    # 缺陷 1：文案后追加**食物类表情包**（池内随机 ✓ 不写死单个 ✗）
+                    self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡) '
+                                          + random.choice(HUNGRY_EMOJI_POOL))
             elif self.state == 'hungry':
                 self._end_state('hungry')   # 饱食度已回到阈值以上 → 退出饥饿态回待机
         except Exception:
