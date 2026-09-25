@@ -17,6 +17,7 @@ v1-B（2026-09-25）：落剩下的 **3 类**——本地闸门 · 工具失败 
 """
 from __future__ import annotations
 
+import re
 import socket
 import urllib.error as _ue
 from typing import NamedTuple
@@ -127,6 +128,56 @@ def explain_error(exc, *, status=None, detail='', context='', phase=None):
     # 6) 未知：如实说“未知”，并给可行动的下一步（不编原因 ✗）
     return Diag('未知', head + '遇到没见过的错误', '这一轮没有回答',
                 '这条会记进审计；把「原始错误」复制发我即可定位', raw)
+
+
+# ── L4-1：最近错误（**纯函数** ✓ 不读文件、不出网 ✗；读审计交 governance.read_recent ✓）──
+ERROR_KINDS = ('error', 'deny')          # 判错类：error（失败）/ deny（拒绝）
+_LAYER_RX = re.compile(r'层=([^｜|]+)')
+
+
+def recent_errors(records, *, limit=20, layer=None):
+    """把**审计记录**整理成「最近错误」列表（纯函数 ✓）。
+
+    输出每条字段固定（**字段齐** ✓）：``{'time','kind','actor','action','layer','summary','allowed'}``
+
+    - 只保留判错类：``kind ∈ ERROR_KINDS`` **或** ``allowed is False`` ✓
+    - **新 → 旧**（倒序 ✓，按时间排；无时间字段的按输入顺序稳定保留 ✓）
+    - ``limit`` 为**条数上限** ✓（≤0 视为默认 20）
+    - ``layer`` 非空时只留该层（层名与 13 类表**逐字一致** ✓）
+    - 坏记录（非 dict / 缺字段 / 类型异常）**跳过不炸** ✓
+    """
+    lim = int(limit) if isinstance(limit, (int, float)) and int(limit) > 0 else 20
+    rows = []
+    for idx, r in enumerate(records or []):
+        if not isinstance(r, dict):
+            continue
+        try:
+            kind = str(r.get('kind', '') or '')
+            allowed = r.get('allowed', True)
+            if kind not in ERROR_KINDS and allowed is not False:
+                continue
+            detail = str(r.get('detail', '') or '')
+            m = _LAYER_RX.search(detail)
+            lay = m.group(1).strip() if m else ''
+            if layer and lay != str(layer):
+                continue
+            summary = _LAYER_RX.sub('', detail).replace('｜', ' ').strip() or kind or '（无摘要）'
+            rows.append({
+                'time': str(r.get('ts', '') or r.get('time', '') or ''),
+                'kind': kind,
+                'actor': str(r.get('actor', '') or ''),
+                'action': str(r.get('action', '') or ''),
+                'layer': lay or '未知',
+                'summary': _clip(summary, 120),
+                'allowed': bool(allowed),
+                '_i': idx,
+            })
+        except Exception:
+            continue                       # 坏记录跳过不炸 ✓
+    rows.sort(key=lambda x: (x['time'], -x['_i']), reverse=True)   # 新→旧 ✓
+    for r in rows:
+        r.pop('_i', None)
+    return rows[:lim]
 
 
 def gate_diag(reason='', *, detail=''):

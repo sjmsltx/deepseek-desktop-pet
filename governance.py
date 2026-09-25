@@ -131,6 +131,27 @@ def log_event(kind, actor, action, detail='', allowed=True, extra=None, ms=None)
     return entry
 
 
+def recent_failure_records(days=2, limit=400):
+    """L4-1：跨天读**判错类**审计（新→旧），供「最近错误」入口使用 ✓
+
+    - 只读 ✓ 不写、不删、不改审计 ✗
+    - ``days``：回看天数（默认今天 + 昨天 ✓）
+    - 任何读失败→返回已拿到的部分 ✓（绝不抛异常 ✗）
+    """
+    out = []
+    try:
+        n = int(days) if int(days) > 0 else 1
+    except Exception:
+        n = 1
+    try:
+        for i in range(n):
+            d = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
+            out.extend(read_recent(limit=limit, day=d))
+    except Exception:
+        pass
+    return out
+
+
 def read_recent(limit=50, day=None):
     """读最近 N 条审计（新→旧）"""
     path = audit_path(day)
