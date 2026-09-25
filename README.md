@@ -69,9 +69,9 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 
 ### 养成与游戏
 
-| 回忆相册 | Farkle 骰子 | 21 点 | 俄罗斯方块 |
+| 回忆相册 | Farkle 骰子 | 21 点 | 方块下落 |
 |---------|---------|---------|---------|
-| ![回忆相册](screenshots/pet_v630_memories.png) | ![Farkle](screenshots/pet_v630_farkle.png) | ![21点](screenshots/pet_v630_blackjack.png) | ![俄罗斯方块](screenshots/pet_v630_tetris.png) |
+| ![回忆相册](screenshots/pet_v630_memories.png) | ![Farkle](screenshots/pet_v630_farkle.png) | ![21点](screenshots/pet_v630_blackjack.png) | ![方块下落](screenshots/pet_v630_falling_blocks.png) |
 
 | 桌宠本体（静态立绘） |
 |---------|
@@ -323,10 +323,10 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 
 ### 🎮 小游戏大厅（v6.30 新增，15 款）
 - 右键 → 💬 互动 → 🎮 小游戏，每款带 📖 规则说明、难度可选、桌宠表情实时反应
-- **🎲 Farkle 骰子**（天国拯救同款）：目标分 500~10000 自选，KCD 官方计分（顺子 123456=1500 / 12345=500 / 23456=750 / 四五六同 ×2×4×8），点击骰子选中保留，和桌宠轮流对赌
+- **🎲 Farkle 骰子**：目标分 500~10000 自选，官方计分（顺子 123456=1500 / 12345=500 / 23456=750 / 四五六同 ×2×4×8），点击骰子选中保留，和桌宠轮流对赌
 - **策略类**：五子棋（三档 AI）/ 井字棋 / 2048（4×4·5×5·4096）
 - **益智类**：数独（24/36/48 挖空）/ 华容道（3×3·4×4）/ 扫雷（经典三档）/ 记忆翻牌（6/8/12 对）
-- **反应类**：贪吃蛇（速度三档 + 黄金食物）/ 打地鼠 / 西蒙记忆 / 俄罗斯方块（速度三档）
+- **反应类**：贪吃蛇（速度三档 + 黄金食物）/ 打地鼠 / 序列记忆 / 方块下落（速度三档）
 - **对赌类**：21 点（A 智能算牌）/ 石头剪刀布（三局两胜 + 桌宠记仇）/ 猜数字（范围/限次三档）
 - **高分里程碑**：每款游戏独立最高分记录，破纪录 → 桌宠庆祝 + 回忆日志 + 额外好感
 
