@@ -73,6 +73,19 @@ def main() -> int:
     if a.quick:
         steps = [("快速测试（-x，排除 paint / office）",
                   [PY, "-m", "pytest", "tests", "-q", "-x", "-k", "not paint and not office"])]
+
+    # ── R1（2026-09-25）：**脚本式检查** ─────────────────────────────────
+    # 这些不是 pytest 用例（见 conftest.collect_ignore）→ **在这里单独跑** ✓
+    # 目的：避免“移出收集即丢失检查” ✗，同时不让它们再炸整套测试 ✗
+    SCRIPT_CHECKS = [
+        ("命令闸门", os.path.join("tests", "test_command_gate.py")),
+        ("工具注册表", os.path.join("tests", "test_tool_registry.py")),
+        ("自改代码安全", os.path.join("tests", "test_pet_selfcode.py")),
+        ("系统小工具", os.path.join("tests", "test_pet_sysutils.py")),
+        ("文档一致性", os.path.join("tests", "test_pet_docs.py")),
+    ]
+    steps += [(n, [PY, p]) for n, p in SCRIPT_CHECKS]
+
     if a.with_ui:
         steps.append(("UI 黄金基线", [PY, os.path.join("tests", "golden_ui.py"), "check"]))
 

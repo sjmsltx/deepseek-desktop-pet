@@ -19,7 +19,8 @@ cd 'E:\ai工作站\desktop-pet'
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
-# 期望：828 passed / 9 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 期望：831 passed / 9 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 831 = 828（L3-1 后）+ 3（R1：脚本式模块不得入收集 / 已排除者仍须被 verify 跑 / 参与总退出码）
 # 828 = 817（第0批清理后）+ 11（L3-1：上游公告探测 8 + 卡片公告行与单点集成 3）
 # 817 = 815（v1-B 后）+ 2（第0批：旧别名 + 用户可见面去名护栏）
 # 815 = 804（L2 v1-A 后）+ 11（v1-B：10 类表护栏 3 类解禁 3 + 卡片网关护栏 8）
