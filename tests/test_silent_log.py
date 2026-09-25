@@ -37,7 +37,8 @@ def test_silent_log_writes_through_pet_log(tmp_path=None):
 def test_high_value_paths_are_instrumented():
     """源码护栏：高价值路径不得再静默吞异常"""
     src = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
-    assert 'def _silent_log(where, exc):' in src, '缺少统一出口'
+    assert 'def _silent_log(where, exc, *, user_facing=False):' in src, '缺少统一出口（v1-B 起带 user_facing）'
+    assert '_FAIL_CARD_HOOK' in src, 'v1-B：缺少失败卡片单点出口的桥（hook）'
     assert src.count("_silent_log('") >= 45, '接入点不足 45 处（实际 %d）' % src.count("_silent_log('")
     for fn in ('_post_stream', '_extract_worker', '_smart_open', '_next_task'):
         seg = src.split('def %s' % fn, 1)

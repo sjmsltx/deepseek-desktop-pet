@@ -11,9 +11,9 @@
 v1-A（2026-09-24）：层名与微信侧《13 类归因分类表》**逐字对齐**（共用同一套归因 ✗ 不两套 ✓）。
 本批落 **10 类 + 未知兜底**：本地网络 · 上游限流 · 上游故障 · 上游超时 · 流中断 · 鉴权 ·
 请求错误 · 额度 · 内容安全 · 未知。
-v1-B（下一批）落剩 3 类：**本地闸门 · 工具失败 · 本地异常**（**都要接线到调用点** ✗，
-且「本地异常」须先定“用户可感知白名单” ✓ —— 实测 `_silent_log` 有 **76 处** ✗ 全量出卡片会刷屏）。
-「上游公告」属 L3（`pet_net.probe_status()` ✓），不进 `explain_error` ✗。
+v1-B（2026-09-25）：落剩下的 **3 类**——本地闸门 · 工具失败 · 本地异常 ✓（经下三个工厂入口，
+仍为纯函数、不涉 IO ✓）。加上 L3 的「上游公告」（由 `pet_net.probe_status()` 提前告知 ✓）
+合计 **13 类**，与微信侧表一致 ✓。
 """
 from __future__ import annotations
 
@@ -127,6 +127,38 @@ def explain_error(exc, *, status=None, detail='', context='', phase=None):
     # 6) 未知：如实说“未知”，并给可行动的下一步（不编原因 ✗）
     return Diag('未知', head + '遇到没见过的错误', '这一轮没有回答',
                 '这条会记进审计；把「原始错误」复制发我即可定位', raw)
+
+
+def gate_diag(reason='', *, detail=''):
+    """本地闸门（类 9）：被**本地**策略拦下（日成本上限 / 额度上限）——不是故障 ✓
+
+    与“上游限流/额度”区别：那两个是**上游拒绝** ✓；这个是**我方自己未发出调用** ✗。
+    """
+    cause = ('本轮被本地成本闸门暂停（不是故障）' if not reason else str(reason))
+    return Diag('本地闸门', cause, '本次调用未发出',
+                '等到次日额度重置，或到「设置 → 用量与计费」调高每日上限',
+                _clip(detail, 160))
+
+
+def tool_diag(tool='', exc=None, *, detail=''):
+    """工具失败（类 11）：本地工具执行出错（打开文件 / 看图 / 搜索…）✓"""
+    err = exc if exc is not None else ''
+    raw = _clip(' '.join(x for x in (str(err), str(detail)) if x) or (getattr(err, '__class__', type(err)).__name__ if err else ''), 160)
+    name = str(tool or '工具')
+    return Diag('工具失败', '工具「%s」没有执行成功' % name, '这次操作没有完成',
+                '换一种说法再试一次；连续失败可到「最近错误」看摘要', raw)
+
+
+def local_diag(exc, *, context=''):
+    """本地异常（类 12）：非网络、非上游的本地错误（文件 / 权限 / 解析等）✓
+
+    ⭐ 只用于**用户可感知**的本地路径（见宿主 `_silent_log(..., user_facing=True)`）✓；
+    内部清理、降级、逐条跳过等**有意不标** ✗（否则刷屏）。
+    """
+    head = ('%s时：' % context) if context else ''
+    raw = _clip('%s: %s' % (type(exc).__name__, exc), 160)
+    return Diag('本地异常', head + '本地处理出错', '这次操作没有完成',
+                '重试一次；仍然失败可把「原始错误」复制发我', raw)
 
 
 def to_card(diag: Diag) -> str:

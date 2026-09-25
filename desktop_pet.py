@@ -111,19 +111,41 @@ MEMORIES_PATH = os.path.join(BASE_DIR, 'memories.json')     # v6.30 回忆日志
 # 背景：全面体检发现 122 处 `except ...: pass/continue`——出问题时“它怎么不记得了 / 怎么不动了”
 # 完全无痕。这里提供统一出口：**只记日志**（logs/pet.log，INFO 级），不改变任何行为。
 # 重点覆盖“用户可感知失败”的路径：AI 任务链 / 数据落盘 / 记忆提取 / 工具执行 / 用量统计 / 系统集成。
-def _silent_log(where, exc):
+def _silent_log(where, exc, *, user_facing=False):
+    """静默异常统一出口（v6.54）；v1-B 增加 ``user_facing``。
+
+    ``user_facing=True`` = **用户能看懂也能行动**的失败（用户直接触发 / 影响用户可感知资产）✓
+    → 除写日志外，再经**唯一出口** ``App._notify_failure_card`` 出一张四段卡片 ✓。
+    ⛔ 默认 ``False``：内部清理、降级、自身审计、逐条跳过等一律**不出卡** ✗（防刷屏）。
+    """
     try:
         get_logger('silent').info('%s | %s: %s', where, type(exc).__name__, exc)
     except Exception:
         pass          # 日志系统自己不能把主程序拖垮
+    if user_facing:
+        try:
+            _hook = _FAIL_CARD_HOOK
+            if _hook is not None:
+                _hook(where, exc)
+        except Exception:
+            pass      # v1-B：出卡失败绝不影响主流程 ✓
 
 
-def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', detail=''):
+_FAIL_CARD_HOOK = None      # v1-B：由 App 在 __init__ 注入（卡片唯一出口的桥）✓
+def _set_fail_card_hook(fn):
+    global _FAIL_CARD_HOOK
+    _FAIL_CARD_HOOK = fn
+
+
+def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', detail='', count=True):
     """L5：把一次失败写进审计（kind=error），并返回归因结构（供卡片复用）。
 
     为什么要两条路都走：``_silent_log`` 只给排查的人看 ✓ 而审计是“可解释”的根 ✗
     —— 今天两个缺陷正是从 silent 日志里捞出来的 ✓ 所以关键失败要**同时**落审计（可被“最近错误”类入口读到 ✓）。
     约束：不抛异常 ✓ 审计不可用不影响主流程 ✓ 归因不可用时仍写一条退化的审计 ✓
+
+    v1-B：``count=False`` 表示**弃权**（本轮已被用户 /stop 顶替）→ 只留 silent 日志，
+    **不计入判错统计**（微信侧 v1-B 定案 ②）✗。
     """
     diag = None
     try:
@@ -133,6 +155,9 @@ def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', 
         _silent_log('_audit_failure:diag', _exc)
     try:
         import governance as _gov
+        if not count:
+            get_logger('silent').info('yielded（弃权不计判错） | %s: %s', type(exc).__name__, exc)
+            return diag
         if diag is not None:
             _detail = '%s ｜ 层=%s ｜ %s' % (diag.cause, diag.layer, diag.raw)
         else:
@@ -416,6 +441,13 @@ class PetWidget(QWidget):
                     _silent_log('__init__:386', _exc)   # v6.54
         except Exception:
             self._hotkey_installed = False
+        # v1-B：注入失败卡片**唯一出口**（user_facing 的 silent 失败 → 四段卡片）✓
+        self._fail_card_gen = None
+        self._fail_card_kind = ''
+        try:
+            _set_fail_card_hook(self._on_user_facing_failure)
+        except Exception as _exc:
+            _silent_log('__init__:fail_card_hook', _exc)
 
     def _init_services_and_data(self):
         """对话记忆/用量统计/MCP/插件/主题 + 记忆·待办·提醒加载 + 贴边与主动说话"""
@@ -774,7 +806,7 @@ class PetWidget(QWidget):
             cfg['y'] = self.y()
             self._atomic_write_json(CONFIG_PATH, cfg)
         except Exception as _exc:
-            _silent_log('_save_position:679', _exc)   # v6.54
+            _silent_log('_save_position:679', _exc, user_facing=True)   # v1-B：位置存不下→“又跑到别处了”
 
     def _schedule_greet(self):
         self.greet_timer.start(random.randint(*GREET_INTERVAL))
@@ -872,9 +904,9 @@ class PetWidget(QWidget):
                                               local_ref=self.voice_local_ref,
                                               local_prompt=self.voice_local_prompt)
                 except Exception as _exc:
-                    _silent_log('_load_ai_config:voice', _exc)
+                    _silent_log('_load_ai_config:voice', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
         except Exception as _exc:
-            _silent_log('_load_ai_config:734', _exc)   # v6.54
+            _silent_log('_load_ai_config:734', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
 
     def _current_profile(self):
         """当前角色对应的模型档案（档案缺失时回退第一份 / None）"""
@@ -915,6 +947,70 @@ class PetWidget(QWidget):
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
         return getattr(self, 'model_flash', 'deepseek-flash')
 
+    # ---------- v1-B：失败卡片**唯一出口**（护栏：源码里只此处能渲染 to_card ✓）----------
+    # user_facing 标签 → 归因类别（层名字面与 13 类表逐字对齐 ✓）
+    FAIL_CARD_TAG_KINDS = (
+        ('_smart_open', '工具失败'),
+        ('_vision_content:files_api', '工具失败'),
+        ('_load_chat_memory', '本地异常'),
+        ('_save_chat_memory', '本地异常'),
+        ('_load_ai_config', '本地异常'),
+        ('_record_api_usage', '本地异常'),
+        ('_save_position', '本地异常'),
+    )
+
+    def _classify_fail_tag(self, where):
+        """标签 → 归因类别（未命中按“本地异常”兜底 ✓）"""
+        w = str(where or '')
+        for pre, kind in self.FAIL_CARD_TAG_KINDS:
+            if w.startswith(pre):
+                return kind
+        return '本地异常'
+
+    def _card_gen(self):
+        """当前任务代次（用于“同一轮只出一张卡”✓）"""
+        return getattr(self, '_cur_gen', None)
+
+    def _task_is_stale(self):
+        """本轮是否已被 /stop 顶替（= 弃权 ✓）"""
+        return getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1)
+
+    def _notify_failure_card(self, diag, *, gen=None, source=''):
+        """⭐ 失败卡片**唯一出口**。
+
+        去重口径（微信侧 v1-B 定案 ③）：**同一任务代次只出一张卡**；同代次内**闸门卡优先** ✓。
+        返回：``'emitted'``（真出了卡）/ ``'deduped'``（同代次已出过）/ ``'error'``（出口自身出错）
+        """
+        try:
+            import pet_diagnosis as _diag
+            if diag is None:
+                return 'error'
+            g = self._card_gen() if gen is None else gen
+            kind = getattr(diag, 'layer', '') or ''
+            if g is not None and getattr(self, '_fail_card_gen', None) == g:
+                prev = getattr(self, '_fail_card_kind', '')
+                if not (kind == '本地闸门' and prev != '本地闸门'):
+                    return 'deduped'          # 同代次：只出一张卡 ✓（闸门例外 ✓）
+            self._fail_card_gen, self._fail_card_kind = g, kind
+            self.ai_reply_signal.emit(_diag.to_card(diag))
+            return 'emitted'
+        except Exception as _exc:
+            _silent_log('_notify_failure_card', _exc)
+            return 'error'
+
+    def _on_user_facing_failure(self, where, exc):
+        """hook 入口（`_silent_log(user_facing=True)` → 这里）：归因 → 单点出卡 ✓"""
+        try:
+            import pet_diagnosis as _diag
+            if self._classify_fail_tag(where) == '工具失败':
+                d = _diag.tool_diag(str(where), exc)
+            else:
+                d = _diag.local_diag(exc, context=str(where))
+            return self._notify_failure_card(d, source=str(where))
+        except Exception as _exc:
+            _silent_log('_on_user_facing_failure', _exc)
+            return 'error'
+
     COST_BLOCKED_NOTIFY_COOLDOWN = 3600   # v6.79：同原因的拦截提示，对话栏 60 分钟内只写一次
 
     def _notify_cost_blocked(self, why):
@@ -939,7 +1035,13 @@ class PetWidget(QWidget):
                 and now - float(last.get('t', 0)) < self.COST_BLOCKED_NOTIFY_COOLDOWN):
             return                                  # 同原因且在冷却内 → 不刷屏
         self._cost_blocked_notify = {'key': key, 't': now}
-        self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)
+        # v1-B：改走**唯一出口**（同代次只出一张卡；闸门卡优先 ✓）
+        try:
+            import pet_diagnosis as _diag
+            self._notify_failure_card(_diag.gate_diag(why), gen=self._card_gen(), source='cost_gate')
+        except Exception as _exc:
+            _silent_log('_notify_cost_blocked:card', _exc)
+            self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 兜底：不静默失败 ✓
 
     def _run_task(self, text, images=None):
         """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）
@@ -1272,7 +1374,7 @@ class PetWidget(QWidget):
                 if used:
                     return content, used, errs
             except Exception as _exc:
-                _silent_log('_vision_content:files_api', _exc)
+                _silent_log('_vision_content:files_api', _exc, user_facing=True)   # v1-B：用户发图要看→看图失败
         return build_vision_content(text, paths)
 
     # ---------- 智能本地应用检索（v6.36） ----------
@@ -1539,7 +1641,7 @@ class PetWidget(QWidget):
                 subprocess.Popen([target])
                 return f'已打开 {app}'
             except Exception as _exc:
-                _silent_log('_smart_open:1182', _exc)   # v6.54
+                _silent_log('_smart_open:1182', _exc, user_facing=True)   # v1-B：用户说“打开 XX”失败必须告知
 
         # 2. 常见中文名映射（非精确匹配）
         fuzzy = {
@@ -1580,7 +1682,7 @@ class PetWidget(QWidget):
                 subprocess.Popen([path])
                 return f'已打开 {app}'
         except Exception as _exc:
-            _silent_log('_smart_open:1223', _exc)   # v6.54
+            _silent_log('_smart_open:1223', _exc, user_facing=True)   # v1-B
 
         # 5. 尝试文件路径（存在则用默认程序打开）
         if os.path.exists(app):
@@ -1593,7 +1695,7 @@ class PetWidget(QWidget):
             if result == 0:
                 return f'已尝试打开 {app}'
         except Exception as _exc:
-            _silent_log('_smart_open:1236', _exc)   # v6.54
+            _silent_log('_smart_open:1236', _exc, user_facing=True)   # v1-B
 
         return f'找不到 {app}，请确认名称'
 
@@ -2887,16 +2989,17 @@ class PetWidget(QWidget):
                         _silent_log('_post_stream:2267', _exc)   # v6.54
             except Exception as _exc:
                 _silent_log('_post_stream:diag', _exc)   # 归因取数失败不影响原报错路径
-            # L2 v0 + L5：一次归因 → 既写审计（L5，kind=error）又渲染四段卡片（L2）
-            _d = _audit_failure(e, detail=detail, context='对话')
-            try:
-                import pet_diagnosis as _diag
-                self.ai_reply_signal.emit(_diag.to_card(_d) if _d is not None
-                                          else f'（AI 出错了：{e}）')
-            except Exception as _exc:
-                _silent_log('_post_stream:diag2', _exc)
-                # 兜底：归因不可用时，仍按旧文案报错（不静默失败）
-                self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
+            # L2 + L5 + v1-B：一次归因 → 既写审计（L5）又经**唯一出口**渲染四段卡片（L2）
+            # v1-B 弃权处置：本轮若已被 /stop 顶替 → 不计入判错统计、不弹卡 ✗
+            _stale = self._task_is_stale()
+            _d = _audit_failure(e, detail=detail, context='对话', count=not _stale)
+            if _stale:
+                _silent_log('_post_stream:yielded', e)     # 弃权：只留痕，不出卡
+            else:
+                _st = self._notify_failure_card(_d, gen=self._card_gen(), source='_post_stream')
+                if _st == 'error':
+                    # 兜底：归因/出口不可用时，仍按旧文案报错（不静默失败）
+                    self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
             # v6.43b：仅当代任务清 busy，然后自动执行队列下一任务（FCFS）
             # v6.53：被 /stop 顶替的旧线程，退出后再接续队列（_stop_ai 只置 _pending_resume）
@@ -3298,7 +3401,7 @@ class PetWidget(QWidget):
                     if isinstance(_m, dict) and _m.get('text'):
                         _m['text'] = _re.sub(r'\[emotion:[^\]]*\]', '', str(_m['text']))
         except Exception as _exc:
-            _silent_log('_load_chat_memory:2593', _exc)   # v6.54
+            _silent_log('_load_chat_memory:2593', _exc, user_facing=True)   # v1-B：记忆读失败→“它怎么不记得了”
 
     def _echo_display_history(self):
         """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）"""
@@ -3319,7 +3422,7 @@ class PetWidget(QWidget):
             msgs = self.chat_history_msgs[-50:]
             self._atomic_write_json(mem_path, {'messages': msgs, 'display': self.display_msgs[-300:]})
         except Exception as _exc:
-            _silent_log('_save_chat_memory:2614', _exc)   # v6.54
+            _silent_log('_save_chat_memory:2614', _exc, user_facing=True)   # v1-B：记忆写失败→“它忘了”
 
     def _clear_chat_memory(self):
         self.chat_history_msgs = []
@@ -4824,7 +4927,7 @@ class PetWidget(QWidget):
                          f"type={type(resp).__name__} keys={list(resp.keys())[:6] if isinstance(resp, dict) else '-'} "
                          f"usage={'有' if isinstance(resp, dict) and resp.get('usage') else '无'}\n")
         except Exception as _exc:
-            _silent_log('_record_api_usage:3839', _exc)   # v6.54
+            _silent_log('_record_api_usage:3839', _exc, user_facing=True)   # v1-B：记账失败→账不准（闸门依赖它）
         try:
             if not isinstance(resp, dict):
                 return
@@ -4842,7 +4945,7 @@ class PetWidget(QWidget):
                         self._notify('⚠ 模型 %s 未配置价格，费用未计入「设置 → 模型管理」可填' % model,
                                      ms=self.COST_NOTIFY_MS)
             except Exception as _exc:
-                _silent_log('_record_api_usage:price_unknown', _exc)
+                _silent_log('_record_api_usage:price_unknown', _exc, user_facing=True)   # v1-B：记账失败
             if cost:
                 self.cost_bubble_signal.emit(cost)  # v6.30 费用气泡
             # v6.61：余额缓存过期（默认 10 分钟）→ 后台静默刷一次（不弹提示、不阻塞）
@@ -4852,7 +4955,7 @@ class PetWidget(QWidget):
             except Exception:
                 pass
         except Exception as _exc:
-            _silent_log('_record_api_usage:3851', _exc)   # v6.54
+            _silent_log('_record_api_usage:3851', _exc, user_facing=True)   # v1-B：记账失败
 
     def _show_api_stats_history(self):
         """显示最近 API 调用历史（消息框）"""

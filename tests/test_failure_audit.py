@@ -81,10 +81,16 @@ def test_audit_failure_survives_diagnosis_failure(monkeypatch):
 
 
 def test_failure_path_is_wired_in_source():
-    """源码护栏：AI 失败分支必须调用 `_audit_failure(`（防以后有人把审计摘掉）。"""
+    """源码护栏：AI 失败分支必须调用 `_audit_failure(`（防以后有人把审计摘掉）。
+
+    v1-B 起：卡片改走**唯一出口** `_notify_failure_card(`（不再就地 to_card ✗），
+    护栏随之改为：**先写审计、再经单点出口出卡** ✓
+    """
     src = io.open(ROOT / 'desktop_pet.py', encoding='utf-8').read()
     assert '_audit_failure(e' in src, '失败分支必须调用 _audit_failure(...)，把失败写进审计（L5）'
+    assert '_notify_failure_card(_d' in src, \
+        '失败分支必须经**唯一出口** _notify_failure_card(...) 出卡（v1-B 定案 ③：单点不得绕过）✗'
     # 且审计要在卡片之前（先落盘、再给用户看）
     i_audit = src.index('_audit_failure(e')
-    i_card = src.index('to_card(_d)')
+    i_card = src.index('_notify_failure_card(_d')
     assert i_audit < i_card, '应先写审计、再渲染卡片'

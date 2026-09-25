@@ -28,10 +28,10 @@ CLASS_TABLE = [
     ("鉴权", True),
     ("请求错误", True),
     ("额度", True),
-    ("本地闸门", False),   # v1-B（要接线到调用点：成本闸门是 emit、不 raise）
+    ("本地闸门", True),   # v1-B：经 gate_diag() 入口（成本闸门是 emit、不 raise ✓）
     ("内容安全", True),
-    ("工具失败", False),   # v1-B（工具执行异常，接线在 executor 侧）
-    ("本地异常", False),   # v1-B（须先定“用户可感知白名单”：_silent_log 有 76 处）
+    ("工具失败", True),   # v1-B：经 tool_diag() 入口（工具执行异常 ✓）
+    ("本地异常", True),   # v1-B：经 local_diag() 入口（用户可感知白名单 = 显式标记 ✓）
     ("上游公告", False),   # L3（pet_net.probe_status），不进 explain_error
     ("未知", True),        # 兜底
 ]
@@ -101,13 +101,23 @@ def _exc_arg(kind: str):
 
 @pytest.mark.parametrize("layer,in_mod", CLASS_TABLE)
 def test_each_class_samples(layer, in_mod):
-    """护栏②③④：v1-A 已落地的类，必须有样本 → 四段非空、正文无裸 HTTP 码、鉴权声明历史已保留。"""
-    if not in_mod or layer in ("本地闸门", "工具失败", "本地异常", "上游公告"):
-        pytest.skip(f"{layer} 属 v1-B / L3，尚未落地")
+    """护栏②③④：每一类都必须有可达样本 → 四段非空、正文无裸 HTTP 码、鉴权声明历史已保留。
+
+    v1-B：本地闸门 / 工具失败 / 本地异常走**专用工厂入口**（不在 explain_error 里 ✓）
+    """
+    if layer == "上游公告":
+        pytest.skip("上游公告 属 L3（pet_net.probe_status），不进 explain_error")
     m = _load()
-    exc, kw = _exc_arg(layer)
-    assert exc is not None, f"{layer} 缺触发样本"
-    d = m.explain_error(exc, **kw)
+    if layer == "本地闸门":
+        d = m.gate_diag('日成本上限已用尽')
+    elif layer == "工具失败":
+        d = m.tool_diag('_smart_open', ValueError('bad path'))
+    elif layer == "本地异常":
+        d = m.local_diag(KeyError('missing'), context='_save_position')
+    else:
+        exc, kw = _exc_arg(layer)
+        assert exc is not None, f"{layer} 缺触发样本"
+        d = m.explain_error(exc, **kw)
     assert d.layer == layer, f"{layer} 样本被归成了 {d.layer}"
     # ② 四段任一为空即红
     for field in ("layer", "cause", "impact", "next_step"):
