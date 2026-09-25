@@ -1118,37 +1118,91 @@ class PetWidget(QWidget):
             _silent_log('_on_user_facing_failure', _exc)
             return 'error'
 
-    COST_BLOCKED_NOTIFY_COOLDOWN = 3600   # v6.79：同原因的拦截提示，对话栏 60 分钟内只写一次
+    COST_BLOCKED_NOTIFY_COOLDOWN = 3600   # 同原因的拦截**状态条**提示，对话栏 60 分钟内只写一次
+
+    def _cost_gate_key(self, why):
+        """闸门原因**归类**（按类算 key ✓ 不按原文 ✗）
+
+        缺陷 2（2026-09-25）：原按 reason 原文算 key ✗ → 金额/措辞一变就成"新原因" ✓
+        → 同一天不同来源各出一张卡 ✗。改为归类后同日同类只出一次 ✓
+        """
+        w = str(why or '')
+        if '余额' in w:
+            return 'balance'          # 账户余额不足（含其它项目消费）✗
+        if '上限' in w:
+            return 'daily_cost'       # 当日花费达上限 ✓
+        return 'other'
 
     def _notify_cost_blocked(self, why):
-        """成本闸门拦截提示（v6.79 成本刷屏缺陷）。
+        """成本闸门拦截提示（v6.79 → **2026-09-25 缺陷 2 加固**）。
 
-        原行为：每次模型调用被拦都往对话栏灌一条 → 同原因反复刷屏。
-        现行为三件：① 审计不限频（调用方每次都记 deny）② 状态栏每次都刷新（保留可见性）
-        ③ 对话栏同原因 60 分钟只写一次。
+        四件：
+        ① 审计不限频（调用方每次都记 deny ✓ 不动 ✗）
+        ② **状态条**：同因 60 分钟一次 —— ⭐ 原实现把 ``self._notify(...)`` 写在**冷却判断之前** ✗
+           → 每次被拦都写一条 ✗（缺陷 2 主因 ✓）→ 现改为**先判冷却再写** ✓
+        ③ **卡片**：改为**当天同因只出一张** ✓（原 60 分钟 + 按原文算 key → 反复出 ✗）
+        ④ **触顶即挂起主动关心，次日自动恢复** ✓（触发源 = 主动关心定时唤醒 ✓ Owner 口径 ✓）
         """
         why = str(why)
-        try:
-            self._notify('（成本闸门：%s）' % why, ms=self.COST_NOTIFY_MS)
-        except Exception as _exc:
-            _silent_log('_notify_cost_blocked:status', _exc)
-        try:
-            key = _re.sub(r'[\d.]+', '#', why)      # 金额数字变化不算换原因
-        except Exception:
-            key = why
+        key = self._cost_gate_key(why)
         now = time.time()
+        today = time.strftime('%Y-%m-%d')
+        # ② 状态条：同因 60 分钟一次（**先判冷却再写** ✓）
         last = getattr(self, '_cost_blocked_notify', None)
-        if (last and last.get('key') == key
+        if not (last and last.get('key') == key
                 and now - float(last.get('t', 0)) < self.COST_BLOCKED_NOTIFY_COOLDOWN):
-            return                                  # 同原因且在冷却内 → 不刷屏
-        self._cost_blocked_notify = {'key': key, 't': now}
-        # v1-B：改走**唯一出口**（同代次只出一张卡；闸门卡优先 ✓）
+            self._cost_blocked_notify = {'key': key, 't': now}
+            try:
+                self._notify('（成本闸门：%s）' % why, ms=self.COST_NOTIFY_MS)
+            except Exception as _exc:
+                _silent_log('_notify_cost_blocked:status', _exc)
+        # ③ 卡片：**当天同因只出一张** ✓
+        gc = getattr(self, '_gate_card_day', None)
+        if not (gc and gc.get('key') == key and gc.get('day') == today):
+            self._gate_card_day = {'key': key, 'day': today}
+            try:
+                import pet_diagnosis as _diag
+                self._notify_failure_card(_diag.gate_diag(why), gen=None, source='cost_gate')
+            except Exception as _exc:
+                _silent_log('_notify_cost_blocked:card', _exc)
+                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 兜底：不静默失败 ✓
+        # ④ 触顶即挂起主动关心（次日自动恢复 ✓）
+        self._suspend_active_care(reason=why)
+
+    def _suspend_active_care(self, reason=''):
+        """缺陷 2：触顶 → **先掐掉触发源**（主动关心）✓；只挂起，不永久关闭 ✓"""
         try:
-            import pet_diagnosis as _diag
-            self._notify_failure_card(_diag.gate_diag(why), gen=self._card_gen(), source='cost_gate')
+            if getattr(self, 'active_chat_enabled', False):
+                self.active_chat_enabled = False
+            self._care_suspended_date = time.strftime('%Y-%m-%d')
+            self._care_suspended_reason = str(reason or '')
+            log.info('主动关心已挂起（成本触顶，仅本次运行内，不写 config）：%s', reason)
         except Exception as _exc:
-            _silent_log('_notify_cost_blocked:card', _exc)
-            self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 兜底：不静默失败 ✓
+            _silent_log('_suspend_active_care', _exc)
+
+    def _resume_active_care_if_new_day(self):
+        """缺陷 2：**次日自动恢复**——只恢复"被我们挂起的"主动关心 ✓（用户自己关的不动 ✗）
+
+        返回 True 表示本次真的恢复了 ✓
+        """
+        try:
+            d = getattr(self, '_care_suspended_date', '')
+            if not d:
+                return False
+            if d == time.strftime('%Y-%m-%d'):
+                return False
+            self._care_suspended_date = ''
+            self._care_suspended_reason = ''
+            self.active_chat_enabled = True
+            try:
+                self._notify('（新的一天：因触顶暂停的主动关心已自动恢复）')
+            except Exception as _exc:
+                _silent_log('_resume_active_care_if_new_day:notify', _exc)
+            log.info('主动关心已自动恢复（跨天 ✓）')
+            return True
+        except Exception as _exc:
+            _silent_log('_resume_active_care_if_new_day', _exc)
+            return False
 
     def _run_task(self, text, images=None):
         """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）
@@ -8307,6 +8361,7 @@ class PetWidget(QWidget):
         （优先级：睡眠 > scared > 情绪 > 小游戏 > hungry > 待机）。
         """
         try:
+            self._resume_active_care_if_new_day()   # 缺陷 2：跨天自动恢复被挂起的主动关心 ✓
             s = self.affection.satiety(self.current)
             if s < 30:
                 if self.state == 'idle':
