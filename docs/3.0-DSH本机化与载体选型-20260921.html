@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 本机化与载体选型</title>
+<style>
+  :root{
+    --ink:#15181c;--ink-2:#3d444c;--ink-3:#6b747d;--rule:#d8dcdf;--rule-2:#eceff1;
+    --paper:#fbfbf9;--card:#f4f5f3;--accent:#0b5d63;--accent-soft:#e6f1f1;
+    --warn:#8a4b12;--warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.78}
+  .wrap{max-width:1000px;margin:0 auto;padding:56px 40px 96px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:30px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  h1{font-family:var(--serif);font-size:36px;line-height:1.24;margin:0 0 12px;font-weight:600}
+  .sub{color:var(--ink-2);margin:0}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:16px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:24px;margin:52px 0 8px;padding-top:22px;border-top:1px solid var(--rule);font-weight:600}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--accent);margin-right:10px;vertical-align:2px}
+  h3{font-size:17px;margin:30px 0 6px;font-weight:600}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule-2)}
+  pre{font-family:var(--mono);font-size:13px;background:var(--card);border:1px solid var(--rule-2);
+      border-radius:3px;padding:12px 14px;overflow-x:auto;margin:14px 0;line-height:1.6}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;color:var(--ink-3);padding-bottom:8px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:13px;font-weight:600;color:var(--ink-2);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  .ok{color:var(--accent);font-weight:600}
+  .no{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink-3)}
+  .note{border-left:2px solid var(--accent);padding:12px 0 12px 16px;margin:20px 0;
+        background:linear-gradient(90deg,var(--accent-soft) 0%,rgba(230,241,241,0) 78%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 78%)}
+  .note .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px;color:var(--accent)}
+  .note.warn .lbl{color:var(--warn)}
+  .cmp{border:1px solid var(--rule);background:#fff;margin:20px 0}
+  .cmp-row{display:grid;grid-template-columns:150px 1fr 1fr;border-bottom:1px solid var(--rule-2)}
+  .cmp-row:last-child{border-bottom:0}
+  .cmp-row>div{padding:12px 14px;font-size:14.5px}
+  .cmp-row>div:first-child{background:var(--card);font-weight:600;border-right:1px solid var(--rule-2)}
+  .cmp-row>div:nth-child(2){border-right:1px solid var(--rule-2)}
+  .cmp-head{background:#fff}
+  .cmp-head>div{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--ink-2);background:var(--card)!important}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));border:1px solid var(--rule);background:#fff;margin:20px 0}
+  .metric{padding:16px 18px;border-right:1px solid var(--rule-2)}
+  .metric:last-child{border-right:0}
+  .metric .v{font-family:var(--serif);font-size:25px;font-weight:600;line-height:1.2}
+  .metric .v small{font-size:13.5px;font-family:var(--sans);font-weight:400;color:var(--ink-2)}
+  .metric .k2{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:4px}
+  footer.doc{margin-top:60px;padding-top:18px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  @media (max-width:720px){
+    .wrap{padding:34px 20px 64px}
+    h1{font-size:27px}
+    .cmp-row{grid-template-columns:1fr}
+    .cmp-row>div{border-right:0!important;border-bottom:1px solid var(--rule-2)}
+    .metric{border-right:0;border-bottom:1px solid var(--rule-2)}
+    table{font-size:13.5px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">DeepSeekPet × DeepSeek Harness · 3.0 落地</div>
+  <h1>DSH 本机化与载体选型</h1>
+  <p class="sub">不再用虚拟机：把 DSH 装到本机；桌宠只当桌面外壳、不碰 agent 能力，避免双 harness 打架；顺带纠正"群聊吃内存"与"共用 API key"的认知。</p>
+  <div class="meta">
+    日期 2026-09-21 ｜ 依据：npm registry 实测 / DSH 官方文档 / 本机与 VirtualBox 实测<br>
+    安装：<code>@deepseek-ai/dsh@0.1.5-rc.2</code> → <code>E:\ai工作站\dsh</code>（独立目录，不改 AutoClaw 的 Node）
+  </div>
+</header>
+
+<h2 id="s1"><span class="num">01</span>决定：升到哪个版本</h2>
+<p>你原话是"升到较新的 rc"，npm 上的标签正好对得上 —— 所以取 <b>0.1.5-rc.2</b>，它是 <code>latest</code> 标签，比 <code>alpha</code> 稳、接口更定型。</p>
+<table>
+  <caption>npm dist-tags 实测（2026-09-21）</caption>
+  <thead><tr><th>标签</th><th>版本</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td class="k">latest</td><td><b>0.1.5-rc.2</b> ← 选定</td><td>最新 RC；0.1.5 系列定型版</td></tr>
+    <tr><td class="k">next</td><td>0.1.5-rc.2</td><td>与 latest 一致</td></tr>
+    <tr><td class="k">alpha</td><td>0.1.6-alpha.2</td><td>最新版：插件管理页、侧边栏 Subagent 会话、Office 预览 —— 想测这些再用它</td></tr>
+  </tbody>
+</table>
+<p class="muted">npm 共 22 个版本（0.1.2-alpha.2 起）；包内可执行文件 <code>dsh → lib/bin.js</code>；依赖 72 个。</p>
+
+<h2 id="s2"><span class="num">02</span>为什么"拉到本机"是对的</h2>
+<div class="metrics">
+  <div class="metric"><div class="v">4 GB<small> / 4 核</small></div><div class="k2">虚拟机分配 · 白占一份内存</div></div>
+  <div class="metric"><div class="v">4.6 GB</div><div class="k2">宿主当前可用内存 · 本来就紧</div></div>
+  <div class="metric"><div class="v">6.34 GB</div><div class="k2">虚拟机磁盘占用</div></div>
+  <div class="metric"><div class="v">0</div><div class="k2">本机 <code>~/.dsh</code> 现有配置（全新）</div></div>
+</div>
+<p>但要说清理由：<b>不是为了省群聊的内存</b>（见第 05 节），而是 —— 少一层虚拟化 + 少一条 SSH 隧道，启动更快、调试直接、备份简单，且不再让虚拟机白占 4 GB。</p>
+<div class="note warn">
+  <span class="lbl">先别动虚拟机</span>
+  虚拟机现在 <code>poweroff</code>，磁盘里 6.34 GB 是那台机器的整套环境。<b>它里面有你可能已经配好的 DSH 设置与凭据</b>（本机 <code>~/.dsh</code> 目前不存在，是全新的）。<br>
+  建议：本机跑通后再决定是否启动虚拟机、把 <code>~/.dsh</code> 配置与工作区拷过来；<b>先不删虚拟机</b>（它是唯一的配置备份）。
+</div>
+
+<h2 id="s3"><span class="num">03</span>安装与启动</h2>
+<pre># 安装（独立目录，不污染 AutoClaw 自带 Node）
+npm install -g --prefix "E:\ai工作站\dsh" @deepseek-ai/dsh@0.1.5-rc.2
+
+# 启动（Web UI 默认 127.0.0.1:3080，--no-open 不自动开浏览器）
+"E:\ai工作站\dsh\dsh.cmd" web --no-open</pre>
+<p>对比原虚拟机方案：原来要 <code>VBoxManage startvm</code> → 等 25 秒开机 → SSH 进 <code>2222</code> 起服务 → 再建 <code>3080</code> 隧道 → 才开浏览器（就是桌面上那个 <code>启动DSH.bat</code> 的四步）。本机化之后只剩最后一步。</p>
+
+<h2 id="s4"><span class="num">04</span>桌宠自动读取 DSH 配置与技能（可行，但有铁律）</h2>
+<p>你的判断是对的：<b>桌宠本身也算一个 harness，深度融合会和 DSH 打架</b>。冲突点具体是四个：</p>
+<table>
+  <thead><tr><th>冲突面</th><th>桌宠侧</th><th>DSH 侧</th><th>裁决</th></tr></thead>
+  <tbody>
+    <tr><td class="k">Agent 循环</td><td>自带对话/工具调用</td><td>自带 agent loop + 工具</td><td>归 <b>DSH</b></td></tr>
+    <tr><td class="k">模型配置</td><td><code>models.json</code></td><td><code>$DSH_HOME/settings.yaml</code></td><td>归 <b>DSH</b>，桌宠只读</td></tr>
+    <tr><td class="k">记忆</td><td><code>memories.json</code> / 好感度</td><td>工作区 + mcp-memory</td><td>各管各的，互不写</td></tr>
+    <tr><td class="k">权限/审批</td><td>自带治理层与审计</td><td>自带权限模式与沙箱</td><td>各管各的，不交叉授权</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <span class="lbl">铁律：单一事实来源</span>
+  桌宠对 DSH 的配置与能力清单只做<b>只读镜像、不做双写</b>。DSH 是模型/提供方/技能/工作区的唯一事实来源，桌宠负责"看得见"（展示 + 一键打开），不负责"改得动"。这样两边永远不会因为各存一份而漂移。
+</div>
+<h3>能读到什么、从哪读</h3>
+<table>
+  <thead><tr><th>要读的东西</th><th>位置（官方文档口径）</th></tr></thead>
+  <tbody>
+    <tr><td class="k">模型 / 提供方 / 推理等级 / 超时重试</td><td><code>$DSH_HOME/settings.yaml</code>（模型页写的就是这份文档）</td></tr>
+    <tr><td class="k">API 密钥</td><td><code>$DSH_HOME/.credentials.yaml</code>（只写；页面只拿到脱敏描述符）→ <b>桌宠绝对不读这份</b></td></tr>
+    <tr><td class="k">技能 / 插件清单</td><td>随版本演进，优先走 DSH 本地服务的接口或工作区目录，而不是自己解析内部文件</td></tr>
+  </tbody>
+</table>
+<p><b>顺带一个好消息</b>：DSH 原生支持多提供方与自定义网关 —— 内置 <code>anthropic</code>、<code>openai</code>、<code>moonshotai</code>(Kimi)、<code>zai</code>(GLM) 等，也能加自定义 OpenAI 兼容 / Anthropic 端点。<b>多模型圆桌的 provider 配置可以直接复用 DSH 已有的这套</b>，我们不必再造一套密钥管理。</p>
+
+<h2 id="s5"><span class="num">05</span>纠正："群聊吃内存"和"共用 API key"</h2>
+<div class="note warn">
+  <span class="lbl">结论</span>
+  只要模型跑在云端，<b>角色数量、厂商数量、key 数量对"本机内存"几乎没有影响</b>；它们影响的是<b>限流、配额、账单归属</b>。本机内存真正吃紧的是浏览器/WebUI 与 Node 进程本身。
+</div>
+<table>
+  <thead><tr><th>你问的</th><th>会不会降低内存</th><th>真实影响</th></tr></thead>
+  <tbody>
+    <tr><td class="k">同一家厂商同一个 key</td><td class="no">不会</td><td>反而更容易撞同一个账号的 RPM/TPM 限流 → 多角色并发时更早 429 ✗</td></tr>
+    <tr><td class="k">同一家厂商多个 key</td><td class="no">不会</td><td>扩容并发 + 隔离配额 + 方便按角色分账 ✓（不省内存）</td></tr>
+    <tr><td class="k">少接几个角色</td><td class="ok">影响很小</td><td>省的是 token 成本与墙上时间，不是内存</td></tr>
+    <tr><td class="k">本地跑模型（离线）</td><td class="no">大幅<b>增加</b>占用</td><td>这才吃显存/内存；本机 8 GB 显存 → 只到 7B~8B Q4</td></tr>
+  </tbody>
+</table>
+<p>所以群聊真正该设的闸门不是"省内存"，而是<b>控成本和控收敛</b>：角色数（先 2~3 个）、单议题回合上限、单议题 token/金额上限、连续无新信息即收束、人类消息可随时插队暂停。</p>
+
+<h2 id="s6"><span class="num">06</span>载体形态：两个选项到底差在哪</h2>
+<div class="cmp">
+  <div class="cmp-row cmp-head"><div>对比项</div><div>A · 桌宠内开面板窗口</div><div>B · 独立哑窗口进程（推荐）</div></div>
+  <div class="cmp-row"><div>进程模型</div><div>一个进程，网页嵌在桌宠里</div><div>两个进程，壳独立指向 127.0.0.1:3080</div></div>
+  <div class="cmp-row"><div>需要加的依赖</div><div>QtWebView（小）或 QtWebEngine（约 +195 MB）</div><div>无（系统 WebView2 已装）或 Tauri（需装 Rust）</div></div>
+  <div class="cmp-row"><div>网页崩了会怎样</div><div class="no">可能拖累桌宠本体</div><div class="ok">桌宠不受影响</div></div>
+  <div class="cmp-row"><div>升级/替换成本</div><div>要动桌宠依赖与打包</div><div class="ok">换壳不动桌宠</div></div>
+  <div class="cmp-row"><div>联动（唤醒/置顶/位置）</div><div class="ok">天然共享状态</div><div>需要自己做进程间联络</div></div>
+  <div class="cmp-row"><div>与"别打架"的契合度</div><div>中（两套窗口/渲染逻辑混在一起）</div><div class="ok">高（呈现层与 agent 层彻底隔离）</div></div>
+</div>
+<p><b>推荐 B</b>：你这轮的核心诉求是"桌宠单纯当个桌面形式、不要和 DSH 冲突"，进程隔离是最彻底的隔离；壳用系统 WebView2 先做最小实现，将来要托盘/自动更新再考虑 Tauri。桌宠负责立绘、语音、本地能力与"打开 DSH 面板"的指令，两边用本地接口联络。</p>
+
+<h2 id="s7"><span class="num">07</span>下一步</h2>
+<ol>
+  <li>本机 DSH 安装完成 → 起 <code>dsh web --no-open</code> → 验证 <code>127.0.0.1:3080</code> 可访问（正在做）</li>
+  <li>确认 <code>$DSH_HOME</code> 实际落点，写一份"桌宠只读镜像"读取清单</li>
+  <li>壳 POC：pywebview 最小窗口指 3080，验证透明/置顶/位置记忆</li>
+  <li>投递轨道面板原型（本地假数据，先验证消息模型与 UI）</li>
+  <li>虚拟机的 <code>~/.dsh</code> 配置迁移（需要时再启动它）</li>
+</ol>
+
+<footer class="doc">
+  DSH 本机化与载体选型 · 2026-09-21 · 与《3.0-协作层与本地能力边界》《3.0-调研评估报告》配套
+</footer>
+
+</div>
+</body>
+</html>

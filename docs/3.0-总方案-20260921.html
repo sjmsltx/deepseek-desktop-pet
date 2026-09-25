@@ -1,0 +1,294 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepSeekPet 3.0 总方案</title>
+<style>
+  :root{
+    --ink:#15181c;--ink-2:#3d444c;--ink-3:#6b747d;--rule:#d8dcdf;--rule-2:#eceff1;
+    --paper:#fbfbf9;--card:#f4f5f3;--accent:#0b5d63;--accent-soft:#e6f1f1;--warn:#8a4b12;--warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.78}
+  .wrap{max-width:1020px;margin:0 auto;padding:56px 40px 96px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:30px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  h1{font-family:var(--serif);font-size:40px;line-height:1.2;margin:0 0 14px;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--ink-2);margin:0;font-size:16px}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:16px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:25px;margin:52px 0 8px;padding-top:22px;border-top:1px solid var(--rule);font-weight:600;letter-spacing:-.01em}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--accent);margin-right:10px;vertical-align:2px}
+  h3{font-size:17px;margin:30px 0 6px;font-weight:600}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule-2)}
+  pre{font-family:var(--mono);font-size:12.5px;background:var(--card);border:1px solid var(--rule-2);border-radius:3px;
+      padding:14px 16px;overflow-x:auto;margin:16px 0;line-height:1.65}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;color:var(--ink-3);padding-bottom:8px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:13px;font-weight:600;color:var(--ink-2);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  .ok{color:var(--accent);font-weight:600}
+  .no{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink-3)}
+  .toc{border:1px solid var(--rule);background:#fff;padding:20px 24px;margin:0 0 12px}
+  .toc-title{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px}
+  .toc ol{list-style:none;margin:0;padding:0;columns:2;column-gap:34px;font-size:14px}
+  .toc li{margin:3px 0;break-inside:avoid}
+  .toc a{color:var(--ink-2);text-decoration:none;border-bottom:1px dotted var(--rule)}
+  .toc a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+  .note{border-left:2px solid var(--accent);padding:12px 0 12px 16px;margin:20px 0;
+        background:linear-gradient(90deg,var(--accent-soft) 0%,rgba(230,241,241,0) 78%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 78%)}
+  .note .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px;color:var(--accent)}
+  .note.warn .lbl{color:var(--warn)}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));border:1px solid var(--rule);background:#fff;margin:20px 0}
+  .metric{padding:15px 17px;border-right:1px solid var(--rule-2)}
+  .metric:last-child{border-right:0}
+  .metric .v{font-family:var(--serif);font-size:24px;font-weight:600;line-height:1.2}
+  .metric .v small{font-size:13px;font-family:var(--sans);font-weight:400;color:var(--ink-2)}
+  .metric .k2{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:4px}
+  .tl{margin:22px 0}
+  .tl-item{display:grid;grid-template-columns:120px 1fr;gap:16px;padding:13px 0 13px 18px;border-bottom:1px solid var(--rule-2);position:relative}
+  .tl-item:last-child{border-bottom:0}
+  .tl-item::before{content:"";position:absolute;left:-4.5px;top:21px;width:8px;height:8px;background:var(--paper);border:1px solid var(--ink-3);border-radius:50%}
+  .tl-item.done::before{background:var(--accent);border-color:var(--accent)}
+  .tl-when{font-family:var(--mono);font-size:13px;color:var(--ink-3);padding-top:2px}
+  .tl-what b{font-size:15px}
+  .tl-what p{margin:3px 0 0;font-size:14px;color:var(--ink-2)}
+  footer.doc{margin-top:60px;padding-top:18px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  @media (max-width:720px){
+    .wrap{padding:34px 20px 64px}h1{font-size:28px}.toc ol{columns:1}
+    .tl-item{grid-template-columns:1fr;gap:2px}.metric{border-right:0;border-bottom:1px solid var(--rule-2)}table{font-size:13.5px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">DeepSeekPet · 3.0 Master Plan</div>
+  <h1>3.0 总方案</h1>
+  <p class="sub">桌宠不重做成 agent，而是当成 DeepSeek Harness 的<b>桌面载体</b>；差异化做在桌宠侧的<b>多角色协作层</b>上 —— 投递可见、可算账、可打断。</p>
+  <div class="meta">
+    2026-09-21 定稿 ｜ 基线版本 DSH 0.1.5-rc.2（本机 127.0.0.1:3080）<br>
+    本文是总纲；分项依据见文末索引的六份文档
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#s1">定位与三条铁律</a></li>
+    <li><a href="#s2">目标与非目标</a></li>
+    <li><a href="#s3">架构</a></li>
+    <li><a href="#s4">协作层设计</a></li>
+    <li><a href="#s5">阶段路线与验收</a></li>
+    <li><a href="#s6">风险与对策</a></li>
+    <li><a href="#s7">版本策略</a></li>
+    <li><a href="#s8">已就绪资产</a></li>
+    <li><a href="#s9">待决事项</a></li>
+    <li><a href="#s10">文档索引</a></li>
+  </ol>
+</nav>
+
+<h2 id="s1"><span class="num">01</span>定位与三条铁律</h2>
+<table>
+  <thead><tr><th>归属</th><th>负责什么</th></tr></thead>
+  <tbody>
+    <tr><td class="k">DSH</td><td>模型与提供方配置、工具与技能、工作区、权限与审批、会话与轨迹、插件体系</td></tr>
+    <tr><td class="k">桌宠</td><td>立绘与情绪、语音（朗读/输入）、唤醒与提醒、本地能力（截图/OCR/剪贴板/日程/回忆）、<b>协作层界面</b></td></tr>
+    <tr><td class="k">适配层<br><span class="muted">dsh_adapter</span></td><td><b>唯一</b>知道 DSH 细节的地方：端口、启动令牌、只读解析 <code>settings.yaml</code></td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <span class="lbl">三条铁律</span>
+  ① <b>单一事实来源 = DSH</b>：模型/提供方/技能/工作区只有一份，桌宠只读镜像、<b>不双写</b>；<br>
+  ② <code>.credentials.yaml</code> <b>永不读取</b>，密钥由用户自己在界面里填；<br>
+  ③ <b>不解析 DSH 的前端</b>：只做宿主窗口 —— 它前端按插件动态装配、资源名带哈希（<code>/plugins/??…&amp;rev=&lt;哈希&gt;</code>），碰它就是自找升级事故。
+</div>
+
+<h2 id="s2"><span class="num">02</span>目标与非目标</h2>
+<div class="metrics">
+  <div class="metric"><div class="v">G1</div><div class="k2">一键把 DSH 当面板呈现，且它升级不破我家功能</div></div>
+  <div class="metric"><div class="v">G2</div><div class="k2">多模型/多角色协作：私聊 + 群聊 + @ + 组织讨论</div></div>
+  <div class="metric"><div class="v">G3</div><div class="k2">AI↔AI 投递可见、可算账、可打断</div></div>
+  <div class="metric"><div class="v">G4</div><div class="k2">桌宠自身能力完全独立可用</div></div>
+</div>
+<p><b>非目标（明确不做）</b>：✗ 把 DSH 插件写进主干（会破坏性变更 + 插件无沙箱）；✗ 无议题的自由群聊（必然刷屏烧钱）；✗ 改 DSH 源码/提补丁（官方暂不接受外部 PR）；✗ 本地大模型当主力（显存 8,151 MiB 只够 7B~8B Q4）；✗ 承担商业化（个人自用定位，费用留在用户侧）。</p>
+
+<h2 id="s3"><span class="num">03</span>架构</h2>
+<pre>┌───────────────── 桌宠进程（Python / PySide6）──────────────────┐
+│  立绘 · 气泡 · 语音 · 唤醒 · 本地能力 · 协作层 UI                 │
+│        │                                                       │
+│        └── dsh_adapter（唯一耦合点：端口 · 令牌 · settings 只读） │
+└───────────────────────────┬────────────────────────────────────┘
+                            │ HTTP（127.0.0.1:3080，带令牌）
+                    ┌───────▼────────┐
+                    │   DSH 服务      │   模型 · 工具 · 技能 · 工作区 · 审批
+                    └───────┬────────┘
+                            ▲ 只做宿主窗口，不注入
+                    ┌───────┴────────┐
+                    │ 壳窗口（独立进程）│   pywebview + 系统 WebView2
+                    └────────────────┘
+
+协作层（桌宠侧，独立于 DSH）
+  消息日志（追加式 · 单一事实来源）
+    ├─ L1 群聊流   常显：人话
+    ├─ L2 投递轨道 折叠：谁→谁 · 类型 · token · 成本
+    └─ L3 后台总线 隐藏：心跳 / 重试</pre>
+
+<h2 id="s4"><span class="num">04</span>协作层设计</h2>
+<h3>4.1 一套消息模型吃下三种拓扑</h3>
+<table>
+  <thead><tr><th>拓扑</th><th>会话形态</th><th>投递语义</th></tr></thead>
+  <tbody>
+    <tr><td class="k">单聊</td><td><code>dm:human↔agent</code>、<code>dm:agent↔agent</code></td><td>定向（双方收件箱 + 人类可见）</td></tr>
+    <tr><td class="k">群聊</td><td><code>group:&lt;id&gt;</code> + 成员表</td><td>广播（全员收件箱）</td></tr>
+    <tr><td class="k">讨论 / 委派</td><td><code>thread:&lt;id&gt;</code></td><td>定向 + 结果回投父会话</td></tr>
+  </tbody>
+</table>
+<p>字段：<code>id/ts</code> · <code>channel_id</code> · <code>sender/recipients</code> · <code>kind</code>（speak/ask/reply/delegate/arbitrate/tool/system）· <code>visibility</code>（human/meta/debug）· <code>meta</code>（model/tokens/cost/latency/parent_id/turn_no）。推荐拓扑：<b>共享追加日志 + 每 agent 收件箱投影</b> —— 可见化天然成立、可回放、可算账、语义只定义一处。</p>
+
+<h3>4.2 投递可见化：三层，不二选一</h3>
+<table>
+  <thead><tr><th>层</th><th>位置</th><th>内容</th><th>默认</th></tr></thead>
+  <tbody>
+    <tr><td class="k">L1 群聊流</td><td>群聊主窗口</td><td>人类要读的语义消息：谁说了什么、结论、请示、@人类</td><td>常显</td></tr>
+    <tr><td class="k">L2 投递轨道</td><td>右侧可折叠面板 / 独立标签页</td><td>谁→谁、类型、模型、耗时、token、成本、父子关系</td><td>折叠</td></tr>
+    <tr><td class="k">L3 后台总线</td><td>灰色折叠区</td><td>心跳、重试、内部协调噪音</td><td>隐藏</td></tr>
+  </tbody>
+</table>
+<p class="muted">不把投递全量贴进群聊流（刷屏 + 烧钱）；两层读的是同一份日志，所以不会出现两套数据。</p>
+
+<h3>4.3 人类可打断 + 成本护栏（默认值建议）</h3>
+<table>
+  <thead><tr><th>机制</th><th>规则</th></tr></thead>
+  <tbody>
+    <tr><td class="k">人类插队</td><td>最高优先级注入；仲裁器在下一回合边界<b>暂停自动轮转</b>，<b>暂停后保持暂停并 @人类、不自动恢复</b>（"继续"必须是显式命令）</td></tr>
+    <tr><td class="k">回合上限</td><td>单议题 8 回合</td></tr>
+    <tr><td class="k">时长上限</td><td>单议题 5 分钟</td></tr>
+    <tr><td class="k">成本上限</td><td>单议题 token / 金额上限，触顶即停</td></tr>
+    <tr><td class="k">收敛检测</td><td>连续 2 回合无新信息 → 自动收束出结论</td></tr>
+    <tr><td class="k">议题强制</td><td>无议题 + 目标 + 结束条件 → <b>不许开会</b></td></tr>
+    <tr><td class="k">触顶行为</td><td>停 + 出结论 + <code>@人类</code>，绝不静默烧钱</td></tr>
+  </tbody>
+</table>
+
+<h3>4.4 判断依据（诚实标注）</h3>
+<ul>
+  <li><b>事实</b>：主流大厂产品全是<b>单厂商多角色</b>，没有跨厂商协作产品；唯一近似的 Bloome 查不到独立评测与活跃度。</li>
+  <li><b>判断（非实证）</b>：大厂不做跨厂商的动因是"自有权重才能做推理侧优化 + 成本可控 + 平台期动机"（你补充：公司间本就不好合作）。<b>个人开发没有这层动机冲突</b> → "大厂不做"推不出"我们不该做"。</li>
+  <li><b>约束</b>：将来若对外发布，多厂商 ToS（用你的 key 转发聚合）与费用转嫁是真问题 → "谁付费、用谁的 key"留在<b>配置层</b>（LiteLLM / OpenRouter 这类网关正是该抽象层）。</li>
+  <li><b>参考实现</b>：AutoGen 的 GroupChat 仲裁策略、ChatDev 的"双人对话链"、AI Town 的对话可视化；<b>不</b>照搬 MetaGPT 的重 SOP。</li>
+</ul>
+
+<h3>4.5 "共用 API Key 省内存"是误解</h3>
+<table>
+  <thead><tr><th>设想</th><th>能省本机内存吗</th><th>真实影响</th></tr></thead>
+  <tbody>
+    <tr><td class="k">同厂商同一 key 多角色共用</td><td class="no">✗</td><td>反而更早撞同账号 RPM/TPM 限流</td></tr>
+    <tr><td class="k">同厂商多个 key</td><td class="no">✗</td><td>扩容并发、隔离配额、便于分账（不省内存）</td></tr>
+    <tr><td class="k">少接角色</td><td>影响很小</td><td>省的是 token 成本与墙上时间</td></tr>
+    <tr><td class="k">本地跑模型（离线）</td><td class="no">✗ 反而大增</td><td>这才吃显存（本机 8 GB → 7B~8B Q4）</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s5"><span class="num">05</span>阶段路线与验收</h2>
+<div class="tl">
+  <div class="tl-item done">
+    <div class="tl-when">P0（进行中）</div>
+    <div class="tl-what"><b>DSH 本机化 + 载体最小闭环</b>
+      <p>验收：<code>check-dsh.ps1</code> 载体层绿；3080 HTTP 200；窗口可见。<br>
+      <span class="ok">已完成前半</span>：本机安装 ✓ 启动器 ✓ 分层自检 ✓；<b>载体窗口未做</b>。</p></div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">P1</div>
+    <div class="tl-what"><b>消息日志 + 投递轨道（本地原型）</b>
+      <p>统一消息模型 + 三层视图 + 打断按钮，<b>先用假数据</b>。验收：日志可回放、成本可累加、打断后轮转确实暂停。</p></div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">P2</div>
+    <div class="tl-what"><b>多模型圆桌</b>
+      <p>provider 配置（复用 DSH 提供方）+ 仲裁器 + 四道上限。验收：2~3 角色 8 回合内收束、无题不启动、超限必停、人类插队生效。</p></div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">P3（可选）</div>
+    <div class="tl-what"><b>DSH 插件方向</b>
+      <p>TypeScript 插件接入 DSH 插件体系；只在 P0/P1 稳定后再评估。</p></div>
+  </div>
+</div>
+
+<h2 id="s6"><span class="num">06</span>风险与对策</h2>
+<table>
+  <thead><tr><th>风险</th><th>等级</th><th>对策</th></tr></thead>
+  <tbody>
+    <tr><td class="k">DSH 破坏性变更打断我们</td><td>中</td><td>适配层唯一耦合点 + 能力探测/降级 + 升级后跑 <code>check-dsh.ps1</code></td></tr>
+    <tr><td class="k">官方不接受外部 PR</td><td>—</td><td>不能提交补丁让它兼容我们 → <b>只能自适配</b>，适配层是必需项</td></tr>
+    <tr><td class="k">官方桌面端成熟、载体失去价值</td><td>中</td><td>差异化押在"角色形态 + 本地能力 + 协作层"，不押在"能开窗口"</td></tr>
+    <tr><td class="k">依赖未公开的 <code>/api/*</code></td><td class="no">高</td><td>不作依赖；要用先探测，失败即降级</td></tr>
+    <tr><td class="k">多角色成本失控</td><td>中</td><td>四道上限 + 收敛检测 + 议题强制</td></tr>
+    <tr><td class="k">本机算力不足</td><td>中</td><td>云端推理为主；本地只到 7B~8B Q4；编排层不占算力</td></tr>
+    <tr><td class="k">双 harness 冲突</td><td class="no">高</td><td>边界固化：DSH 管 agent 循环，桌宠管呈现与本地能力，记忆/权限各管各的</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s7"><span class="num">07</span>版本策略</h2>
+<ul>
+  <li><b>基线</b>：<code>0.1.5-rc.2</code>（npm <code>latest</code>）——已装 <code>D:\dsh</code>，服务 127.0.0.1:3080。</li>
+  <li><b>可选升级</b>：<code>0.1.6-alpha.2</code>（<code>alpha</code>）——含插件管理页、侧边栏 Subagent 会话、Office 预览；alpha 有回归风险。</li>
+  <li><b>升级 SOP</b>：装新版 → 跑 <code>D:\dsh\check-dsh.ps1</code> → 看哪层断 → 只改对应一处（<code>start-dsh.ps1</code> 或适配层）。</li>
+</ul>
+
+<h2 id="s8"><span class="num">08</span>已就绪资产（实测）</h2>
+<table>
+  <thead><tr><th>项</th><th>状态</th></tr></thead>
+  <tbody>
+    <tr><td class="k">DSH 本机安装</td><td><code>D:\dsh</code>，0.1.5-rc.2，520 包 / 45 秒 ✓</td></tr>
+    <tr><td class="k">DSH 服务</td><td>运行中，<code>127.0.0.1:3080</code>，带令牌 HTTP 200 / 27,660 字节 ✓</td></tr>
+    <tr><td class="k">启动器</td><td><code>D:\dsh\启动DSH-本机.bat</code>（默认优先=联想浏览器，兜底 Edge/Chrome）✓</td></tr>
+    <tr><td class="k">分层自检</td><td><code>D:\dsh\check-dsh.ps1</code> ✓</td></tr>
+    <tr><td class="k">桌宠 2.x 收尾</td><td>v2.9.1 已发布（含便携包立绘修复：0% → 44.2% 彩色像素）✓</td></tr>
+    <tr><td class="k">桌面运行库</td><td>PySide6 6.11.1（含 QtWebEngine / QtWebView）、WebView2 153.0.4234.48 ✓</td></tr>
+    <tr><td class="k">硬件边界</td><td>i9-14900HX 24C/32T · RTX 5060 Laptop <b>8,151 MiB</b> · 内存 15.7 GB · 无 Rust / 无 Docker</td></tr>
+    <tr><td class="k">虚拟机（旧方案）</td><td>保持 poweroff 当备份，可不用 ✓</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s9"><span class="num">09</span>待决事项</h2>
+<ol>
+  <li><b>载体窗口形态</b>：桌宠内嵌面板（一个进程）vs <b>独立哑窗口进程（推荐，隔离最彻底）</b>；</li>
+  <li><b>圆桌默认参数</b>：角色数 2~3、8 回合、5 分钟、金额上限 —— 是否照此设默认；</li>
+  <li><b>是否切到 alpha</b>（<code>0.1.6-alpha.2</code>）尝鲜插件管理页 / 侧边栏；</li>
+  <li>默认浏览器关联指向联想 SLBrowser（能用但不标准）—— 是否要修（暂不影响使用）。</li>
+</ol>
+
+<h2 id="s10"><span class="num">10</span>文档索引</h2>
+<table>
+  <thead><tr><th>文档</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td class="k">3.0-调研评估报告-20260921.md</td><td>三条调研线原始结论 + 当日修订</td></tr>
+    <tr><td class="k">3.0-协作层与本地能力边界-20260921<br>（.md / .html）</td><td>投递可见化三层、打断与成本护栏、九个角色分工项目实测、本地边界</td></tr>
+    <tr><td class="k">3.0-DSH本机化与载体选型-20260921.html</td><td>版本决策、安装迁移、载体两形态对比、内存与 key 纠正</td></tr>
+    <tr><td class="k">3.0-弱耦合依赖面与抗变更-20260921.html</td><td>七条依赖面实测定级、三层隔离、最坏情况、应急流程</td></tr>
+    <tr><td class="k">DSH项目观察卡-20260921.html</td><td>研发模式（官方主导/不接受外部 PR）、发布节奏、正式版信号</td></tr>
+    <tr><td class="k">3.0-DSH插件方向-草案.md<br>3.0-圆桌-多模型协作-草案.md</td><td>两条路线的早期草案</td></tr>
+  </tbody>
+</table>
+
+<footer class="doc">
+  DeepSeekPet 3.0 总方案 · 2026-09-21 定稿 · 改版时同步更新文末索引
+</footer>
+
+</div>
+</body>
+</html>
+
+

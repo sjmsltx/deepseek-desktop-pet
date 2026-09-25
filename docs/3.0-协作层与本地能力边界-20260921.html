@@ -1,0 +1,357 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.0 协作层设计与本地能力边界判断</title>
+<style>
+  :root{
+    --ink:#15181c; --ink-2:#3d444c; --ink-3:#6b747d;
+    --rule:#d8dcdf; --rule-2:#eceff1; --paper:#fbfbf9; --card:#f4f5f3;
+    --accent:#0b5d63; --accent-soft:#e6f1f1; --warn:#8a4b12; --warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+       font-size:15.5px;line-height:1.78;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:56px 40px 96px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:34px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+          color:var(--accent);margin-bottom:14px}
+  h1{font-family:var(--serif);font-size:38px;line-height:1.22;margin:0 0 14px;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--ink-2);font-size:15px;margin:0}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:16px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:25px;margin:54px 0 8px;font-weight:600;letter-spacing:-.01em;
+     padding-top:22px;border-top:1px solid var(--rule)}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--accent);margin-right:10px;vertical-align:2px}
+  h3{font-size:17px;margin:32px 0 6px;font-weight:600}
+  h4{font-size:15px;margin:24px 0 4px;font-weight:600;color:var(--ink-2)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule-2)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;color:var(--ink-3);
+          padding-bottom:8px;letter-spacing:.04em}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:13px;font-weight:600;color:var(--ink-2);
+           letter-spacing:.02em;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  .ok{color:var(--accent);font-weight:600}
+  .no{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink-3)}
+  .note{border-left:2px solid var(--accent);padding:12px 0 12px 16px;margin:20px 0;
+        background:linear-gradient(90deg,var(--accent-soft) 0%,rgba(230,241,241,0) 78%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 78%)}
+  .note .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+             color:var(--accent);display:block;margin-bottom:3px}
+  .note.warn .lbl{color:var(--warn)}
+  .toc{border:1px solid var(--rule);background:#fff;padding:20px 24px;margin:0 0 12px}
+  .toc-title{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.14em;
+             text-transform:uppercase;margin-bottom:10px}
+  .toc ol{list-style:none;margin:0;padding:0;columns:2;column-gap:34px;font-size:14px}
+  .toc li{margin:3px 0;break-inside:avoid}
+  .toc a{color:var(--ink-2);text-decoration:none;border-bottom:1px dotted var(--rule)}
+  .toc a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+  /* 三层可见化示意图 */
+  .layers{border:1px solid var(--rule);margin:22px 0;background:#fff}
+  .layer{display:grid;grid-template-columns:132px 1fr;border-bottom:1px solid var(--rule-2)}
+  .layer:last-child{border-bottom:0}
+  .layer .tag{padding:14px 16px;border-right:1px solid var(--rule-2);background:var(--card)}
+  .layer .tag b{display:block;font-size:14px}
+  .layer .tag span{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .layer .body{padding:14px 18px;font-size:14.5px}
+  .layer.l1{border-left:3px solid var(--accent)}
+  .layer.l2{border-left:3px solid var(--ink-2)}
+  .layer.l3{border-left:3px solid var(--rule)}
+  .flow{font-family:var(--mono);font-size:13px;color:var(--ink-2);background:var(--card);
+        border:1px solid var(--rule-2);padding:10px 14px;margin:12px 0;border-radius:3px;overflow-x:auto}
+  .timeline{margin:22px 0;border-left:1px solid var(--rule);padding-left:0}
+  .tl-item{display:grid;grid-template-columns:118px 1fr;gap:16px;padding:12px 0 12px 18px;
+           border-bottom:1px solid var(--rule-2);position:relative}
+  .tl-item:last-child{border-bottom:0}
+  .tl-item::before{content:"";position:absolute;left:-4.5px;top:19px;width:8px;height:8px;
+                   background:var(--paper);border:1px solid var(--ink-3);border-radius:50%}
+  .tl-item.hot::before{background:var(--accent);border-color:var(--accent)}
+  .tl-when{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);padding-top:2px}
+  .tl-what b{font-size:14.5px}
+  .tl-what p{margin:2px 0 0;font-size:14px;color:var(--ink-2)}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));border:1px solid var(--rule);
+           background:#fff;margin:20px 0}
+  .metric{padding:16px 18px;border-right:1px solid var(--rule-2)}
+  .metric:last-child{border-right:0}
+  .metric .v{font-family:var(--serif);font-size:26px;font-weight:600;letter-spacing:-.02em;line-height:1.2}
+  .metric .v small{font-size:14px;font-family:var(--sans);font-weight:400;color:var(--ink-2)}
+  .metric .k2{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.08em;margin-top:4px}
+  footer.doc{margin-top:64px;padding-top:18px;border-top:1px solid var(--rule);
+             font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  @media (max-width:720px){
+    .wrap{padding:34px 20px 64px}
+    h1{font-size:28px}
+    .toc ol{columns:1}
+    .layer{grid-template-columns:1fr}
+    .layer .tag{border-right:0;border-bottom:1px solid var(--rule-2)}
+    .tl-item{grid-template-columns:1fr;gap:2px}
+    .metric{border-right:0;border-bottom:1px solid var(--rule-2)}
+    table{font-size:13.5px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">DeepSeekPet · 3.0 设计判断</div>
+  <h1>协作层设计与本地能力边界判断</h1>
+  <p class="sub">AI 与 AI 的消息投递怎么走、怎么可见化；桌宠作为 DSH 桌面载体的边界在哪；这台机器能做什么、做不到什么。</p>
+  <div class="meta">
+    日期 2026-09-21 ｜ 对应回应：李滨宇对 3.0 调研评估报告的四点追问<br>
+    依据：本机实测 / GitHub REST API 当次查询 / 官方 release notes ｜ 判断性内容已显式标注
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">目录</div>
+  <ol>
+    <li><a href="#s1">结论速览</a></li>
+    <li><a href="#s2">主线：桌宠做 DSH 桌面载体</a></li>
+    <li><a href="#s3">DSH 升到哪个 rc</a></li>
+    <li><a href="#s4">反向证据的再解读</a></li>
+    <li><a href="#s5">不只群聊：统一消息模型</a></li>
+    <li><a href="#s6">投递可见化：分三层</a></li>
+    <li><a href="#s7">人类可打断与成本护栏</a></li>
+    <li><a href="#s8">角色分工类项目实测</a></li>
+    <li><a href="#s9">本地能力边界（实测）</a></li>
+    <li><a href="#s10">下一步与待决事项</a></li>
+  </ol>
+</nav>
+
+<h2 id="s1"><span class="num">01</span>结论速览</h2>
+<table>
+  <caption>七条结论 · 逐条标注依据强度</caption>
+  <thead><tr><th>议题</th><th>结论</th><th>依据</th></tr></thead>
+  <tbody>
+    <tr><td class="k">主线定型</td><td>桌宠作为 DSH 桌面载体（弱耦合）优先；写 DSH 插件降为可选项</td><td>官方已自带 Electron 桌面端；第三方已有两个桌面壳；插件无沙箱</td></tr>
+    <tr><td class="k">反向证据</td><td>他的解读成立 —— 不构成"我们不该做"；动因是自有权重与成本可控，个人开发无此冲突</td><td><span class="no">逻辑推演（非实证）</span></td></tr>
+    <tr><td class="k">商业化风险</td><td>个人开发无需承担：只留 provider 接口 + 协调层；费用与合规留在用户侧</td><td>设计定位</td></tr>
+    <tr><td class="k">投递可见化</td><td>不二选一：一份消息日志 + 两个视图（群聊流 / 投递轨道）；全量贴流会刷屏</td><td>设计建议</td></tr>
+    <tr><td class="k">人类可打断</td><td>人类消息最高优先级插队，自动轮转暂停待命；另加回合 / token / 时长 / 成本四道上限</td><td>设计建议</td></tr>
+    <tr><td class="k">DSH 版本</td><td>最新 RC = v0.1.5-rc.2；最新版 = v0.1.6-alpha.2（含插件管理页、侧边栏 Subagent 会话）</td><td>GitHub Releases API</td></tr>
+    <tr><td class="k">本地能力</td><td>编排层完全可行；本地大模型受 8 GB 显存限制；DSH VM 当前不可达</td><td>本机实测</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s2"><span class="num">02</span>主线：桌宠作为 DSH 桌面载体（弱耦合）</h2>
+<p>这条主线被确认，理由不是"套壳简单"，而是"套壳这条路上官方和第三方都已经占了，我们的增量在别处"。</p>
+<table>
+  <thead><tr><th>事实</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td>官方已自带 <code>apps/desktop</code>（Electron 壳，端口 19387）</td><td>"把网页端做成桌面形态"官方做完了 → 单纯套壳没有增量</td></tr>
+    <tr><td>第三方已有 <code>hairyf/deepseek-harness-desktop</code>、<code>LambProgrammer/dsh-desktop-zero</code></td><td>门槛不高且已有人走 → 差异化必须来自别处</td></tr>
+    <tr><td>官方预留第三方载体接口：<code>__DSH_TRANSPORT__.streamBaseUrl</code>，原文 <em>"The desktop carrier owns authentication"</em></td><td>官方明确支持第三方承载 → 做载体是"被支持的正道"</td></tr>
+    <tr><td>DSH 插件 = TypeScript 模块（<code>apply(ctx)</code>），<span class="no">无沙箱</span>，跑在 workspace sandbox 之外、进程内</td><td>强耦合路线安全面与维护面都不划算 → 不当主线</td></tr>
+  </tbody>
+</table>
+<h4>我们的差异化（不是"再做一次套壳"）</h4>
+<ul>
+  <li><b>形态</b>：别人给"窗口里的网页"，我们给<b>有立绘、有情绪、有记忆的角色</b>，DSH 会话嵌在这个角色里。</li>
+  <li><b>本地能力</b>：桌宠已有的截图 / OCR / 剪贴板 / 日程 / 语音 / 好感度 / 回忆，是纯 Web 端拿不到的东西。</li>
+  <li><b>渐进</b>：载体走 HTTP 弱耦合（<code>127.0.0.1:3080</code>），DSH 升级不影响我们；插件路线要跟着 TS API 变动走。</li>
+</ul>
+
+<h2 id="s3"><span class="num">03</span>DSH 升到哪个 rc</h2>
+<div class="timeline">
+  <div class="tl-item">
+    <div class="tl-when">2026-09-08</div>
+    <div class="tl-what"><b>v0.1.5-alpha.1</b><p>动态修改系统提示词且不破 KV Cache；实验性右侧 Sidebar。</p></div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">2026-09-09</div>
+    <div class="tl-what"><b>v0.1.5-alpha.2</b><p>Sidebar 支持 Markdown / 代码 / HTML / PDF / 图片预览。</p></div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">2026-09-10</div>
+    <div class="tl-what"><b>v0.1.5-rc.1</b><p>0.1.5 系列首个候选版；模型适配器新增 <code>DeepSeek-V41-Flash</code>。</p></div>
+  </div>
+  <div class="tl-item hot">
+    <div class="tl-when">2026-09-10</div>
+    <div class="tl-what"><b>v0.1.5-rc.2 ← 最新 RC</b><p>反馈弹窗确认；交付文件卡片排版与图标优化。</p></div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">2026-09-15</div>
+    <div class="tl-what"><b>v0.1.6-alpha.1</b><p>Web 侧边栏终端（多标签、刷新恢复）；MCP 资源发现与 URI 模板。</p></div>
+  </div>
+  <div class="tl-item hot">
+    <div class="tl-when">2026-09-17</div>
+    <div class="tl-what"><b>v0.1.6-alpha.2 ← 最新版</b><p>插件管理页（安装 / 改配置 / 实时启停）；回合结束文件改动卡片与逐文件对比；侧边栏预览 Office；<b>侧边栏打开 Subagent 会话</b>；Sidebar 浏览器模式。</p></div>
+  </div>
+</div>
+<p class="muted">仓库热度：<b>231,566★</b> ｜ 最后更新 2026-09-21 ｜ TypeScript ｜ MIT。</p>
+<div class="note">
+  <span class="lbl">建议</span>
+  <b>首选 v0.1.6-alpha.2</b>：插件管理页 + 侧边栏 Subagent 会话直接服务我们两条线，代价是 alpha 阶段可能有回归。<b>求稳则 v0.1.5-rc.2</b>：最新 RC，比现用的 v0.1.1-rc.2 已跨 4 个版本。
+</div>
+<div class="note warn">
+  <span class="lbl">当前阻塞</span>
+  本机实测 <code>127.0.0.1:2222</code>（SSH）与 <code>127.0.0.1:3080</code> <b>均不通</b>；本机<b>未发现</b> VMware / VirtualBox / Hyper-V 服务（仅存在 <code>wsl.exe</code>）。<br>
+  → 无法确认那台 Ubuntu Server 在哪、怎么启动，<b>升级动作要等确认后才能执行</b>。
+</div>
+
+<h2 id="s4"><span class="num">04</span>反向证据的再解读（他说得对）</h2>
+<p>我原来把"大厂都做单厂商多角色"当作反向证据；他的解读补上了动因层。</p>
+<table>
+  <thead><tr><th>解释</th><th>是否成立</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>公司之间本身就不好合作，所以不做跨厂商</td><td class="ok">成立（他给的）</td><td>跨厂商协作对平台方 = 替对手优化 + 承担对方 API 的不确定性</td></tr>
+    <tr><td>商业化 / 成本考量</td><td class="ok">成立（我原来的猜测）</td><td>自有权重才能做推理侧优化、成本可控</td></tr>
+    <tr><td>我们个人开发不需承担这些风险</td><td class="ok">成立</td><td>只做 provider 接口 + 协调层；钱和合规留在用户侧</td></tr>
+  </tbody>
+</table>
+<div class="note warn">
+  <span class="lbl">必须标注的边界</span>
+  以上三条是<b>判断与推演</b>，不是实证 —— 无公开一手材料证明大厂的取舍动因。<br>
+  另有一条真实约束：若将来对外发布"多模型圆桌"，<b>多厂商 ToS（用你的 key 转发聚合）与费用转嫁</b>会成为现实问题 → 应把"谁付费、用谁的 key"留在<b>配置层</b>（LiteLLM / OpenRouter 这类网关正是这个抽象层）。
+</div>
+
+<h2 id="s5"><span class="num">05</span>不只群聊：统一消息模型</h2>
+<p>要的是"像 QQ/微信"——能私聊、能群里 @、能组织讨论。这要求<b>一套消息模型吃下三种拓扑</b>，而不是做三个功能。</p>
+<table>
+  <thead><tr><th>拓扑</th><th>会话形态</th><th>投递语义</th></tr></thead>
+  <tbody>
+    <tr><td class="k">单聊</td><td><code>dm:human↔agent</code>、<code>dm:agent↔agent</code></td><td>定向投递（仅双方收件箱 + 人类可见）</td></tr>
+    <tr><td class="k">群聊</td><td><code>group:&lt;id&gt;</code> + 成员表</td><td>广播投递（全员收件箱）</td></tr>
+    <tr><td class="k">讨论 / 委派</td><td><code>thread:&lt;id&gt;</code>（挂在群或单聊下）</td><td>定向 + 结果回投父会话</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <span class="lbl">推荐拓扑</span>
+  <b>共享追加日志（single source of truth）+ 每 agent 收件箱投影。</b>
+  理由：① 可见化天然成立（日志就是 UI 数据源）② 私聊 / 群聊 / 线程统一 ③ 可回放、可审计、可算账 ④ 投递语义集中一处定义，不会三套逻辑打架。
+</div>
+
+<h2 id="s6"><span class="num">06</span>投递可见化：分三层，而不是二选一</h2>
+<p>问题是"在群聊里直接贴出来，还是单独列一个消息栏？" —— <b>两个都要，但分层，且同源。</b></p>
+<div class="layers">
+  <div class="layer l1">
+    <div class="tag"><b>L1 群聊流</b><span>常显</span></div>
+    <div class="body">人类要读的语义消息：谁说了什么、结论、请示、@人类。<b>位置</b>：群聊主窗口。</div>
+  </div>
+  <div class="layer l2">
+    <div class="tag"><b>L2 投递轨道</b><span>折叠可展开</span></div>
+    <div class="body">结构化投递事件：<b>谁 → 谁</b>、类型（提问/回答/委派/仲裁/工具）、模型、耗时、token、成本、父子关系。<b>位置</b>：群聊右侧可折叠面板，或独立"投递"标签页。</div>
+  </div>
+  <div class="layer l3">
+    <div class="tag"><b>L3 后台总线</b><span>默认隐藏</span></div>
+    <div class="body">心跳、重试、内部协调噪音。<b>位置</b>：灰色折叠区，仅调试时展开。</div>
+  </div>
+</div>
+<p><b>为什么不全量贴进群聊流</b>：担忧是对的 —— AI 互聊会刷屏且烧钱。L1 只保留"面向人类的消息"，机器之间的投递元数据进 L2；两边读的是<b>同一份日志</b>，因此不会出现两套数据不一致。</p>
+<div class="flow">投递示例　pro ──ask──▶ mao 　｜　mao ──reply──▶ pro（回投父会话）　｜　系统 ──arbitrate──▶ 群（第 3 回合起收敛）</div>
+<h4>建议的数据模型（每条消息一行）</h4>
+<table>
+  <thead><tr><th>字段</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td class="k"><code>id</code> / <code>ts</code></td><td>单调递增 + 时间戳（排序与回放依据）</td></tr>
+    <tr><td class="k"><code>channel_id</code></td><td>群 / 单聊 / 线程</td></tr>
+    <tr><td class="k"><code>sender</code> / <code>recipients</code></td><td><code>human:李滨宇</code>、<code>agent:pro</code>、<code>system</code>；收件人为空 = 广播</td></tr>
+    <tr><td class="k"><code>kind</code></td><td><code>speak</code> 发言 / <code>ask</code> 提问 / <code>reply</code> 回答 / <code>delegate</code> 委派 / <code>arbitrate</code> 仲裁 / <code>tool</code> 工具调用 / <code>system</code></td></tr>
+    <tr><td class="k"><code>visibility</code></td><td><code>human</code> 进 L1 ／ <code>meta</code> 只进 L2 ／ <code>debug</code> 只进 L3</td></tr>
+    <tr><td class="k"><code>meta</code></td><td><code>model</code>、<code>tokens</code>、<code>cost</code>、<code>latency</code>、<code>parent_id</code>、<code>turn_no</code></td></tr>
+  </tbody>
+</table>
+<p class="muted">最小实现：桌宠/壳里做一个"投递轨道"面板，用箭头渲 <code>sender → recipients</code>，颜色区分 kind，点开看原文与成本 —— 这一步完全在本地做，不依赖 DSH。</p>
+
+<h2 id="s7"><span class="num">07</span>人类可打断与成本护栏</h2>
+<table>
+  <thead><tr><th>机制</th><th>规则</th></tr></thead>
+  <tbody>
+    <tr><td class="k">人类插队</td><td>人类消息 <code>priority=highest</code>：立即注入当前会话，仲裁器在下一个回合边界<b>暂停自动轮转</b>，<b>暂停后保持暂停并 @人类、不自动恢复</b>（"继续"必须是显式命令；原"超时自动恢复"口径已作废）</td></tr>
+    <tr><td class="k">回合上限</td><td>单议题最大回合数（建议默认 8）</td></tr>
+    <tr><td class="k">时长上限</td><td>单议题最长墙钟时间（建议默认 5 分钟）</td></tr>
+    <tr><td class="k">成本上限</td><td>单议题 token / 金额上限，触顶即停</td></tr>
+    <tr><td class="k">收敛检测</td><td>连续 2 回合无新增信息 → 自动收束并输出结论</td></tr>
+    <tr><td class="k">议题强制</td><td>群聊<b>必须</b>有议题 + 目标 + 结束条件才能开（禁止无题自由群聊）</td></tr>
+    <tr><td class="k">触顶行为</td><td>停 + 出结论 + <code>@人类</code>；绝不静默继续烧钱</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s8"><span class="num">08</span>角色分工类开源项目（GitHub API 实测）</h2>
+<table>
+  <caption>2026-09-21 当次查询 · 按星数排序</caption>
+  <thead><tr><th>项目</th><th>★</th><th>最后推送</th><th>语言</th><th>我们能借鉴什么</th></tr></thead>
+  <tbody>
+    <tr><td class="k">MetaGPT</td><td>70,531</td><td>2026-01-21</td><td>Python</td><td>SOP 化分工 + 产物交接；近 8 个月未推送</td></tr>
+    <tr><td class="k">AutoGen</td><td>61,086</td><td>2026-04-15</td><td>Python</td><td><b>GroupChat Manager 的回合选择策略 = 我们的仲裁器</b></td></tr>
+    <tr><td class="k">CrewAI</td><td>58,839</td><td>2026-09-21</td><td>Python</td><td>role / goal / backstory 三件套 + 任务委派（最活跃）</td></tr>
+    <tr><td class="k">ChatDev</td><td>34,352</td><td>2026-07-24</td><td>Python</td><td><b>"双人对话链"</b>：降低群聊复杂度的现成解法</td></tr>
+    <tr><td class="k">CAMEL</td><td>17,749</td><td>2026-09-20</td><td>Python</td><td>角色 prompt 自动生成</td></tr>
+    <tr><td class="k">AI Town</td><td>10,531</td><td>2026-08-26</td><td>TypeScript</td><td><b>AI-AI 对话可视化的现成参考</b>（话泡 / 视线 / 关系）</td></tr>
+    <tr><td class="k">TinyTroupe</td><td>7,569</td><td>2026-07-03</td><td>Jupyter</td><td>persona 参数化（微软）</td></tr>
+    <tr><td class="k">OASIS</td><td>5,172</td><td>2026-09-20</td><td>Python</td><td>百万 agent 社交模拟：大规模群聊 / 关注 / 转发机制</td></tr>
+    <tr><td class="k">AgentVerse</td><td>5,135</td><td><span class="no">2024-09-09</span></td><td>JS</td><td>已停更，不作参考</td></tr>
+  </tbody>
+</table>
+<p><b>取舍</b>：借鉴 AutoGen 的仲裁器策略 + ChatDev 的"小规模对话链"（避免一上来就五人群聊）+ AI Town 的可见化表现手法；<b>不</b>照搬 MetaGPT 的重 SOP 流程。</p>
+
+<h2 id="s9"><span class="num">09</span>本地能力边界（实测版）</h2>
+<div class="metrics">
+  <div class="metric"><div class="v">24<small> 核 / 32 线程</small></div><div class="k2">i9-14900HX · 编排无压力</div></div>
+  <div class="metric"><div class="v">8,151<small> MiB 显存</small></div><div class="k2">RTX 5060 Laptop · 硬边界</div></div>
+  <div class="metric"><div class="v">15.7<small> GB 内存</small></div><div class="k2">同时跑 VM+桌宠+浏览器会紧</div></div>
+  <div class="metric"><div class="v">153.0<small> WebView2</small></div><div class="k2">已装 · 哑窗口壳可行</div></div>
+</div>
+<table>
+  <thead><tr><th>项</th><th>实测值</th><th>边界含义</th></tr></thead>
+  <tbody>
+    <tr><td class="k">PySide6</td><td>6.11.1，含 <code>QtWebEngine*</code>、<code>QtWebView*</code></td><td>内嵌网页两条路都在；<b>但桌宠源码 grep 无 WebEngine 匹配</b> → 2.9.1 排除 WebEngine 不损任何现有功能</td></tr>
+    <tr><td class="k">Node.js</td><td>v22.22.0（<code>AutoClaw\resources\node\</code>）</td><td>可跑 JS 工具链；<b>不是系统级安装</b>，路径绑 AutoClaw</td></tr>
+    <tr><td class="k">Rust / cargo</td><td class="no">未装</td><td>Tauri 壳需先装工具链</td></tr>
+    <tr><td class="k">Docker</td><td class="no">未装</td><td>容器化需先装</td></tr>
+    <tr><td class="k">gh</td><td>便携版 <code>E:\ai工作站\tools\gh\bin\gh.exe</code></td><td>可用，不在 PATH</td></tr>
+    <tr><td class="k">磁盘可用</td><td>C 146.7 / D 151.4 / E 134.6 GB</td><td>充裕</td></tr>
+    <tr><td class="k">DSH VM</td><td class="no">2222 / 3080 均不通</td><td>本机无 VMware / VBox / Hyper-V → 升级暂无法执行</td></tr>
+  </tbody>
+</table>
+<h4>明确"做不到"的事（不粉饰）</h4>
+<ol>
+  <li><span class="no">✗</span> <b>本地跑圆桌不等于不花钱</b> —— 推理仍在云端 API，本地省的只是编排与 UI。</li>
+  <li><span class="no">✗</span> <b>本地跑 30B+ 级模型</b> —— 8 GB 显存不够；可行档位是 7B~8B Q4（能跑但速度一般）。</li>
+  <li><span class="no">✗</span> <b>现在就直接升 DSH</b> —— VM 不可达，需先确认其位置与启动方式。</li>
+  <li><span class="no">✗</span> <b>把无沙箱的 DSH 插件当主线</b> —— 安全面与维护面都不划算。</li>
+  <li><span class="no">✗</span> <b>同频跑"本地大模型 + DSH VM + 桌宠 + 浏览器"</b> —— 15.7 GB 内存会紧张。</li>
+</ol>
+<h4>需要准备什么</h4>
+<table>
+  <thead><tr><th>目标</th><th>前置动作</th></tr></thead>
+  <tbody>
+    <tr><td>Tauri 哑窗口壳</td><td>装 Rust 工具链（约 1.5 GB + 首次编译耗时）</td></tr>
+    <tr><td>纯系统 WebView 壳</td><td>无（WebView2 已装）→ 最小体积方案</td></tr>
+    <tr><td>内嵌 DSH 网页到桌宠</td><td>桌宠加 Qt6WebView（小）或 QtWebEngine（+195 MB）依赖</td></tr>
+    <tr><td>本地模型试跑</td><td>先定模型与量化（建议 7B~8B Q4）</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s10"><span class="num">10</span>下一步与待决事项</h2>
+<div class="timeline">
+  <div class="tl-item hot"><div class="tl-when">P0</div><div class="tl-what"><b>DSH 升到新 rc + 桌面载体最小闭环</b><p>桌宠开一个面板窗口指向 3080。不碰插件、不改 DSH 源码。</p></div></div>
+  <div class="tl-item"><div class="tl-when">P1</div><div class="tl-what"><b>统一消息日志 + 投递轨道面板</b><p>本地原型，独立于 DSH；先假数据验证 UI 与语义。</p></div></div>
+  <div class="tl-item"><div class="tl-when">P2</div><div class="tl-what"><b>多模型圆桌</b><p>provider 配置 + 仲裁器 + 四道上限 + 打断。不做无题自由群聊。</p></div></div>
+  <div class="tl-item"><div class="tl-when">P3</div><div class="tl-what"><b>可选：DSH 插件方向（TS）</b><p>只在 P0/P1 稳定后再评估。</p></div></div>
+</div>
+<div class="note">
+  <span class="lbl">待决定</span>
+  ① 那台 Ubuntu Server 在哪 / 怎么启动？　② 升级目标：<code>v0.1.5-rc.2</code>（稳）还是 <code>v0.1.6-alpha.2</code>（新）？　③ 载体形态：桌宠内开独立面板窗口，还是独立哑窗口进程？
+</div>
+
+<footer class="doc">
+  3.0 协作层设计与本地能力边界判断 · 2026-09-21 · 与《3.0-调研评估报告》《3.0-DSH插件方向-草案》《3.0-圆桌-多模型协作-草案》配套
+</footer>
+
+</div>
+</body>
+</html>
+
+

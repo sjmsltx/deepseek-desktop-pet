@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.0 主线与分支：职责三层拆分与施工顺序</title>
+<style>
+  :root{
+    --ink:#15181c;--ink-2:#3d444c;--ink-3:#6b747d;--rule:#d8dcdf;--rule-2:#eceff1;
+    --paper:#fbfbf9;--card:#f4f5f3;--accent:#0b5d63;--accent-soft:#e6f1f1;--warn:#8a4b12;--warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.78}
+  .wrap{max-width:1000px;margin:0 auto;padding:52px 40px 92px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+  h1{font-family:var(--serif);font-size:34px;margin:0 0 12px;font-weight:600;line-height:1.25}
+  .sub{color:var(--ink-2);margin:0}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:14px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:24px;margin:48px 0 8px;padding-top:20px;border-top:1px solid var(--rule);font-weight:600}
+  h2 .num{font-family:var(--mono);font-size:13.5px;color:var(--accent);margin-right:9px;vertical-align:2px}
+  h3{font-size:16.5px;margin:26px 0 6px;font-weight:600}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule-2)}
+  pre{font-family:var(--mono);font-size:12.5px;background:var(--card);border:1px solid var(--rule-2);border-radius:3px;
+      padding:13px 15px;overflow-x:auto;margin:16px 0;line-height:1.65}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;color:var(--ink-3);padding-bottom:8px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:13px;font-weight:600;color:var(--ink-2);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  .ok{color:var(--accent);font-weight:600}
+  .no{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink-3)}
+  .note{border-left:2px solid var(--accent);padding:12px 0 12px 16px;margin:20px 0;
+        background:linear-gradient(90deg,var(--accent-soft) 0%,rgba(230,241,241,0) 78%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 78%)}
+  .note .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px;color:var(--accent)}
+  .note.warn .lbl{color:var(--warn)}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:20px 0}
+  .card{border:1px solid var(--rule);background:#fff;padding:16px 18px}
+  .card h4{margin:0 0 8px;font-size:15.5px;font-family:var(--serif)}
+  .card p{margin:6px 0;font-size:14px}
+  .card .tagline{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em}
+  .tl{margin:22px 0}
+  .tl-item{display:grid;grid-template-columns:132px 1fr;gap:16px;padding:13px 0 13px 18px;border-bottom:1px solid var(--rule-2);position:relative}
+  .tl-item:last-child{border-bottom:0}
+  .tl-item::before{content:"";position:absolute;left:-4.5px;top:21px;width:8px;height:8px;background:var(--paper);border:1px solid var(--ink-3);border-radius:50%}
+  .tl-item.now::before{background:var(--accent);border-color:var(--accent)}
+  .tl-when{font-family:var(--mono);font-size:13px;color:var(--ink-3);padding-top:2px}
+  .tl-what b{font-size:15px}
+  .tl-what p{margin:3px 0 0;font-size:14px;color:var(--ink-2)}
+  footer.doc{margin-top:56px;padding-top:16px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  @media (max-width:700px){.wrap{padding:32px 18px 60px}h1{font-size:26px}.tl-item{grid-template-columns:1fr;gap:2px}table{font-size:13px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">DeepSeekPet 3.0 · 决策记录</div>
+  <h1>主线与分支：职责三层拆分 + 施工顺序</h1>
+  <p class="sub">你担心的两件事都是对的：① 协作层塞进桌宠，它就不再是"宠物"；② 角色没有立绘就不可信。结论是把职责拆成三层，桌宠保持小。</p>
+  <div class="meta">2026-09-21 ｜ 分支 = 桌宠的 DSH 载体版 ｜ 主线 = 多角色协作（独立的"协作台"）</div>
+</header>
+
+<h2><span class="num">01</span>三层职责（拆分的核心）
+
+<div class="grid3">
+  <div class="card">
+    <div class="tagline">Layer 1 · 角色本体</div>
+    <h4>桌宠（保持小）</h4>
+    <p>立绘 · 情绪 · 语音 · 唤醒 · 本地能力（截图/OCR/剪贴板/日程）</p>
+    <p><b>新增角色定位</b>：通知器 + 一句话总结 + <b>入口</b>（点一下就打开协作台/DSH 面板）</p>
+    <p class="no">不做：群聊窗口、投递轨道、多角色列表</p>
+  </div>
+  <div class="card">
+    <div class="tagline">Layer 2 · 协作界面</div>
+    <h4>协作台（新，独立进程）</h4>
+    <p>QQ/微信式：私聊 · 群聊 · @ · 组织讨论 · 会话列表</p>
+    <p><b>差异化</b>：投递轨道（谁→谁 / 类型 / token / 成本）＋ 每个角色的立绘与声线</p>
+    <p class="no">不做：不碰 DSH 内部、不写 DSH 插件</p>
+  </div>
+  <div class="card">
+    <div class="tagline">Layer 3 · Agent 能力</div>
+    <h4>DSH（弱耦合接入）</h4>
+    <p>模型与提供方 · 工具与技能 · 工作区 · 权限与审批 · 会话与轨迹</p>
+    <p>只通过 <code>dsh_adapter</code> 接触（端口 · 令牌 · settings 只读）</p>
+    <p class="no">不承担我们的协作 UI</p>
+  </div>
+</div>
+
+<h2><span class="num">02</span>为什么"协作台"要独立，而不是做进 DSH
+
+<table>
+  <caption>三个候选落位的对比（★越多越好）</caption>
+  <thead><tr><th>维度</th><th>做进 DSH（插件/UI）</th><th>塞进桌宠</th><th>独立协作台</th></tr></thead>
+  <tbody>
+    <tr><td class="k">隔离性</td><td class="no">差（插件进程内、无沙箱）</td><td>中（同进程，崩了互相拖累）</td><td class="ok">好（DSH/桌宠崩都与它无关）</td></tr>
+    <tr><td class="k">UI 自由度</td><td>中（要按它的 React slots 走）</td><td>中（PySide6 做聊天流偏笨重）</td><td class="ok">最高（Web 技术，立绘/气泡/轨道随便画）</td></tr>
+    <tr><td class="k">维护成本</td><td class="no">高（TS + 跟着它 API 变）</td><td>中</td><td class="ok">低（自包含，改自己就行）</td></tr>
+    <tr><td class="k">对官方的依赖</td><td class="no">高（破坏性变更 + 不接受外部 PR）</td><td class="ok">低</td><td class="ok">低（只用到"能起服务"这一层）</td></tr>
+    <tr><td class="k">长期演进</td><td class="no">被它绑住</td><td>中（桌宠会越来越臃肿）</td><td class="ok">自由；将来也能借官方载体接口当"外部面板"</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <span class="lbl">留一条后路</span>
+  不是"永远不碰 DSH"：官方预留了<b>第三方载体接口</b>（静态桌面页可声明 <code>__DSH_TRANSPORT__.streamBaseUrl</code>）。将来协作台要展示 DSH 的会话，可以走这条<b>官方支持的</b>路，而不是去写插件。
+</div>
+
+<h2><span class="num">03</span>立绘不是装饰，是"角色的必要条件"
+
+- 你的判断成立：<b>没有立绘的角色在体验上站不住</b>；而且立绘正是我们相对 DSH 的差异化本体。
+- 所以每个角色 = <b>立绘 + 人格 + 模型 + 声线</b> 四件套，缺一不可。
+- 资产管线现成（<code>TOOLS.md</code> 已记录）：Seedream 文生图 → rembg 抠图 → 透明 PNG；桌宠已有立绘目录结构与渲染路径可复用。
+- 起步角色数建议 <b>2~3 个</b>：学术结论是多 agent 唯一稳定的增益来自"异构模型"，而工程实践建议不超过 3 个角色（Azure 架构中心的 group-chat 指引）；人多了既贵又难收敛。
+
+<h2><span class="num">04</span>施工顺序（先做哪个）
+
+<div class="tl">
+  <div class="tl-item now">
+    <div class="tl-when">先做 · P0</div>
+    <div class="tl-what"><b>分支：桌宠的 DSH 载体版（小、立刻可用）</b>
+      <p>为什么先做它：工作量小（粗估半天~1 天）、马上能用、而且一次验证三件事 —— 弱耦合可行、窗口技术栈可用、适配层骨架成型。</p>
+      <p>P0.1 <b>已实测</b>：<code>msedge.exe --app=&lt;带令牌地址&gt;</code> 直接给出独立应用窗口（无标签栏/地址栏，实测窗口标题 <code>DeepSeek Harness</code>）—— 零代码先跑通。</p>
+      <p>P0.2 桌宠右键菜单加"打开协作台 / DSH 面板"，记住窗口位置与置顶。</p>
+      <p>P0.3 适配层模块：只读镜像 <code>settings.yaml</code> + 能力探测 + 降级 + 版本记录。</p>
+    </div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">然后 · P1（主线）</div>
+    <div class="tl-what"><b>协作台原型 + 投递可见化（先用假数据）</b>
+      <p>消息日志内核（追加式）→ L1 群聊流 / L2 投递轨道 / L3 后台总线；<b>不接模型</b>，先把 UI 与语义验证透（便宜、快）。</p>
+      <p>同期做角色立绘扩产（2~3 个角色的四件套资产）。</p>
+    </div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">之后 · P2</div>
+    <div class="tl-what"><b>接模型 + 仲裁器 + 四道上限</b>
+      <p>provider 复用 DSH 已配置的提供方；回合 8 / 时长 5 分钟 / token 与金额上限 / 连续 2 回合无新信息即收束；人类插队暂停轮转。</p>
+    </div>
+  </div>
+  <div class="tl-item">
+    <div class="tl-when">可选 · P3</div>
+    <div class="tl-what"><b>DSH 插件方向</b><p>只在 P0/P1 稳定后再评估。</p></div>
+  </div>
+</div>
+
+<h2><span class="num">05</span>一句话结论
+
+<div class="note">
+  <span class="lbl">给你拍板用</span>
+  <b>分支 = 桌宠的 DSH 载体版（先做，小）</b>；<b>主线 = 独立"协作台"</b>（QQ/微信式 + 投递可见化 + 角色立绘）；<b>桌宠保持"宠物 + 通知器 + 入口"</b>，不膨胀。<br>
+  这样三件事同时成立：桌宠不被撑爆、协作层不被 DSH 绑死、角色有立绘站得住。
+</div>
+
+<footer class="doc">
+  3.0 主线与分支决策 · 2026-09-21 · 配套：3.0-总方案 / 3.0-弱耦合依赖面与抗变更 / 3.0-协作层与本地能力边界
+</footer>
+
+</div>
+</body>
+</html>

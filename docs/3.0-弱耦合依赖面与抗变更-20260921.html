@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>弱耦合依赖面与抗变更设计</title>
+<style>
+  :root{
+    --ink:#15181c;--ink-2:#3d444c;--ink-3:#6b747d;--rule:#d8dcdf;--rule-2:#eceff1;
+    --paper:#fbfbf9;--card:#f4f5f3;--accent:#0b5d63;--accent-soft:#e6f1f1;--warn:#8a4b12;--warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.78}
+  .wrap{max-width:980px;margin:0 auto;padding:52px 38px 88px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+  h1{font-family:var(--serif);font-size:33px;margin:0 0 10px;font-weight:600;line-height:1.26}
+  .sub{color:var(--ink-2);margin:0}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:14px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:23px;margin:46px 0 8px;padding-top:20px;border-top:1px solid var(--rule);font-weight:600}
+  h2 .num{font-family:var(--mono);font-size:13.5px;color:var(--accent);margin-right:9px;vertical-align:2px}
+  h3{font-size:16.5px;margin:26px 0 6px;font-weight:600}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule-2)}
+  pre{font-family:var(--mono);font-size:12.5px;background:var(--card);border:1px solid var(--rule-2);border-radius:3px;
+      padding:12px 14px;overflow-x:auto;margin:14px 0;line-height:1.6}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;color:var(--ink-3);padding-bottom:8px}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:12.5px;font-weight:600;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  .lo{color:var(--accent);font-weight:600}
+  .mid{color:#8a6a12;font-weight:600}
+  .hi{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink-3)}
+  .note{border-left:2px solid var(--accent);padding:12px 0 12px 16px;margin:20px 0;
+        background:linear-gradient(90deg,var(--accent-soft) 0%,rgba(230,241,241,0) 78%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 78%)}
+  .note .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px;color:var(--accent)}
+  .note.warn .lbl{color:var(--warn)}
+  .layers{border:1px solid var(--rule);margin:20px 0;background:#fff}
+  .layer{display:grid;grid-template-columns:150px 1fr;border-bottom:1px solid var(--rule-2)}
+  .layer:last-child{border-bottom:0}
+  .layer .tag{padding:13px 15px;border-right:1px solid var(--rule-2);background:var(--card)}
+  .layer .tag b{display:block;font-size:14px}
+  .layer .tag span{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .layer .body{padding:13px 17px;font-size:14.5px}
+  .layer.a{border-left:3px solid var(--accent)}
+  .layer.b{border-left:3px solid #8a6a12}
+  .layer.c{border-left:3px solid var(--rule)}
+  footer.doc{margin-top:56px;padding-top:16px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  @media (max-width:700px){.wrap{padding:32px 18px 60px}h1{font-size:25px}.layer{grid-template-columns:1fr}
+    .layer .tag{border-right:0;border-bottom:1px solid var(--rule-2)}table{font-size:13px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">DeepSeekPet × DSH · 3.0 风险分析</div>
+  <h1>它升级了，会不会把我们要做的东西打断？</h1>
+  <p class="sub">答案取决于你依赖它哪一层：只做"宿主窗口"几乎不受影响；一旦去解析它的配置、接口或界面，就会被更新打断。下面是我们**实测出来的依赖面**与对应的抗变设计。</p>
+  <div class="meta">2026-09-21 ｜ 实测对象：本机 DSH 0.1.5-rc.2（127.0.0.1:3080）｜自检脚本 <code>D:\dsh\check-dsh.ps1</code></div>
+</header>
+
+<h2><span class="num">01</span>我们的实际依赖面（逐条实测）
+
+<table>
+  <caption>风险等级：低 = 更新几乎不会碰；中 = 可能变，需适配层；高 = 明说会变，不作依赖</caption>
+  <thead><tr><th>依赖面</th><th>我们的用法</th><th>实测证据</th><th>更新风险</th><th>抗变设计</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="k">启动命令与端口</td>
+      <td><code>dsh web</code>，127.0.0.1:3080</td>
+      <td>CLI 帮助里是文档化选项（<code>--port/--host/--no-open</code>）</td>
+      <td class="lo">低</td>
+      <td>端口做成可配置；地址不写死在内核，只在启动器里</td>
+    </tr>
+    <tr>
+      <td class="k">带令牌的访问地址</td>
+      <td>从启动输出里读 <code>?token=…</code>，再开窗口</td>
+      <td>每次启动令牌不同；<code>check-dsh.ps1</code> 已能自动核对</td>
+      <td class="mid">中低</td>
+      <td>只封装在 <code>start-dsh.ps1</code> 一处；格式变了只改这一处</td>
+    </tr>
+    <tr>
+      <td class="k">宿主窗口（把界面装进桌宠）</td>
+      <td>只做"打开/嵌一个窗口"，<b>不解析页面</b></td>
+      <td>它的前端是插件动态装配：<code>/plugins/??@deepseek-ai/dsh-client-ui-*&amp;rev=&lt;哈希&gt;</code> —— 资源名带哈希，每次构建都变</td>
+      <td class="lo">低（前提是不注入）</td>
+      <td><b>只做宿主，不做注入</b>：不抓 DOM、不依赖路由、不读资源文件名</td>
+    </tr>
+    <tr>
+      <td class="k">设置文件 <code>$DSH_HOME/settings.yaml</code></td>
+      <td>只读镜像（模型/提供方清单展示）</td>
+      <td>官方文档明确"模型页写的就是这份文档"，并给了字段说明</td>
+      <td class="mid">中</td>
+      <td>适配层 + 存在性/格式探测 + 读不动就降级为"打开它的设置页"</td>
+    </tr>
+    <tr>
+      <td class="k">凭据文件 <code>.credentials.yaml</code></td>
+      <td><b>不读</b>（官方口径是只写）</td>
+      <td>自检只做存在性检查，绝不读内容</td>
+      <td class="lo">低</td>
+      <td>永不依赖；密钥由用户自己在界面里填</td>
+    </tr>
+    <tr>
+      <td class="k">未公开的 <code>/api/*</code></td>
+      <td>目前不用</td>
+      <td><code>/api</code>、<code>/api/health</code> → 401（存在，但无公开文档）</td>
+      <td class="hi">高</td>
+      <td>不作为依赖；真要用先做可用性探测 + 失败即降级</td>
+    </tr>
+    <tr>
+      <td class="k">DSH 插件（TypeScript）</td>
+      <td>已降为可选项</td>
+      <td>插件跑在沙箱外、进程内；官方明说有破坏性变更</td>
+      <td class="hi">高</td>
+      <td>不作为主干；只在载体稳定后再评估</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2><span class="num">02</span>三层隔离：把"会变的东西"关进一扇门
+
+<div class="layers">
+  <div class="layer a">
+    <div class="tag"><b>适配层</b><span>adapter</span></div>
+    <div class="body">桌宠内核<b>不认识 DSH 的任何细节</b>；只有 <code>dsh_adapter</code> 这一个模块知道端口怎么配、令牌怎么取、配置怎么读。它变了 → 只改这一个文件。</div>
+  </div>
+  <div class="layer b">
+    <div class="tag"><b>能力探测 + 降级</b><span>probe &amp; degrade</span></div>
+    <div class="body">每次启动探测：服务在不在、令牌是否有效、配置是否读得动。<b>缺什么就隐藏对应功能</b>，绝不崩、绝不假装成功。</div>
+  </div>
+  <div class="layer c">
+    <div class="tag"><b>界面层：只做宿主</b><span>host only</span></div>
+    <div class="body">窗口只负责"装"它的页面。它把界面全改了，我们这边零改动——顶多视觉变了。</div>
+  </div>
+</div>
+
+<h2><span class="num">03</span>最坏情况：它大改甚至停更
+
+<table>
+  <thead><tr><th>做法</th><th>DSH 大改 / 停更时会怎样</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="k">弱耦合（我们现在选的）</td>
+      <td class="lo">桌宠自身功能全部照常：立绘、语音、本地工具、记忆、桌面能力。<b>受影响的只是"DSH 面板"这一块</b>，且只需改适配层一处。</td>
+    </tr>
+    <tr>
+      <td class="k">深度融合（写进它的插件体系）</td>
+      <td class="hi">它一改 = 我们跟着崩；它停更 = 我们停在旧版本上进退两难。这就是我们把它降为可选的原因。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="lbl">一条被忽略的强制条件</span>
+  官方<b>不接受外部 PR</b> ➜ 我们不能"提交补丁让它兼容我们"，只能自己适配。
+  所以"适配层 + 探测降级"不是可选项，而是<b>这套方案能长期活着的前提</b>。
+</div>
+
+<h2><span class="num">04</span>升级后的应急流程（已脚本化）
+
+<pre>powershell -ExecutionPolicy Bypass -File D:\dsh\check-dsh.ps1</pre>
+<p>输出会明确告诉你哪一层断了：</p>
+<ul>
+  <li><b>载体层绿</b> → 桌面载体不受影响，照常做；</li>
+  <li><b>载体层断</b> → 只改 <code>start-dsh.ps1</code> 里"取带令牌地址"的那几行；</li>
+  <li><b>配置层断</b> → 只改适配层里读配置的部分，并降级为"打开它的设置页"。</li>
+</ul>
+<p class="muted">当前实测：载体层 ✓（HTTP 200 / 27,660 字节）、版本 0.1.5-rc.2、配置层文件均在（只做存在性检查，不读内容）。</p>
+
+<h2><span class="num">05</span>结论
+
+<div class="note">
+  <span class="lbl">一句话</span>
+  <b>不会被打断 —— 前提是我们坚持"只做宿主、只读它文档化的东西、其余全部走适配层"。</b><br>
+  真正会被更新打断的不是"弱耦合"，而是"偷偷去解析它的内部结构"：界面资源名带哈希、插件 id 会改名、配置文件格式在 preview 期会变、<code>/api</code> 没有公开文档 —— 这些一旦被我们依赖，升级就是一次事故。
+</div>
+
+<footer class="doc">
+  弱耦合依赖面与抗变更设计 · 2026-09-21 · 配套：3.0-协作层与本地能力边界 / 3.0-DSH本机化与载体选型 / DSH项目观察卡
+</footer>
+
+</div>
+</body>
+</html>

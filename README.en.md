@@ -1,5 +1,7 @@
 # DeepSeek Desktop Pet 🐋⚡
 
+> 📜 Registered software copyright name: **Cenzhi Desktop Intelligent Companion Software V1.0** (the open-source project name above is a customary name)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-6.x-green)

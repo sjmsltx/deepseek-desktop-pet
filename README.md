@@ -1,5 +1,7 @@
 # DeepSeek 桌宠助手 🐋⚡
 
+> 📜 软件著作权登记名称：**岑知桌面智能伙伴软件 V1.0**（开源项目名为习惯叫法）
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-6.x-green)

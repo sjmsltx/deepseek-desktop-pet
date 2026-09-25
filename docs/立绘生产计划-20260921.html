@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 娘立绘：样图分类与生产计划</title>
+<style>
+  :root{
+    --ink:#14181c;--ink2:#3c444c;--ink3:#6d767f;--rule:#d9dde0;--rule2:#eceff1;
+    --paper:#fafaf8;--card:#f3f5f3;--acc:#0b5d63;--acc-soft:#e4f0f0;--warn:#8a4b12;--warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.75}
+  .wrap{max-width:1000px;margin:0 auto;padding:52px 40px 88px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:26px}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin-bottom:12px}
+  h1{font-family:var(--serif);font-size:33px;margin:0 0 10px;font-weight:600;line-height:1.25}
+  .sub{color:var(--ink2);margin:0}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink3);margin-top:14px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:22px;margin:46px 0 8px;padding-top:20px;border-top:1px solid var(--rule);font-weight:600}
+  h2 .num{font-family:var(--mono);font-size:13px;color:var(--acc);margin-right:9px;vertical-align:2px}
+  p{margin:10px 0}
+  ul{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule2)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:12.5px;font-weight:600;color:var(--ink2);text-align:left;padding:8px 11px;white-space:nowrap}
+  td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--rule2);vertical-align:top}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  td.n{font-family:var(--mono);text-align:right}
+  .ok{color:var(--acc);font-weight:600}
+  .no{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink3)}
+  .note{border-left:2px solid var(--acc);padding:11px 0 11px 15px;margin:18px 0;background:linear-gradient(90deg,var(--acc-soft) 0%,rgba(228,240,240,0) 80%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 80%)}
+  .note .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px;color:var(--acc)}
+  .note.warn .lbl{color:var(--warn)}
+  figure{margin:20px 0;border:1px solid var(--rule);background:#fff;padding:12px}
+  figure img{width:100%;display:block}
+  figcaption{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:8px}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border:1px solid var(--rule);background:#fff;margin:20px 0}
+  .metric{padding:14px 16px;border-right:1px solid var(--rule2)}
+  .metric:last-child{border-right:0}
+  .metric .v{font-family:var(--serif);font-size:23px;font-weight:600;line-height:1.2}
+  .metric .k2{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:3px}
+  footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:11.5px;color:var(--ink3)}
+  @media (max-width:700px){.wrap{padding:32px 18px 60px}h1{font-size:25px}.metric{border-right:0;border-bottom:1px solid var(--rule2)}table{font-size:13px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">DeepSeekPet · 立绘资产线</div>
+  <h1>AI 娘立绘：样图分类与生产计划</h1>
+  <p class="sub">47 组样图已逐张归类到模型；生图管线跑通并完成第一批（DeepSeek 六情绪）。资产一律自产，样图只作风参考。</p>
+  <div class="meta">2026-09-21 ｜ 生成方式：Seedream 图生图（参考图 → 同角色不同情绪）｜ 输出：2048×2048</div>
+</header>
+
+<div class="metrics">
+  <div class="metric"><div class="v">47</div><div class="k2">样图组数（96 文件中含缩略图）</div></div>
+  <div class="metric"><div class="v">14</div><div class="k2">覆盖的主流模型</div></div>
+  <div class="metric"><div class="v">6 / 6</div><div class="k2">首批生成成功且表情全对</div></div>
+  <div class="metric"><div class="v">2048²</div><div class="k2">出图尺寸（与现有 assets 一致）</div></div>
+</div>
+
+<h2><span class="num">01</span>样图分类结果（按模型）</h2>
+<table>
+  <thead><tr><th>模型</th><th>样图数</th><th>形象要点（识图结果）</th><th>参考优先级</th></tr></thead>
+  <tbody>
+    <tr><td class="k">DeepSeek</td><td class="n">12</td><td>鲸鱼发饰 + 女仆/制服白蓝配色（多为白底，含三视图与表情集）</td><td class="ok">高（重点）</td></tr>
+    <tr><td class="k">Claude</td><td class="n">5</td><td>白紫配色、医生袍、羽饰，气质温和</td><td class="ok">高</td></tr>
+    <tr><td class="k">Grok</td><td class="n">5</td><td>黑红哥特、xAI 标识、坐姿较多</td><td class="ok">高</td></tr>
+    <tr><td class="k">GPT / ChatGPT</td><td class="n">5</td><td>绿/银白两套配色；其一含完整三视图 + 表情集</td><td class="ok">高</td></tr>
+    <tr><td class="k">Gemini</td><td class="n">4</td><td>蓝紫星河、星形发饰</td><td>中</td></tr>
+    <tr><td class="k">Llama</td><td class="n">2</td><td>银白兽耳、连帽外套、紫裙</td><td>中</td></tr>
+    <tr><td class="k">Qwen / GLM / 豆包 / 混元 / Mistral / 星火 / MiniMax / 文心</td><td class="n">各 1</td><td>各有品牌配色（紫、实验袍、机能黑青等）</td><td>中</td></tr>
+    <tr><td class="k">未标注 / 综合海报 / 无关</td><td class="n">4</td><td>多模型合影海报、课表截图等</td><td class="no">不作角色参考</td></tr>
+  </tbody>
+</table>
+<p class="muted">完整逐张清单见 <code>样图分类清单.md</code>（含哈希前缀，便于回溯原图）。分类为**视觉识别推断**，需人工复核。</p>
+
+<h2><span class="num">02</span>第一批成品：DeepSeek 六情绪</h2>
+<figure>
+  <img src="assets/deepseek_六情绪对比.png" alt="DeepSeek 六情绪立绘对比（idle/happy/thinking/sleep/waving/blink）">
+  <figcaption>DeepSeek 六情绪（2×3）：平静 / 开心 / 思考 / 打瞌睡 / 挥手 / 眨眼 —— 质检结论「可直接用」</figcaption>
+</figure>
+<table>
+  <thead><tr><th>检查项</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td class="k">角色一致性</td><td class="ok">✓ 发色发饰、服装配色高度一致（个别图多了一个文件夹道具，可选剔除）</td></tr>
+    <tr><td class="k">构图</td><td class="ok">✓ 六张均为全身、人物大小统一</td></tr>
+    <tr><td class="k">表情对应</td><td class="ok">✓ 6/6 与要求一致</td></tr>
+    <tr><td class="k">缺陷</td><td class="ok">✓ 无多手多脚、无比例失调</td></tr>
+    <tr><td class="k">背景 / 水印</td><td class="ok">✓ 纯白背景、无文字水印（右下角非白像素 0.0%）</td></tr>
+    <tr><td class="k">尺寸</td><td class="ok">✓ 全部 2048×2048</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">03</span>管线与参数（实测得出）</h2>
+<table>
+  <thead><tr><th>项</th><th>实测结论</th></tr></thead>
+  <tbody>
+    <tr><td class="k">接口能力</td><td>仅接受 <code>query</code> + <code>image</code>（参考图）—— <b>没有</b>尺寸/水印/seed 参数</td></tr>
+    <tr><td class="k">出图尺寸</td><td>提示词写"正方形"即得 <b>2048×2048</b>（无需参数）</td></tr>
+    <tr><td class="k">一致性策略</td><td>同一参考图 + 统一提示词模板（只改表情句）+ 小批量质检挑选</td></tr>
+    <tr><td class="k">背景</td><td>提示词要求纯白后，四角像素 249~255；<b>先不做抠图</b>（按用户要求，后续需要再处理）</td></tr>
+    <tr><td class="k">水印</td><td>首批 6 张未发现；首张测试图右下角有一处疑似痕迹 → <b>每张自动做角落检测</b>作为护栏</td></tr>
+    <tr><td class="k">限流</td><td>每张之间留 4 秒间隔，6/6 无失败</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">04</span>背景统一与三种版本（2026-09-21 按用户要求定稿）</h2>
+<table>
+  <thead><tr><th>规则</th><th>内容</th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr><td class="k">框架不变</td><td>保留角色的识别特征：发饰、服装框架、主色配色不大改，只动细节与表情</td><td>变了就与大家刷视频见到的形象对不上，反而怪</td></tr>
+    <tr><td class="k">统一 Q 版</td><td>全部使用 Q 版比例</td><td>现实画风太高太大、裟不下</td></tr>
+    <tr><td class="k">统一背景</td><td>所有图背景色<b>完全一致</b>（先纯白，再统一转绿幕）</td><td>背景不统一时，PPT 里做背景色替换会处理不完、留残余</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead><tr><th>版本</th><th>用途</th><th>现状</th></tr></thead>
+  <tbody>
+    <tr><td class="k">白底（原图）</td><td>当普通贴图最自然</td><td class="ok">✓ 背景已压成纯白 #FFFFFF（原图备份 raw/）</td></tr>
+    <tr><td class="k">绿幕（*_chroma.png）</td><td><b>推荐</b>：WPS/PPT“设置透明色”一键去底，干净且不影响角色</td><td class="ok">✓ 背景纯净均匀（复检合格）</td></tr>
+    <tr><td class="k">透明（*_alpha.png）</td><td>直接叠任意背景，无需抠图</td><td class="no">△ 深色底上仍有轻微白边（已从“非常明显”降到“柔和浅晕”）</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <span class="lbl">抠图管线迭代记录（为什么长成这样）</span>
+  v1 “接近白就抠” → 把角色自己的白大褂也抠成半透明 ✗<br>
+  v2 改成“从画面边缘洪水填充” → 角色保住了，但容差太小：周围淡阴影没填净、留一圈白边 ✗<br>
+  v3 容差放大 + 掩膜外扩 1px → 绿幕干净了，深色底上仍见白边 ✗<br>
+  v4（当前）：掩膜再向内收 2px + <b>边缘去白</b>（按 alpha 反预乘去掉混入的白）+ 0.5px 羽化 → 白边明显减轻
+</div>
+<div class="note warn">
+  <span class="lbl">建议用法</span>
+  WPS 里做背景色替换时，<b>用绿幕版（*_chroma.png）</b>最稳：绿色统一、角色身上不含纯品绿，一键设置透明色就干净；
+  透明版继续精修到暗底无痕后再当主力。
+</div>
+
+<h2><span class="num">05</span>下一步生产计划</h2>
+<ol>
+  <li><b>第一轮（建议先做）</b>：DeepSeek（已完成 ✓）+ Claude + Grok + GPT + Gemini 各 6 情绪 → 约 30 张，验证不同模型的画风稳定性。</li>
+  <li><b>第二轮</b>：其余模型（Llama / Qwen / GLM / 豆包 / 混元 / Mistral / 星火 / MiniMax / 文心）各 6 情绪 → 约 54 张。</li>
+  <li><b>第三轮（可选，凑"几百张"）</b>：给重点模型加姿势变体与多套服装（例如 DeepSeek 女仆款/制服款 × 6 情绪）。</li>
+</ol>
+<div class="note">
+  <span class="lbl">待你拍板</span>
+  ① 是否按"每模型 6 情绪"先铺一轮（约 84 张）？<br>
+  ② 风格统一用现在这种 <b>Q 版</b>，还是要半写实？<br>
+  ③ 是否需要我顺手做一版"去背景透明 PNG"来接桌宠现有渲染路径（现在先不做）。
+</div>
+
+<div class="note warn">
+  <span class="lbl">版权与来源（必须记住）</span>
+  你给的样图<b>多来自网络、属他人作品</b> → 我们只把它们当<b>风格与角色设计参考</b>，<b>不直接裁切或搬用</b>成品图像；所有进入产品的立绘都由我们<b>自产生成</b>（当前做法即是）。另外样图里大量"三视图 + 表情集"信息量很高，用来写提示词最有效。
+</div>
+
+<h2><span class="num">06</span>夜间续跑（19:05–20:38）：姿势/服装变体扩产到 199 张</h2>
+<table>
+  <thead><tr><th>项</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td class="k">14 模型原图总数</td><td class="ok">193（+ 并行会话另出 `deepseek_pose` 6 张 = 199），≈200 目标达成</td></tr>
+    <tr><td class="k">Wave2 变体</td><td class="ok">✓ deepseek / claude / gpt / gemini / grok 各 12 张（6 姿势 + 6 服装）</td></tr>
+    <tr><td class="k">Wave3 变体</td><td class="ok">✓ llama / qwen / glm / doubao / hunyuan / mistral / spark / minimax / wenxin 各 6 张（姿势）</td></tr>
+    <tr><td class="k">出厂三道</td><td class="ok">✓ 199 张全部具有 白底 / 绿幕(_chroma) / 透明(_alpha)，角落水印检测 0.00%</td></tr>
+    <tr><td class="k">总览图</td><td class="ok">✓ 重建 `输出\立绘总览_全14模型.png`，14 行 × 6 列、缺图 0</td></tr>
+    <tr><td class="k">混元行</td><td class="ok">✓ 锚定法（以自生成 `hunyuan_idle.png` 为唯一身份基准）救回，六张发色收敛，不再「换人」</td></tr>
+    <tr><td class="k">累计积分</td><td>≈15,540 / 40,000（约 24,460 余额）</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <span class="lbl">独立复检结论（内置识图 + row_consistency.py）</span>
+  hunyuan 5/5 可用 ✓；doubao 4/5（idle/thinking/waving 右腿有黑色环状色块，建议只重做 3 张）；
+  mistral、wenxin 各 3/5（无换人，但除 happy 外表情趋同）；spark 可用 ✓（此前 0.684 的担忧不成立）；
+  deepseek / gemini 变体 12 张角色完全统一，仅 run / sit 底部轻微裁切。
+</div>
+<div class="note warn">
+  <span class="lbl">待办（未做，非阻塞）</span>
+  ① maid 修正 4 张（claude/gpt/gemini/grok，已备好 `job_*_maid_fix.json`，≈280 积分）；
+  ② doubao 腿部色块 3 张；③ mistral/wenxin 表情区分度（属「可用」级，可不做）。
+</div>
+
+<footer>
+  AI 娘立绘：样图分类与生产计划 · 2026-09-21 · 资产目录 E:\ai工作站\desktop-pet\assets_3.0\
+</footer>
+
+</div>
+</body>
+</html>
