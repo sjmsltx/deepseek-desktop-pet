@@ -22,17 +22,26 @@ def test_silent_log_callable():
     assert callable(dp._silent_log)
 
 
-def test_silent_log_writes_through_pet_log(tmp_path=None):
-    """日志必须真的落到 logs/pet.log（走 pet_log，INFO 级）"""
+def test_silent_log_writes_through_pet_log(tmp_path):
+    """日志必须真的落到文件（走 pet_log，INFO 级）
+
+    ⭐ S2 根治（Owner 2026-09-26 16:21 批「根治」）：**把日志注入到临时目录** ✓
+    → 与仓库 `logs/pet.log` **解耦** ✓（该文件可能被在跑的桌宠持有句柄 ✓ → 一写就触发轮转 ✗ →
+    而 Windows 下被持有不可改名 ✗ → rename 失败 → 记录被丢弃 → **旧写法必红** ✗）
+    """
     import time
+    import pet_log
     import desktop_pet as dp
-    log = os.path.join(ROOT, 'logs', 'pet.log')
-    marker = 'SILENT-UNIT-%d' % int(time.time() * 1000 % 1e9)
-    dp._silent_log(marker, RuntimeError('单测写入'))
-    time.sleep(0.2)
-    txt = open(log, encoding='utf-8').read() if os.path.exists(log) else ''
-    assert marker in txt, '未写入 logs/pet.log'
-    assert 'RuntimeError' in txt.split(marker)[1][:200], '缺少异常类型'
+    log = pet_log.set_log_file(tmp_path / 'pet.log')          # ⭐ 注入（默认行为不变 ✗）
+    try:
+        marker = 'SILENT-UNIT-%d' % int(time.time() * 1000 % 1e9)
+        dp._silent_log(marker, RuntimeError('单测写入'))
+        time.sleep(0.2)
+        txt = Path(log).read_text(encoding='utf-8') if os.path.exists(log) else ''
+        assert marker in txt, '未写入日志（注入路径：%s）' % log
+        assert 'RuntimeError' in txt.split(marker)[1][:200], '缺少异常类型'
+    finally:
+        pet_log.reset()                                       # 还原默认路径 ✓
 
 
 def test_high_value_paths_are_instrumented():
@@ -55,8 +64,10 @@ def test_pyproject_has_no_bom():
 
 
 if __name__ == '__main__':
+    import tempfile
     test_silent_log_callable()
-    test_silent_log_writes_through_pet_log()
+    with tempfile.TemporaryDirectory() as _td:
+        test_silent_log_writes_through_pet_log(Path(_td))
     test_high_value_paths_are_instrumented()
     test_pyproject_has_no_bom()
     print('✅ 静默异常接入 4 项断言通过')

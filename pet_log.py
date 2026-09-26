@@ -13,6 +13,11 @@
 开关：
 - 默认只写文件（logs/pet.log，512 KB × 4 份滚动），不污染控制台；
 - 设环境变量 PET_LOG_LEVEL=DEBUG/INFO 时同时打到控制台，便于开发排查。
+
+测试注入（2026-09-26 Owner 批「根治」✓ · 微信侧委托 ✓）：
+- ``set_log_file(path)`` 把日志文件切到指定路径（用例用**临时目录** ✓ → 与仓库 `logs/` 解耦 ✓）；
+  ⛔ **默认路径 `logs/pet.log` / 阈值 512 KB / `backupCount=3` 一字不改** ✗；
+  ⛔ 仅在**显式调用**时生效 ✓ 不读环境变量 ✗ 不影响正常启动 ✓。
 """
 import logging
 import os
@@ -66,3 +71,39 @@ def get_logger(name=''):
     """取一个带前缀的 logger（如 get_logger('memory_store')）"""
     _init()
     return logging.getLogger(_LOGGER_NAME + ('.' + name if name else ''))
+
+
+def _close_handlers():
+    logger = logging.getLogger(_LOGGER_NAME)
+    for h in list(logger.handlers):
+        try:
+            h.close()
+        except Exception:
+            pass
+        logger.removeHandler(h)
+
+
+def reset(path=None):
+    """重建日志文件处理器 ✓（释放旧文件句柄 ✓ → ``path`` 为 None 时回到**默认路径** ✓）
+
+    仅测试/排查用 ✓；对**默认行为**无副作用 ✗（默认参数下等价于重新初始化同一路径 ✓）。
+    """
+    global LOG_FILE, _inited
+    LOG_FILE = os.path.join(LOG_DIR, 'pet.log') if path is None else str(path)
+    _close_handlers()
+    _inited = False
+    _init()
+    return LOG_FILE
+
+
+def set_log_file(path):
+    """⭐ **测试注入入口**：把日志文件切到 `path` ✓（并重建处理器 ✓）→ 返回新路径 ✓
+
+    ⭐ 用例用它把日志写到 **临时目录** ✓ → 与仓库 `logs/pet.log`（可能被在跑的桌宠占用 ✓）解耦 ✓
+    ⛔ **默认行为不变** ✓：不调用本函数时，日志路径/阈值/轮转份数一字不改 ✗
+    """
+    p = str(path)
+    d = os.path.dirname(p)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    return reset(p)
