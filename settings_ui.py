@@ -533,6 +533,11 @@ class SettingsDialog(QDialog):
         self.lb_today_cost.setToolTip('桌宠**自己**今日累计的模型费用（读 api_stats.json 的 today.cost）✓\n'
                                       '日成本上限**只按这个判** ✓ 与上面的账户余额无关 ✗')
         f.addRow('桌宠今日花费', self.lb_today_cost)
+        # 批 C（Owner 2026-09-26 批）：在「桌宠今日花费」下**按用途分列** ✓（先让"这笔花费是谁花的"能回答 ✓）
+        self.lb_purposes = QLabel('—')
+        self.lb_purposes.setWordWrap(True)
+        self.lb_purposes.setToolTip('按**用途**拆开今日花费（对话 / 主动关心 / 工具 / 小游戏 / 其它）✓\n'
+                                    '⭐ 该分项只用于**看得清** ✗ 拦不拦只看上面的「桌宠今日花费」✓')
         # 缺陷 3（批 B）：主动关心**分项可见** + 说明 ✓
         self.lb_care = QLabel('—')
         self.lb_care.setToolTip('主动关心会**真实调用模型**、按频率消耗 token ✓\n'
@@ -1042,6 +1047,23 @@ class SettingsDialog(QDialog):
                 self.lb_care.setText('今日 %d 次（会调用模型、消耗 token ✓ 可在「通用」关闭 ✗）' % _n)
             except Exception:
                 self.lb_care.setText('—')
+            # 批 C：用途分列（守恒口径 ✓ 分项之和 = 总账 ✓ 旧档无分项 → 明示"历史未分类" ✗ 不编数字 ✗）
+            try:
+                _rows = []
+                try:
+                    _rows = list(self.host.api_stats.purpose_breakdown() or [])
+                except Exception:
+                    _rows = []
+                if _rows:
+                    _parts = ['%s ¥%.4f（%d 次 · %.0f%%）'
+                              % (r.get('label') or r.get('purpose'), float(r.get('cost') or 0),
+                                 int(r.get('count') or 0), 100.0 * float(r.get('share') or 0))
+                              for r in _rows]
+                    self.lb_purposes.setText('按用途：' + ' ｜ '.join(_parts))
+                else:
+                    self.lb_purposes.setText('按用途：—（历史数据无用途维度，从本次更新后开始记录 ✓）')
+            except Exception:
+                self.lb_purposes.setText('按用途：—')
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()

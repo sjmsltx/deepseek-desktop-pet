@@ -19,7 +19,8 @@ cd 'E:\ai工作站\desktop-pet'
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
-# 期望：881 passed / 9 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 期望：889 passed / 9 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 889 = 881（批B 后）+ 8（批C 用途分项：守恒对账 / 旧档兼容 / 白名单 / 默认不变 / 拦截无余额 / 呈现与措辞）
 # 881 = 873（批E/F 后）+ 8（批B 缺陷4+3：余额不参与拦截 / 两行分列 / 额度文案含共享 / 主动关心分项与说明）
 # 873 = 868（批D 后）+ 5（批E：show_state_image 贴边优先——4 条验收 + Live2D 不拦）
 # 868 = 866（批C 后）+ 2（批D：饥饿贴边资产在库+规格 / pro 贴边资产存在性登记）

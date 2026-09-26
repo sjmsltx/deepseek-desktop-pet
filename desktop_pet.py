@@ -1226,6 +1226,10 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_run_task:cost', _exc)   # 成本门出问题不影响正常对话
         self._ai_generation = getattr(self, '_ai_generation', 0) + 1
+        # 批 C：消费**一次性用途标记**（主动关心路径会先置 `_pending_purpose='care'` ✓）
+        # ⭐ 缺省 'chat' → **不影响既有行为** ✗；一次性消费避免跨任务串味 ✗
+        self._cur_task_purpose = getattr(self, '_pending_purpose', '') or 'chat'
+        self._pending_purpose = ''
         self._cur_task_text = text
         self._ai_busy = True
         try:
@@ -4992,6 +4996,8 @@ class PetWidget(QWidget):
         self._bubble_mode = 'care'
         self._care_click_text = text
         self._care_kind = kind if kind in self._CARE_LABEL else 'care'
+        # 批 C：标记本轮用途为**主动关心** ✓（供记账分项；一次性 ✓ 由 `_run_task` 消费 ✗）
+        self._pending_purpose = 'care'
         try:
             pb.apply_say_bubble_theme(self.bubble, self.theme, 'care')
             self.bubble.setCursor(Qt.PointingHandCursor)
@@ -5141,7 +5147,8 @@ class PetWidget(QWidget):
             if not usage:
                 return
             model = resp.get('model') or fallback_model or ''
-            cost = self.api_stats.record(usage, model)
+            cost = self.api_stats.record(usage, model,
+                                         purpose=getattr(self, '_cur_task_purpose', 'chat'))
             # v6.62：模型没配价格时提醒一次（不再拿别人价目编数字，但要让用户知道钱没算上）
             try:
                 _last = self.api_stats.last or {}
