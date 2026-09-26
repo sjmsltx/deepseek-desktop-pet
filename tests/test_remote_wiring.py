@@ -73,6 +73,37 @@ def test_app_startup_path_unchanged_without_flag(tmp_path, monkeypatch):
 
 
 # ── ③ 模块级：装配函数本身**不写 L0 / 不投递** ✗ ───────────────────
+def test_end_to_end_channel_command_consumed(tmp_path):
+    """⭐ 端到端（桌宠侧 ✓）：**真通道里一条命令 → 自动消费 → 回执** ✓
+
+    2026-09-26 端到端小批：补上 `relay_log` 注入（此前传 None ✗ → 读不到通道 ✗）
+    """
+    import relay_log
+    import rt_remote
+    ch = tmp_path / 'ch.jsonl'
+    c = rt_remote.build_consumer_from_config(
+        {'remote_control': True, 'remote_channel': str(ch)}, base_dir=str(tmp_path))
+    assert c is not None
+    assert c.log is not None, '⭐ 通道必须已注入 ✓（不得再为 None ✗）'
+    got = []
+    c.emit = got.append
+    # 模拟手机侧：往通道写一条命令 ✓
+    log = relay_log.RelayLog(str(ch))
+    log.deliver(relay_log.Msg(id='m-1', seq=1, ts=0, channel='ch', sender='owner',
+                              recipients=['owner'], kind='speak', visibility='human', body='状态'))
+    res = c.poll_once()
+    assert len(res) == 1 and res[0]['state'] == 'done', res
+    assert got and '状态' in got[0]['reply'], got
+    assert c.last_seq >= 1
+    # ⭐ 幂等：再轮询不重执行 ✓
+    assert c.poll_once() == []
+    # ⭐ 未知命令也**要回话** ✗（不静默）
+    log.deliver(relay_log.Msg(id='m-2', seq=9, ts=0, channel='ch', sender='owner',
+                              recipients=['owner'], kind='speak', visibility='human', body='乱写'))
+    r2 = c.poll_once()
+    assert r2 and '未知命令' in r2[0]['reply']
+
+
 def test_factory_never_appends_or_delivers():
     tree = ast.parse(io.open(MOD, encoding='utf-8').read())
     for n in ast.walk(tree):

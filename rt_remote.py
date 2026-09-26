@@ -241,6 +241,7 @@ def build_consumer_from_config(cfg, *, base_dir, emit=None, agent='owner', reque
         return None                              # ⭐ 默认关：什么都不做 ✓
     import os as _os
 
+    import relay_log
     import rt_relay
     import rt_store
 
@@ -248,8 +249,14 @@ def build_consumer_from_config(cfg, *, base_dir, emit=None, agent='owner', reque
     store = rt_store.Store(_os.path.join(base, 'rt'))
     relay = rt_relay.Relay(_os.path.join(base, 'remote'))
     gate = rt_action.make_gate(store=store, base_dir=_os.path.join(base, 'remote'), relay=relay)
+    # ⭐ 通道注入（2026-09-26 端到端小批补 ✓）：消费器必须能真读到通道 ✓
+    ch = str(cfg.get('remote_channel') or _os.path.join(base, 'logs', 'remote_channel.jsonl'))
+    d = _os.path.dirname(ch)
+    if d:
+        _os.makedirs(d, exist_ok=True)
+    relay_log_obj = relay_log.RelayLog(ch)
     return RemoteConsumer(
-        None,                                    # relay_log 实例由应用侧注入（本模块不读通道文件 ✗）
+        relay_log_obj,
         interval_ms=int(interval_ms or cfg.get('remote_interval_ms') or DEFAULT_INTERVAL_MS),
         store=store, relay=relay, gate=gate, audit=None,
         requester=str(cfg.get('remote_requester') or requester),
