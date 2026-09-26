@@ -429,6 +429,25 @@ class PetWidget(QWidget):
         self.wakeup_signal.connect(self._display_wakeup)
         self.confirm_signal.connect(lambda fn: fn())  # 确认回调在主线程执行
         self.ui_call_signal.connect(lambda fn: fn())  # v6.58 通用回主线程通道（跨线程安全）
+        # ── v3.0 B-乙：遥控消费器（⭐ 配置项开关 `remote_control`，**默认关** ✓）──
+        # ⛔ 关着时：不读通道、不建对象、不起定时器 → **与接线前行为完全一致** ✗（用例钉住 ✓）
+        self.remote_consumer = None
+        self.remote_timer = None
+        try:
+            _rc_cfg = {}
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, 'r', encoding='utf-8') as _rcf:
+                    _rc_cfg = json.load(_rcf) or {}
+            if bool(_rc_cfg.get('remote_control', False)):
+                import rt_remote
+                self.remote_consumer = rt_remote.build_consumer_from_config(
+                    _rc_cfg, base_dir=BASE_DIR, emit=self.ui_call_signal.emit)
+                if self.remote_consumer is not None:
+                    self.remote_timer = QTimer(self)
+                    self.remote_timer.timeout.connect(self._remote_poll_tick)
+                    self.remote_timer.start(int(self.remote_consumer.interval_ms))
+        except Exception as _rc_exc:              # ⭐ 不静默 ✗ 也不拖垮主程序 ✓
+            _silent_log('remote_wiring', _rc_exc)
         # 全局快捷键 Ctrl+Alt+P 呼出 / Ctrl+Alt+S 截图 OCR
         self._hotkey_installed = False
         try:
@@ -8422,6 +8441,17 @@ class PetWidget(QWidget):
                 self.play_scene('happy')
         except Exception as _exc:
             _silent_log('_on_game_result:5875', _exc)   # v6.54
+
+    def _remote_poll_tick(self):
+        """B-乙 遥控消费（⭐ **仅在开关开启时**才有定时器 ✓；异常不拖垮主程序 ✗）
+
+        ⚠️ 盘内小文件读取（inbox 自带 mtime/size 重载 ✓）；结果经 `ui_call_signal` 回主线程 ✓
+        """
+        try:
+            if self.remote_consumer is not None:
+                self.remote_consumer.poll_once()
+        except Exception as exc:
+            _silent_log('remote_poll', exc)
 
     def _check_satiety(self):
         """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）

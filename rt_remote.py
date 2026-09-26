@@ -228,6 +228,35 @@ def _log_warn(msg):
         pass
 
 
+def build_consumer_from_config(cfg, *, base_dir, emit=None, agent='owner', requester='owner',
+                               interval_ms=None):
+    """⭐ **按配置装配消费器** ✓ —— ⛔ **开关关着时返回 `None` 且不构造任何东西** ✗
+
+    配置键：``remote_control``（**默认 `False`** ✓ 与既有 `active_chat` 同一惯用法 ✓）
+    → ⭐ **关着时行为与接线前完全一致** ✗（由用例钉住 ✓）
+    开着时：在 `base_dir` 下建 L0/L1 存储 + 投递通道 + 人工确认闸门（带审计落盘 ✓）→ 返回 `RemoteConsumer` ✓
+    ⚠️ 审计一律走 `governance.log_event` ✓；⛔ 本函数**既不写 L0 也不投递** ✗（只装配 ✓）
+    """
+    if not isinstance(cfg, dict) or not bool(cfg.get('remote_control', False)):
+        return None                              # ⭐ 默认关：什么都不做 ✓
+    import os as _os
+
+    import rt_relay
+    import rt_store
+
+    base = str(base_dir)
+    store = rt_store.Store(_os.path.join(base, 'rt'))
+    relay = rt_relay.Relay(_os.path.join(base, 'remote'))
+    gate = rt_action.make_gate(store=store, base_dir=_os.path.join(base, 'remote'), relay=relay)
+    return RemoteConsumer(
+        None,                                    # relay_log 实例由应用侧注入（本模块不读通道文件 ✗）
+        interval_ms=int(interval_ms or cfg.get('remote_interval_ms') or DEFAULT_INTERVAL_MS),
+        store=store, relay=relay, gate=gate, audit=None,
+        requester=str(cfg.get('remote_requester') or requester),
+        state_path=_os.path.join(base, 'logs', 'remote_state.json'),
+        agent=str(cfg.get('remote_agent') or agent), emit=emit)
+
+
 # ── ④ 消费器（轮询 ✓ last_seq 只前进 ✓ 幂等 ✓ 失败不静默 ✓）────────
 class RemoteConsumer:
     """桌宠侧**消费器** ✓：轮询 `relay_log` 收件箱 → 解析 → 白名单 → 派发 → 写回执 ✓
