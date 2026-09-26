@@ -523,6 +523,21 @@ class SettingsDialog(QDialog):
         self.sp_cost.setToolTip('当日累计模型费用超过此值就不再发起请求（设为 0 = 不限）')
         self.sp_cost.editingFinished.connect(self._apply_cost_limit)
         f.addRow('', self.sp_cost)
+        # 缺陷 4（批 B · Owner 2026-09-26）：⭐ 口径**分列两行** ——
+        #   「账户余额（全项目共享）」✗ ≠ 「桌宠今日花费」✓（日上限只按后者判 ✓ 不看余额 ✗）
+        self.lb_bal_shared = QLabel('未查询')
+        self.lb_bal_shared.setToolTip('来自上游账户接口（/user/balance）的 total_balance ——\n'
+                                      '⚠ 这是**账户级**余额，可能同时被其它项目消耗 ✗ 不等于桌宠专属余额 ✓')
+        f.addRow('账户余额（全项目共享）', self.lb_bal_shared)
+        self.lb_today_cost = QLabel('—')
+        self.lb_today_cost.setToolTip('桌宠**自己**今日累计的模型费用（读 api_stats.json 的 today.cost）✓\n'
+                                      '日成本上限**只按这个判** ✓ 与上面的账户余额无关 ✗')
+        f.addRow('桌宠今日花费', self.lb_today_cost)
+        # 缺陷 3（批 B）：主动关心**分项可见** + 说明 ✓
+        self.lb_care = QLabel('—')
+        self.lb_care.setToolTip('主动关心会**真实调用模型**、按频率消耗 token ✓\n'
+                                '可在「通用 → 主动关心」关闭 ✓；成本触顶时会**自动暂停**并在次日恢复 ✓')
+        f.addRow('主动关心', self.lb_care)
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
                                         ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
 
@@ -1007,6 +1022,26 @@ class SettingsDialog(QDialog):
                 self.sp_cost.setValue(float(_gov_r.cost_limit_daily() or 0))
             except Exception:
                 pass
+            # 缺陷 4/3（批 B）：两行分列 + 主动关心分项（均带 try ✓ 取不到不影响设置页 ✓）
+            try:
+                self.lb_today_cost.setText('¥%.2f' % float(_gov_r.today_cost()))
+            except Exception:
+                self.lb_today_cost.setText('—')
+            try:
+                _bt = ''
+                try:
+                    _bt = str(self.host.api_stats.balance_text(True) or '')
+                except Exception:
+                    _bt = ''
+                self.lb_bal_shared.setText(_bt or '未查询')
+            except Exception:
+                self.lb_bal_shared.setText('未查询')
+            try:
+                _ct = getattr(h, '_care_today', None) or {}
+                _n = int(_ct.get('n') or 0) if isinstance(_ct, dict) else 0
+                self.lb_care.setText('今日 %d 次（会调用模型、消耗 token ✓ 可在「通用」关闭 ✗）' % _n)
+            except Exception:
+                self.lb_care.setText('—')
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()

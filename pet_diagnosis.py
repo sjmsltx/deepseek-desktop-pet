@@ -77,8 +77,9 @@ def explain_error(exc, *, status=None, detail='', context='', phase=None):
             return Diag('上游限流', head + '请求太频繁被限流', '这一轮没有回答',
                         '等 1 分钟再发；频繁出现就降低重试频率', raw)
         if n == 402 or any(h in low for h in _QUOTA_HINTS):
-            return Diag('额度', head + '账户额度不足', '这一轮没有回答',
-                        '去「设置 → 用量与计费」查余额或充值', raw)
+            # 批 B（缺陷 4）：⭐ 明确这是**账户级**余额（共享 ✗）不是桌宠专属 ✓
+            return Diag('额度', head + '账户余额不足（含其他项目消费）', '这一轮没有回答',
+                        '到「设置 → 用量与计费」查账户余额（该账户可能被其它项目共用 ✗）或充值', raw)
         if 500 <= n < 600:
             return Diag('上游故障', head + '上游服务故障（不是你的问题）',
                         '这一轮没有回答，通常是暂时的', '稍等再发；连续多次去「最近错误」看看', raw)
@@ -88,8 +89,8 @@ def explain_error(exc, *, status=None, detail='', context='', phase=None):
 
     # 2) 额度 / 内容安全（SSE error 里带关键词的，**必须先于“流中断”判** ✓）
     if any(h in low for h in _QUOTA_HINTS):
-        return Diag('额度', head + '账户额度不足', '这一轮没有回答',
-                    '去「设置 → 用量与计费」查余额或充值', raw)
+        return Diag('额度', head + '账户余额不足（含其他项目消费）', '这一轮没有回答',
+                    '到「设置 → 用量与计费」查账户余额（该账户可能被其它项目共用 ✗）或充值', raw)
     if any(h in low for h in _SAFETY_HINTS):
         return Diag('内容安全', head + '被上游安全策略拦下（不是故障）', '这一轮没有回答',
                     '换个说法再试一次', raw)
