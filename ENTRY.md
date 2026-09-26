@@ -19,7 +19,8 @@ cd 'E:\ai工作站\desktop-pet'
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
 & "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
-# 期望：907 passed / 9 skipped / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 期望：919 passed / 9 skipped（注：全量偶现 1 warning = 既有潜在泄漏，见 B3 交付件 §三 ✓） / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
+# 919 = 907（B2 后）+ 12（B3 rt_assembler：五优先级/裁剪顺序/归属隔离/预算/近限/k降级/trace/纯函数）
 # 907 = 899（B1 后）+ 8（B2 rt_summary：模板/确定性/退化留痕/纯函数/幂等集成）
 # 899 = 889（批C 后）+ 10（B1 rt_store：指针/分片/L1/滚动/回放/报错护栏）
 # 889 = 881（批B 后）+ 8（批C 用途分项：守恒对账 / 旧档兼容 / 白名单 / 默认不变 / 拦截无余额 / 呈现与措辞）
