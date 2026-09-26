@@ -14,9 +14,10 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 import pet_foreground as fg  # noqa: E402
+from pathlib import Path
 
 SRC_PATH = os.path.join(BASE, 'pet_foreground.py')
-SRC = open(SRC_PATH, encoding='utf-8').read()
+SRC = Path(SRC_PATH).read_text(encoding='utf-8')
 SRC_NO_DOC = re.sub(r'"""[\s\S]*?"""', '', SRC)      # 去掉文档字符串后再查（文档里提到这些词是允许的）
 
 
@@ -56,7 +57,7 @@ def test_only_file_basename_no_path():
 
 def test_default_off_and_wired_to_config():
     """护栏 5：默认关闭 —— 配置读取处必须是 False 兜底"""
-    pet = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    pet = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert re.search(r"cfg\.get\('foreground_aware',\s*False\)", pet), \
         'desktop_pet 里 foreground_aware 的默认值必须是 False'
 

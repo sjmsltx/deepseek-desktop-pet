@@ -11,6 +11,7 @@
 import os
 import re
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -119,7 +120,7 @@ def test_dock_probe_toggle_controls_popup():
 
 def test_source_guard_no_duplicate_care_write():
     """ratchet：关心类不得再「气泡 + 聊天列表」各写一遍"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     calls = re.findall(r"_append_chat\('桌宠',[^\n]*", src)
     bad = ['早安回访', '补发提醒', '提醒：', '你已经连续坐', '早上好！今天是']
     offenders = sorted({w for c in calls for w in bad if w in c})
@@ -127,5 +128,5 @@ def test_source_guard_no_duplicate_care_write():
 
 
 def test_source_guard_say_care_used():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert src.count('self.say_care(') >= 6, '关心通道的调用点被回退了'

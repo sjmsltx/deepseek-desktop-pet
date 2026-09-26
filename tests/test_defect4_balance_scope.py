@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _src(name):
-    return io.open(ROOT / name, encoding='utf-8').read()
+    return Path(ROOT / name).read_text(encoding='utf-8')
 
 
 # ── ③ 余额**不参与**拦截判定（行为 + 源码双查 ✓）──────────────────────

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def src() -> str:
-    return io.open(ROOT / "pet_diagnosis.py", encoding="utf-8").read()
+    return Path(ROOT / "pet_diagnosis.py").read_text(encoding="utf-8")
 
 
 def _strip_docstrings_and_comments(src_text: str) -> str:

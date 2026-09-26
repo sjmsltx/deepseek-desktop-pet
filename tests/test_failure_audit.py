@@ -86,7 +86,7 @@ def test_failure_path_is_wired_in_source():
     v1-B 起：卡片改走**唯一出口** `_notify_failure_card(`（不再就地 to_card ✗），
     护栏随之改为：**先写审计、再经单点出口出卡** ✓
     """
-    src = io.open(ROOT / 'desktop_pet.py', encoding='utf-8').read()
+    src = Path(ROOT / 'desktop_pet.py').read_text(encoding='utf-8')
     assert '_audit_failure(e' in src, '失败分支必须调用 _audit_failure(...)，把失败写进审计（L5）'
     assert '_notify_failure_card(_d' in src, \
         '失败分支必须经**唯一出口** _notify_failure_card(...) 出卡（v1-B 定案 ③：单点不得绕过）✗'

@@ -103,7 +103,7 @@ def test_card_notice_line_only_when_present():
 
 # ── 集成护栏：只有上游三层才去取公告；且只在**唯一出口**里取 ✓ ──────────
 def test_notice_only_for_upstream_layers_in_source():
-    src = io.open(SRC, encoding='utf-8').read()
+    src = Path(SRC).read_text(encoding='utf-8')
     assert "UPSTREAM_LAYERS = ('上游超时', '上游故障', '上游限流')" in src, '上游层清单缺失 ✗'
     i_card = src.index('def _notify_failure_card')
     i_probe = src.index('_upstream_notice()', i_card)

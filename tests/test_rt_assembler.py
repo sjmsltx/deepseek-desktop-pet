@@ -149,7 +149,7 @@ def test_trace_every_entry_has_why():
 
 
 def test_pure_no_io_no_network():
-    src = io.open(MOD, encoding='utf-8').read()
+    src = Path(MOD).read_text(encoding='utf-8')
     tree = ast.parse(src)
     bad = []
     for node in ast.walk(tree):

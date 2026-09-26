@@ -15,6 +15,7 @@
 """
 import os
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -63,7 +64,7 @@ def test_next_task_does_not_silently_fail_on_empty_queue():
 
 def test_task_queue_init_lives_in_init_chain():
     """源码护栏：初始化必须写在初始化链路里（而不是只在拖拽重排时赋值）"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     body = src.split('def _init_services_and_data(self):', 1)[1].split('\n    def ', 1)[0]
     assert 'self._task_queue = []' in body, \
         '_task_queue 未在初始化链路（_init_services_and_data）里赋初值 —— 缺陷 76 复发'

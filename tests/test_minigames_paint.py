@@ -17,6 +17,7 @@ import random
 import sys
 import threading
 import zlib
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -116,7 +117,7 @@ def test_paint_result_is_reproducible():
 
 def test_names_used_by_paint_are_imported():
     """源码护栏：paintEvent 里用到的 Qt 绘图类必须在文件顶部导入"""
-    src = open(os.path.join(BASE, 'pet_minigames.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'pet_minigames.py')).read_text(encoding='utf-8')
     for name in ('QPainter', 'QPen', 'QColor', 'QBrush'):
         assert ('%s(' % name) in src, f'{name} 未被使用？护栏可能需要更新'
         assert ('import %s' % name) in src or (', %s' % name) in src or ('%s,' % name) in src, \

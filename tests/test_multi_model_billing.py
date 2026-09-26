@@ -20,6 +20,7 @@ sys.path.insert(0, BASE)
 import price_check as pc                       # noqa: E402
 import model_registry as mr                    # noqa: E402
 from api_stats import ApiStats                 # noqa: E402
+from pathlib import Path
 
 ApiStats.HOLIDAYS_CACHE = os.path.join(BASE, 'holidays_cache.json')
 PEAK = datetime.datetime(2026, 9, 18, 10, 0)     # 周五 10:00 = 高峰
@@ -176,7 +177,7 @@ def test_local_prices_match_official_builtin():
 
 def test_source_guard_no_silent_price_estimate():
     """护栏：未知价不得再用 DEFAULT_PRICE 编数字"""
-    src = open(os.path.join(BASE, 'api_stats.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'api_stats.py')).read_text(encoding='utf-8')
     seg = src.split('def _cost(')[1][:600]
     assert 'return 0.0, True' in seg, '价格未知时必须记 0 并标记'
     assert 'DEFAULT_PRICE' not in seg, '不得再用兜底价估算未知模型费用'

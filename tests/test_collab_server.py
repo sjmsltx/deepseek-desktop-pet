@@ -14,6 +14,7 @@ import threading
 import urllib.request
 
 import pytest
+from pathlib import Path
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
@@ -121,7 +122,7 @@ def test_unknown_path_404(live):
 def test_endpoints_are_readonly(live):
     """调接口不得改变日志字节与内核状态（只读铁律）。"""
     log, base, path = live
-    before = open(path, 'rb').read()
+    before = Path(path).read_bytes()
     snap_before = log.snapshot()
     for q in ('/api/view?channel=group:main&layer=L1', '/api/inbox?agent=agent:flash&layer=L1',
               '/api/snapshot', '/api/log.jsonl'):

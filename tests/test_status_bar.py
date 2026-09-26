@@ -9,6 +9,7 @@
 import os
 import re
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -73,7 +74,7 @@ def test_status_bar_uses_theme_tokens():
 
 def test_source_guard_system_notices_moved_out():
     """ratchet：系统类话术不得再出现在 _append_chat('桌宠', …) 里"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     calls = re.findall(r"_append_chat\('桌宠',[^\n]*", src)
     bad_words = ['已备份', '已导出', '已导入', '存档并清空', '已切换 Live2D', '开机自启',
                  '配置保存失败', '回复风格', '默认城市', '采样温度', '贴边模式切换',
@@ -85,6 +86,6 @@ def test_source_guard_system_notices_moved_out():
 
 def test_source_guard_notify_widely_used():
     """迁移不能被悄悄回退：_notify 调用点应保持在一个下限之上"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     n = src.count('self._notify(')
     assert n >= 55, '_notify 调用点从 64 掉到 %d，疑似被回退' % n

@@ -105,14 +105,14 @@ def test_roll_only_touches_l0(tmp_path):
         p = st.append('flash', 'role', 'x' * 200, day=day)
         st.add_summary(p, '摘要%d' % i)
         ptrs.append(p)
-    l1_before = io.open(st.summaries_path, encoding='utf-8').read()
+    l1_before = Path(st.summaries_path).read_text(encoding='utf-8')
     assert st.l0_total_bytes() > 0
     rolled = st.roll(max_bytes=1)                       # 强制滚 ✓
     assert rolled, '应滚掉最旧的整天 ✓'
     assert rolled[0] == '2026-01-01', '必须从**最旧**开始 ✓'
     assert st.l0_total_bytes() < 3 * 200, st.l0_total_bytes()
     # ⭐ L1 只增加"标记行" ✓ 既有摘要行**一字未改** ✓
-    l1_after = io.open(st.summaries_path, encoding='utf-8').read()
+    l1_after = Path(st.summaries_path).read_text(encoding='utf-8')
     for line in l1_before.strip().splitlines():
         assert line in l1_after, '⭐ L1 既有行不得被改动 ✗'
     assert st.is_expired(ptrs[0]) is True, '被滚的 ptr 应标 expired ✓'
@@ -135,10 +135,10 @@ def test_replay_is_read_only(tmp_path):
     st = _store(tmp_path)
     st.append('flash', 'role', '内容一', day='2026-03-01')
     st.append('flash', 'user', '内容二', day='2026-03-01')
-    before = io.open(st.day_path('flash', '2026-03-01'), encoding='utf-8').read()
+    before = Path(st.day_path('flash', '2026-03-01')).read_text(encoding='utf-8')
     rows = st.replay('flash', '2026-03-01')
     assert [r['source'] for r in rows] == ['L0', 'L0'] and len(rows) == 2
-    after = io.open(st.day_path('flash', '2026-03-01'), encoding='utf-8').read()
+    after = Path(st.day_path('flash', '2026-03-01')).read_text(encoding='utf-8')
     assert before == after, '⭐ 回放只读 ✓ 不得产生新行 ✗'
     # 已滚 → 走 L1 摘要视图且带 expired ✓
     st.roll(max_bytes=1)

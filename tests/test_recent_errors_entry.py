@@ -15,7 +15,7 @@ SU = ROOT / 'settings_ui.py'
 
 
 def _src(p):
-    return io.open(p, encoding='utf-8').read()
+    return Path(p).read_text(encoding='utf-8')
 
 
 # ── ① 入口可点：右键菜单 + 设置「系统」页 ───────────────────────────────

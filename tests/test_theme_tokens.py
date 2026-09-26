@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(ROOT, 'tests', 'golden', 'theme_hardcoded_baseline.json')
@@ -82,7 +83,7 @@ def scan(detail=False):
 # --------------------------------------------------------------------------
 def test_single_source_exists():
     assert os.path.exists(os.path.join(ROOT, 'pet_theme.py')), '缺少唯一源 pet_theme.py'
-    src = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    src = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     assert 'DEFAULT_THEME = {' not in src, \
         'desktop_pet.py 不应再内联 DEFAULT_THEME（唯一源已迁到 pet_theme.py）'
 
@@ -102,14 +103,14 @@ def test_tokens_valid():
 def test_settings_dialog_uses_tokens():
     """设置窗口不得再有硬编码颜色（v6.57 前它有 14 处，是"第二套主题"）。"""
     path = os.path.join(ROOT, 'settings_ui.py')
-    src = open(path, encoding='utf-8-sig').read()
+    src = Path(path).read_text(encoding='utf-8-sig')
     assert 'from pet_theme import DEFAULT_THEME' in src, 'settings_ui.py 应从唯一源取色'
     bad = [(i, l.strip()[:90]) for i, l in enumerate(src.splitlines(), 1) if _hit(l)]
     assert not bad, f'settings_ui.py 仍有硬编码颜色：{bad[:5]}'
 
 
 def test_prompt_points_to_token_source():
-    src = open(os.path.join(ROOT, 'prompt_builder.py'), encoding='utf-8-sig').read()
+    src = Path(os.path.join(ROOT, 'prompt_builder.py')).read_text(encoding='utf-8-sig')
     assert 'pet_theme.py' in src, 'system prompt 必须告诉 AI：token 唯一源是 pet_theme.py'
     assert '只有 pet_theme.py 里确实没有对应 token 时' in src, \
         'prompt 必须诚实说明"没有 token 时才允许改源码"（否则 AI 会瞎猜）'
@@ -140,7 +141,7 @@ def test_all_used_token_keys_exist():
     for path in _iter_py():
         rel = os.path.relpath(path, ROOT).replace('\\', '/')
         try:
-            src = open(path, encoding='utf-8', errors='replace').read()
+            src = Path(path).read_text(encoding='utf-8', errors='replace')
         except Exception:
             continue
         aliases = ['_T', '_tk']

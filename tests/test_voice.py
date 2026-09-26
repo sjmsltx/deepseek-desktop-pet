@@ -18,6 +18,7 @@ sys.path.insert(0, BASE)
 import pytest
 
 import voice_io as vio      # noqa: E402
+from pathlib import Path
 
 
 class _Recorder:
@@ -185,14 +186,14 @@ def test_runner_failure_does_not_kill_worker(tmp_path):
 def test_helper_script_exists_and_has_fallback():
     ps = os.path.join(BASE, 'tts_helper.ps1')
     assert os.path.exists(ps)
-    src = open(ps, encoding='utf-8').read()
+    src = Path(ps).read_text(encoding='utf-8')
     assert 'Windows.Media.SpeechSynthesis' in src, '应走 WinRT 内置声线'
     assert 'System.Speech' in src, '应有 SAPI 兜底'
     assert 'System.Runtime.WindowsRuntime' in src, 'PS5.1 下需要它才能 await WinRT'
 
 
 def test_voice_io_has_no_gui_or_extra_deps():
-    src = open(os.path.join(BASE, 'voice_io.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'voice_io.py')).read_text(encoding='utf-8')
     tops = [ln.strip() for ln in src.splitlines()
             if ln.startswith(('import ', 'from '))]
     assert not any('PySide6' in ln for ln in tops), '朗读模块不该依赖 GUI（便于 headless 单测）'
@@ -272,7 +273,7 @@ def test_mci_helper_never_raises():
 
 def test_stop_purges_both_players(tmp_path):
     """stop() 要同时清 winsound 与 MCI（在线/离线都能被立刻打断）"""
-    src = open(os.path.join(BASE, 'voice_io.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'voice_io.py')).read_text(encoding='utf-8')
     seg = src.split('def _purge(')[1][:400]
     assert 'SND_PURGE' in seg and 'MCI_ALIAS' in seg
     v = vio.VoiceIO(str(tmp_path), enabled=True)
@@ -304,7 +305,7 @@ def test_pipeline_overlaps_synthesis_with_playback(tmp_path):
     def fake_synth_any(text, base):
         time.sleep(0.05)                       # 模拟合成耗时
         path = base + '.mp3'
-        open(path, 'wb').write(b'x' * 512)
+        Path(path).write_bytes(b'x' * 512)
         log.append(('synth', text, time.time()))
         return path, 'mp3', 'edge'
 
@@ -336,7 +337,7 @@ def test_fallback_reason_is_recorded(tmp_path, monkeypatch):
 
 def test_offline_subprocess_has_no_console_window(tmp_path):
     """离线合成不再闪控制台：子进程必须带 CREATE_NO_WINDOW"""
-    src = open(os.path.join(BASE, 'voice_io.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'voice_io.py')).read_text(encoding='utf-8')
     seg = src.split('def _synth_offline(')[1][:1200]
     assert 'creationflags=_win_flags()' in seg
     assert 'CREATE_NO_WINDOW' in src
@@ -391,10 +392,10 @@ def test_custom_voice_accepts_other_locale_and_offline_pack():
 
 
 def test_settings_and_host_wiring_for_custom_voice():
-    sui = open(os.path.join(BASE, 'settings_ui.py'), encoding='utf-8').read()
+    sui = Path(os.path.join(BASE, 'settings_ui.py')).read_text(encoding='utf-8')
     assert 'ed_voice_custom' in sui and '列出系统声线' in sui and '列出在线声线' in sui
     assert '_voice_edit_apply' in sui
-    pet = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    pet = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert 'def _voice_edit_apply' in pet and 'def _list_voices_dialog' in pet
 
 
@@ -553,10 +554,10 @@ def test_probe_local_service_real():
 
 
 def test_local_fields_wired_in_settings_and_host():
-    sui = open(os.path.join(BASE, 'settings_ui.py'), encoding='utf-8').read()
+    sui = Path(os.path.join(BASE, 'settings_ui.py')).read_text(encoding='utf-8')
     for token in ('ed_voice_local', 'ed_voice_ref', 'ed_voice_prompt', '测试本地服务'):
         assert token in sui, '设置页要能配本地服务：%s' % token
-    pet = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    pet = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert 'def _set_voice_local' in pet and 'def _test_local_tts' in pet
     assert 'voice_local_url' in pet and 'voice_local_ref' in pet
 

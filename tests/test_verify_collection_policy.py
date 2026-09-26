@@ -34,7 +34,7 @@ def _script_style_modules():
     """脚本式模块：含**模块级** sys.exit( 且**没有** def test_ （即不是 pytest 用例）"""
     out = []
     for p in sorted(TESTS.glob('*.py')):
-        src = io.open(p, encoding='utf-8', errors='replace').read()
+        src = Path(p).read_text(encoding='utf-8', errors='replace')
         if 'def test_' in src:
             continue
         if not re.search(r'(?m)^\s*sys\.exit\(', src):
@@ -45,7 +45,7 @@ def _script_style_modules():
 
 def test_script_style_modules_are_not_collected():
     """护栏①：所有脚本式模块都必须在 conftest.collect_ignore 里 ✓（否则会炸整套 ✗）"""
-    conf = io.open(CONFTEST, encoding='utf-8').read()
+    conf = Path(CONFTEST).read_text(encoding='utf-8')
     ignored = set(re.findall(r"'([^']+\.py)'", conf))
     missing = [m for m in _script_style_modules() if m not in ignored]
     assert not missing, f'脚本式模块未排除出 pytest 收集 ✗（会炸整套测试）：{missing}'
@@ -53,8 +53,8 @@ def test_script_style_modules_are_not_collected():
 
 def test_ignored_scripts_are_still_run_by_verify():
     """护栏②：被排除的脚本仍必须由 verify.py 单独调用 ✓（防"移出收集即丢失检查" ✗）"""
-    ver = io.open(VERIFY, encoding='utf-8').read()
-    conf = io.open(CONFTEST, encoding='utf-8').read()
+    ver = Path(VERIFY).read_text(encoding='utf-8')
+    conf = Path(CONFTEST).read_text(encoding='utf-8')
     ignored = [p for p in re.findall(r"'([^']+\.py)'", conf)]
     lost = []
     for rel in ignored:
@@ -68,7 +68,7 @@ def test_ignored_scripts_are_still_run_by_verify():
 
 def test_verify_runs_script_checks_and_keeps_exit_code():
     """护栏③：verify.py 的脚本步骤要**参与总退出码**（不能被静默忽略 ✗）"""
-    ver = io.open(VERIFY, encoding='utf-8').read()
+    ver = Path(VERIFY).read_text(encoding='utf-8')
     assert 'SCRIPT_CHECKS' in ver, '缺少脚本式检查步骤 ✗'
     assert 'steps += [(n, [PY, p]) for n, p in SCRIPT_CHECKS]' in ver, \
         '脚本式检查未并入 steps（不会参与总退出码）✗'

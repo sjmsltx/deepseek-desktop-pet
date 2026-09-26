@@ -81,7 +81,7 @@ def test_degraded_on_empty_and_weird_inputs():
 
 # ── ④ 纯函数边界：无文件/无网 ────────────────────────────────────────
 def test_pure_no_file_no_network():
-    src = io.open(MOD, encoding='utf-8').read()
+    src = Path(MOD).read_text(encoding='utf-8')
     tree = ast.parse(src)
     bad = []
     for node in ast.walk(tree):

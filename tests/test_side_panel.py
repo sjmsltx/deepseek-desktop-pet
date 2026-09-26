@@ -19,6 +19,7 @@ sys.path.insert(0, BASE)
 from PySide6.QtWidgets import QApplication, QLabel                # noqa: E402
 
 import side_panel as sp                                        # noqa: E402
+from pathlib import Path
 
 
 def _app():
@@ -234,7 +235,7 @@ def test_status_page_shows_satiety():
 
 def test_status_page_wired_to_satiety():
     """状态页必须真的接上宿主提供的饱食度（防只改文案、没接数据）"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     body = src.split('def _side_panel_data(self):', 1)[1].split('\n    def ', 1)[0]
     assert "d['satiety']" in body, '宿主的 _side_panel_data 未提供饱食度'
     assert 'satiety_low' in body, '未提供饥饿标记'

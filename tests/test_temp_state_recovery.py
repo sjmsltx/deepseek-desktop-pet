@@ -22,6 +22,7 @@
 import os
 import re
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -236,7 +237,7 @@ def test_every_state_image_call_is_paired():
     ① `self.state =`（否则 end_state 的 state==st 门槛进不去）
     ② 收尾线索（`_end_state(` / `singleShot(` / `QTimer(` / `_emotion_restore_timer`）
     谁不配收尾就红 —— 以后新增调用点会当场失败。"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     mets, lines = _methods(src)
     end_clues = ('_end_state(', 'singleShot(', 'QTimer(', '_emotion_restore_timer')
     offenders = []
@@ -266,7 +267,7 @@ def test_every_state_image_call_is_paired():
 def test_pet_anim_end_primitives_still_wired():
     """pet_anim 的三个收尾原语必须仍被 desktop_pet 的 wrapper 调用 ——
     防止「收尾逻辑搬家」后它们再次变成 0 调用点的死代码（v6.79 C 方案）。"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     for name in ('anim.end_state(', 'anim.end_scene(', 'anim.restore_after_emotion('):
         assert name in src, 'pet_anim 收尾原语已变孤儿（无调用点）：%s' % name
     for wrapper in ('def _end_state(', 'def _end_scene(', 'def _restore_state_after_emotion(',
@@ -284,7 +285,7 @@ def test_no_or_style_state_assertions():
     for fn in sorted(os.listdir(tests_dir)):
         if not (fn.startswith('test_') and fn.endswith('.py')):
             continue
-        src = open(os.path.join(tests_dir, fn), encoding='utf-8').read()
+        src = Path(os.path.join(tests_dir, fn)).read_text(encoding='utf-8')
         # ⚠️ 先剔掉文档字符串与注释行 —— 否则护栏会扫到“举例说明”里的例句本身（自己报自己 ✗）
         src = re.sub(r'"""[\s\S]*?"""', '', src)
         src = re.sub(r"'''[\s\S]*?'''", '', src)

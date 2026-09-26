@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import memory_engine as me  # noqa: E402
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -58,8 +59,8 @@ def test_gate_is_not_dead():
 
 def test_source_guards():
     """源码级护栏：闸门常量 + 注入点约束句 + 注入点改用带闸门入口"""
-    eng = open(os.path.join(ROOT, 'memory_engine.py'), encoding='utf-8-sig').read()
-    pet = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    eng = Path(os.path.join(ROOT, 'memory_engine.py')).read_text(encoding='utf-8-sig')
+    pet = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     for k in ('GATE_MIN_MATCHED', 'GATE_MIN_COVERAGE', 'GATE_KEEP_RATIO', 'def search_memory_for_injection'):
         assert k in eng, 'memory_engine 缺少：%s' % k
     assert '记忆的使用方式' in pet, '注入点缺少「记忆只作背景」约束句'

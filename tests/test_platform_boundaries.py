@@ -11,6 +11,7 @@ import os
 import re
 
 import pytest
+from pathlib import Path
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -69,7 +70,7 @@ def test_callers_import_platform_layer(name):
     path = os.path.join(BASE, name)
     if not os.path.isfile(path):
         pytest.skip('文件不存在')
-    src = open(path, encoding='utf-8', errors='ignore').read()
+    src = Path(path).read_text(encoding='utf-8', errors='ignore')
     assert 'import platform_layer as pl' in src, f'{name} 应 import platform_layer 走统一门面'
 
 

@@ -7,6 +7,7 @@
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -154,7 +155,7 @@ def test_care_engine_interface():
 
 def test_source_guard_memory_rule():
     """护栏：记忆"只作背景"的约束句 + 闸门入口必须在源码里"""
-    pet = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    pet = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     assert '记忆的使用方式' in pet and 'search_memory_for_injection(' in pet
 
 

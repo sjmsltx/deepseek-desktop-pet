@@ -11,6 +11,7 @@
 """
 import os
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,12 +80,12 @@ def test_bubble_hold_before_fade():
 
 def test_source_guard_cost_notify_wired():
     """源码护栏：费用提示走状态条通道，且不再有顶部 show_bubble"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert 'COST_NOTIFY_MS' in src, '缺少费用提示停留常量'
     body = src.split('def _on_cost_bubble(self, cost):', 1)[1].split('\n    def ', 1)[0]
     assert '_notify(' in body, '费用提示应走 _notify（底部状态条）'
     assert 'show_bubble' not in body, '费用提示不应再创建顶部浮动气泡'
-    ui = open(os.path.join(BASE, 'affection_ui.py'), encoding='utf-8').read()
+    ui = Path(os.path.join(BASE, 'affection_ui.py')).read_text(encoding='utf-8')
     assert 'hold_ms' in ui, 'CostBubble 应支持「先静止再渐隐」'
 
 
@@ -109,7 +110,7 @@ def test_cost_blocked_notify_cooldown_no_spam():
 
 def test_run_task_denies_go_through_cooldown_notifier():
     """源码护栏：_run_task 的成本拦截必须走 _notify_cost_blocked，且审计仍不限频"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     body = src.split('def _run_task(self, text, images=None):', 1)[1].split('\n    def ', 1)[0]
     assert '_notify_cost_blocked(_why_c)' in body, '成本拦截应走 _notify_cost_blocked'
     assert "log_event('deny'" in body, '审计必须仍然每次都记 deny（不得被冷却吞掉）'

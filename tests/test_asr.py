@@ -18,6 +18,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 import asr as A          # noqa: E402
+from pathlib import Path
 
 
 def _app():
@@ -109,9 +110,9 @@ def test_cancel_kills_running_proc(monkeypatch):
 
 
 def test_subprocess_started_without_console_window():
-    src = open(os.path.join(BASE, 'asr.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'asr.py')).read_text(encoding='utf-8')
     assert 'CREATE_NO_WINDOW' in src and 'creationflags=_win_flags()' in src
-    ps = open(os.path.join(BASE, 'asr_helper.ps1'), encoding='utf-8').read()
+    ps = Path(os.path.join(BASE, 'asr_helper.ps1')).read_text(encoding='utf-8')
     assert 'Windows.Media.SpeechRecognition' in ps and 'RecognizeAsync' in ps
     assert 'System.Runtime.WindowsRuntime' in ps, 'PS5.1 下需要它才能 await WinRT'
 
@@ -183,7 +184,7 @@ def test_cancel_while_listening():
 
 
 def test_menu_has_voice_input_entry():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert "'🎤 语音输入'" in src and 'def _toggle_listen' in src
 
 

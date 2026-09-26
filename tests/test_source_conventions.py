@@ -21,7 +21,7 @@ ROOT = Path(os.environ.get("PET_REPO_ROOT") or Path(__file__).resolve().parent.p
 
 
 def read(name: str) -> str:
-    return io.open(ROOT / name, encoding="utf-8", errors="ignore").read()
+    return Path(ROOT / name).read_text(encoding="utf-8", errors="ignore")
 
 
 # ── 1. UI 文件里的颜色字面量只允许"哨兵色" ──────────────────────────────

@@ -13,6 +13,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pet_selfcode import edit_own_code  # noqa: E402
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -83,7 +84,7 @@ def test_syntax_guard_still_blocks():
     d = _sandbox("r5")
     p = os.path.join(d, "m.py")
     open(p, "w", encoding="utf-8").write("A = 1\nB = 2\n")
-    before = open(p, encoding="utf-8").read()
+    before = Path(p).read_text(encoding="utf-8")
     r = edit_own_code("A = 1", "def broken(:", file="m.py", base_dir=d)
     assert "语法验证失败" in r, "语法门失效：%s" % r[:80]
     assert open(p, encoding="utf-8").read() == before, "非法改动竟然落盘了"
@@ -130,7 +131,7 @@ def test_no_backup_on_failed_match():
 
 def test_source_guards():
     """源码护栏：不许退回旧写法（sys.executable 校验 / datetime 未导入 / 静默 pass）"""
-    src = open(os.path.join(ROOT, "pet_selfcode.py"), encoding="utf-8-sig").read()
+    src = Path(os.path.join(ROOT, "pet_selfcode.py")).read_text(encoding="utf-8-sig")
     # 去掉模块 docstring 后再扫（docstring 里会描述“旧写法”，不应触发护栏）
     body = src.split('"""', 2)[2] if src.count('"""') >= 2 else src
     assert "import datetime as _dt" in src, "datetime 未导入（备份会再次静默失败）"

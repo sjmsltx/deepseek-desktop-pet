@@ -14,6 +14,7 @@
 约定：`relay_log.py` 未落地时本文件自动 skip（不污染全量绿灯）。
 """
 import pytest
+from pathlib import Path
 
 relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现（微信侧用例已就位，落地即生效）')
 
@@ -440,7 +441,7 @@ def test_i2_retry_bounded_by_retry_max(tmp_path, clock):
 
 def test_n1_schema_version_written(log, tmp_path):
     log.append(mk('m1'))
-    raw = open(tmp_path / 'relay.jsonl', encoding='utf-8').read()
+    raw = Path(tmp_path / 'relay.jsonl').read_text(encoding='utf-8')
     assert '"v"' in raw and str(relay.SCHEMA_V) in raw
 
 

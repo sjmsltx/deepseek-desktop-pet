@@ -14,6 +14,7 @@ import datetime
 import json
 import os
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -235,15 +236,15 @@ def test_set_balance_low_persists_and_clamps(tmp_path, monkeypatch):
 # ---------- 4. 源码护栏 ----------
 
 def test_source_guard_balance_wired():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     for token in ('balance_signal', '_on_balance_result', '_query_balance_async',
                   '_maybe_low_balance_alert', 'BALANCE_LOW_DEFAULT', 'balance_stale',
                   "'balance_low_threshold'"):
         assert token in src, '余额功能未接线：%s' % token
     assert "umenu.addAction('💰 查询余额')" in src, '缺少右键菜单入口'
-    st = open(os.path.join(BASE, 'api_stats.py'), encoding='utf-8').read()
+    st = Path(os.path.join(BASE, 'api_stats.py')).read_text(encoding='utf-8')
     assert '/user/balance' in st and 'def query_balance' in st
-    sui = open(os.path.join(BASE, 'settings_ui.py'), encoding='utf-8').read()
+    sui = Path(os.path.join(BASE, 'settings_ui.py')).read_text(encoding='utf-8')
     assert 'sp_bal' in sui and '_apply_balance_low' in sui, '设置里应有低余额阈值入口'
 
 
@@ -272,6 +273,6 @@ def test_normalize_base_fixes_404():
 
 def test_source_guard_normalize_base_used():
     """护栏：query_balance 必须走 normalize_base（否则又会拼出 404 地址）"""
-    st = open(os.path.join(BASE, 'api_stats.py'), encoding='utf-8').read()
+    st = Path(os.path.join(BASE, 'api_stats.py')).read_text(encoding='utf-8')
     assert 'base = ApiStats.normalize_base(base_url)' in st
     assert "base + '/user/balance'" in st

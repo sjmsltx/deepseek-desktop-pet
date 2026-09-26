@@ -19,6 +19,7 @@ import os
 import sys
 import tempfile
 import threading
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -129,7 +130,7 @@ def test_runtime_switch_rethemes_existing_messages():
 # ---------------- ⑤ 源码护栏：别再退回 QTimer 投递 ----------------
 
 def test_no_qtimer_hop_in_tool_handlers():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert 'ui_call_signal' in src and '_run_on_ui' in src, '缺少跨线程投递通道'
 
     def _code_lines(s):

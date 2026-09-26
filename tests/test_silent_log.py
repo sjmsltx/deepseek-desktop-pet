@@ -7,6 +7,7 @@
 """
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -36,7 +37,7 @@ def test_silent_log_writes_through_pet_log(tmp_path=None):
 
 def test_high_value_paths_are_instrumented():
     """源码护栏：高价值路径不得再静默吞异常"""
-    src = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    src = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     assert 'def _silent_log(where, exc, *, user_facing=False):' in src, '缺少统一出口（v1-B 起带 user_facing）'
     assert '_FAIL_CARD_HOOK' in src, 'v1-B：缺少失败卡片单点出口的桥（hook）'
     assert src.count("_silent_log('") >= 45, '接入点不足 45 处（实际 %d）' % src.count("_silent_log('")
@@ -49,7 +50,7 @@ def test_high_value_paths_are_instrumented():
 
 def test_pyproject_has_no_bom():
     """护栏：pyproject.toml 不得带 BOM（PowerShell 写入会带入，TOML 解析会失败）"""
-    raw = open(os.path.join(ROOT, 'pyproject.toml'), 'rb').read()
+    raw = Path(os.path.join(ROOT, 'pyproject.toml')).read_bytes()
     assert not raw.startswith(b'\xef\xbb\xbf'), 'pyproject.toml 带 BOM，TOML 会解析失败'
 
 

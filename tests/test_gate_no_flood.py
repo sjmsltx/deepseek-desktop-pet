@@ -134,7 +134,7 @@ def test_user_off_is_not_auto_resumed():
 
 def test_audit_still_unthrottled_and_notify_after_cooldown_in_source():
     """① 源码护栏：`_notify` 必须在冷却**之后**；审计不限频保留 ✓"""
-    src = io.open(ROOT / 'desktop_pet.py', encoding='utf-8').read()
+    src = Path(ROOT / 'desktop_pet.py').read_text(encoding='utf-8')
     i_fn = src.index('def _notify_cost_blocked')
     body = src[i_fn:i_fn + 2600]
     i_cooldown = body.index('COST_BLOCKED_NOTIFY_COOLDOWN')

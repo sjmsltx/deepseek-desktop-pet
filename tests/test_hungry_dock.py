@@ -19,7 +19,7 @@ ANIM = ROOT / 'pet_anim.py'
 
 
 def _src(p):
-    return io.open(p, encoding='utf-8').read()
+    return Path(p).read_text(encoding='utf-8')
 
 
 class _FakePet:

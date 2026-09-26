@@ -20,6 +20,7 @@ if BASE not in sys.path:
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import governance as gov  # noqa: E402
+from pathlib import Path
 
 CFG = os.path.join(BASE, 'config.json')
 
@@ -90,7 +91,7 @@ def test_export_csv_content(sandbox, tmp_path):
     out = str(tmp_path / 'audit_export.csv')
     ok, n = gov.export_csv(out)
     assert ok and n == 20
-    raw = open(out, 'rb').read()
+    raw = Path(out).read_bytes()
     assert raw.startswith(b'\xef\xbb\xbf'), '必须是 utf-8-sig（Excel 双击不乱码）'
     with open(out, encoding='utf-8-sig', newline='') as f:
         rows = list(csv.reader(f))

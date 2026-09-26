@@ -60,7 +60,7 @@ def test_deliver_failure_receipt(tmp_path):
 # ── ③ 不出网（AST ✓）────────────────────────────────────────────────
 def test_no_network_in_relay_and_gate():
     for name in ('rt_relay.py', 'rt_gate.py'):
-        src = io.open(ROOT / name, encoding='utf-8').read()
+        src = Path(ROOT / name).read_text(encoding='utf-8')
         tree = ast.parse(src)
         bad = []
         for node in ast.walk(tree):
