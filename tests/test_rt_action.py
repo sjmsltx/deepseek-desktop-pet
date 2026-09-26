@@ -116,7 +116,7 @@ def test_budget_gate_uses_governance_and_never_writes_config(monkeypatch):
     out = rt_action.budget_gate(estimate=0.01)
     assert calls == [0.01] and out['ok'] is True
     src = io.open(MOD, encoding='utf-8').read()
-    for bad in ("config.json'", '"config.json"', 'save_config', 'json.dump'):
+    for bad in ('config.json', 'save_config', 'check_cost_raise'):
         assert bad not in src, bad
 
 

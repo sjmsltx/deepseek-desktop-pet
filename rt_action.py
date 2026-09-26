@@ -13,6 +13,10 @@
 """
 from __future__ import annotations
 
+import io
+import json
+import os
+
 import governance
 
 AUDIT_BUDGET_DENY = 'budget_deny'
@@ -124,3 +128,74 @@ def pending_for_ui(*, gate, role=None):
                     'content': str(r.get('content') or ''),
                     'ts': str(r.get('ts') or '')})
     return out
+
+
+# ── ④ 人工确认闸门·完整动作链（C2b ✓）─────────────────────────────
+def _flat_receipt(rec):
+    if not isinstance(rec, dict) or not rec:
+        return None
+    state = str(rec.get('state') or '')
+    return {'ok': state in OK_STATES, 'state': state, 'reason': str(rec.get('reason') or ''),
+            'idem_key': str(rec.get('idem_key') or ''), 'round_id': str(rec.get('round_id') or ''),
+            'role': str(rec.get('role') or '')}
+
+
+def draft_for_human(*, gate, round_id, role, content, turn_no=0):
+    """生成**待人工确认**草稿 ✓ ⭐ **不进 L0** ✗（`rt_gate.draft()` 只写草稿 ✓）"""
+    did = gate.draft(round_id, role, content, turn_no=turn_no)
+    return {'ok': True, 'draft_id': did, 'state': 'pending', 'in_l0': False,
+            'note': '未确认 → 不进 L0 ✗（数据层保证 ✓）'}
+
+
+def confirm_draft(*, gate, draft_id, round_id=None, turn_no=0):
+    """人工确认 ✓ → **写 L0** ✓ + 返回 `ptr` ✓ + **投递回执** ✓
+
+    ⚠️ 额度不足 → 闸门**已写审计** `budget_deny` ✓ 并置 `rejected` ✓ → 此时 `ok=False` + **不进 L0** ✗
+    """
+    res = gate.confirm(draft_id, round_id=round_id, turn_no=turn_no) or {}
+    return {'ok': bool(res.get('ok')), 'reason': str(res.get('reason') or ''),
+            'ptr': str(res.get('ptr') or ''), 'in_l0': bool(res.get('ptr')),
+            'receipt': _flat_receipt(res.get('receipt'))}
+
+
+def reject_draft(*, gate, draft_id, reason=''):
+    """否决 ✓ → `state=rejected` ✓ ⭐ **不留 L0** ✗"""
+    res = gate.reject(draft_id, reason=reason) or {}
+    return {'ok': bool(res.get('ok')), 'reason': str(res.get('reason') or reason),
+            'in_l0': False, 'note': '否决 → 不留 L0 ✗'}
+
+
+def draft_detail_for_ui(*, gate, draft_id):
+    """界面点开某草稿：内容 + 状态 ✓（⭐ 状态**直读** `state` ✓ 不靠推断 ✗）"""
+    r = gate.latest_draft(draft_id)
+    if not r:
+        return {'ok': False, 'reason': '草稿不存在（%s）' % draft_id}
+    return {'ok': True, 'draft_id': str(r.get('draft_id') or ''),
+            'round_id': str(r.get('round_id') or ''), 'role': str(r.get('role') or ''),
+            'turn_no': int(r.get('turn_no') or 0), 'state': str(r.get('state') or ''),
+            'content': str(r.get('content') or ''), 'ts': str(r.get('ts') or ''),
+            'in_l0': str(r.get('state') or '') == 'confirmed'}
+
+
+# ── ⑤ 装配与审计落盘（⭐ 额度拒绝必留痕 ✓ 不静默 ✗）─────────────────
+def make_audit(path):
+    """文件审计出口（**append-only** ✓）→ 注入闸门即"拒绝必留痕" ✓ 不静默 ✗"""
+    def _sink(action, role='', where='', detail=''):
+        p = str(path)
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with io.open(p, 'a', encoding='utf-8', newline='') as f:
+            f.write(json.dumps({'action': str(action), 'role': str(role),
+                                'where': str(where), 'detail': str(detail)}, ensure_ascii=False) + '\n')
+    return _sink
+
+
+def make_gate(*, store, base_dir, relay=None, check_budget=None, audit_path=None):
+    """装配人工确认闸门 ✓ ⭐ `audit_path` 默认 `<base_dir>/audit.jsonl` ✓
+
+    ⭐ 接线的界面侧**应当用本函数建闸门** ✓ → 额度拒绝会自动留痕 ✓（否则 `rt_gate` 默认审计为**空操作** ✗）
+    """
+    import rt_gate
+    p = audit_path if audit_path is not None else os.path.join(str(base_dir), 'audit.jsonl')
+    return rt_gate.Gate(store, base_dir, audit=make_audit(p), check_budget=check_budget, relay=relay)
