@@ -20,3 +20,23 @@ collect_ignore = [
     'tests/test_pet_docs.py',
     'tests/golden_ui.py',
 ]
+
+
+# ── D1（2026-09-26）：闸门卡状态件全局隔离 ──────────────────────────────
+# 背景：缺陷 `WX-桌宠-20260926-28`（闸门卡反复刷聊天列表 ✗）根因 = `_gate_card_day`
+# 为**纯内存态** ✗ → 重启/多实例清零 ✗ → 修法：**落盘**（`logs/gate_card_state.json` ✓）。
+# ⚠️ 副作用：凡“建真 `PetWidget` 并触发成本闸门”的用例 ✗，会写到**真实**状态件 ✅
+# → 同一测试进程内第二次触发（或第二次跑）就被判为“当天已有卡”✗ → 误红 ✗。
+# → 故在 conftest 层**自动隔离**：所有用例一律把状态件指向各自 tmp ✓（真件不受污染 ✓）
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _isolate_gate_card_state(tmp_path, monkeypatch):
+    """⭐ D1：所有用例的闸门卡状态件一律落 tmp ✓（真 `logs/gate_card_state.json` 不受影响 ✓）"""
+    try:
+        import desktop_pet
+        monkeypatch.setattr(desktop_pet, 'GATE_CARD_STATE_PATH',
+                            str(tmp_path / 'gate_card_state.json'))
+    except Exception:
+        pass

@@ -17,6 +17,18 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_gate_state(tmp_path, monkeypatch):
+    """⭐ D1（2026-09-26）：闸门卡状态件已改**落盘** ✓ → 用例必须隔离 ✗
+    （否则会被真实运行状态或其它用例污染 ✓ → 本文件内那两条旧断言会误红 ✗）
+    """
+    import desktop_pet
+    monkeypatch.setattr(desktop_pet, 'GATE_CARD_STATE_PATH',
+                        str(tmp_path / 'gate_card_state.json'))
+
 
 def _pet():
     from PySide6.QtWidgets import QApplication

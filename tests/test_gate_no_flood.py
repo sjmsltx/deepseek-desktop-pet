@@ -13,7 +13,19 @@ import io
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(autouse=True)
+def _isolate_gate_state(tmp_path, monkeypatch):
+    """⭐ D1（2026-09-26）：闸门卡状态件改为**落盘** ✓ → 用例必须隔离 ✗
+    （否则会读**真** `logs/gate_card_state.json` ✓ → 受真实运行状态污染 ✗）
+    """
+    import desktop_pet
+    monkeypatch.setattr(desktop_pet, 'GATE_CARD_STATE_PATH',
+                        str(tmp_path / 'gate_card_state.json'))
 
 
 class _Sig:

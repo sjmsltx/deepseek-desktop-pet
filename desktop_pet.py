@@ -101,6 +101,9 @@ OCR_PS1 = os.path.join(BASE_DIR, 'ocr_helper.ps1')
 LIVE2D_MODEL = os.path.join(BASE_DIR, 'assets', 'live2d', 'mao', 'Mao.model3.json')
 ASSETS = os.path.join(BASE_DIR, 'assets')
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
+# D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态**（跨重启/多实例有效 ✓；
+# ⛔ 不写 config.json ✗ —— 守 09-25「挂起不落盘」口径 ✓）
+GATE_CARD_STATE_PATH = os.path.join(BASE_DIR, 'logs', 'gate_card_state.json')
 MODELS_PATH = os.path.join(BASE_DIR, 'models.json')   # 模型档案（模型身份的唯一来源）
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
 TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
@@ -325,6 +328,43 @@ class _DropChatEdit(QTextEdit):
                 e.accept()
                 return True
         return super().viewportEvent(e)
+
+
+# ⭐ D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态读写**（**模块级 ✓ 零新增实例依赖 ✓**
+# —— 批 A 既有护欄的替身无需感知本改动 ✓）
+def _gate_card_day_load():
+    """读**落盘**的当日闸门卡状态 ✓（缺失/损坏 → 空 dict ✓ 不报错 ✗）
+
+    形状：``{'day': 'YYYY-MM-DD', 'keys': ['balance', 'daily_cost']}`` ✓
+    （**按天存多个 key** ✗ —— 单槽会被第二个 category 覆盖 ✗ → 第一个又能再出 ✗）
+    """
+    try:
+        with open(GATE_CARD_STATE_PATH, encoding='utf-8') as _f:
+            _d = json.load(_f)
+        if not isinstance(_d, dict):
+            return {}
+        _d['keys'] = [str(x) for x in (_d.get('keys') or [])]
+        return _d
+    except Exception:
+        return {}
+
+
+def _gate_card_day_mark(key, day):
+    """把“当日同因已出卡”**落盘** ✓（按天多 key ✓ 原子写 ✓ 失败不拖垮主程序 ✗）"""
+    try:
+        cur = _gate_card_day_load()
+        keys = list(cur.get('keys') or []) if str(cur.get('day') or '') == str(day) else []
+        if str(key) not in keys:
+            keys.append(str(key))
+        _d = os.path.dirname(GATE_CARD_STATE_PATH)
+        if _d:
+            os.makedirs(_d, exist_ok=True)
+        _tmp = GATE_CARD_STATE_PATH + '.tmp'
+        with open(_tmp, 'w', encoding='utf-8') as _f:
+            json.dump({'day': str(day), 'keys': keys}, _f)
+        os.replace(_tmp, GATE_CARD_STATE_PATH)
+    except Exception as _exc:
+        _silent_log('_gate_card_day_mark', _exc)
 
 
 class PetWidget(QWidget):
@@ -1179,15 +1219,23 @@ class PetWidget(QWidget):
             except Exception as _exc:
                 _silent_log('_notify_cost_blocked:status', _exc)
         # ③ 卡片：**当天同因只出一张** ✓
+        # ⭐ D1（2026-09-26 缺陷：反复刷聊天列表 ✗）：原判**只看内存态** ✗ → 重启/多实例清零
+        #   → 同一天同类会再出卡 ✗ → 现改为**内存态 ＋ 落盘态合并判** ✓（跨重启/多实例亦只一张 ✓）
         gc = getattr(self, '_gate_card_day', None)
-        if not (gc and gc.get('key') == key and gc.get('day') == today):
+        disk = _gate_card_day_load()
+        _disk_keys = list(disk.get('keys') or []) if str(disk.get('day') or '') == today else []
+        _already = ((gc and gc.get('key') == key and gc.get('day') == today)
+                    or (str(key) in [str(x) for x in _disk_keys]))
+        if not _already:
             self._gate_card_day = {'key': key, 'day': today}
+            _gate_card_day_mark(key, today)      # ⭐ 先落盘 ✓ 防多实例抢 ✗
             try:
                 import pet_diagnosis as _diag
                 self._notify_failure_card(_diag.gate_diag(why), gen=None, source='cost_gate')
             except Exception as _exc:
                 _silent_log('_notify_cost_blocked:card', _exc)
-                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 兜底：不静默失败 ✓
+                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 首次失败 → 兜底**一次** ✓
+            # ⭐ 已出卡（或已兜底）→ 当日同因不再进本块 ✓ → **兜底行也不会再发** ✗（D1 用例②）
         # ④ 触顶即挂起主动关心（次日自动恢复 ✓）
         self._suspend_active_care(reason=why)
 
