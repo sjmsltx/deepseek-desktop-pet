@@ -244,11 +244,31 @@ def test_hungry_peek_asset_present_and_spec():
             assert bb[3] == im.height, f'{name} 主体应触底（贴边对齐用）✗'
 
 
-def test_pro_peek_assets_waiting_for_hungry():
-    """批 D：pro **有整套贴边图** ✓ → 所以 `pro_peek*_hungry` 也需要 ✓（登记现状，防以后忘 ✓）"""
+def test_pro_peek_hungry_assets_in_place():
+    """批 D 登记缺口 ➜ ⭐ 2026-09-27 **已入库** ✓（Owner 14:11 批「pro 饥饿贴边图可以出」✓ 微信侧交付 ✓）
+
+    ⚠️ 口径（**照已有图实测** ✓ 不自行发明 ✓）：
+      侧边 682×1024 ✓（同 `pro_peek.png` / `flash_peek_hungry.png` ✓）
+      底部 **1024×702** ✓ —— ⭐ **照 `pro_peek_bottom.png` 自己的 702** ✗ **不是 flash 的 662** ✗
+    ⭐ `pro_peek_top_hungry` **不补** ✗（Owner 09-25 已定「上贴边不补图」✓ 回落 `peek_top` 为**预期** ✓）
+    """
+    from PIL import Image
     base = ROOT / 'assets' / 'pro'
     for name in ('pro_peek.png', 'pro_peek_top.png', 'pro_peek_bottom.png'):
         assert (base / name).is_file(), f'{name} 缺失（pro 应有贴边态）✗'
+
+    specs = (('pro_peek_hungry.png', (682, 1024)),
+             ('pro_peek_bottom_hungry.png', (1024, 702)))
+    for name, size in specs:
+        p = base / name
+        assert p.is_file(), f'{name} 缺失 ✗（贴边饥饿会回落到普通贴边图）'
+        with Image.open(p) as im:
+            assert im.size == size, f'{name} 尺寸应与参照图一致 ✓ 实得 {im.size}'
+            assert im.mode == 'RGBA', im.mode
+            bb = im.split()[-1].getbbox()
+            assert bb is not None, f'{name} 透明通道为空 ✗'
+            assert bb[3] == im.height, f'{name} 主体应触底（贴边对齐用）✗'
+            assert abs((bb[0] + bb[2]) / 2 - im.width / 2) <= 2, f'{name} 主体应水平居中 ✗'
 
 
 class _AnimWin:
