@@ -481,7 +481,7 @@ class PetWidget(QWidget):
             if bool(_rc_cfg.get('remote_control', False)):
                 import rt_remote
                 self.remote_consumer = rt_remote.build_consumer_from_config(
-                    _rc_cfg, base_dir=BASE_DIR, emit=self.ui_call_signal.emit)
+                    _rc_cfg, base_dir=BASE_DIR, emit=self._remote_emit)
                 if self.remote_consumer is not None:
                     self.remote_timer = QTimer(self)
                     self.remote_timer.timeout.connect(self._remote_poll_tick)
@@ -8489,6 +8489,26 @@ class PetWidget(QWidget):
                 self.play_scene('happy')
         except Exception as _exc:
             _silent_log('_on_game_result:5875', _exc)   # v6.54
+
+    def _remote_emit(self, ev):
+        """⭐ B-乙 约定（2026-09-26 修复 `emit` 真错 ✗）：消费器 `emit` 传的是 **dict** ✓
+
+        原实现直接接 `ui_call_signal.emit` ✗ —— 而 host 端 `connect(lambda fn: fn())`
+        把参数当**可调用** ✗ → `TypeError: 'dict' object is not callable` ✗（微信侧真机联测实测 ✓）
+        → 此处桥接：先包成可调用，再经 `ui_call_signal` 回主线程 ✓（约定**两侧对齐** ✓）
+        """
+        try:
+            self.ui_call_signal.emit(lambda: self._remote_on_result(ev))
+        except Exception as exc:
+            _silent_log('remote_emit', exc)
+
+    def _remote_on_result(self, ev):
+        """消费结果落地（⭐ v1：**只留一行日志** ✓ 不改既有 UI 行为 ✗）"""
+        try:
+            import pet_log
+            pet_log.get_logger('remote').info('消费结果：%r', ev)
+        except Exception:
+            pass
 
     def _remote_poll_tick(self):
         """B-乙 遥控消费（⭐ **仅在开关开启时**才有定时器 ✓；异常不拖垮主程序 ✗）

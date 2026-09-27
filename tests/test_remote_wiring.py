@@ -111,3 +111,52 @@ def test_factory_never_appends_or_delivers():
             bad = [x.attr for x in ast.walk(n) if isinstance(x, ast.Attribute)
                    and x.attr in ('append', 'deliver', 'confirm', 'reject')]
             assert bad == [], '⛔ 装配函数不得写 L0/投递/确认 ✗：%s' % bad
+
+
+# ── ⭐ emit 约定对齐（修 `TypeError: 'dict' object is not callable` ✗）─────
+def test_emit_convention_is_bridged_in_host():
+    """微信侧真机联测报的 `desktop_pet.py:431 TypeError: 'dict' object is not callable` ✗
+
+    约定：**消费器 `emit` 收 dict** ✓（`rt_remote` 原样传回执 dict ✓）
+    → host 端**不得**直接接 `ui_call_signal.emit` ✗（那个 lambda 会把参数当可调用 ✗）
+    → 必须经 `_remote_emit` **桥接** ✓
+    """
+    src = io.open(APP, encoding='utf-8').read()
+    assert 'emit=self._remote_emit' in src, '⭐ 接线必须走桥接 ✗'
+    assert 'emit=self.ui_call_signal.emit' not in src, '⛔ 不得直连 ui_call_signal.emit ✗'
+    assert 'def _remote_emit(self, ev):' in src
+    assert 'self.ui_call_signal.emit(lambda: self._remote_on_result(ev))' in src, \
+        '⭐ 桥接须包成可调用再 emit ✓'
+    assert 'def _remote_on_result(self, ev):' in src
+
+
+# ── ⭐ 回执／审计落点（微信侧 §三③："回执未落盘"待查 ✓ 用例钉住 ✓）─────
+def test_receipt_and_audit_landing_points(tmp_path):
+    """⭐ 口径（真机联测解释 ✓）：
+    · **回执** 只在 `投递` 类命令时产生 ✓ → 落 `<base>/remote/receipts.jsonl` ✓
+    · **只读** 命令（如 `状态`）**不产生回执** ✗（预期 ✓，不是丢失 ✗）
+    · **审计** 走 `governance.log_event` ✓ → 落**既有审计目录** `logs/audit_<日期>.jsonl` ✓（**不在 `remote/`** ✗）
+    """
+    import os
+
+    import relay_log
+    import rt_remote
+    ch = tmp_path / 'ch.jsonl'
+    c = rt_remote.build_consumer_from_config(
+        {'remote_control': True, 'remote_channel': str(ch)}, base_dir=str(tmp_path))
+    assert c is not None
+    log = relay_log.RelayLog(str(ch))
+
+    def _send(mid, body, seq):
+        log.deliver(relay_log.Msg(id=mid, seq=seq, ts=0, channel='r', sender='owner',
+                                  recipients=['owner'], kind='speak', visibility='human', body=body))
+
+    _send('m-1', '状态', 1)                       # 只读 ✓
+    c.poll_once()
+    assert not (tmp_path / 'remote' / 'receipts.jsonl').exists(), '⭐ 只读命令**不应**产生回执 ✗'
+
+    _send('m-2', '投递 r-x|flash 你好', 2)        # 投递 ✓
+    c.poll_once()
+    rp = tmp_path / 'remote' / 'receipts.jsonl'
+    assert rp.is_file() and 'r-x|flash' in io.open(rp, encoding='utf-8').read(), \
+        '⭐ 投递应落回执 ✓（<base>/remote/receipts.jsonl ✓）'

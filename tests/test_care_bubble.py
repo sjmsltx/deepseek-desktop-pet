@@ -68,11 +68,15 @@ def test_care_hold_longer_than_say():
 
 
 def test_click_expands_to_chat():
+    """⚠️ 2026-09-26（D1 批次附带发现 ✓）：原断言 `len == n0 + 1` 在 `display_msgs` **已满 300** 时必红 ✗
+    （`_append_chat` 追加后**裁到 300** ✓ 设计如此 ✓）→ 改断言**内容落入** ✓（不放松 ✓）
+    """
     p = _pet()
     p.say_care('点我展开')
     n0 = len(p.display_msgs)
     p._bubble_clicked(None)
-    assert len(p.display_msgs) == n0 + 1, '点击后应展开成一条对话'
+    assert p.display_msgs[-1]['text'] == '点我展开', '点击后应展开成一条对话'
+    assert len(p.display_msgs) in (n0 + 1, 300), '满表时长度保持 300 ✓'
     assert p._bubble_mode == 'say', '展开后应复位为普通模式'
     assert p._care_click_text == ''
 

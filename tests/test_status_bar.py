@@ -42,11 +42,18 @@ def test_notify_does_not_pollute_chat_list():
 
 
 def test_append_chat_still_records_conversation():
-    """对照：对话内容仍要进聊天列表"""
+    """对照：对话内容仍要进聊天列表
+
+    ⚠️ 2026-09-26（D1 批次附带发现 ✓）：原断言 `len == n0 + 1` 在 `display_msgs` **已满 300** 时必红 ✗
+    —— `_append_chat` 追加后**裁到 300** ✓（`:5733-5734` ✓ 设计如此 ✓），故满表时 len 不变 ✗。
+    ⭐ 且当 Owner 真实聊天档已被**闸门刷屏**写满 300 条 ✗（本次缺陷的数据后果 ✓）时必红 ✗。
+    → 改断言**内容落入** ✓（不放松 ✓：反而更直接证明“进聊天列表”✓，且不受满表影响 ✓）
+    """
     p = _pet()
     n0 = len(p.display_msgs)
     p._append_chat('桌宠', '这是一条真正的对话内容')
-    assert len(p.display_msgs) == n0 + 1, '对话内容必须仍进聊天列表'
+    assert p.display_msgs[-1]['text'] == '这是一条真正的对话内容', '对话内容必须仍进聊天列表'
+    assert len(p.display_msgs) in (n0 + 1, 300), '满表时列表长度保持 300 ✓'
 
 
 def test_status_bar_auto_hide_timer():
