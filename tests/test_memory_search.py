@@ -24,7 +24,7 @@ FACTS = [
      'updated_at': '2026-09-10'},
     {'id': 'f2', 'content': '用户养了一只叫团子的猫', 'importance': 5, 'status': 'active',
      'updated_at': '2026-09-11'},
-    {'id': 'f3', 'content': '用户考研目标是西南大学', 'importance': 5, 'status': 'active',
+    {'id': 'f3', 'content': '用户考研目标是某大学', 'importance': 5, 'status': 'active',
      'updated_at': '2026-09-12'},
     {'id': 'f4', 'content': '已删除的旧事实：喜欢跑步', 'importance': 3, 'status': 'deleted',
      'updated_at': '2026-09-01'},

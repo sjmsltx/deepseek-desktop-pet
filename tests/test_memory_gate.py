@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FACTS = [
-    {'id': 'f1', 'content': '用户的考研目标是西南大学地图学与地理信息系统 数学二 复习计划',
+    {'id': 'f1', 'content': '用户的考研目标是某大学地图学与地理信息系统 数学二 复习计划',
      'importance': 5, 'status': 'active'},
     {'id': 'f2', 'content': '用户喜欢在桌宠里玩扫雷和 Farkle 骰子', 'importance': 3, 'status': 'active'},
 ]

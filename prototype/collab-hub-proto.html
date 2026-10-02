@@ -251,7 +251,7 @@
   'use strict';
   var LIMITS = {turn: 8, ms: 5*60*1000, cost: 5.00};
   var COST = {flash: 0.0009, pro: 0.0021, mao: 0.0012};   // 假价：元/千 token 折算后的单次
-  var NAME = {flash: 'flash（快嘴）', pro: 'pro（分析）', mao: 'mao（实干）', me: '李滨宇', sys: '系统'};
+  var NAME = {flash: 'flash（快嘴）', pro: 'pro（分析）', mao: 'mao（实干）', me: 'Owner', sys: '系统'};
   var MODEL = {flash: 'deepseek-flash', pro: 'deepseek-reasoner', mao: 'deepseek-chat'};
   var AV = {flash: 'f', pro: 'p', mao: 'm', me: '我', sys: '#'};
 
@@ -339,7 +339,7 @@
 
   function finish(why){
     state.running = false; clearTimeout(state.timer);
-    pushMsg('sys','sys','［收敛］'+why+'，暂停轮转。\n结论：选②独立窗口承载（Edge 应用模式先跑，形状不对再换自绘）；\n位置记忆下沉到"桌宠记住窗口几何"，与窗口由谁绘制解耦。\n@李滨宇 需要你拍板：要不要顺手把窗口做成可调大小。');
+    pushMsg('sys','sys','［收敛］'+why+'，暂停轮转。\n结论：选②独立窗口承载（Edge 应用模式先跑，形状不对再换自绘）；\n位置记忆下沉到"桌宠记住窗口几何"，与窗口由谁绘制解耦。\n@Owner 需要你拍板：要不要顺手把窗口做成可调大小。');
     pushLane('arbitrate','sys',['group'],0);
     setState('done','已收敛');
     $('btn-pause').disabled = true; $('btn-speak').disabled = false;

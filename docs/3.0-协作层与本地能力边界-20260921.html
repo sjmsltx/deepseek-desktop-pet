@@ -108,7 +108,7 @@
   <h1>协作层设计与本地能力边界判断</h1>
   <p class="sub">AI 与 AI 的消息投递怎么走、怎么可见化；桌宠作为 DSH 桌面载体的边界在哪；这台机器能做什么、做不到什么。</p>
   <div class="meta">
-    日期 2026-09-21 ｜ 对应回应：李滨宇对 3.0 调研评估报告的四点追问<br>
+    日期 2026-09-21 ｜ 对应回应：Binyu Li 对 3.0 调研评估报告的四点追问<br>
     依据：本机实测 / GitHub REST API 当次查询 / 官方 release notes ｜ 判断性内容已显式标注
   </div>
 </header>
@@ -256,7 +256,7 @@
   <tbody>
     <tr><td class="k"><code>id</code> / <code>ts</code></td><td>单调递增 + 时间戳（排序与回放依据）</td></tr>
     <tr><td class="k"><code>channel_id</code></td><td>群 / 单聊 / 线程</td></tr>
-    <tr><td class="k"><code>sender</code> / <code>recipients</code></td><td><code>human:李滨宇</code>、<code>agent:pro</code>、<code>system</code>；收件人为空 = 广播</td></tr>
+    <tr><td class="k"><code>sender</code> / <code>recipients</code></td><td><code>human:owner</code>、<code>agent:pro</code>、<code>system</code>；收件人为空 = 广播</td></tr>
     <tr><td class="k"><code>kind</code></td><td><code>speak</code> 发言 / <code>ask</code> 提问 / <code>reply</code> 回答 / <code>delegate</code> 委派 / <code>arbitrate</code> 仲裁 / <code>tool</code> 工具调用 / <code>system</code></td></tr>
     <tr><td class="k"><code>visibility</code></td><td><code>human</code> 进 L1 ／ <code>meta</code> 只进 L2 ／ <code>debug</code> 只进 L3</td></tr>
     <tr><td class="k"><code>meta</code></td><td><code>model</code>、<code>tokens</code>、<code>cost</code>、<code>latency</code>、<code>parent_id</code>、<code>turn_no</code></td></tr>
