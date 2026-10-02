@@ -78,7 +78,7 @@
   <p class="sub">不再用虚拟机：把 DSH 装到本机；桌宠只当桌面外壳、不碰 agent 能力，避免双 harness 打架；顺带纠正"群聊吃内存"与"共用 API key"的认知。</p>
   <div class="meta">
     日期 2026-09-21 ｜ 依据：npm registry 实测 / DSH 官方文档 / 本机与 VirtualBox 实测<br>
-    安装：<code>@deepseek-ai/dsh@0.1.5-rc.2</code> → <code>E:\ai工作站\dsh</code>（独立目录，不改 AutoClaw 的 Node）
+    安装：<code>@deepseek-ai/dsh@0.1.5-rc.2</code> → <code>&lt;DSH 安装目录&gt;</code>（独立目录，不改 AutoClaw 的 Node）
   </div>
 </header>
 
@@ -111,10 +111,10 @@
 
 <h2 id="s3"><span class="num">03</span>安装与启动</h2>
 <pre># 安装（独立目录，不污染 AutoClaw 自带 Node）
-npm install -g --prefix "E:\ai工作站\dsh" @deepseek-ai/dsh@0.1.5-rc.2
+npm install -g --prefix "<DSH 安装目录>" @deepseek-ai/dsh@0.1.5-rc.2
 
 # 启动（Web UI 默认 127.0.0.1:3080，--no-open 不自动开浏览器）
-"E:\ai工作站\dsh\dsh.cmd" web --no-open</pre>
+"&lt;DSH 安装目录&gt;\dsh.cmd" web --no-open</pre>
 <p>对比原虚拟机方案：原来要 <code>VBoxManage startvm</code> → 等 25 秒开机 → SSH 进 <code>2222</code> 起服务 → 再建 <code>3080</code> 隧道 → 才开浏览器（就是桌面上那个 <code>启动DSH.bat</code> 的四步）。本机化之后只剩最后一步。</p>
 
 <h2 id="s4"><span class="num">04</span>桌宠自动读取 DSH 配置与技能（可行，但有铁律）</h2>
