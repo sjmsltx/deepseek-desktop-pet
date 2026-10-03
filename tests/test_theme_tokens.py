@@ -67,7 +67,8 @@ def scan(detail=False):
         if os.path.basename(rel) in ALLOW_FILES:
             continue
         try:
-            lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
+            with open(path, encoding='utf-8', errors='replace') as fh:   # ⭐ S3：用 with 关句柄（原本循环里漏关 → 74 条 ResourceWarning ✗）
+                lines = fh.read().splitlines()
         except Exception:
             continue
         for i, line in enumerate(lines, 1):
@@ -120,7 +121,8 @@ def test_no_new_hardcoded_colors():
     """ratchet：任何文件的硬编码颜色都不允许增加（A2 完成后应为 0）。"""
     if not os.path.exists(BASELINE):
         raise AssertionError(f'缺少基线文件 {BASELINE}（用 capture 生成）')
-    base = json.load(open(BASELINE, encoding='utf-8'))['files']
+    with open(BASELINE, encoding='utf-8') as fh:      # ⭐ S3：同样关句柄 ✓
+        base = json.load(fh)['files']
     cur = scan()
     worse = {f: {'基线': base.get(f, 0), '现在': n}
              for f, n in sorted(cur.items()) if n > base.get(f, 0)}

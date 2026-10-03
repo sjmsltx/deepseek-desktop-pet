@@ -19,7 +19,9 @@ INI = ROOT / 'pytest.ini'
 
 # ── ① 配置在位（且**只有这一条** ✓）────────────────────────────────────
 def test_filterwarnings_limited_to_one_class():
-    txt = io.open(INI, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(INI, encoding='utf-8') as _fh:
+        txt = _fh.read()
     assert 'error::pytest.PytestUnraisableExceptionWarning' in txt, '缺该护栏 ✗'
     # ⛔ 不得出现"一刀切"写法（如裸 `-W error` / `error::` 泛匹配 ✗）
     assert 'filterwarnings =\n    error\n' not in txt, '⛔ 不得把全部 warning 变 error ✗'

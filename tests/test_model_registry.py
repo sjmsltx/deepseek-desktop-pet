@@ -190,7 +190,9 @@ def test_roundtrip_and_no_secrets():
     p = reg2.get('pro')
     assert p.display_name == '深思鲸' and abs(p.temperature - 0.7) < 1e-9
     assert p.price['output'] == 15.0
-    raw = open(mp, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(mp, encoding='utf-8') as _fh:
+        raw = _fh.read()
     assert 'sk-' not in raw, 'models.json 绝不能出现 API Key'
     assert 'deepseek_api_key' in raw, '只应存 key 的引用字段名'
 

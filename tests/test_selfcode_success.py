@@ -44,14 +44,18 @@ def test_line_endings_preserved():
     with open(p, "wb") as f:
         f.write(b"A = 1\r\nB = 2\r\nC = 3\r\n")
     edit_own_code("", "B = 22", start_line=2, end_line=2, file="m.py", base_dir=d)
-    raw = open(p, "rb").read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(p, "rb") as _fh:
+        raw = _fh.read()
     assert raw.count(b"\r\n") == 3, "CRLF 被改写：现在有 %d 个 CRLF" % raw.count(b"\r\n")
     # LF 文件也不应被改成 CRLF
     p2 = os.path.join(d, "n.py")
     with open(p2, "wb") as f:
         f.write(b"A = 1\nB = 2\nC = 3\n")
     edit_own_code("", "B = 22", start_line=2, end_line=2, file="n.py", base_dir=d)
-    raw2 = open(p2, "rb").read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(p2, "rb") as _fh:
+        raw2 = _fh.read()
     assert raw2.count(b"\r\n") == 0 and raw2.count(b"\n") == 3, "LF 文件被污染"
 
 

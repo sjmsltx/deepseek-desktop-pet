@@ -45,7 +45,9 @@ def test_enabled_config_builds_consumer(tmp_path):
 
 # ── ② 源码护栏：默认 False ✓ + 接线块在 if 守卫内 ✓ ─────────────────
 def test_app_wiring_is_guarded_and_off_by_default():
-    src = io.open(APP, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(APP, encoding='utf-8') as _fh:
+        src = _fh.read()
     # ⭐ 默认值必须是 False ✓（照抄既有 active_chat 惯用法 ✓）
     assert re.search(r"_rc_cfg\.get\('remote_control',\s*False\)", src), '⛔ 默认值须为 False ✗'
     assert 'self.remote_consumer = None' in src and 'self.remote_timer = None' in src
@@ -121,7 +123,9 @@ def test_emit_convention_is_bridged_in_host():
     → host 端**不得**直接接 `ui_call_signal.emit` ✗（那个 lambda 会把参数当可调用 ✗）
     → 必须经 `_remote_emit` **桥接** ✓
     """
-    src = io.open(APP, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(APP, encoding='utf-8') as _fh:
+        src = _fh.read()
     assert 'emit=self._remote_emit' in src, '⭐ 接线必须走桥接 ✗'
     assert 'emit=self.ui_call_signal.emit' not in src, '⛔ 不得直连 ui_call_signal.emit ✗'
     assert 'def _remote_emit(self, ev):' in src

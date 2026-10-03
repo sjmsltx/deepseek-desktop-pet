@@ -325,7 +325,9 @@ def test_d21_step_disabled_by_default():
 
 
 def test_d22_no_network_ast():
-    src = io.open(MOD, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(MOD, encoding='utf-8') as _fh:
+        src = _fh.read()
     mods = set()
     for n in ast.walk(ast.parse(src)):
         if isinstance(n, ast.Import):
@@ -356,7 +358,9 @@ def test_d23_no_store_append_bypass():
             bad_calls.append(f.id)
     assert bad_calls == [], '⛔ 遥控路径不得直连产品动作 ✗：%s' % bad_calls
     # ⭐ 只许复用 rt_view / rt_action ✓
-    src = io.open(MOD, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(MOD, encoding='utf-8') as _fh:
+        src = _fh.read()
     assert 'import rt_view' in src and 'import rt_action' in src
 
 
@@ -418,7 +422,9 @@ def test_s4_channel_file_deleted_no_crash(tmp_path):
 
         c = rt_remote.RemoteConsumer(Boom(), audit=Audit(), state_path=str(tmp_path / 'st.json'))
         assert c.poll_once() == [], '不崩 ✓'
-        txt = io.open(logfile, encoding='utf-8').read()
+        # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+        with open(logfile, encoding='utf-8') as _fh:
+            txt = _fh.read()
         assert '读收件箱失败' in txt, '⭐ 记警 ✓'
     finally:
         pet_log.reset()

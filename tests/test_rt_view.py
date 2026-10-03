@@ -183,7 +183,9 @@ def test_audit_rejects_bad_object():
 
 # ── 硬约束：只读 + 不出网（AST 级 ✓）───────────────────────────────
 def test_module_has_no_write_or_network(tmp_path):
-    src = io.open(MOD, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(MOD, encoding='utf-8') as _fh:
+        src = _fh.read()
     tree = ast.parse(src)
     banned_mods = {'urllib', 'requests', 'socket', 'http', 'subprocess'}
     got_mods = set()

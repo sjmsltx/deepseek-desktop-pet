@@ -36,7 +36,9 @@ def test_defaults_untouched():
     import pet_log
     assert os.path.join(str(ROOT), 'logs') == pet_log.LOG_DIR
     assert pet_log.LOG_FILE == DEFAULT_LOG_FILE
-    src = io.open(ROOT / 'pet_log.py', encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(ROOT / 'pet_log.py', encoding='utf-8') as _fh:
+        src = _fh.read()
     assert 'maxBytes=512 * 1024' in src, '⛔ 轮转阈值被改动 ✗'
     assert 'backupCount=3' in src, '⛔ 轮转份数被改动 ✗'
     assert "os.path.join(LOG_DIR, 'pet.log')" in src, '⛔ 默认日志路径被改动 ✗'
@@ -44,7 +46,9 @@ def test_defaults_untouched():
 
 # ── ③ 注入不依赖环境变量 ✓（显式调用才生效 ✓ 正常启动不受影响 ✓）──
 def test_injection_is_explicit_not_env_driven():
-    src = io.open(ROOT / 'pet_log.py', encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(ROOT / 'pet_log.py', encoding='utf-8') as _fh:
+        src = _fh.read()
     for bad in ('PET_LOG_FILE', 'PET_LOG_DIR', 'PET_LOG_PATH'):
         assert bad not in src, '⛔ 不应引入环境变量开关 ✗（%s）' % bad
     # `set_log_file` 只在被调用时改变路径 ✓

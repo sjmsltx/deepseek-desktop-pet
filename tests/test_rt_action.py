@@ -115,7 +115,9 @@ def test_budget_gate_uses_governance_and_never_writes_config(monkeypatch):
     monkeypatch.setattr(governance, 'check_cost', fake)
     out = rt_action.budget_gate(estimate=0.01)
     assert calls == [0.01] and out['ok'] is True
-    src = io.open(MOD, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(MOD, encoding='utf-8') as _fh:
+        src = _fh.read()
     for bad in ('config.json', 'save_config', 'check_cost_raise'):
         assert bad not in src, bad
 
@@ -164,7 +166,9 @@ def test_pending_for_ui_excludes_rejected(tmp_path):
 
 # ── 硬约束：不出网（AST 级 ✓）─────────────────────────────────────
 def test_module_has_no_network():
-    src = io.open(MOD, encoding='utf-8').read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(MOD, encoding='utf-8') as _fh:
+        src = _fh.read()
     mods = set()
     for n in ast.walk(ast.parse(src)):
         if isinstance(n, ast.Import):
