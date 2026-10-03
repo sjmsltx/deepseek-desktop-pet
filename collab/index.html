@@ -250,6 +250,13 @@
   <button id="btn-matrix" title="状态图矩阵（数据源 GET /api/assets；操作提交为待办）">▦ 资产矩阵</button>
 </div>
 
+<div class="meta" style="margin:-4px 0 10px;line-height:1.8">
+  ⭐ <b>怎么起协作台</b>：① 右键桌宠菜单 →「<b>🍵 打开协作台</b>」（本机 <code>127.0.0.1:8792</code> ✓ 绝不上网 ✓）；
+  ② 或手动：<code>python collab\relay_server.py --port 8792</code> ✓；
+  ③ 端口可在 <code>config.json</code> 的 <code>collab_port</code> 改 ✓。<br>
+  ⚠️ 投递的待办<b>须人触发</b>才真执行：<code>python collab\run_pending.py --base .</code> ✓（终端里跑 ✓）
+</div>
+
 <div class="opsbox" id="opsbox">
   <span class="lbl">我的提交（真三态 · 数据源只读 GET /api/pending）</span>
   <div id="ops-list"></div>
@@ -765,10 +772,12 @@
     var req = { type: 'project_edit', op_id: opIdNew(), payload: { changes: r.changes } };
     setPjState('wait', '⏳ 正在投递待办…');
     var btn = $('btn-pj-submit'); btn.disabled = true;
-    fetch('/api/pending', {
+    // ⭐ 改走 fetchT（带超时 ✓）—— 电脑侧 `PC-…-121` §2.2 指出：本条**仍是裸 fetch** ✗
+    //    后果：服务半死时界面**永远停在"正在投递…"** ✗ 且按钮**永久禁用** ✗
+    fetchT('/api/pending', {
       method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req)
-    }).then(function (res) {
+    }, 10000).then(function (res) {
       return res.text().then(function (t) {
         var j = null; try { j = JSON.parse(t); } catch (e) { /* 非 JSON 也要展示原文 ✓ */ }
         if (res.status === 202) {
@@ -939,9 +948,10 @@
     }
     var req = { type: 'asset_op', op_id: opIdNew(), payload: payload };
     setMxState('wait', '⏳ 正在投递资产待办…');
-    fetch('/api/pending', {
+    // ⭐ 同上：改走 fetchT（超时 10s）
+    fetchT('/api/pending', {
       method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req)
-    }).then(function (res) {
+    }, 10000).then(function (res) {
       return res.text().then(function (t) {
         var j = null; try { j = JSON.parse(t); } catch (e) {}
         if (res.status === 202) {
