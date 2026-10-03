@@ -123,6 +123,26 @@ def test_contract_appendix_iii_in_place():
     assert 'III > II' in m1
 
 
+# ── 6c. ⭐ 追加条款 IV（Owner 2026-10-03 23:01 已批：写回协议 ＋ C1 补条）────
+def test_contract_appendix_iv_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert '追加条款 IV' in m1, 'Owner 已批的条款 IV 未落盘 ✗'
+    # E1：C1 补条 —— 唯一窄写端点，七条约束必须在位
+    assert 'POST /api/pending' in m1
+    for n in range(1, 8):
+        assert ('%d. ⭐' % n) in m1, 'E1 第 %d 条约束未写明 ✗' % n
+    assert '类型枚举' in m1 and 'collab/pending/' in m1 and '不执行' in m1
+    assert '单写者' in m1 and '失败必落结果' in m1 and '人触发' in m1
+    # E2：文件格式（待办 ＋ 结果）＋ 幂等键
+    assert 'YYYYMMDD-HHMMSS' in m1 and 'results.jsonl' in m1 and 'op_id' in m1
+    assert '只追加' in m1
+    # E3：只读端点取最严形态（三个 bool、无路径）
+    assert '/api/assets' in m1 and 'white' in m1 and 'chroma' in m1 and 'alpha' in m1
+    assert '不含任何路径' in m1
+    # 效力递增
+    assert 'IV > III' in m1
+
+
 # ── 7. ⭐ ③-2 非法值必须“可见”（设置页回显，不只收进变量） ────────────
 def test_invalid_config_visible_in_settings():
     with io.open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8') as fh:
