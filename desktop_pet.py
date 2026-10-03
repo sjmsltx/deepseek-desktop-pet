@@ -100,6 +100,7 @@ else:
 OCR_PS1 = os.path.join(BASE_DIR, 'ocr_helper.ps1')
 LIVE2D_MODEL = os.path.join(BASE_DIR, 'assets', 'live2d', 'mao', 'Mao.model3.json')
 ASSETS = os.path.join(BASE_DIR, 'assets')
+ASSETS_POOL = os.path.join(BASE_DIR, 'assets_3.0')   # ⭐ 素材池（Owner 2026-10-03 批「接入」✓ 未跟踪 ✓ 零拷贝）
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 # D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态**（跨重启/多实例有效 ✓；
 # ⛔ 不写 config.json ✗ —— 守 09-25「挂起不落盘」口径 ✓）
@@ -179,6 +180,8 @@ def _asset_prefix(role):
 
     · 留空 / 未配 / 目录不存在 → ⭐ **回落角色 key** ✓（**行为与从前完全一致** ✓）
     · 查档案失败 → 回落 key ✓ **不崩** ✗
+    · ⭐ 允许在两个根下解析：`assets/<名前缀>/` ✓ 或 ⭐ **`assets_3.0/<名前缀>/`（素材池 ✓ 零拷贝 ✓）** ✓
+      —— ⛔ **不复制任何图片** ✗（池子故意不入库 ✓ 复制会把仓库撑爆 ✗）
     · ⛔ 不缓存（免得界面改完不生效 ✗）；`registry.get()` 是内存字典查找 ✓ 开销可忽略 ✓
     """
     r = str(role)
@@ -186,20 +189,33 @@ def _asset_prefix(role):
         reg = globals().get('MODEL_REGISTRY')
         p = reg.get(r) if reg is not None else None
         v = str(getattr(p, 'portrait', '') or '').strip()
-        if v and os.path.isdir(os.path.join(ASSETS, v)):
-            return v
+        # ⛔ 只接受单段目录名 ✗（防路径穿越 ✓）
+        if v and ('/' not in v and '\\' not in v and '..' not in v):
+            for _root in (ASSETS, ASSETS_POOL):
+                if os.path.isdir(os.path.join(_root, v)):
+                    return v
     except Exception as _exc:
         _silent_log('_asset_prefix', _exc)
     return r
 
 
+def _asset_dir_for(pfx, role):
+    """按前缀找**存在的**目录（先 `assets/` ✓ 后 `assets_3.0/` ✓）；都无 → `assets/<role>/` ✓。"""
+    for _root in (ASSETS, ASSETS_POOL):
+        d = os.path.join(_root, pfx)
+        if os.path.isdir(d):
+            return d
+    return os.path.join(ASSETS, role)
+
+
 def asset(role, state):
     pfx = _asset_prefix(role)          # ⭐ 立绘绑定：优先用档案指定的资产目录 ✓ 否则用 key ✓
-    p = os.path.join(ASSETS, pfx, f'{pfx}_{state}.png')
+    _dir = _asset_dir_for(pfx, role)
+    p = os.path.join(_dir, f'{pfx}_{state}.png')
     if os.path.exists(p):
         return p
-    if pfx != role:                    # ⭐ 前缀目录里没这张 → 再试角色 key 目录 ✓
-        p0 = os.path.join(ASSETS, role, f'{role}_{state}.png')
+    if pfx != role:                    # ⭐ 前缀目录里没这张 → 再试角色 key 目录（两个根都试 ✓）
+        p0 = os.path.join(_asset_dir_for(role, role), f'{role}_{state}.png')
         if os.path.exists(p0):
             return p0
     # v6.30 兜底：新状态素材缺失时降级到已有状态
@@ -207,13 +223,13 @@ def asset(role, state):
                 'kiss': 'hug_whale', 'shy_hug': 'hug_whale'}
     fb = fallback.get(state)
     if fb:
-        p2 = os.path.join(ASSETS, pfx, f'{pfx}_{fb}.png')
+        p2 = os.path.join(_dir, f'{pfx}_{fb}.png')
         if os.path.exists(p2):
             return p2
-    p3 = os.path.join(ASSETS, pfx, f'{pfx}_idle.png')
+    p3 = os.path.join(_dir, f'{pfx}_idle.png')
     if os.path.exists(p3):
         return p3
-    return os.path.join(ASSETS, role, f'{role}_idle.png')   # 最终回落：原行为 ✓
+    return os.path.join(_asset_dir_for(role, role), f'{role}_idle.png')   # 最终回落：原行为 ✓
 
 # ============ 国际化（v6.20，右键菜单/提示/AI 回复语言） ============
 UI_ZH = {

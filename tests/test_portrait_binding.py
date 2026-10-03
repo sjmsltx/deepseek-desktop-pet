@@ -32,8 +32,9 @@ class _Reg:
 
 
 def _set_env(monkeypatch, tmp_path, portrait):
-    """把 ASSETS 指到临时目录 ✓ 并注入替身档案 ✓（不碰真资产 ✗）。"""
+    """把 ASSETS / ASSETS_POOL 都指到临时目录 ✓ 并注入替身档案 ✓（不碰真资产 ✗）。"""
     monkeypatch.setattr(dp, 'ASSETS', str(tmp_path), raising=False)
+    monkeypatch.setattr(dp, 'ASSETS_POOL', str(tmp_path / '_pool'), raising=False)
     monkeypatch.setattr(dp, 'MODEL_REGISTRY', _Reg({'flash': _P(portrait)}), raising=False)
 
 
@@ -89,7 +90,40 @@ def test_registry_failure_is_safe(monkeypatch, tmp_path):
     assert dp._asset_prefix('flash') == 'flash', '查档案失败必须回落 key ✓ 不崩 ✗'
 
 
-# ── 6. UI：有入口 ✓ 保存写 portrait ✓ 且**不复制文件** ✗ ──────────────
+# ── 6. ⭐ 素材池零拷贝绑定（Owner 2026-10-03 批「接入」✓）──────────────
+def test_pool_dir_binds_without_copying(monkeypatch, tmp_path):
+    """⭐ 前缀只在**素材池** `assets_3.0/<名>/` 里存在时，也要能绑定 ✓ 且**不复制**任何图 ✗。"""
+    (tmp_path / 'flash').mkdir()
+    pool = tmp_path / '_pool' / 'deepseek'
+    pool.mkdir(parents=True)
+    (pool / 'deepseek_happy.png').write_bytes(b'x')
+    _set_env(monkeypatch, tmp_path, 'deepseek')
+    assert dp._asset_prefix('flash') == 'deepseek'
+    got = dp.asset('flash', 'happy')
+    assert got == str(pool / 'deepseek_happy.png'), '⭐ 应直接取自素材池（零拷贝）✓'
+    # ⭐ 池子里的图**不得**被搬到 assets/ ✗
+    assert not (tmp_path / 'deepseek').exists(), '⛔ 不得复制到 assets/ ✗'
+
+
+def test_prefix_rejects_path_traversal(monkeypatch, tmp_path):
+    """⛔ 前缀放路径分隔或 `..` → **不生效**（回落 key ✓）—— 防路径穿越 ✗。"""
+    (tmp_path / 'flash').mkdir()
+    for bad in ('../etc', 'a/b', '..', 'x\\y'):
+        _set_env(monkeypatch, tmp_path, bad)
+        assert dp._asset_prefix('flash') == 'flash', '⛔ %r 不得生效 ✗' % bad
+
+
+def test_assets_takes_priority_over_pool(monkeypatch, tmp_path):
+    """同名时：`assets/` 优先于 `assets_3.0/` ✓（生效目录优先 ✓）。"""
+    (tmp_path / 'both').mkdir()
+    (tmp_path / '_pool' / 'both').mkdir(parents=True)
+    (tmp_path / 'both' / 'both_idle.png').write_bytes(b'a')
+    (tmp_path / '_pool' / 'both' / 'both_idle.png').write_bytes(b'b')
+    _set_env(monkeypatch, tmp_path, 'both')
+    assert dp.asset('flash', 'idle') == str(tmp_path / 'both' / 'both_idle.png')
+
+
+# ── 7. UI：有入口 ✓ 保存写 portrait ✓ 且**不复制文件** ✗ ──────────────
 def test_ui_entry_binds_without_copying_files():
     with io.open(os.path.join(ROOT, 'model_manager_ui.py'), encoding='utf-8') as fh:
         src = fh.read()
