@@ -148,6 +148,27 @@
   .role.on .rn{color:var(--acc);font-weight:600}
   .rail-empty,.rail-proj{font-family:var(--mono);font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.6;padding:2px}
   .rail-proj b{color:var(--ink2);font-weight:600}
+  /* ===== 批 4b-1：项目层五字段编辑入口（✎）+ 提交三态（照条款 IV / 载荷 schema）===== */
+  .editpanel{border:1px solid var(--acc);background:#fff;border-radius:3px;padding:12px 14px;margin-bottom:12px;display:none}
+  .editpanel.on{display:block}
+  .editpanel h3{font-family:var(--serif);font-size:15px;margin:0 0 4px}
+  .editpanel .hint{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:10px}
+  .frow{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:start;margin-bottom:8px}
+  .frow label{font-family:var(--mono);font-size:11.5px;color:var(--ink2);padding-top:5px}
+  .frow input[type=text]{font-family:var(--sans);font-size:13px;padding:5px 8px;border:1px solid var(--rule);border-radius:3px;width:100%}
+  .frow .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:3px}
+  .frow .sub.bad{color:var(--mark)}
+  .rchips{display:flex;gap:6px;flex-wrap:wrap}
+  .rchip{font-family:var(--mono);font-size:11.5px;border:1px solid var(--rule);background:#fff;color:var(--ink2);
+         border-radius:3px;padding:3px 9px;cursor:pointer;user-select:none}
+  .rchip.on{border-color:var(--acc);background:var(--acc-soft);color:var(--acc);font-weight:600}
+  .estate{font-family:var(--mono);font-size:12px;border-radius:3px;padding:5px 10px;margin-top:4px;display:none}
+  .estate.on{display:block}
+  .estate.wait{background:var(--warn-soft);border:1px solid #e6ccae;color:var(--warn)}
+  .estate.ok{background:var(--ok-soft);border:1px solid #b9dbc6;color:var(--ok)}
+  .estate.bad{background:var(--mark-soft);border:1px solid #ecc9bb;color:var(--mark)}
+  .editacts{display:flex;gap:8px;align-items:center;margin-top:6px}
+
   @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}}
 
   /* ===== 阶段①.5 简化版自动隐藏（只对右侧 V2/V3 ✓ 不依赖停靠系统 ✓）
@@ -185,6 +206,23 @@
   <span class="lbl">当前项目</span>
   <span class="projsel" id="proj-sel">—</span>
   <span class="pchips" id="proj-chips"></span>
+  <button id="btn-proj-edit" title="编辑项目五字段（提交为待办，须人触发运行器执行）">✎ 编辑项目</button>
+</div>
+
+<div class="editpanel" id="editpanel">
+  <h3>编辑项目（五字段）</h3>
+  <div class="hint">提交 → 落 <code>collab/pending/</code> → ⭐ **须人触发运行器才真执行**（<code>python collab\run_pending.py --base .</code>）</div>
+  <div class="frow"><label>项目名 name</label><div><input type="text" id="ed-pj-name" maxlength="80" placeholder="1–80 字"><div class="sub" id="hint-name">1–80 字，去首尾空白后非空 ✓</div></div></div>
+  <div class="frow"><label>项目根 root</label><div><input type="text" id="ed-pj-root" placeholder="绝对路径（⭐ 唯一允许绝对的字段）"><div class="sub" id="hint-root">⭐ 仅此项可绝对路径：必须**已存在目录**、≤512 字、不含 <code>..</code>、非 UNC/设备名 ✓（只登记不创建 ✗）</div></div></div>
+  <div class="frow"><label>产物目录 outputs</label><div><input type="text" id="ed-pj-outputs" placeholder="相对路径，如 输出"><div class="sub" id="hint-outputs">⛔ 只允许**相对路径**（拒绝对路径 / <code>..</code> / 盘符 / <code>~</code>）</div></div></div>
+  <div class="frow"><label>项目记忆 memory_file</label><div><input type="text" id="ed-pj-memory" placeholder="相对路径，如 MEMORY.md"><div class="sub" id="hint-memory">⛔ 只允许**相对路径** ✓</div></div></div>
+  <div class="frow"><label>角色白名单 roles</label><div><div class="rchips" id="ed-pj-roles"></div><div class="sub">只从 <code>/api/roles</code> 已见过的角色里选 ✓</div></div></div>
+  <div class="editacts">
+    <button class="primary" id="btn-pj-submit">提交为待办</button>
+    <button id="btn-pj-cancel">取消</button>
+    <span class="meta" id="pj-msg"></span>
+  </div>
+  <div class="estate" id="pj-state"></div>
 </div>
 
 <div class="gauges">
@@ -439,6 +477,9 @@
     if (!sel) { return; }
     var cur = PROJ.current;
     sel.textContent = cur ? (cur.name || cur.id) : '（未取到项目）';
+    // ⭐ 降级：项目端点不可用 → ⛔ 不让用户以为能编辑（守“不假装可用”✓）
+    var eb = $('btn-proj-edit');
+    if (eb) { eb.disabled = !cur; eb.title = cur ? '编辑项目五字段（提交为待办，须人触发运行器执行）' : '项目信息未取到，暂不可编辑'; }
     var chips = $('proj-chips');
     if (chips) {
       chips.innerHTML = '';
@@ -511,6 +552,114 @@
     if (Array.isArray(roles)) { ROLES = roles; }
     renderProjectBar();
     renderRoleBar();
+  }
+
+  // ================= 批 4b-1：项目五字段编辑（提交 project_edit → 窄写端点 /api/pending）=================
+  // ⭐ 契约依据：条款 IV E1（唯一窄写端点）/ E2（文件格式）/ `-16` §二 schema
+  // ⭐ 界面**只投递**·不执行 ✓；真改动须**人触发运行器** ✓
+  var selectedRoles = [];
+
+  function isAbsPath(s) { return /^[A-Za-z]:[\\/]/.test(s) || /^\\\\/.test(s) || s.charAt(0) === '/'; }
+  function hasDotDot(s) { return s.split(/[\\/]+/).indexOf('..') >= 0; }
+  function opIdNew() {
+    var d = new Date();
+    var p = function (n, w) { return String(n).length >= w ? String(n) : ('0000' + n).slice(-w); };
+    return '' + d.getFullYear() + p(d.getMonth() + 1, 2) + p(d.getDate(), 2) + 'T' + p(d.getHours(), 2)
+         + p(d.getMinutes(), 2) + '-' + Math.random().toString(36).slice(2, 6);
+  }
+  function setPjState(cls, text) {
+    var el = $('pj-state');
+    if (!el) { return; }
+    el.className = 'estate on ' + cls;
+    el.textContent = text;
+  }
+  function renderRoleChips() {
+    var box = $('ed-pj-roles');
+    if (!box) { return; }
+    box.innerHTML = '';
+    if (!ROLES.length) { box.innerHTML = '<span class="sub">（未取到角色列表）</span>'; return; }
+    ROLES.forEach(function (r) {
+      var c = document.createElement('span');
+      c.className = 'rchip' + (selectedRoles.indexOf(r.key) >= 0 ? ' on' : '');
+      c.textContent = (r.display_name || r.key) + '（' + r.key + '）';
+      c.onclick = function () {
+        var i = selectedRoles.indexOf(r.key);
+        if (i >= 0) { selectedRoles.splice(i, 1); } else { selectedRoles.push(r.key); }
+        renderRoleChips();
+      };
+      box.appendChild(c);
+    });
+  }
+  function openProjEdit() {
+    var cur = PROJ.current || {}, b = PROJ.boundary || {};
+    $('ed-pj-name').value = cur.name || cur.id || '';
+    $('ed-pj-root').value = cur.root || b.root || '';
+    $('ed-pj-outputs').value = b.outputs || '';
+    $('ed-pj-memory').value = b.memory_file || '';
+    selectedRoles = (b.roles && b.roles.slice) ? b.roles.slice() : ROLES.map(function (r) { return r.key; });
+    renderRoleChips();
+    var st = $('pj-state'); st.className = 'estate'; st.textContent = '';
+    $('editpanel').classList.add('on');
+  }
+  function closeProjEdit() { $('editpanel').classList.remove('on'); }
+
+  // ⭐ 只提交**改动过的**字段（changes 必须非空 ✓）；前置校验与端点**同一套**（双层拦 ✓）
+  function collectProjChanges() {
+    var cur = PROJ.current || {}, b = PROJ.boundary || {};
+    var ch = {};
+    var name = ($('ed-pj-name').value || '').trim();
+    var root = ($('ed-pj-root').value || '').trim();
+    var outs = ($('ed-pj-outputs').value || '').trim();
+    var mem = ($('ed-pj-memory').value || '').trim();
+
+    if (name !== (cur.name || '')) {
+      if (!(name.length >= 1 && name.length <= 80)) { return { err: '项目名须 1–80 字（去空白后非空）' }; }
+      ch.name = name;
+    }
+    if (root && root !== (cur.root || b.root || '')) {
+      if (!isAbsPath(root)) { return { err: '项目根必须是绝对路径（⭐ 唯一允许绝对的字段）' }; }
+      if (hasDotDot(root)) { return { err: '项目根不得含 .. 段' }; }
+      if (root.length > 512) { return { err: '项目根超过 512 字' }; }
+      if (/^\\\\\\\\\?\\/.test(root) || /^(CON|NUL|COM\d|LPT\d)$/i.test(root)) { return { err: '项目根不接受 UNC / 设备名' }; }
+      ch.root = root;
+    }
+    if (outs && outs !== (b.outputs || '')) {
+      if (isAbsPath(outs) || hasDotDot(outs) || outs.charAt(0) === '~') { return { err: '产物目录只允许相对路径（不得绝对 / 含 .. / 以 ~ 开头）' }; }
+      ch.outputs = outs;
+    }
+    if (mem && mem !== (b.memory_file || '')) {
+      if (isAbsPath(mem) || hasDotDot(mem) || mem.charAt(0) === '~') { return { err: '记忆文件只允许相对路径' }; }
+      ch.memory_file = mem;
+    }
+    var curR = (b.roles || []).slice().sort().join(',');
+    if (selectedRoles.slice().sort().join(',') !== curR) { ch.roles = selectedRoles.slice(); }
+
+    if (!Object.keys(ch).length) { return { err: '没有改动（changes 必须非空）' }; }
+    return { changes: ch };
+  }
+
+  function submitProjEdit() {
+    var r = collectProjChanges();
+    if (r.err) { setPjState('bad', '⛔ ' + r.err + '（**未提交**）'); return; }
+    var req = { type: 'project_edit', op_id: opIdNew(), payload: { changes: r.changes } };
+    setPjState('wait', '⏳ 正在投递待办…');
+    var btn = $('btn-pj-submit'); btn.disabled = true;
+    fetch('/api/pending', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    }).then(function (res) {
+      return res.text().then(function (t) {
+        var j = null; try { j = JSON.parse(t); } catch (e) { /* 非 JSON 也要展示原文 ✓ */ }
+        if (res.status === 202) {
+          setPjState('wait', '⏳ 已投递为待办：' + ((j && j.file) || '') +
+            '　⭐ 须人触发运行器才真执行：python collab\\run_pending.py --base .');
+        } else {
+          setPjState('bad', '⛔ 被拒（HTTP ' + res.status + '）：' + String((j && j.error) || t || '').slice(0, 300));
+        }
+      });
+    }).catch(function (e) {
+      setPjState('bad', '⛔ 提交失败：' + e.message + '（窄写端点不可用？）');
+    }).then(function () { btn.disabled = false; });
   }
 
   function refresh() {
@@ -1039,6 +1188,9 @@
   }
 
   refresh();
+  if ($('btn-proj-edit')) { $('btn-proj-edit').onclick = openProjEdit; }
+  if ($('btn-pj-cancel')) { $('btn-pj-cancel').onclick = closeProjEdit; }
+  if ($('btn-pj-submit')) { $('btn-pj-submit').onclick = submitProjEdit; }
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
 })();
 </script>
