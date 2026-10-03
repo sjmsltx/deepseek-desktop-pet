@@ -116,10 +116,29 @@ def test_probe_full_success(monkeypatch):
 # ---------- 面板：只做宿主，失败要给可读原因 ----------
 
 def test_panel_reports_when_launcher_missing(monkeypatch, tmp_path):
+    """⭐ 语义更新（P0 修复后 ✓）：`open_panel()` 默认**不自动启动** ✗ →
+    要走到"找不到启动器"这条，必须显式 `allow_start=True` ✓（＝用户已确认启动 ✓）。"""
     monkeypatch.setattr(panel.ad, "is_serving", lambda *a, **k: False)
     monkeypatch.setattr(panel, "LAUNCHER", str(tmp_path / "no-launcher.ps1"))
-    ok, msg = panel.open_panel()
+    ok, msg = panel.open_panel(allow_start=True)      # ⭐ 显式允许启动 ✓
     assert ok is False and "找不到启动器" in msg
+
+
+def test_panel_does_not_autostart_by_default():
+    """⭐ P0 核心：默认**不得**自动去启动/重启用户的服务 ✗（且不得等待 ✗）。"""
+    import time as _t
+    monkeypatch_ok = True
+    orig = panel.ad.is_serving
+    panel.ad.is_serving = lambda *a, **k: False        # 服务没跑
+    try:
+        t0 = _t.time()
+        ok, msg = panel.open_panel()                    # 默认 allow_start=False ✓
+        dt = _t.time() - t0
+        assert ok is False
+        assert "未自动启动" in msg, '⭐ 必须说明"未自动启动" ✗：%s' % msg
+        assert dt < 8, '⛔ 默认路径不得进入等待循环 ✗（旧版最长 45s ✗）实测 %.1fs' % dt
+    finally:
+        panel.ad.is_serving = orig
 
 
 def test_panel_reports_when_url_unavailable(monkeypatch):

@@ -245,6 +245,10 @@ UI_ZH = {
     'export_chat': '📤 导出聊天记录', 'mem_time': '时间', 'mem_who': '谁', 'mem_select_all': '全选', 'mem_select_none': '全不选', 'mem_select_me': '只选我', 'mem_select_pet': '只选桌宠', 'mem_export': '导出', 'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
     'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
     'dsh_panel': '🐳 打开 DSH 面板（3.0）', 'dsh_panel_fail': '🫧 DSH 面板打不开：',
+        'dsh_opening': '⏳ 正在打开 DSH…（后台进行，不卡界面）',
+        'dsh_start_ask': 'DSH 服务没在运行。\n\n是否现在启动它？（约 10~30 秒，期间界面不会卡）',
+        'dsh_start_cancelled': '已取消：没有启动 DSH（服务未运行）。',
+        'dsh_panel_missing': '🐳 DSH 面板（⚠️ 未检测到 DSH，需先安装或设置 DSH_ROOT）',
     'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
     'person_gentle': '温柔', 'person_tsundere': '傲娇', 'person_sarcastic': '吐槽', 'person_energetic': '元气', 'person_cold': '高冷',
@@ -279,6 +283,10 @@ UI_EN = {
     'export_chat': '📤 Export chat', 'mem_time': 'Time', 'mem_who': 'Who', 'mem_select_all': 'All', 'mem_select_none': 'None', 'mem_select_me': 'Me only', 'mem_select_pet': 'Pet only', 'mem_export': 'Export', 'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
     'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
     'dsh_panel': '🐳 Open DSH panel (3.0)', 'dsh_panel_fail': '🫧 Cannot open DSH panel: ',
+        'dsh_opening': '⏳ Opening DSH… (background, UI stays responsive)',
+        'dsh_start_ask': 'DSH service is not running.\n\nStart it now? (about 10-30s, UI will not freeze)',
+        'dsh_start_cancelled': 'Cancelled: DSH was not started (service not running).',
+        'dsh_panel_missing': '🐳 DSH panel (⚠️ DSH not detected; install it or set DSH_ROOT)',
     'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
     'person_gentle': 'Gentle', 'person_tsundere': 'Tsundere', 'person_sarcastic': 'Sarcastic', 'person_energetic': 'Energetic', 'person_cold': 'Cold',
@@ -8850,7 +8858,15 @@ class PetWidget(QWidget):
         except Exception:
             _dsh_open_panel = None
         if _dsh_open_panel is not None:
-            acts['dsh_panel'] = menu.addAction(T('dsh_panel'))
+            # ⭐ 检测不到 DSH 时**标注出来**（微信侧 `WX-…-13` §4.2 ✓ 对下载的人友好 ✓）
+            _dsh_label = T('dsh_panel')
+            try:
+                import dsh_adapter as _ad2
+                if not _os.path.exists(_ad2.DSH_ROOT):
+                    _dsh_label = T('dsh_panel_missing')
+            except Exception as _e:
+                _silent_log('tray.dsh_label', _e)
+            acts['dsh_panel'] = menu.addAction(_dsh_label)
             acts['dsh_panel'].triggered.connect(self._open_dsh_panel)
 
         menu.addSeparator()
@@ -8859,21 +8875,57 @@ class PetWidget(QWidget):
         acts['exit'] = menu.addAction(T('exit'))
         return menu, acts
     def _open_dsh_panel(self):
-        """3.0（P0）：把 DSH 面板作为独立窗口打开。
+        """3.0（P0 **修**）：把 DSH 面板作为独立窗口打开 —— ⭐ **绝不在主线程等** ✗
 
-        铁律：只做宿主 —— 不解析它的前端、不读凭据、不写它的文件。
-        失败只提示，不影响桌宠任何现有功能。
+        Owner 2026-10-04 01:53 实测"点 DSH → 程序未响应"✗；微信侧 `WX-…-14` 确诊：
+        旧实现**同步**调用 `open_panel()`（内部 `sleep(2)` 轮询最长 45s ＋ 起 PowerShell
+        冷启动 ＋ 必要时**重启 DSH 服务** ✓）→ 最坏 ≈60s ✗ → Windows 判"未响应" ✗。
+
+        铁律不变：只做宿主 —— 不解析它的前端、不读凭据、不写它的文件 ✓。
+        本函数**立刻返回** ✓，干活在后台线程 ✓，结果经 `ui_call_signal` 回主线程 ✓。
         """
+        if getattr(self, '_dsh_busy', False):
+            return False                                   # ⭐ 防连点堆叠 ✓
+        self._dsh_busy = True
         try:
-            from dsh_panel import open_panel
-            ok, msg = open_panel()
+            self._notify(T('dsh_opening'))                 # ⭐ 先给非阻塞提示 ✓
+        except Exception as _e:
+            _silent_log('_open_dsh_panel.notify', _e)
+        import threading as _th
+        _th.Thread(target=self._dsh_open_worker, daemon=True).start()
+        return True
+
+    def _dsh_open_worker(self):
+        """后台线程：探测 → （必要时**问用户**）→ 打开 ✓（⛔ 全程不碰 UI ✗）"""
+        ok, msg = False, ''
+        try:
+            import dsh_adapter as _ad
+            running = _ad.is_serving()
+            allow = False
+            if not running:
+                # ⭐ 先问用户（跨线程确认 ✓）；⛔ 不自动重启用户的服务 ✗
+                allow = bool(self._request_confirm(T('dsh_start_ask')))
+                if not allow:
+                    ok, msg = False, T('dsh_start_cancelled')
+            if allow or running:
+                from dsh_panel import open_panel
+                ok, msg = open_panel(allow_start=allow, timeout_ready=10, poll=0.3)
         except Exception as exc:
             ok, msg = False, repr(exc)
-        if not ok:
+        finally:
+            try:
+                self.ui_call_signal.emit(lambda: self._dsh_open_done(ok, msg))
+            except Exception as _e:
+                _silent_log('_dsh_open_worker.emit', _e)
+
+    def _dsh_open_done(self, ok, msg):
+        """主线程：收尾（解除 busy ＋ 明报结果 ✓ 失败不静默 ✗）"""
+        self._dsh_busy = False
+        if not ok and msg:
             try:
                 self.say_plain('%s%s' % (T('dsh_panel_fail'), msg))
-            except Exception:
-                pass
+            except Exception as _e:
+                _silent_log('_dsh_open_done.say', _e)
         return ok
 
     def contextMenuEvent(self, event):

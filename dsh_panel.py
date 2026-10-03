@@ -44,15 +44,28 @@ def _spawn(args) -> bool:
         return False
 
 
-def open_panel(url: str = None, timeout_ready: int = 45):
-    """打开 DSH 面板窗口。返回 (ok, 说明文字)。"""
-    # 0) 服务没跑 → 先用启动器拉起来（启动器会写日志、读令牌、开浏览器）
+def open_panel(url: str = None, timeout_ready: int = 10, poll: float = 0.3,
+               allow_start: bool = False):
+    """打开 DSH 面板窗口。返回 (ok, 说明文字)。
+
+    ⭐ P0 修复（Owner 2026-10-04 01:53「程序未响应」✓ 微信侧 `WX-…-14` 确诊 ✓）：
+
+      · ⛔ **默认不自动启动** ✗（`allow_start=False`）—— 服务没跑就**立刻返回** ✓
+        由调用方**先问用户** ✓（⛔ 不擅自重启用户正在用的服务 ✗）
+      · 超时 45s → ⭐ **10s** ✓；轮询 2s → ⭐ **0.3s** ✓（总时长更短 ✓ 且"起来了"更快被发现 ✓）
+      · ⚠️ 本函数**可能阻塞** ✗ → ⭐ **调用方必须放到工作线程** ✗
+        （此前它被主线程同步调用 ✗ → 最坏 ≈60s → Windows 判"未响应" ✗）
+    """
+    # 0) 服务没跑
     if not ad.is_serving():
+        if not allow_start:
+            return False, ('DSH 服务没在运行 ⛔（未自动启动 ✗）—— 🌟 需要的话先启动 DSH，'
+                           '或用「启动器」跑一次：%s' % LAUNCHER)
         if os.path.exists(LAUNCHER):
             _spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', LAUNCHER])
             deadline = time.time() + timeout_ready
             while time.time() < deadline:
-                time.sleep(2)
+                time.sleep(poll)                      # ⭐ 0.3s 粒度 ✓
                 if ad.is_serving():
                     break
             if not ad.is_serving():
