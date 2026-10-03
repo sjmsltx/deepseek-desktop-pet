@@ -129,6 +129,22 @@ def is_allowed(cmd):
 
 
 # ── ③ 派发（只调 rt_view / rt_action ✓ + 必写审计 ✓）────────────────
+def sender_allowed(sender, allowed_peers=None):
+    """⭐ identity 段（契约条款 III D2）：**发送者白名单**判定 ✓ 纯函数 ✓ 无 IO ✗。
+
+    · **未配置**（空/None）→ ⭐ 一律放行 ✓（**行为与从前完全一致** ✓）
+    · 已配置 → **白名单枚举**：仅名单内 sender 放行 ✓（大小写归一 ✓）
+    · ⛔ 只比对“发送者标识” ✗ —— **不涉密码/token** ✓（零新增凭证 ✓）
+    """
+    _al = [str(x).strip().lower() for x in (allowed_peers or []) if str(x).strip()]
+    if not _al:
+        return True, ''
+    _s = str(sender or '').strip().lower()
+    if _s in _al:
+        return True, ''
+    return False, '发送者不在白名单：%r（已拒绝，命令未执行 ✓）' % (sender,)
+
+
 def _audit_write(audit, *, action, role='', detail='', allowed=True, extra=None):
     """审计出口 ✓（默认 `governance.log_event` ✓ 可注入替身 ✓ 便于单测**不污染真审计** ✗）"""
     if audit is None:
@@ -261,6 +277,7 @@ def build_consumer_from_config(cfg, *, base_dir, emit=None, agent='owner', reque
         interval_ms=int(interval_ms or cfg.get('remote_interval_ms') or DEFAULT_INTERVAL_MS),
         store=store, relay=relay, gate=gate, audit=None,
         requester=str(cfg.get('remote_requester') or requester),
+        allowed_peers=cfg.get('remote_allowed_peers'),      # ⭐ identity 段（未配置 = 放行 ✓ 行为不变 ✓）
         state_path=_os.path.join(base, 'logs', 'remote_state.json'),
         agent=str(cfg.get('remote_agent') or agent), emit=emit)
 
@@ -277,10 +294,11 @@ class RemoteConsumer:
 
     def __init__(self, relay_log=None, *, interval_ms=DEFAULT_INTERVAL_MS, dispatch_fn=None,
                  store=None, relay=None, gate=None, audit=None, requester='owner',
-                 state_path='', agent='owner', emit=None):
+                 state_path='', agent='owner', emit=None, allowed_peers=None):
         self.log = relay_log
         self.interval_ms = max(200, int(interval_ms or DEFAULT_INTERVAL_MS))
         self.dispatch_fn = dispatch_fn or dispatch
+        self.allowed_peers = allowed_peers            # ⭐ identity 段（未配置 = 放行 ✓ 行为不变 ✓）
         self.store = store
         self.relay = relay
         self.gate = gate
@@ -336,6 +354,26 @@ class RemoteConsumer:
             if seq <= self.last_seq or (mid and mid in self._seen):
                 continue                     # ⭐ 幂等：同 id / 旧 seq 一律跳过 ✓
             text = getattr(m, 'body', '')
+            # ⭐ identity 段（条款 III D2）：发送者白名单 —— **未配置则一律放行** ✓（行为不变 ✓）
+            _ok_id, _why_id = sender_allowed(getattr(m, 'sender', ''), self.allowed_peers)
+            if not _ok_id:
+                _audit_write(self.audit, action='identity_denied',
+                             role=str(getattr(m, 'sender', '') or ''),
+                             detail=_why_id, allowed=False)
+                _log_warn('身份校验未通过（seq=%s）：%s' % (seq, _why_id))
+                _res = {'ok': False, 'reply': '⛔ ' + _why_id, 'data': None,
+                        'msg_id': mid, 'seq': seq, 'state': 'failed'}
+                self.last_seq = max(self.last_seq, seq)          # ⭐ 只前进 ✓（不重放 ✗）
+                if mid:
+                    self._seen.append(mid)
+                    self._seen = self._seen[-500:]
+                out.append(_res)
+                if callable(self.emit):
+                    try:
+                        self.emit(_res)
+                    except Exception as exc:
+                        _log_warn('emit 失败（%r）' % (exc,))
+                continue                                        # ⛔ **不派发** ✗
             cmd = parse_command(text)
             try:
                 res = self.dispatch_fn(cmd, store=self.store, relay=self.relay, gate=self.gate,
