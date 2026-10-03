@@ -81,11 +81,24 @@ def _find_source(base: str, role: str, state: str, source: str, source_ref: str)
     return cand[0] if cand else ''
 
 
-def _run_pipeline(base: str, src: str, dry: bool) -> tuple:
-    """⭐ 逐文件跑三合一（出 `_alpha` / `_chroma` ✓）；返回 `(ok, detail)` ✓。"""
+def _variants_exist(src: str) -> bool:
+    """⭐ 三件套是否**已齐备** ✓（透明 ＋ 绿底都在 ✓）。"""
+    return (os.path.isfile(src[:-4] + '_alpha.png')
+            and os.path.isfile(src[:-4] + '_chroma.png'))
+
+
+def _run_pipeline(base: str, src: str, dry: bool, force: bool = False) -> tuple:
+    """⭐ 逐文件跑三合一（出 `_alpha` / `_chroma` ✓）；返回 `(ok, detail)` ✓。
+
+    ⭐ 微信侧 `WX-…-20261004-08` §3.2 建议已采纳：**已齐备则默认跳过** ✗ ——
+       否则会在齐备的格上**白写一遍** ✗（17 模型 × 多状态开销不小 ✗）
+       ＋ **刷新 mtime** 会让“资产是否被动过”难以判断 ✗；要重跑请显式 `force=true` ✓。
+    """
     tool = os.path.join(base, POOL_NAME, PIPELINE)
     if not os.path.isfile(tool):
         return False, '管线脚本缺失：%s' % PIPELINE
+    if _variants_exist(src) and not force:
+        return True, '⭐ 已齐备，跳过 ✓（未写任何文件 ✗ mtime 不变 ✓；如需重跑请带 force=true ✓）'
     if dry:
         return True, '（dry-run）将跑管线：%s' % os.path.basename(src)
     r = subprocess.run([PY, tool, src], capture_output=True, text=True,
@@ -172,6 +185,7 @@ def do_asset_op(base: str, payload: dict, dry: bool = False) -> tuple:
     source = str(payload.get('source') or 'pool')
     ref = str(payload.get('source_ref') or '')
     want_pipeline = bool(payload.get('run_pipeline', True))
+    force = bool(payload.get('force', False))          # ⭐ 已齐备时是否强制重跑 ✓
     artifacts = []
 
     if op == 'set_portrait':                                  # ⭐ Owner 00:36 已批 ✓
@@ -187,6 +201,13 @@ def do_asset_op(base: str, payload: dict, dry: bool = False) -> tuple:
 
     src = _find_source(base, role, state, source, ref)
     if not src or not os.path.isfile(src):
+        if op == 'add_state':
+            # ⭐ 语义写明（微信侧 `WX-…-20261004-08` §3.1 提请 ✓）：
+            #    ⛔ 本 op **不是**“只登记一个状态名” ✗ —— 状态的“存在”在本项目里**就是文件** ✓
+            #    （没有图 ＝ 界面/渲染都看不到它 ✓ 无处可登记 ✗）→ 故 **首图必填** ✓
+            return False, ('add_state 需要**首图** ✗ —— 本项目里“状态的存在”就是文件本身 ✓；'
+                           '无图则界面与渲染都看不到它 ✗。请用 source_ref 指一张在 assets_3.0/ 或 '
+                           'assets/ 下的图 ✓（⛔ 不支持“先登记、后补图” ✗）'), []
         return False, '找不到源图（role=%s state=%s source=%s ref=%s）' % (
             role, state, source, ref or '-'), []
 
@@ -208,11 +229,13 @@ def do_asset_op(base: str, payload: dict, dry: bool = False) -> tuple:
         arts.append(os.path.relpath(tgt, base).replace(os.sep, '/'))
 
     # ③ 跑管线（逐文件 ✓）
+    pinfo = ''
     if want_pipeline or op == 'run_pipeline':
-        okp, info = _run_pipeline(base, src, dry)
+        okp, info = _run_pipeline(base, src, dry, force=force)
         if not okp:
             return False, info, arts
+        pinfo = info                                   # ⭐ 把“已齐备跳过”等实情带到最终 detail ✓
         arts.append(os.path.relpath(src[:-4] + '_alpha.png', base).replace(os.sep, '/'))
 
-    return True, ('（dry-run）' if dry else '') + '完成：%s %s/%s ｜ 产物 %d 个' % (
-        op, role, state, len(arts)), arts
+    return True, ('（dry-run）' if dry else '') + '完成：%s %s/%s ｜ 产物 %d 个%s' % (
+        op, role, state, len(arts), ('｜ ' + pinfo) if pinfo else ''), arts

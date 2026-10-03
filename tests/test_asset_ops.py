@@ -242,3 +242,59 @@ def test_validation_set_portrait_payload_shape():
                     ({'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'a/b'}, '单段')):
         r = pending_ops.validate_request({'type': 'asset_op', 'op_id': 'sp0001', 'payload': bad})
         assert r[0] is False and kw in r[1], '⛔ %r 应被拒 ✗' % bad
+
+
+
+# ── 11. ⭐ 已齐备则默认跳过（微信侧 `-20261004-08` §3.2 建议 ✓）──────────
+def test_pipeline_skips_when_already_complete(repo):
+    """齐备时不白写 ✗ 且 **mtime 不变** ✓（防"资产是否被动过"难以判断 ✗）。"""
+    payload = _req(op='run_pipeline')['payload']
+    ok1, d1, _ = asset_ops.do_asset_op(repo, payload, dry=False)
+    assert ok1 is True, d1
+    src = os.path.join(repo, 'assets_3.0', 'alpha', 'alpha_happy.png')
+    a = src[:-4] + '_alpha.png'
+    m0 = os.path.getmtime(a)
+    h0 = _hash(a)
+    ok2, d2, _ = asset_ops.do_asset_op(repo, payload, dry=False)      # 第二次：已齐备
+    assert ok2 is True and '已齐备' in d2 and '跳过' in d2, d2
+    assert os.path.getmtime(a) == m0, '⛔ 跳过时不得刷新 mtime ✗'
+    assert _hash(a) == h0, '⛔ 跳过时不得改内容 ✗'
+
+
+def test_pipeline_force_reruns(repo):
+    """`force=true` → 允许重跑 ✓（给界面"强制重跑"用 ✓）。"""
+    payload = _req(op='run_pipeline')['payload']
+    asset_ops.do_asset_op(repo, payload, dry=False)
+    a = os.path.join(repo, 'assets_3.0', 'alpha', 'alpha_happy_alpha.png')
+    h0 = _hash(a)
+    pl = dict(payload)
+    pl['force'] = True
+    ok, d, _ = asset_ops.do_asset_op(repo, pl, dry=False)
+    assert ok is True and '已齐备' not in d, d
+    assert os.path.isfile(a), '⭐ 强制重跑应重新产出 ✓'
+
+
+def test_pipeline_dry_run_says_would_run(repo):
+    payload = _req(op='run_pipeline')['payload']
+    ok, d, _ = asset_ops.do_asset_op(repo, payload, dry=True)
+    assert ok is True and ('dry-run' in d or '已齐备' in d), d
+
+
+# ── 12. ⭐ add_state 语义明报（微信侧 §3.1 提请 ✓ 采纳并写明 ✓）────────
+def test_add_state_requires_first_image_with_clear_message(repo):
+    """⭐ 本 op **不是**"只登记状态名" ✗ → 必须给首图 ✓，且原因说清 ✓。"""
+    ok, d, arts = asset_ops.do_asset_op(
+        repo, {'role': 'alpha', 'state': 'brand_new', 'op': 'add_state', 'source': 'pool'},
+        dry=False)
+    assert ok is False
+    assert '首图' in d and '状态的存在' in d, '⭐ 必须说清"为什么不能只登记" ✗：%s' % d
+    assert '先登记' in d, '⭐ 要明确"不支持先登记后补图" ✗'
+
+
+def test_add_state_succeeds_with_image(repo):
+    """给了首图 → 正常新增 ✓。"""
+    ok, d, arts = asset_ops.do_asset_op(
+        repo, {'role': 'alpha', 'state': 'happy', 'op': 'add_state', 'source': 'pool'},
+        dry=False)
+    assert ok is True, d
+    assert os.path.isfile(os.path.join(repo, 'assets', 'alpha', 'alpha_happy.png'))
