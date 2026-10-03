@@ -44,7 +44,7 @@ def _spawn(args) -> bool:
         return False
 
 
-def open_panel(url: str = None, timeout_ready: int = 10, poll: float = 0.3,
+def open_panel(url: str = None, timeout_ready: int = 40, poll: float = 0.3,
                allow_start: bool = False):
     """打开 DSH 面板窗口。返回 (ok, 说明文字)。
 

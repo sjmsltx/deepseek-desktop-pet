@@ -247,6 +247,7 @@ UI_ZH = {
     'dsh_panel': '🐳 打开 DSH 面板（3.0）', 'dsh_panel_fail': '🫧 DSH 面板打不开：',
         'dsh_opening': '⏳ 正在打开 DSH…（后台进行，不卡界面）',
         'dsh_starting': '⏳ DSH 服务没在运行，正在启动它（约 10~30 秒，界面不会卡）…',
+        'dsh_starting_long': '⏳ DSH 正在启动中，请稍等（首次约 20~40 秒，界面不会卡）…',
         'dsh_start_ask': 'DSH 服务没在运行。\n\n是否现在启动它？（约 10~30 秒，期间界面不会卡）',
         'dsh_start_cancelled': '已取消：没有启动 DSH（服务未运行）。',
         'dsh_panel_missing': '🐳 DSH 面板（⚠️ 未检测到 DSH，需先安装或设置 DSH_ROOT）',
@@ -8961,7 +8962,7 @@ class PetWidget(QWidget):
                 except Exception as _e:
                     _silent_log('_collab_worker.notify', _e)
             ok, msg = open_collab(base, port=port, allow_start=(not running),
-                                  timeout_ready=15, poll=0.3)
+                                  timeout_ready=40, poll=0.3)
         except Exception as exc:
             ok, msg = False, repr(exc)
         finally:
@@ -8995,7 +8996,10 @@ class PetWidget(QWidget):
                 except Exception as _e:
                     _silent_log('_dsh_open_worker.notify', _e)
             from dsh_panel import open_panel
-            ok, msg = open_panel(allow_start=(not running), timeout_ready=15, poll=0.3)
+            # ⭐⭐ 实测（2026-10-04 03:2x ✓）：DSH 服务从冷启动到监听 3080 **需要约 19 秒** ✗ ——
+            #    而我此前把超时压到 10 秒 ✗ → **不等它起完就放弃** ✗ → 用户看到"拉了没用" ✗。
+            #    ⭐ 现改为**最多等 40 秒** ✓（0.3s 轮询 ✓ 一旦就绪立刻返回 ✓ 不会白等 ✓）
+            ok, msg = open_panel(allow_start=(not running), timeout_ready=40, poll=0.3)
         except Exception as exc:
             ok, msg = False, repr(exc)
         finally:
