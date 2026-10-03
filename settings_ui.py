@@ -1074,14 +1074,20 @@ class SettingsDialog(QDialog):
                 self.ck_cost.setChecked(bool(_gov_r.cost_limit_enabled()))
                 self.sp_cost.setValue(float(_gov_r.cost_limit_daily() or 0))
                 # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：圆桌额度回显（缺省/0 = 不限 ✓）
+                # ⭐ 条款 ③-2（`WX-桌宠-20261003-01`）：非法值必须**可见** —— 收集 problems 并在设置页明报 ✓
                 try:
                     import relay_log as _rl
-                    _lim = _rl.load_limits(warn=lambda _m: None)
+                    _probs = []
+                    _lim = _rl.load_limits(warn=_probs.append)
                     _rt_tok = int(_lim.get('max_tokens') or 0)
                     _rt_micro = int(_lim.get('max_cost_micro') or 0)
                     self.ck_rt.setChecked(bool(_rt_tok or _rt_micro))
                     self.sp_rt_tok.setValue(float(_rt_tok))
                     self.sp_rt_cost.setValue(round(_rt_micro / 1_000_000.0, 2))
+                    if _probs:
+                        self.lb_rt_note.setText('⚠️ 配置有误，已按不限运行：' + '；'.join(_probs))
+                    else:
+                        self.lb_rt_note.setText('留空/不加锁 = 不限；未设置时协作台启动会提示一次 ✓')
                 except Exception:
                     pass
             except Exception:

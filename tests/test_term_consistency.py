@@ -50,9 +50,11 @@ def test_legacy_field_name_only_in_alias_and_contract():
     out = subprocess.run([GIT, "-c", "core.quotepath=false", "ls-files", "*.py"],
                          cwd=ROOT, capture_output=True)
     offenders = []
+    # ⭐ 白名单：relay_log.py（兼容别名所在 ✓）＋ 本护栏文件自身（断言里必须写旧名字符串 ✓ 属自指 ✗不违规范）
+    ALLOW = ('relay_log.py', 'tests/test_term_consistency.py')
     for f in out.stdout.decode("utf-8", "replace").splitlines():
         f = f.strip()
-        if not f or f.endswith('relay_log.py'):
+        if not f or f.endswith(ALLOW):
             continue
         p = os.path.join(ROOT, f)
         if os.path.isfile(p):
@@ -88,3 +90,29 @@ def test_step_two_not_prematurely_applied():
         assert 'data-layer' in idx, '协作台前端仍依赖 data-layer ✓（故不许半拉子改名 ✗）'
     # 追加条款里必须写明"不许半拉子"的处置
     assert '同批' in m2 and '半拉子' in m2
+
+
+# ── 6. ⭐ 追加条款 II（采纳微信侧过目意见）在位 ──────────────────────────
+def test_contract_appendix_ii_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    m2 = _read('docs/3.0-M2-UI导出契约-冻结v1.md')
+    for doc in (m1, m2):
+        assert '追加条款 II' in doc, '追加条款 II 缺 ✗'
+        assert '单一写者' in doc, '②-1 单一写者未钉住 ✗（最易堆山的一条）'
+        assert '投影可以落后' in doc, '①-4 边界定义（不得反写）未钉住 ✗'
+    # M1 专属：额度生效时机 ＋ 优先级预留 ＋ 成本真相唯一
+    for token in ('启动时读一次', '项目级 > 全局 > 不限', '不自己算钱'):
+        assert token in m1, 'M1 契约缺：%s ✗' % token
+    # M2 专属：只读白名单预留 ＋ 能力不得含密钥
+    assert '不得含密钥' in m2 and '/api/roles' in m2
+
+
+# ── 7. ⭐ ③-2 非法值必须“可见”（设置页回显，不只收进变量） ────────────
+def test_invalid_config_visible_in_settings():
+    with io.open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8') as fh:
+        src = fh.read()
+    assert '配置有误' in src, '设置页必须回显“配置有误，已按不限运行” ✗'
+    assert 'lb_rt_note.setText' in src
+    # 并确认回显确由 load_limits 的 problems 驱动（不是写死的文字）
+    seg = src[src.index('_probs = []'):]
+    assert '_probs' in seg and 'load_limits(warn=_probs.append)' in src
