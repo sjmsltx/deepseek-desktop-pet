@@ -50,6 +50,14 @@ LAYER_FORBIDDEN = ('V1', 'V2', 'V3')
 PASS, FAIL = [], []
 
 
+def _rel(p):
+    """相对路径展示（⭐ 跨盘符时 relpath 会 ValueError ✗ → 退回原路径 ✓）"""
+    try:
+        return os.path.relpath(p, ROOT)
+    except ValueError:
+        return p
+
+
 def ok(name, cond, detail=''):
     (PASS if cond else FAIL).append(name)
     flag = '✅' if cond else '❌'
@@ -67,7 +75,7 @@ def sec(title):
 
 # ───────────────────────── ① 静态扫描 ─────────────────────────
 def scan_html(path=DEFAULT_HTML):
-    sec('① 静态扫描：%s' % os.path.relpath(path, ROOT))
+    sec('① 静态扫描：%s' % _rel(path))
     if not os.path.isfile(path):
         ok('collab/index.html 存在', False, path)
         return
