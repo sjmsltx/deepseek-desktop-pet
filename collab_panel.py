@@ -1,0 +1,87 @@
+# -*- coding: utf-8 -*-
+"""协作台宿主窗口（3.0）：在桌宠里**打开协作台**（Owner 2026-10-04 01:48 问"没有入口" ✓）
+
+定位（照 `dsh_panel` 同款 ✓ 复用其浏览器探测／spawn ✓ 不另造 ✗）：
+  · ⭐ 本机服务（`127.0.0.1` ✓）—— ⛔ **绝不上网** ✗
+  · 优先 Edge/Chrome `--app=`（无外框 ✓）；失败降级系统默认浏览器 ✓
+  · ⭐ 服务没跑 → **先问用户**（由调用方问 ✓ 本模块只按 `allow_start` 执行 ✓）
+     启动 = `python collab/relay_server.py --log <日志> --port <端口>` ✓（只读面 ✓ 默认不开动作端点 ✓）
+  · ⚠️ 本模块**可能阻塞**（等待服务就绪 ✓）→ ⭐ 调用方必须放工作线程 ✗
+
+对外：`open_collab(base_dir, port=8792, allow_start=False, timeout_ready=12, poll=0.3)`
+"""
+from __future__ import annotations
+
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dsh_panel as _hp            # ⭐ 复用其 BROWSERS／_spawn（同款宿主窗口 ✓）
+
+DEFAULT_PORT = 8792                # ⭐ 默认端口（可配 ✓）
+HEALTH = '/api/health'             # 只读探针（该端点恒在 ✓ 不需 --enable-actions ✓）
+
+
+def _probe(port: int, timeout: float = 1.0) -> bool:
+    """探协作台是否在跑（只读 ✓ 失败不抛 ✗）。"""
+    try:
+        import urllib.request
+        with urllib.request.urlopen('http://127.0.0.1:%d%s' % (port, HEALTH), timeout=timeout) as fh:
+            return fh.status == 200
+    except Exception:
+        return False
+
+
+def _server_script(base_dir: str) -> str:
+    return os.path.join(base_dir, 'collab', 'relay_server.py')
+
+
+def open_collab(base_dir: str, port: int = DEFAULT_PORT, allow_start: bool = False,
+                timeout_ready: int = 12, poll: float = 0.3):
+    """打开协作台窗口。返回 `(ok, 说明)` ✓。
+
+    ⛔ `allow_start=False`（默认）：服务没跑就**立刻返回** ✗ 不擅自启动 ✓（由用户确认后再来 ✓）
+    """
+    if not _probe(port):
+        if not allow_start:
+            return False, ('协作台没在运行 ⛔（未自动启动 ✗）—— 需要的话点“启动协作台”即可'
+                           '（本机 http://127.0.0.1:%d/）' % port)
+        script = _server_script(base_dir)
+        if not os.path.isfile(script):
+            return False, '找不到协作台服务脚本：%s' % script
+        log = os.path.join(base_dir, 'collab', 'relay.log')
+        try:
+            os.makedirs(os.path.dirname(log), exist_ok=True)
+        except OSError:
+            pass
+        # ⭐ 只读面启动（⛔ 不带 --enable-actions ✗）；仅监听 127.0.0.1 ✓
+        ok_spawn = _hp._spawn([sys.executable, script, '--log', log, '--port', str(port)])
+        if not ok_spawn:
+            return False, '启动协作台失败（spawn 被拒）'
+        deadline = time.time() + timeout_ready
+        while time.time() < deadline:
+            time.sleep(poll)                       # ⭐ 0.3s 粒度 ✓
+            if _probe(port):
+                break
+        if not _probe(port):
+            return False, ('已尝试启动协作台，但 %d 秒内没起来 —— 请手动跑一次看提示：'
+                           'python collab\\relay_server.py --port %d' % (timeout_ready, port))
+    url = 'http://127.0.0.1:%d/' % port
+    for name, paths in _hp.BROWSERS:
+        for exe in paths:
+            if os.path.exists(exe):
+                if _hp._spawn([exe, '--app=%s' % url, '--window-size=1280,880']):
+                    return True, '已用 %s 的应用窗口打开协作台（%s）' % (name, url)
+    try:
+        if sys.platform == 'win32':
+            os.startfile(url)                      # noqa: S606 - 仅打开本机 URL ✓
+            return True, '已用系统默认浏览器打开协作台（%s）' % url
+    except Exception as exc:
+        return False, '打不开浏览器：%r' % exc
+    return False, '没找到可用的浏览器'
+
+
+if __name__ == '__main__':                          # 手工自检
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    print(open_collab(base))

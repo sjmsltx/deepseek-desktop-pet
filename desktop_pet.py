@@ -249,6 +249,11 @@ UI_ZH = {
         'dsh_start_ask': 'DSH 服务没在运行。\n\n是否现在启动它？（约 10~30 秒，期间界面不会卡）',
         'dsh_start_cancelled': '已取消：没有启动 DSH（服务未运行）。',
         'dsh_panel_missing': '🐳 DSH 面板（⚠️ 未检测到 DSH，需先安装或设置 DSH_ROOT）',
+        'collab_panel': '🍵 打开协作台（本机 %(port)d）',
+        'collab_opening': '⏳ 正在打开协作台…（后台进行，不卡界面）',
+        'collab_start_ask': '协作台没在运行。\n\n是否现在启动它？（只监听本机 127.0.0.1:%(port)d，界面不会卡）',
+        'collab_start_cancelled': '已取消：没有启动协作台（服务未运行）。',
+        'collab_fail': '🫧 协作台打不开：',
     'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
     'person_gentle': '温柔', 'person_tsundere': '傲娇', 'person_sarcastic': '吐槽', 'person_energetic': '元气', 'person_cold': '高冷',
@@ -287,6 +292,11 @@ UI_EN = {
         'dsh_start_ask': 'DSH service is not running.\n\nStart it now? (about 10-30s, UI will not freeze)',
         'dsh_start_cancelled': 'Cancelled: DSH was not started (service not running).',
         'dsh_panel_missing': '🐳 DSH panel (⚠️ DSH not detected; install it or set DSH_ROOT)',
+        'collab_panel': '🍵 Open collab console (local %(port)d)',
+        'collab_opening': '⏳ Opening collab console… (background, UI stays responsive)',
+        'collab_start_ask': 'Collab console is not running.\n\nStart it now? (local only 127.0.0.1:%(port)d, UI will not freeze)',
+        'collab_start_cancelled': 'Cancelled: collab console was not started (service not running).',
+        'collab_fail': '🫧 Cannot open collab console: ',
     'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
     'person_gentle': 'Gentle', 'person_tsundere': 'Tsundere', 'person_sarcastic': 'Sarcastic', 'person_energetic': 'Energetic', 'person_cold': 'Cold',
@@ -8862,12 +8872,28 @@ class PetWidget(QWidget):
             _dsh_label = T('dsh_panel')
             try:
                 import dsh_adapter as _ad2
-                if not _os.path.exists(_ad2.DSH_ROOT):
+                if not os.path.exists(_ad2.DSH_ROOT):      # ⚠️ 原写 `_os` ✗ 从未定义 → 被 except 吞掉 ✗ 静默失效 ✓
                     _dsh_label = T('dsh_panel_missing')
             except Exception as _e:
                 _silent_log('tray.dsh_label', _e)
             acts['dsh_panel'] = menu.addAction(_dsh_label)
             acts['dsh_panel'].triggered.connect(self._open_dsh_panel)
+
+        # 8b. ⭐ 协作台（3.0）：Owner 2026-10-04 01:48「菜单/设置里没有入口」✓
+        #     ⭐ 本机服务（127.0.0.1 ✓）⛔ 绝不上网 ✗；与 DSH 同款宿主窗口 ✓
+        try:
+            from collab_panel import open_collab as _collab_open
+        except Exception as _e:
+            _collab_open = None
+            _silent_log('tray.collab_import', _e)
+        if _collab_open is not None:
+            _cport = 8792
+            try:
+                _cport = int((getattr(self, 'config', {}) or {}).get('collab_port') or 8792)
+            except Exception as _e:
+                _silent_log('tray.collab_port', _e)
+            acts['collab_panel'] = menu.addAction(T('collab_panel') % {'port': _cport})
+            acts['collab_panel'].triggered.connect(self._open_collab)
 
         menu.addSeparator()
         acts['hide'] = menu.addAction(T('hide_tray'))
@@ -8894,6 +8920,61 @@ class PetWidget(QWidget):
         import threading as _th
         _th.Thread(target=self._dsh_open_worker, daemon=True).start()
         return True
+
+    def _open_collab(self):
+        """3.0：打开**协作台**（本机 http://127.0.0.1:<port>/）—— ⭐ 同样**不占主线程** ✗
+
+        铁律：⛔ 只监听本机 ✗（绝不上网 ✗）；⛔ 不带 --enable-actions 起服务 ✗（只读面 ✓）；
+        服务没跑 → ⭐ **先问用户**（⛔ 不擅自后台起进程 ✗）。
+        """
+        if getattr(self, '_collab_busy', False):
+            return False
+        self._collab_busy = True
+        try:
+            self._notify(T('collab_opening'))
+        except Exception as _e:
+            _silent_log('_open_collab.notify', _e)
+        import threading as _th
+        _th.Thread(target=self._collab_worker, daemon=True).start()
+        return True
+
+    def _collab_worker(self):
+        """后台线程：探测 →（必要时**问用户**）→ 启动 → 开窗口 ✓（⛔ 不碰 UI ✗）"""
+        ok, msg = False, ''
+        try:
+            base = os.path.dirname(os.path.abspath(__file__))
+            port = 8792
+            try:
+                port = int((getattr(self, 'config', {}) or {}).get('collab_port') or 8792)
+            except Exception as _e:
+                _silent_log('_collab_worker.port', _e)
+            from collab_panel import open_collab, _probe as _cp
+            running = _cp(port)
+            allow = False
+            if not running:
+                allow = bool(self._request_confirm(T('collab_start_ask') % {'port': port}))
+                if not allow:
+                    ok, msg = False, T('collab_start_cancelled')
+            if allow or running:
+                ok, msg = open_collab(base, port=port, allow_start=allow,
+                                      timeout_ready=12, poll=0.3)
+        except Exception as exc:
+            ok, msg = False, repr(exc)
+        finally:
+            try:
+                self.ui_call_signal.emit(lambda: self._collab_done(ok, msg))
+            except Exception as _e:
+                _silent_log('_collab_worker.emit', _e)
+
+    def _collab_done(self, ok, msg):
+        """主线程收尾（解除 busy ＋ 明报 ✓ 不静默 ✗）"""
+        self._collab_busy = False
+        if not ok and msg:
+            try:
+                self.say_plain('%s%s' % (T('collab_fail'), msg))
+            except Exception as _e:
+                _silent_log('_collab_done.say', _e)
+        return ok
 
     def _dsh_open_worker(self):
         """后台线程：探测 → （必要时**问用户**）→ 打开 ✓（⛔ 全程不碰 UI ✗）"""
