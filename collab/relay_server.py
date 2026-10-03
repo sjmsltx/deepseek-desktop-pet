@@ -84,6 +84,7 @@ def roles_payload(base_dir: str = '') -> list:
     · ⛔ 不输出 `endpoint` / `api_key_field` / `params` / `price`（契约 ④-2 只列四项 ✓）
     """
     import json as _json_mod                      # 局部导入 ✓ 不依赖模块头部 ✗
+    import sys as _sys_mod
     base = str(base_dir or _BASE_DIR)
     profs = {}
     try:
@@ -95,7 +96,10 @@ def roles_payload(base_dir: str = '') -> list:
         elif isinstance(raw, (list, tuple)):
             profs = {str(p.get('key')): p for p in raw
                      if isinstance(p, dict) and p.get('key')}
-    except Exception:
+    except Exception as _exc:
+        # ⭐ 风险 1 第二批：**失败不得静默** ✗ —— 否则界面显示“无角色”却无线索 ✓
+        _sys_mod.stderr.write('[relay_server] 角色档案导入失败（%s）：%r → 本次返回空表\n'
+                              % (type(_exc).__name__, _exc))
         profs = {}
     try:
         with open(os.path.join(base, 'models.json'), encoding='utf-8') as fh:
@@ -109,9 +113,10 @@ def roles_payload(base_dir: str = '') -> list:
                 if isinstance(v, dict) and v.get('key'):
                     profs.setdefault(str(v['key']), {}).update(v)
     except FileNotFoundError:
-        pass
-    except Exception:
-        pass
+        pass                                       # 用户档案可不存在 ✓（出厂档案已兜底 ✓）
+    except Exception as _exc:
+        _sys_mod.stderr.write('[relay_server] models.json 读取失败（%s）：%r → 仅用出厂档案\n'
+                              % (type(_exc).__name__, _exc))
     out = []
     for key, p in profs.items():
         p = p if isinstance(p, dict) else {}

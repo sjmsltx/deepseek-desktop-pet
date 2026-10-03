@@ -102,3 +102,41 @@ def test_endpoints_over_real_http(tmp_path):
         assert r2.status != 200, '⛔ 写方法不应能打只读端点 ✗'
     finally:
         httpd.shutdown()
+
+
+# ── 8. ⭐ 风险 1 第二批：档案导入失败必须**明报**（不许静默返空表 ✗）──────
+def test_roles_import_failure_is_reported():
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        with _patch_model_registry_broken():
+            relay_server.roles_payload()          # ⚠️ 可能仍从 models.json 读到覆盖 ✓ 不断言空表 ✗
+    msg = buf.getvalue()
+    assert '角色档案导入失败' in msg, '⭐ 必须明报原因，否则界面“无角色”却无线索 ✗'
+
+
+def test_roles_payload_source_reports_both_failures():
+    with io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8') as fh:
+        src = fh.read()
+    assert '角色档案导入失败' in src and 'models.json 读取失败' in src, \
+        '两个失败分支都必须可明报 ✓'
+    # ⚠️ 注意：**不得**用源码字串查密钥（docstring 里会提到字段名 ✗ 会误判 ✓）
+    # → 密钥口径一律由**输出行为**断言（见 test_roles_payload_has_no_secrets ✓）
+
+
+class _patch_model_registry_broken:
+    """让 `import model_registry` 失败（模拟无档案环境 ✓）。"""
+
+    def __enter__(self):
+        import sys as _sys
+        self._sys = _sys
+        self._saved = _sys.modules.get('model_registry', '__ABSENT__')
+        _sys.modules['model_registry'] = None      # ⭐ None → import 抛 ImportError ✓
+        return self
+
+    def __exit__(self, *exc):
+        if self._saved == '__ABSENT__':
+            self._sys.modules.pop('model_registry', None)
+        else:
+            self._sys.modules['model_registry'] = self._saved
+        return False
