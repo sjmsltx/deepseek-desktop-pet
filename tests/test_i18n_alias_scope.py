@@ -82,7 +82,7 @@ class _Stub:
         self.confirm = confirm
         self.ui_call_signal = _Sig()
 
-    def _notify(self, m):
+    def _notify(self, m, ms=None, **kw):      # ⭐ 新代码会传 ms= ✓
         self.msgs.append(m)
 
     def say_plain(self, m):
@@ -148,6 +148,9 @@ def test_ui_call_signal_used_for_callback(monkeypatch):
     """⭐ 结果必须经 `ui_call_signal` 回主线程 ✓（⛔ 不在 worker 里直接碰 UI ✗）"""
     import collab_panel as _cp
     monkeypatch.setattr(_cp, '_probe', lambda *a, **k: False, raising=False)
+    # ⭐ 打桩真实启动：否则会**真去起服务**（十几秒 ✗ 用例等不到 ✓ 且会留孤儿进程 ✗）
+    monkeypatch.setattr(_cp, 'open_collab',
+                        lambda *a, **k: (False, '（桩：未启动）'), raising=False)
     stub = _Stub(confirm=False)
     _run('_open_collab', stub)
     assert stub.ui_call_signal.items, '⭐ 应通过 ui_call_signal 回主线程 ✓'

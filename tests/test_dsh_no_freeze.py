@@ -47,13 +47,16 @@ def test_main_thread_does_not_call_open_panel():
 
 
 # ── 2. ⭐ 实际调用必须在 worker 里 ✓ 且先问用户 ✓ ────────────────────
-def test_worker_calls_panel_and_asks_first():
+def test_worker_calls_panel_and_auto_starts():   # ⭐ 改：没跑就自动启动 ✓（不再先问 ✗）
     fn = _fn('_dsh_open_worker')
     c = _calls(fn)
     assert 'open_panel' in c, '⭐ 真调用应在 worker ✓'
     assert 'is_serving' in c, '⭐ 先探测服务 ✓'
     seg = ast.get_source_segment(_src(), fn) or ''
-    assert '_request_confirm' in seg, '⭐ 启动前必须先问用户 ✗（⛔ 不擅自重启其服务 ✗）'
+    # ⭐ Owner 02:29 实测："先问"的确认框在后台线程里**没弹出来** ✗ → 服务从未启动 ✗
+    #    → 改为**服务没跑就自动启动** ✓（界面已不冻 ✓）
+    assert 'is_serving' in seg, '⭐ 必须先探测服务状态 ✓'
+    assert '_notify' in seg, '⭐ 状态提示走状态条 ✓（不弹气泡 ✗）'
     assert 'ui_call_signal' in seg, '⭐ 结果须经现成"回主线程"通道 ✓'
 
 

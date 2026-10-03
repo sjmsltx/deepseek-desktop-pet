@@ -246,11 +246,13 @@ UI_ZH = {
     'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
     'dsh_panel': '🐳 打开 DSH 面板（3.0）', 'dsh_panel_fail': '🫧 DSH 面板打不开：',
         'dsh_opening': '⏳ 正在打开 DSH…（后台进行，不卡界面）',
+        'dsh_starting': '⏳ DSH 服务没在运行，正在启动它（约 10~30 秒，界面不会卡）…',
         'dsh_start_ask': 'DSH 服务没在运行。\n\n是否现在启动它？（约 10~30 秒，期间界面不会卡）',
         'dsh_start_cancelled': '已取消：没有启动 DSH（服务未运行）。',
         'dsh_panel_missing': '🐳 DSH 面板（⚠️ 未检测到 DSH，需先安装或设置 DSH_ROOT）',
         'collab_panel': '🍵 打开协作台（本机 %(port)d）',
         'collab_opening': '⏳ 正在打开协作台…（后台进行，不卡界面）',
+        'collab_starting': '⏳ 协作台没在运行，正在启动它（本机只读面，界面不会卡）…',
         'collab_start_ask': '协作台没在运行。\n\n是否现在启动它？（只监听本机 127.0.0.1:%(port)d，界面不会卡）',
         'collab_start_cancelled': '已取消：没有启动协作台（服务未运行）。',
         'collab_fail': '🫧 协作台打不开：',
@@ -289,11 +291,13 @@ UI_EN = {
     'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
     'dsh_panel': '🐳 Open DSH panel (3.0)', 'dsh_panel_fail': '🫧 Cannot open DSH panel: ',
         'dsh_opening': '⏳ Opening DSH… (background, UI stays responsive)',
+        'dsh_starting': '⏳ DSH service not running; starting it (10-30s, UI stays responsive)…',
         'dsh_start_ask': 'DSH service is not running.\n\nStart it now? (about 10-30s, UI will not freeze)',
         'dsh_start_cancelled': 'Cancelled: DSH was not started (service not running).',
         'dsh_panel_missing': '🐳 DSH panel (⚠️ DSH not detected; install it or set DSH_ROOT)',
         'collab_panel': '🍵 Open collab console (local %(port)d)',
         'collab_opening': '⏳ Opening collab console… (background, UI stays responsive)',
+        'collab_starting': '⏳ Collab console not running; starting it (local read-only)…',
         'collab_start_ask': 'Collab console is not running.\n\nStart it now? (local only 127.0.0.1:%(port)d, UI will not freeze)',
         'collab_start_cancelled': 'Cancelled: collab console was not started (service not running).',
         'collab_fail': '🫧 Cannot open collab console: ',
@@ -8950,14 +8954,14 @@ class PetWidget(QWidget):
                 _silent_log('_collab_worker.port', _e)
             from collab_panel import open_collab, _probe as _cp
             running = _cp(port)
-            allow = False
             if not running:
-                allow = bool(self._request_confirm(self._t('collab_start_ask') % {'port': port}))
-                if not allow:
-                    ok, msg = False, self._t('collab_start_cancelled')
-            if allow or running:
-                ok, msg = open_collab(base, port=port, allow_start=allow,
-                                      timeout_ready=12, poll=0.3)
+                # ⭐ 同 DSH：**没跑就直接启动** ✓（本机只读面 ✓ 界面不冻 ✓）
+                try:
+                    self._notify(self._t('collab_starting'), ms=8000)
+                except Exception as _e:
+                    _silent_log('_collab_worker.notify', _e)
+            ok, msg = open_collab(base, port=port, allow_start=(not running),
+                                  timeout_ready=15, poll=0.3)
         except Exception as exc:
             ok, msg = False, repr(exc)
         finally:
@@ -8971,7 +8975,7 @@ class PetWidget(QWidget):
         self._collab_busy = False
         if not ok and msg:
             try:
-                self.say_plain('%s%s' % (self._t('collab_fail'), msg))
+                self._notify('%s%s' % (self._t('collab_fail'), msg), ms=10000)
             except Exception as _e:
                 _silent_log('_collab_done.say', _e)
         return ok
@@ -8982,15 +8986,16 @@ class PetWidget(QWidget):
         try:
             import dsh_adapter as _ad
             running = _ad.is_serving()
-            allow = False
             if not running:
-                # ⭐ 先问用户（跨线程确认 ✓）；⛔ 不自动重启用户的服务 ✗
-                allow = bool(self._request_confirm(self._t('dsh_start_ask')))
-                if not allow:
-                    ok, msg = False, self._t('dsh_start_cancelled')
-            if allow or running:
-                from dsh_panel import open_panel
-                ok, msg = open_panel(allow_start=allow, timeout_ready=10, poll=0.3)
+                # ⭐ Owner 02:29「DSH 还是启动不了」→ 根因：旧版"先问用户"的确认框
+                #    在后台线程里**没弹出来** ✗ → 服务从未被拉起 ✗ → 窗口开在死地址上 ✗
+                #    ⭐ 现改为：服务**没跑就直接启动** ✓（界面已不冻 ✓ 故无需先问 ✓）
+                try:
+                    self._notify(self._t('dsh_starting'), ms=8000)
+                except Exception as _e:
+                    _silent_log('_dsh_open_worker.notify', _e)
+            from dsh_panel import open_panel
+            ok, msg = open_panel(allow_start=(not running), timeout_ready=15, poll=0.3)
         except Exception as exc:
             ok, msg = False, repr(exc)
         finally:
@@ -9003,8 +9008,9 @@ class PetWidget(QWidget):
         """主线程：收尾（解除 busy ＋ 明报结果 ✓ 失败不静默 ✗）"""
         self._dsh_busy = False
         if not ok and msg:
+            # ⭐ Owner 口径（02:29）：不弹气泡 ✗ → 走状态条（可回看＋不挡脸 ✓）；⭐ 失败仍**可见** ✗ 不静默 ✓
             try:
-                self.say_plain('%s%s' % (self._t('dsh_panel_fail'), msg))
+                self._notify('%s%s' % (self._t('dsh_panel_fail'), msg), ms=10000)
             except Exception as _e:
                 _silent_log('_dsh_open_done.say', _e)
         return ok

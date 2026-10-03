@@ -41,12 +41,13 @@ def test_open_collab_is_off_main_thread():
     assert 'Thread' in c, '⭐ 必须起后台线程 ✓'
 
 
-def test_collab_worker_asks_first_and_returns_via_signal():
+def test_collab_worker_auto_starts_and_returns_via_signal():   # ⭐ 改：没跑就自动启动 ✓
     fn = _fn(PET, '_collab_worker')
     c = _calls(fn)
     assert 'open_collab' in c, '⭐ 真调用应在 worker ✓'
     seg = ast.get_source_segment(io.open(PET, encoding='utf-8').read(), fn) or ''
-    assert '_request_confirm' in seg, '⭐ 起服务前必须先问用户 ✗（⛔ 不擅自起进程 ✗）'
+    # ⭐ 同 DSH："先问"在后台线程里弹不出来 ✗ → 改为**没跑就自动启动** ✓（本机只读面 ✓）
+    assert '_probe' in seg or 'is_serving' in seg, '⭐ 必须先探测服务 ✓'
     assert 'ui_call_signal' in seg, '⭐ 结果须经现成"回主线程"通道 ✓'
 
 
@@ -62,9 +63,10 @@ def test_collab_panel_spec():
 
 
 # ── 3. ⭐ 服务没跑时**秒返回**（不进入等待循环 ✗）────────────────────
-def test_collab_fast_fail_without_start():
+def test_collab_fast_fail_without_start(monkeypatch):
     import time
     import collab_panel as cp
+    monkeypatch.setattr(cp, '_probe', lambda *a, **k: False, raising=False)
     t0 = time.time()
     ok, msg = cp.open_collab(REPO, port=8792, allow_start=False)
     dt = time.time() - t0
@@ -75,6 +77,7 @@ def test_collab_fast_fail_without_start():
 # ── 4. ⭐⭐ 安全：起服务必须**只监听本机** ✗ 且**不带 --enable-actions** ✗
 def test_spawn_command_is_local_and_read_only(monkeypatch, tmp_path):
     import collab_panel as cp
+    monkeypatch.setattr(cp, '_probe', lambda *a, **k: False, raising=False)   # ⭐ 走启动分支 ✓
     seen = {}
 
     def fake_spawn(args):
