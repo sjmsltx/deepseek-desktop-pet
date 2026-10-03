@@ -97,6 +97,32 @@
   .empty{color:var(--ink3);padding:14px 12px;font-size:13px}
   .err{border-left:3px solid var(--warn);background:var(--warn-soft);padding:8px 12px;margin:10px 0;font-size:13px}
   footer{margin-top:22px;border-top:1px solid var(--rule);padding-top:12px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+
+  /* ===== 阶段②③ 面板停靠系统（浮动窗 / 停靠槽位 / 拖拽高亮） =====
+     规格：docs/3.0-M2-面板停靠系统规格-20260921.md
+     约束：仍**不进第三方库** ✗、仍**不改 data-* 契约** ✓ */
+  .slot{min-width:0;min-height:0}
+  #slot-bottom{margin-top:12px}
+  #slot-bottom:empty{display:none}
+  #float-layer{position:fixed;inset:0;pointer-events:none;z-index:9000}
+  .panel.floating{position:fixed;pointer-events:auto;z-index:9001;display:flex;flex-direction:column;
+                  box-shadow:0 10px 34px rgba(20,24,28,.22);border-color:var(--ink3)}
+  .panel.floating .stream,.panel.floating .lane-scroll{flex:1 1 auto;max-height:none;overflow:auto}
+  .panel.floating>.panel-h{cursor:move}
+  /* 浮动态不受"页签单页"可见性影响（浮窗=独立窗口） */
+  #float-layer>.panel{display:flex !important}
+  .ph-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ph-ctl{display:flex;gap:6px;align-items:center;flex:none}
+  .ph-btn{font-family:var(--mono);font-size:11px;line-height:1;padding:3px 6px;border:1px solid var(--rule);
+          background:#fff;color:var(--ink2);cursor:pointer;border-radius:3px}
+  .ph-btn:hover{background:var(--acc-soft);border-color:var(--acc);color:var(--acc)}
+  .ph-btn[disabled]{opacity:.4;cursor:default}
+  .ph-rs{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;
+         background:linear-gradient(135deg,transparent 46%,var(--ink3) 47%,var(--ink3) 54%,transparent 55%)}
+  #dock-hint{position:fixed;pointer-events:none;z-index:9500;display:none;background:var(--acc-soft);
+             border:2px dashed var(--acc);border-radius:4px}
+  body.m2-dragging{cursor:move;user-select:none}
+
   @media (max-width:900px){.cols.reading,.cols.board{grid-template-columns:1fr}.stream,.lane-scroll{max-height:none}}
 </style>
 </head>
@@ -138,33 +164,40 @@
 <div id="errs"></div>
 
 <div class="tabs" id="tabs" role="tablist" aria-label="面板页签（←/→ 切换，Enter 激活）">
-  <button class="tab" role="tab" id="tab-L1" data-view="L1" aria-selected="false" tabindex="-1" aria-controls="panel-l1">群聊流 L1</button>
-  <button class="tab" role="tab" id="tab-L2" data-view="L2" aria-selected="false" tabindex="-1" aria-controls="panel-l2">投递轨道 L2</button>
-  <button class="tab" role="tab" id="tab-L3" data-view="L3" aria-selected="false" tabindex="-1" aria-controls="panel-l3">后台总线 L3</button>
+  <button class="tab" role="tab" id="tab-L1" data-view="L1" aria-selected="false" tabindex="-1" aria-controls="panel-l1">V1 群聊流</button>
+  <button class="tab" role="tab" id="tab-L2" data-view="L2" aria-selected="false" tabindex="-1" aria-controls="panel-l2">V2 投递轨道</button>
+  <button class="tab" role="tab" id="tab-L3" data-view="L3" aria-selected="false" tabindex="-1" aria-controls="panel-l3">V3 后台总线</button>
   <button class="tab" role="tab" id="tab-all" data-view="all" aria-selected="true" tabindex="0">⧉ 全部显示</button>
 </div>
 
 <div class="cols reading" id="cols">
+  <div class="slot" id="slot-left" data-slot="left">
   <div class="panel" id="panel-l1" data-panel="L1">
-    <div class="panel-h"><span>L1 · 群聊流（human）—— 阅读模式占满宽；行宽可切档</span><span id="c1">0</span></div>
+    <div class="panel-h" data-drag><span class="ph-title">V1 · 群聊流（human）—— 阅读模式占满宽；行宽可切档</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c1">0</span></span></div>
     <div class="stream" id="stream-l1"></div>
+  </div>
   </div>
   <div class="split-v" id="split-v" title="拖动调整左右宽度（双击重置）"></div>
   <div id="side">
     <div class="split-h" id="split-h" title="拖动调整下方面板高度（双击重置）"></div>
+    <div class="slot" id="slot-right" data-slot="right">
     <div class="panel" id="panel-l2" data-panel="L2" style="margin-bottom:12px">
-      <div class="panel-h"><span>L2 · 投递轨道（meta）</span><span id="c2">0</span></div>
+      <div class="panel-h" data-drag><span class="ph-title">V2 · 投递轨道（meta）</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c2">0</span></span></div>
       <div class="lane-scroll">
         <table><thead><tr><th>seq</th><th>投递</th><th>类型</th><th>tok</th><th>成本(微元)</th></tr></thead>
         <tbody id="lane-l2"></tbody></table>
       </div>
     </div>
     <div class="panel" id="panel-l3" data-panel="L3">
-      <div class="panel-h"><span>L3 · 后台总线（debug）</span><span id="c3">0</span></div>
+      <div class="panel-h" data-drag><span class="ph-title">V3 · 后台总线（debug）</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c3">0</span></span></div>
       <div class="lane-scroll" id="lane-l3"></div>
+    </div>
     </div>
   </div>
 </div>
+<div class="slot" id="slot-bottom" data-slot="bottom"></div>
+<div id="float-layer"></div>
+<div id="dock-hint"></div>
 
 <footer>
   M2 只做<b>渲染</b>：条目一律来自后端 <code>/api/view|inbox|snapshot|log.jsonl</code>（内核投影原样，不二次过滤/重排）。
@@ -494,6 +527,305 @@
   $('btn-step').onclick = function () { act('/api/step', {}); };
   $('btn-interrupt').onclick = function () { act('/api/interrupt', { body: '［人类接管］先停一下' }); };
   $('btn-resume').onclick = function () { act('/api/resume', { text: '继续' }); };
+
+  // ================= 阶段②③④ 面板停靠系统（浮动 / 停靠 / 状态持久 / 出错回落）=================
+  // 规格：docs/3.0-M2-面板停靠系统规格-20260921.md
+  // 约束：不进第三方库 ✗、不改 data-* 契约 ✓、不新增 HTTP 端点 ✓、不二次过滤/重排 ✓
+  var PMAP = [
+    { id: 'V1', panel: 'panel-l1', home: 'slot-left' },
+    { id: 'V2', panel: 'panel-l2', home: 'slot-right' },
+    { id: 'V3', panel: 'panel-l3', home: 'slot-right' }
+  ];
+  var SLOTS = { left: 'slot-left', right: 'slot-right', bottom: 'slot-bottom' };
+  var MINW = 260, MINH = 140;
+  var pstate = {
+    V1: { mode: 'dock', slot: 'left' },
+    V2: { mode: 'dock', slot: 'right' },
+    V3: { mode: 'dock', slot: 'right' }
+  };
+
+  function pEl(id) {
+    for (var i = 0; i < PMAP.length; i++) { if (PMAP[i].id === id) { return $(PMAP[i].panel); } }
+    return null;
+  }
+  function homeEl(id) {
+    for (var i = 0; i < PMAP.length; i++) { if (PMAP[i].id === id) { return $(PMAP[i].home); } }
+    return null;
+  }
+  function keyOfEl(p) {
+    for (var i = 0; i < PMAP.length; i++) { if ($(PMAP[i].panel) === p) { return PMAP[i].id; } }
+    return null;
+  }
+
+  // ---- 状态 → URL 哈希（规格 §二：内存 + URL 哈希；不用 localStorage ✗）----
+  function encHash() {
+    var parts = PMAP.map(function (m) {
+      var s = pstate[m.id];
+      if (s.mode === 'float') {
+        return [m.id, 'f', Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.round(s.h)].join('~');
+      }
+      return [m.id, 'd', s.slot].join('~');
+    });
+    var c = $('cols');
+    var mode = c.classList.contains('board') ? 'board' : 'reading';
+    var colA = (c.style.getPropertyValue('--colA') || '').trim() || '54%';
+    return 'm2=' + encodeURIComponent(parts.join('|')) + '&mode=' + mode + '&colA=' + encodeURIComponent(colA);
+  }
+  function saveHash() {
+    try { history.replaceState(null, '', '#' + encHash()); } catch (e) { /* 例隐私模式/沙箱：忽略 ✓ */ }
+  }
+  function loadHash() {
+    var raw = (location.hash || '').replace(/^#/, '');
+    if (!raw) { return false; }
+    var q = {};
+    raw.split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) { q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); }
+    });
+    if (q.m2) {
+      q.m2.split('|').forEach(function (seg) {
+        var a = seg.split('~');
+        if (a.length < 3 || !pstate[a[0]]) { return; }
+        if (a[1] === 'f' && a.length >= 6) {
+          pstate[a[0]] = { mode: 'float', x: +a[2], y: +a[3], w: +a[4], h: +a[5] };
+        } else if (a[1] === 'd' && SLOTS[a[2]]) {
+          pstate[a[0]] = { mode: 'dock', slot: a[2] };
+        }
+      });
+    }
+    if (q.mode === 'board' || q.mode === 'reading') { setMode(q.mode); }
+    if (q.colA) { $('cols').style.setProperty('--colA', q.colA); }
+    return true;
+  }
+  function setMode(m) {
+    var c = $('cols');
+    if (m === 'board') {
+      c.classList.remove('reading'); c.classList.add('board');
+      $('btn-mode').textContent = '⇄ 切到阅读模式';
+    } else {
+      c.classList.remove('board'); c.classList.add('reading');
+      $('btn-mode').textContent = '⇄ 切到看板模式';
+    }
+  }
+
+  // ---- 落位：浮动态 → 固定定位；停靠态 → 回到槽位 ----
+  function applyPanel(key) {
+    var p = pEl(key); if (!p) { return; }
+    var s = pstate[key];
+    if (s.mode === 'float') {
+      p.classList.add('floating');
+      p.style.left = s.x + 'px'; p.style.top = s.y + 'px';
+      p.style.width = s.w + 'px'; p.style.height = s.h + 'px';
+      if (p.parentNode !== $('float-layer')) { $('float-layer').appendChild(p); }
+      ensureResize(p);
+    } else {
+      p.classList.remove('floating');
+      p.style.left = ''; p.style.top = ''; p.style.width = ''; p.style.height = '';
+      var rs = p.querySelector('.ph-rs'); if (rs) { rs.parentNode.removeChild(rs); }
+      var box = $(SLOTS[s.slot]);
+      if (box && p.parentNode !== box) { box.appendChild(p); }
+      reorderSlot(SLOTS[s.slot]);
+    }
+  }
+  function reorderSlot(slotId) {
+    var box = $(slotId); if (!box) { return; }
+    PMAP.forEach(function (m) {
+      var p = $(m.panel);
+      if (p && p.parentNode === box) { box.appendChild(p); }
+    });
+  }
+  function floatPanel(key, rect) {
+    var p = pEl(key); if (!p) { return; }
+    var r = rect || p.getBoundingClientRect();
+    var g = clampGeom(r);
+    pstate[key] = { mode: 'float', x: g.x, y: g.y, w: g.w, h: g.h };
+    applyPanel(key); syncBtns(); saveHash();
+  }
+  // ⭐ 浮窗几何归一：宽高上限 = 视口 62%/74%（否则宽面板浮起来会把右侧标题栏控件推到屏外 ✗）
+  function clampGeom(rect) {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var w = Math.round(Math.min(rect.width, Math.max(MINW, vw * 0.62)));
+    var h = Math.round(Math.min(rect.height, Math.max(MINH, vh * 0.74)));
+    var x = Math.round(Math.max(8, Math.min(Math.max(8, vw - w - 8), rect.left)));
+    var y = Math.round(Math.max(8, Math.min(Math.max(8, vh - h - 8), rect.top)));
+    return { w: w, h: h, x: x, y: y };
+  }
+  // ⭐ x 归一：右边缘保在屏内（标题栏控件在右侧 → 必须可达 ✓）
+  function clampX(x, w) {
+    var maxX = Math.max(8, window.innerWidth - 8 - w);
+    var minX = 8 - Math.min(200, Math.max(0, w - 200));
+    return Math.round(Math.max(minX, Math.min(maxX, x)));
+  }
+  function dockPanel(key, slot) {
+    if (!SLOTS[slot]) { return; }
+    pstate[key] = { mode: 'dock', slot: slot };
+    var p = pEl(key);
+    if (p) { p.classList.remove('dragging'); }
+    applyPanel(key);
+    Object.keys(SLOTS).forEach(reorderSlot);
+    syncBtns(); saveHash();
+  }
+  function resetPanel(key) {
+    var h = homeEl(key);
+    dockPanel(key, h ? h.id.replace('slot-', '') : 'left');
+  }
+  function syncBtns() {
+    PMAP.forEach(function (m) {
+      var p = pEl(m.id); if (!p) { return; }
+      var s = pstate[m.id];
+      var bf = p.querySelector('button[data-act="float"]');
+      var bd = p.querySelector('button[data-act="dock"]');
+      if (bf) { bf.disabled = (s.mode === 'float'); }
+      if (bd) { bd.disabled = (s.mode === 'dock'); }
+    });
+  }
+
+  // ---- 右下角改尺寸（仅浮动态 ✓）----
+  function ensureResize(p) {
+    if (p.querySelector('.ph-rs')) { return; }
+    var h = document.createElement('div');
+    h.className = 'ph-rs'; h.title = '拖动改尺寸（右下角）';
+    p.appendChild(h);
+    h.addEventListener('pointerdown', function (e) {
+      var key = keyOfEl(p); var s = pstate[key];
+      if (!s || s.mode !== 'float') { return; }
+      var r = p.getBoundingClientRect();
+      var sx = e.clientX, sy = e.clientY, sw = r.width, sh = r.height;
+      try { h.setPointerCapture(e.pointerId); } catch (x) { /* 旧内核：降级为普通事件 ✓ */ }
+      function mv(ev) {
+        s.w = Math.max(MINW, Math.min(Math.round(window.innerWidth - 16), Math.round(sw + (ev.clientX - sx))));
+        s.h = Math.max(MINH, Math.min(Math.round(window.innerHeight - 16), Math.round(sh + (ev.clientY - sy))));
+        s.x = clampX(s.x, s.w);   // 改尺寸后把 x 收回，保证右边缘在屏内 ✓
+        applyPanel(key);
+      }
+      function up() {
+        h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); saveHash();
+      }
+      h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+      e.preventDefault(); e.stopPropagation();
+    });
+  }
+
+  // ---- 拖标题栏：未停靠 → 自由移动；近边缘 → 高亮预览 → 松手停靠（照 ArcGIS Pro 手感）----
+  function zoneAt(x, y) {
+    var W = window.innerWidth, H = window.innerHeight;
+    if (y > H * 0.84) { return 'bottom'; }
+    if (x < W * 0.14) { return 'left'; }
+    if (x > W * 0.86) { return 'right'; }
+    return null;
+  }
+  function showHint(zone) {
+    var el = $('dock-hint'); if (!el) { return; }
+    if (!zone) { el.style.display = 'none'; return; }
+    var W = window.innerWidth, H = window.innerHeight;
+    var box = { left: [0, 0, Math.round(W * 0.22), H],
+                right: [Math.round(W * 0.78), 0, Math.round(W * 0.22), H],
+                bottom: [0, Math.round(H * 0.72), W, Math.round(H * 0.28)] }[zone];
+    el.style.left = box[0] + 'px'; el.style.top = box[1] + 'px';
+    el.style.width = box[2] + 'px'; el.style.height = box[3] + 'px';
+    el.style.display = 'block';
+  }
+  function headerDrag(key) {
+    var p = pEl(key); if (!p) { return; }
+    var hd = p.querySelector('.panel-h'); if (!hd) { return; }
+    var st = null;
+    hd.addEventListener('pointerdown', function (e) {
+      if (e.target && e.target.closest && e.target.closest('button')) { return; }
+      var r = p.getBoundingClientRect();
+      st = { ox: e.clientX - r.left, oy: e.clientY - r.top, zone: null };
+      if (pstate[key].mode !== 'float') {
+        // 从停靠态抓起 → 先转为浮动态（贴着原位置）
+        pstate[key] = { mode: 'float', x: Math.round(r.left), y: Math.round(r.top),
+                        w: Math.round(r.width), h: Math.round(r.height) };
+        applyPanel(key);
+      }
+      p.classList.add('dragging');
+      document.body.classList.add('m2-dragging');
+      try { hd.setPointerCapture(e.pointerId); } catch (x) { /* 降级 ✓ */ }
+      e.preventDefault();
+    });
+    hd.addEventListener('pointermove', function (e) {
+      if (!st) { return; }
+      var s = pstate[key]; if (s.mode !== 'float') { return; }
+      // ⭐ 右边缘保在屏内（标题栏控件在右侧）＋下边缘也保在屏内（右下角把手可达 ✓）
+      s.x = clampX(e.clientX - st.ox, s.w);
+      s.y = Math.max(0, Math.min(Math.max(0, window.innerHeight - 8 - s.h), e.clientY - st.oy));
+      applyPanel(key);
+      st.zone = zoneAt(e.clientX, e.clientY);
+      showHint(st.zone);
+    });
+    function end(e) {
+      if (!st) { return; }
+      var zone = st.zone; st = null;
+      p.classList.remove('dragging');
+      document.body.classList.remove('m2-dragging');
+      showHint(null);
+      if (zone) { dockPanel(key, zone); } else { syncBtns(); saveHash(); }
+    }
+    hd.addEventListener('pointerup', end);
+    hd.addEventListener('pointercancel', end);
+  }
+
+  // ---- 出错回落：任何异常 → 回三栏固定布局（不白屏 ✗）----
+  function fallbackLayout() {
+    try {
+      PMAP.forEach(function (m) {
+        var p = $(m.panel); if (!p) { return; }
+        p.classList.remove('floating', 'dragging');
+        p.style.left = ''; p.style.top = ''; p.style.width = ''; p.style.height = '';
+        var rs = p.querySelector('.ph-rs'); if (rs) { rs.parentNode.removeChild(rs); }
+        var home = $(m.home);
+        if (home && p.parentNode !== home) { home.appendChild(p); }
+        pstate[m.id] = { mode: 'dock', slot: m.home.replace('slot-', '') };
+      });
+      var c = $('cols'); if (c) { c.classList.remove('single'); }
+      document.body.classList.remove('view-L1', 'view-L2', 'view-L3', 'm2-dragging');
+      showHint(null);
+    } catch (e2) { /* 决不二次抛出 ✓ */ }
+  }
+  function initPanels() {
+    PMAP.forEach(function (m) {
+      headerDrag(m.id);
+      var p = pEl(m.id);
+      var hd = p.querySelector('.panel-h');
+      [].slice.call(hd.querySelectorAll('button[data-act]')).forEach(function (b) {
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var act = b.getAttribute('data-act');
+          if (act === 'float') { floatPanel(m.id); }
+          else if (act === 'dock') { resetPanel(m.id); }
+          else if (act === 'reset') { resetPanel(m.id); }
+        });
+      });
+    });
+    loadHash();
+    PMAP.forEach(function (m) { applyPanel(m.id); });
+    syncBtns();
+    saveHash();
+  }
+  // 验收 §四.5：可用 #m2fail 强制注入异常，验证“仍显示三栏、不白屏”
+  window.__m2Fallback = fallbackLayout;
+  (function bootPanels() {
+    var forceFail = /(^|[#&?])m2fail(=1)?(&|$)/.test(location.hash + '&' + location.search);
+    try {
+      if (forceFail) { throw new Error('injected(m2fail)'); }
+      initPanels();
+    } catch (e3) {
+      /* 规格 §三：行为退化保护 —— 出错回落三栏固定布局 ✓ */
+      try { window.console && console.warn && console.warn('[M2] 面板系统初始化失败，已回落三栏：' + e3.message); } catch (x) {}
+      fallbackLayout();
+    }
+  })();
+  // 面板尺寸/分栏宽度变化 → 同步到 URL 哈希（规格 §二：面板尺寸也持久 ✓）
+  document.addEventListener('pointerup', function () { try { saveHash(); } catch (e) {} });
+  var _modeBtn = $('btn-mode');
+  if (_modeBtn) {
+    var _origToggle = _modeBtn.onclick;
+    _modeBtn.onclick = function () {
+      if (typeof _origToggle === 'function') { _origToggle.call(this); }
+      saveHash();
+    };
+  }
 
   refresh();
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
