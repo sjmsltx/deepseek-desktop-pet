@@ -5,6 +5,7 @@
 ③ dry-run 也落结果 ✓（且 ⭐ **不得**让真跑被幂等跳过 ✗）
 """
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -144,3 +145,100 @@ def test_assets_payload_skips_underscore_dirs(repo):
     got = relay_server.assets_payload(base_dir=repo)
     assert not [k for k in got if k.startswith('_')], '⛔ `_` 开头目录不得成为伪角色 ✗'
     assert 'alpha' in got, '正常角色仍应在 ✓'
+
+
+
+# ── 9. ⭐ set_portrait（Owner 2026-10-04 00:36「同意」✓）：只改一个字段 ──
+def _cfg(tmp_path):
+    """造一份最小档案 ✓（形状照真 `models.json`：appearance 嵌套 ✓）。"""
+    import json
+    d = {'version': 2, 'profiles': [
+        {'key': 'flash', 'display_name': 'F', 'model_id': 'm1',
+         'appearance': {'color': '#111', 'portrait': '', 'sub': 'x'}},
+        {'key': 'pro', 'display_name': 'P', 'model_id': 'm2',
+         'appearance': {'color': '#222', 'portrait': '', 'sub': 'y'}}]}
+    p = os.path.join(str(tmp_path), 'models.json')
+    with io.open(p, 'w', encoding='utf-8') as fh:
+        json.dump(d, fh, ensure_ascii=False, indent=2)
+    # ⚠️ 夹具坑（本批踩过 ✗）：最小档案**不是 registry 的规范形状** ✗
+    #    → `save()` 会**规范化**写回 ✓ → “顶层只应有 appearance 变”会误判红 ✗
+    #    → ⭐ 先经 registry 落一次盘，让基线＝规范形状 ✓（真 `models.json` 就是规范形状 ✓）
+    import model_registry as _mr
+    _mr.ModelRegistry(p).save()
+    return p
+
+
+def test_set_portrait_changes_only_that_field(tmp_path):
+    import json
+    base = str(tmp_path)
+    p = _cfg(tmp_path)
+    before = json.load(io.open(p, encoding='utf-8'))
+    ok, detail, arts = asset_ops.do_asset_op(
+        base, {'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'deepseek'}, dry=False)
+    assert ok is True, detail
+    after = json.load(io.open(p, encoding='utf-8'))
+    f0 = [x for x in before['profiles'] if x['key'] == 'flash'][0]
+    f1 = [x for x in after['profiles'] if x['key'] == 'flash'][0]
+    assert [k for k in set(f0) | set(f1) if f0.get(k) != f1.get(k)] == ['appearance'], \
+        '⭐ 顶层只应有 appearance 变 ✗'
+    assert [k for k in set(f0['appearance']) | set(f1['appearance'])
+            if f0['appearance'].get(k) != f1['appearance'].get(k)] == ['portrait'], \
+        '⭐ appearance 里只应有 portrait 变 ✗'
+    o0 = [x for x in before['profiles'] if x['key'] == 'pro'][0]
+    o1 = [x for x in after['profiles'] if x['key'] == 'pro'][0]
+    assert o0 == o1, '⛔ 别的角色一字不得动 ✗'
+    assert '重启' in detail, '⭐ 必须说明"重启后生效"（契约 ③-1 启动读一次 ✓）✗'
+
+
+def test_set_portrait_backs_up_config_first(tmp_path):
+    base = str(tmp_path)
+    _cfg(tmp_path)
+    ok, detail, arts = asset_ops.do_asset_op(
+        base, {'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'qwen'}, dry=False)
+    assert ok is True, detail
+    baks = [f for f in os.listdir(os.path.join(base, '_raw_backup')) if 'models.json' in f]
+    assert baks, '⭐ 改档案前必须先备份 ✓（可回滚 ✓）'
+
+
+def test_set_portrait_rejects_unknown_role_and_paths(tmp_path):
+    base = str(tmp_path)
+    _cfg(tmp_path)
+    for pl, kw in (({'role': 'nobody', 'op': 'set_portrait', 'portrait_prefix': 'x'}, '不在档案'),
+                   ({'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': '../etc'}, '单段'),
+                   ({'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'a/b'}, '单段')):
+        ok, detail, arts = asset_ops.do_asset_op(base, pl, dry=False)
+        assert ok is False and kw in detail, '⛔ %s 应被拒 ✗' % pl
+
+
+def test_set_portrait_dry_run_writes_nothing(tmp_path):
+    base = str(tmp_path)
+    p = _cfg(tmp_path)
+    h0 = _hash(p)
+    ok, detail, arts = asset_ops.do_asset_op(
+        base, {'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'x'}, dry=True)
+    assert ok is True and 'dry-run' in detail
+    assert _hash(p) == h0, '⛔ dry-run 不得改档案 ✗'
+    assert not os.path.isdir(os.path.join(base, '_raw_backup')), '⛔ dry-run 不得建备份 ✗'
+
+
+def test_set_portrait_empty_means_unbind(tmp_path):
+    base = str(tmp_path)
+    _cfg(tmp_path)
+    asset_ops.do_asset_op(base, {'role': 'flash', 'op': 'set_portrait',
+                                 'portrait_prefix': 'qwen'}, dry=False)
+    ok, detail, arts = asset_ops.do_asset_op(
+        base, {'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': ''}, dry=False)
+    assert ok is True and "''" in detail, '⭐ 空串 = 解绑 ✓ 应放行 ✓'
+
+
+# ── 10. ⭐ 校验层：set_portrait **只收** {role, portrait_prefix} ✗ ────
+def test_validation_set_portrait_payload_shape():
+    ok = pending_ops.validate_request({'type': 'asset_op', 'op_id': 'sp0001', 'payload': {
+        'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'deepseek'}})
+    assert ok[0] is True, ok[1]
+    for bad, kw in (({'role': 'flash', 'op': 'set_portrait'}, '缺'),
+                    ({'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'x',
+                      'state': 'happy'}, '不接受'),
+                    ({'role': 'flash', 'op': 'set_portrait', 'portrait_prefix': 'a/b'}, '单段')):
+        r = pending_ops.validate_request({'type': 'asset_op', 'op_id': 'sp0001', 'payload': bad})
+        assert r[0] is False and kw in r[1], '⛔ %r 应被拒 ✗' % bad

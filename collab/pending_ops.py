@@ -20,7 +20,8 @@ RESULTS_NAME = 'results.jsonl'                   # ⭐ E2 只追加 ✓
 OP_TYPES = ('project_edit', 'asset_op')          # ⭐ E1① 类型枚举 ✓（不收命令/脚本 ✗）
 # ⭐ 载荷字段白名单（`-105` §一 审定 ✓ 未知字段一律拒 ✗）
 PROJECT_FIELDS = ('name', 'root', 'outputs', 'memory_file', 'roles')
-ASSET_OPS = ('insert', 'replace', 'add_state', 'add_role', 'delete_state', 'run_pipeline')
+ASSET_OPS = ('insert', 'replace', 'add_state', 'add_role', 'delete_state',
+             'run_pipeline', 'set_portrait')          # ⭐ `set_portrait` Owner 00:36 已批 ✓
 ASSET_SOURCES = ('pool', 'assets')               # ⭐ 白名单根 ✓
 # ⭐ 运行必需的**内置状态**（⛔ 不可删 ✗ —— 微信侧 `-16` §2.3#2 补的，我方漏了 ✓）
 BUILTIN_STATES = ('idle', 'blink', 'happy', 'angry', 'sad', 'sleep', 'hungry',
@@ -113,16 +114,28 @@ def _rel_problem(v) -> str:
 
 
 def _asset_payload_problem(payload: dict) -> str:
-    """`asset_op` 载荷校验（`-105` §一.2 ✓）。"""
+    """`asset_op` 载荷校验（`-105` §一.2 ✓ ＋ `set_portrait` 补充口径 ✓）。"""
     role = str(payload.get('role') or '').strip()
     if not re.match(r'^[A-Za-z0-9_-]{1,64}$', role):
         return 'role 形状非法'
-    st = str(payload.get('state') or '').strip()
-    if not re.match(r'^[a-z0-9_]{1,32}$', st):
-        return 'state 形状非法（[a-z0-9_]{1,32}）'
     op = str(payload.get('op') or '')
     if op not in ASSET_OPS:                                  # 枚举 ✓
         return 'op 不在枚举内：%r' % payload.get('op')
+    # ⭐ `set_portrait`：**只收** `{role, portrait_prefix}` ✓ ⛔ 不收其它字段、⛔ 无 state ✗
+    if op == 'set_portrait':
+        extra = [k for k in payload if k not in ('role', 'op', 'portrait_prefix')]
+        if extra:
+            return 'set_portrait 不接受其它字段：%s' % ', '.join(extra)
+        pfx = payload.get('portrait_prefix')
+        if pfx is None:
+            return 'set_portrait 缺 portrait_prefix'
+        pfx = str(pfx).strip()
+        if pfx and ('/' in pfx or '\\' in pfx or '..' in pfx):
+            return 'portrait_prefix 只允许单段目录名（或留空解绑）✗'
+        return ''
+    st = str(payload.get('state') or '').strip()
+    if not re.match(r'^[a-z0-9_]{1,32}$', st):
+        return 'state 形状非法（[a-z0-9_]{1,32}）'
     # ⭐ 内置状态不可删 ✗（运行必需 ✓）
     if op == 'delete_state' and st in BUILTIN_STATES:
         return '内置状态 %r 不可删（运行必需）' % st
