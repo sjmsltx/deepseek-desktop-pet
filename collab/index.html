@@ -198,6 +198,14 @@
   .tick b.no{border-color:#ecc9bb;background:var(--mark-soft);color:var(--mark)}
   .mxadd{background:var(--card);color:var(--acc);font-family:var(--mono);font-size:11px;cursor:pointer}
   .mxadd:hover{background:var(--acc-soft)}
+  .tb2{font-family:var(--mono);font-size:12px;padding:5px 11px;border:1px solid var(--rule);background:#fff;color:var(--ink2);border-radius:3px;cursor:pointer}
+  .tb2[aria-selected="true"]{border-color:var(--acc);background:var(--acc-soft);color:var(--acc);font-weight:600}
+  .slist{background:#fff;border:1px solid var(--rule);border-radius:3px}
+  .sli{display:grid;grid-template-columns:170px 130px minmax(0,1fr) 240px;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--rule2)}
+  .sli:last-child{border-bottom:0}
+  .sli .nm{font-family:var(--mono);font-size:12.5px}
+  .sli .ops{display:flex;gap:6px;justify-content:flex-end}
+  .slh{display:grid;grid-template-columns:170px 130px minmax(0,1fr) 240px;gap:10px;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
   .mxnote{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:8px;line-height:1.7}
   .mxstat{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--ink2);margin:4px 0 8px}
 
@@ -266,6 +274,18 @@
 <div class="mxpanel" id="mxpanel">
   <h3>状态图矩阵（行 = 角色 ／ 列 = 状态）</h3>
   <div class="mxstat" id="mx-stat">—</div>
+  <div class="bar" id="mx-modes">
+    <span class="tb2" data-mxmode="matrix" aria-selected="true">▦ 矩阵</span>
+    <span class="tb2" data-mxmode="single" aria-selected="false">☰ 单角色</span>
+    <span class="meta">筛选状态：</span>
+    <input type="text" id="mx-filter" placeholder="如 peek / coffee" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
+    <label class="meta" style="display:inline-flex;gap:5px;align-items:center;cursor:pointer">
+      <input type="checkbox" id="mx-onlygap">只看有缺口的列
+    </label>
+    <span class="meta" id="mx-rolewrap" style="display:none">角色：</span>
+    <select id="mx-role" style="display:none;font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
+  </div>
+  <div id="mx-single" style="display:none"></div>
   <div class="bar" id="mx-actions" style="display:none">
     <span class="meta" id="mx-pick"></span>
     <button id="mx-op-pipe">补三件套（run_pipeline）</button>
@@ -731,6 +751,7 @@
   // ================= 批 4b-2：状态图矩阵（GET /api/assets → 三勾 → asset_op 待办）=================
   var ASSETS = null;
   var mxPick = null;
+  var mxMode = 'matrix';
 
   function setMxState(cls, text) {
     var el = $('mx-state'); if (!el) { return; }
@@ -753,7 +774,8 @@
     }).then(function (j) {
       ASSETS = j || {};
       renderMatrix();
-      setMxState('ok', '✅ 已读取：角色 ' + Object.keys(ASSETS).length + ' 个 ✓');
+      applyMxMode();
+      setMxState('ok', '✅ 已读取：角色 ' + Object.keys(ASSETS).filter(function (r) { return r.charAt(0) !== '_'; }).length + ' 个 ✓');
     }).catch(function (e) {
       setMxState('bad', '⛔ 读取失败：' + e.message + '（只读端点 /api/assets 不可用？）');
     });
@@ -764,6 +786,21 @@
     //    ⭐ 界面侧先过滤 `_` 开头（同时已提请端点侧排除 ✓）
     var roles = Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort();
     var states = collectStates();
+    // ⭐ 批 4b-3：状态筛选 ＋ 只看有缺口的列
+    var flt = String(($('mx-filter') && $('mx-filter').value) || '').trim().toLowerCase();
+    if (flt) { states = states.filter(function (s) { return s.toLowerCase().indexOf(flt) >= 0; }); }
+    var onlyGap = !!($('mx-onlygap') && $('mx-onlygap').checked);
+    if (onlyGap) {
+      states = states.filter(function (st) {
+        return roles.some(function (r) { var v = (ASSETS[r] || {})[st]; return !v || !(v.white && v.chroma && v.alpha); });
+      });
+    }
+    // 角色下拉（单角色视图用）
+    var sel = $('mx-role');
+    if (sel && sel.getAttribute('data-filled') !== String(roles.length)) {
+      sel.innerHTML = roles.map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
+      sel.setAttribute('data-filled', String(roles.length));
+    }
     var full = 0, partial = 0;
     roles.forEach(function (r) {
       states.forEach(function (st) {
@@ -807,6 +844,52 @@
         submitAsset({ role: r, state: 'idle', op: 'run_pipeline', source: 'pool', run_pipeline: true });
       };
     });
+    renderSingle(roles);
+  }
+
+  // ⭐ 批 4b-3：单角色状态列表（形态 B ✓ 与矩阵互补）
+  function renderSingle(roles) {
+    var box = $('mx-single');
+    if (!box || mxMode !== 'single') { return; }
+    var sel = $('mx-role');
+    var role = sel ? sel.value : '';
+    if (!role && roles.length) { role = roles[0]; if (sel) { sel.value = role; } }
+    var st = ASSETS[role] || {};
+    var names = Object.keys(st).sort();
+    var h = ['<div class="slh"><span>状态名</span><span>三件套</span><span>备注</span><span>操作</span></div>', '<div class="slist">'];
+    names.forEach(function (nm) {
+      var v = st[nm] || {};
+      var full = v.white && v.chroma && v.alpha;
+      h.push('<div class="sli"><span class="nm">' + esc(nm) + '</span>'
+        + '<span class="tick"><b class="' + (v.white ? 'on' : 'no') + '">白</b>'
+        + '<b class="' + (v.chroma ? 'on' : 'no') + '">绿</b>'
+        + '<b class="' + (v.alpha ? 'on' : 'no') + '">透</b></span>'
+        + '<span class="meta">' + (full ? '完整' : '⚠️ 缺项（可补三件套）') + '</span>'
+        + '<span class="ops">'
+        + '<button class="ghost sbtn" data-role="' + esc(role) + '" data-state="' + esc(nm) + '" data-op="run_pipeline">补三件套</button>'
+        + '<button class="ghost sbtn" data-role="' + esc(role) + '" data-state="' + esc(nm) + '" data-op="replace">替换</button>'
+        + '</span></div>');
+    });
+    h.push('</div>');
+    box.innerHTML = h.join('');
+    [].slice.call(box.querySelectorAll('.sbtn')).forEach(function (b) {
+      b.onclick = function () {
+        submitAsset({ role: b.getAttribute('data-role'), state: b.getAttribute('data-state'),
+                      op: b.getAttribute('data-op'), source: 'pool', run_pipeline: true });
+      };
+    });
+  }
+
+  function applyMxMode() {
+    var single = mxMode === 'single';
+    var mw = $('mx-actions'); if (mw && single) { mw.style.display = 'none'; }
+    var tbl = $('mx-table'); if (tbl) { tbl.style.display = single ? 'none' : ''; }
+    var wrapEl = document.querySelector('.mxwrap'); if (wrapEl) { wrapEl.style.display = single ? 'none' : ''; }
+    var stat = $('mx-stat'); if (stat) { stat.style.display = single ? 'none' : ''; }
+    if ($('mx-role')) { $('mx-role').style.display = single ? '' : 'none'; }
+    if ($('mx-rolewrap')) { $('mx-rolewrap').style.display = single ? '' : 'none'; }
+    if ($('mx-single')) { $('mx-single').style.display = single ? '' : 'none'; }
+    if (single) { renderSingle(Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort()); }
   }
 
   function submitAsset(payload) {
@@ -1414,6 +1497,19 @@
     var rk = ($('mx-newrole').value || '').trim();
     submitAsset({ role: rk, state: 'idle', op: 'add_role', source: 'pool', portrait_prefix: rk });
   }; }
+  // ⭐ 批 4b-3：筛选 / 只看缺口 / 矩阵↔单角色切换 / 角色下拉
+  if ($('mx-filter')) { $('mx-filter').oninput = function () { renderMatrix(); }; }
+  if ($('mx-onlygap')) { $('mx-onlygap').onchange = function () { renderMatrix(); }; }
+  if ($('mx-role')) { $('mx-role').onchange = function () { renderSingle(Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort()); }; }
+  [].slice.call(document.querySelectorAll('.tb2')).forEach(function (t) {
+    t.onclick = function () {
+      mxMode = t.getAttribute('data-mxmode') || 'matrix';
+      [].slice.call(document.querySelectorAll('.tb2')).forEach(function (x) {
+        x.setAttribute('aria-selected', x === t ? 'true' : 'false');
+      });
+      applyMxMode();
+    };
+  });
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
 })();
 </script>
