@@ -229,7 +229,9 @@ def test_autostart_enable_disable(tmp_path, monkeypatch):
 
     def fake_create(path, target, workdir):
         made.append((path, target, workdir))
-        open(path, 'w', encoding='utf-8').write('lnk')
+        # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+        with open(path, 'w', encoding='utf-8') as _fh:
+            _fh.write('lnk')
         return True
 
     monkeypatch.setattr(pl, 'create_autostart_lnk', fake_create)

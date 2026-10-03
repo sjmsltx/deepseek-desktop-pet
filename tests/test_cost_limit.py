@@ -20,6 +20,7 @@ if BASE not in sys.path:
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import governance as gov  # noqa: E402
+from pathlib import Path   # ⭐ S3：读文件自动关句柄 ✓
 
 
 def _write_stats(tmp_path, cost, date=None):
@@ -91,7 +92,7 @@ def test_run_task_is_gated_and_config_untouched(monkeypatch):
     import desktop_pet as dp
 
     cfg = os.path.join(BASE, 'config.json')
-    before = hashlib.md5(open(cfg, 'rb').read()).hexdigest() if os.path.isfile(cfg) else ''
+    before = hashlib.md5(Path(cfg).read_bytes()).hexdigest() if os.path.isfile(cfg) else ''
 
     blocked = {'why': ''}
     monkeypatch.setattr(gov, 'check_cost', lambda estimate=0.0: (False, '今日已花 ¥25.00，达到上限 ¥20.00', 25.0))
@@ -112,5 +113,5 @@ def test_run_task_is_gated_and_config_untouched(monkeypatch):
     assert '这一步未发出' in emitted[0] or '本次调用未发出' in emitted[0], emitted
     assert '¥20.00' in blocked['why'], '要写一条 deny 审计'
     assert getattr(p, '_ai_busy', False) is False, '不得把界面卡在 busy（闸门要在改状态之前）'
-    after = hashlib.md5(open(cfg, 'rb').read()).hexdigest() if os.path.isfile(cfg) else ''
+    after = hashlib.md5(Path(cfg).read_bytes()).hexdigest() if os.path.isfile(cfg) else ''
     assert after == before, '成本判定不得改动 config.json'

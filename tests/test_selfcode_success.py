@@ -34,7 +34,7 @@ def test_lf_oldtext_matches_crlf_file():
         f.write(b"A = 1\r\nB = 2\r\nC = 3\r\n")
     r = edit_own_code("A = 1\nB = 2", "A = 111\nB = 222", file="m.py", base_dir=d)
     assert r.startswith("✅"), "LF old_text 仍无法匹配 CRLF 文件：%s" % r[:80]
-    assert "A = 111" in open(p, encoding="utf-8").read()
+    assert "A = 111" in Path(p).read_text(encoding="utf-8")
 
 
 def test_line_endings_preserved():
@@ -63,7 +63,9 @@ def test_backup_really_created():
     """R3 修复：改前备份必须真的落盘（此前 datetime 未导入 → backup/ 一直是空的）"""
     d = _sandbox("r3")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\n")
     r = edit_own_code("A = 1", "A = 2", file="m.py", base_dir=d)
     assert r.startswith("✅")
     bdir = os.path.join(d, "backup")
@@ -78,7 +80,9 @@ def test_trailing_space_tolerant():
     """行尾空格差异可容忍（AI 常把行尾空格丢掉）"""
     d = _sandbox("r4")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("X = 1   \nY = 2\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("X = 1   \nY = 2\n")
     r = edit_own_code("X = 1\nY = 2", "X = 9\nY = 8", file="m.py", base_dir=d)
     assert r.startswith("✅"), "行尾空格差异导致匹配失败：%s" % r[:80]
 
@@ -87,18 +91,22 @@ def test_syntax_guard_still_blocks():
     """语法门必须仍在（这条此前是好的，防止修坏）"""
     d = _sandbox("r5")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\nB = 2\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\nB = 2\n")
     before = Path(p).read_text(encoding="utf-8")
     r = edit_own_code("A = 1", "def broken(:", file="m.py", base_dir=d)
     assert "语法验证失败" in r, "语法门失效：%s" % r[:80]
-    assert open(p, encoding="utf-8").read() == before, "非法改动竟然落盘了"
+    assert Path(p).read_text(encoding="utf-8") == before, "非法改动竟然落盘了"
 
 
 def test_multi_match_hint():
     """多处匹配要给出可操作建议（改用行号模式）"""
     d = _sandbox("r6")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\nA = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\nA = 1\n")
     r = edit_own_code("A = 1", "A = 2", file="m.py", base_dir=d)
     assert "多处匹配" in r or "处匹配" in r
     assert "start_line" in r, "未提示改用行号模式"
@@ -108,7 +116,9 @@ def test_success_message_useful():
     """成功消息要能指导使用者：文件 + 位置 + 重启生效"""
     d = _sandbox("r7")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\n")
     r = edit_own_code("", "A = 2", start_line=1, end_line=1, file="m.py", base_dir=d)
     assert "m.py" in r and "第 1" in r and "重启" in r
 
@@ -117,17 +127,21 @@ def test_inline_fragment_fallback():
     """v6.56b：行内片段也要能匹配（模型常只给一句话中间的片段）"""
     d = _sandbox("r8")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write('DESC = "自动带 git 保护（改前提交基线，改后语法验证）"\n')
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write('DESC = "自动带 git 保护（改前提交基线，改后语法验证）"\n')
     r = edit_own_code("改前提交基线", "改前记录基线 hash", file="m.py", base_dir=d)
     assert r.startswith("✅"), "行内片段未能匹配：%s" % r[:90]
-    assert "改前记录基线 hash" in open(p, encoding="utf-8").read()
+    assert "改前记录基线 hash" in Path(p).read_text(encoding="utf-8")
 
 
 def test_no_backup_on_failed_match():
     """v6.56b：匹配失败不应留下备份（避免 backup/ 噪音）"""
     d = _sandbox("r9")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\n")
     edit_own_code("这段根本不存在", "X", file="m.py", base_dir=d)
     bdir = os.path.join(d, "backup")
     assert not (os.path.isdir(bdir) and os.listdir(bdir)), "失败也写了备份"
