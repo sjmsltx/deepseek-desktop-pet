@@ -39,28 +39,43 @@ def _safe_rel(base: str, rel: str) -> str:
 
 
 def do_project_edit(base: str, payload: dict) -> tuple:
-    """`project_edit`：写 `<base>/rt/project.json`（项目层五字段 ✓ 最小但**真落地** ✓）。"""
-    name = str(payload.get('name') or '').strip()
-    if not name:
-        return False, '项目名不能为空'
-    if len(name) > MAX_NAME:
-        return False, '项目名超过 %d 字' % MAX_NAME
-    out = {'id': str(payload.get('id') or 'default'),
-           'name': name,
-           'root': str(payload.get('root') or '.'),          # ⭐ 相对 base ✓（E1③ 已拒绝对路径 ✓）
-           'outputs': str(payload.get('outputs') or 'outputs'),
-           'memory': str(payload.get('memory') or 'memory.md'),
-           'roles': [str(x) for x in (payload.get('roles') or [])]}
-    # 仅**校验**路径形状（不创建目录 ✗ —— 免得半途建一堆空目录 ✓）
-    for k in ('root', 'outputs', 'memory'):
-        _safe_rel(base, out[k])
+    """`project_edit`：把 `changes` **合并**进 `<base>/rt/project.json` ✓（⭐ 只改列出的字段 ✓）
+
+    新 schema（微信侧 `-16` §2.2 ✓ 我方 `-105` 已审定 ✓）：
+      `{project_id, changes: {name?, root?, outputs?, memory_file?, roles?}}`
+    · `root` ⭐ 可绝对路径（已存在目录·只登记 ✗ 不创建 ✓）
+    · `outputs`/`memory_file` ⭐ 只允许相对形式 ✓
+    """
+    pid = str(payload.get('project_id') or 'default').strip() or 'default'
+    changes = payload.get('changes') or {}
+    if not isinstance(changes, dict) or not changes:
+        return False, 'changes 不能为空'
     target = os.path.join(base, PROJECT_FILE)
+    cur = {}
+    if os.path.isfile(target):
+        try:
+            with open(target, encoding='utf-8') as fh:
+                cur = json.load(fh) or {}
+        except Exception:
+            cur = {}                                   # 旧档坏了不阻塞 ✓ 重建 ✓
+    out = dict(cur)
+    out['id'] = pid
+    for k, v in changes.items():                       # ⭐ 只改列出的 ✓ 未列 = 不改 ✓
+        if k in ('outputs', 'memory_file'):
+            p = pending_ops._rel_problem(v)             # 相对路径再核一道 ✓（直接调本模块也拦得住 ✓）
+            if p:
+                return False, '%s %s' % (k, p)
+        if k == 'roles':
+            if not isinstance(v, list):
+                return False, 'roles 必须是数组'
+            v = [str(x) for x in v]
+        out[k] = v
     os.makedirs(os.path.dirname(target), exist_ok=True)
     tmp = target + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as fh:
         json.dump(out, fh, ensure_ascii=False, indent=1)
-    os.replace(tmp, target)                                    # 原子写 ✓
-    return True, '已写入 %s' % PROJECT_FILE
+    os.replace(tmp, target)                             # 原子写 ✓
+    return True, '已合并 %d 个字段到 %s' % (len(changes), PROJECT_FILE)
 
 
 def do_asset_op(base: str, payload: dict) -> tuple:

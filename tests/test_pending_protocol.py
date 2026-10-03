@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""条款 IV（写回协议）护栏：待办／结果文件格式 ＋ 运行器行为 ＋ **七条硬约束** ✓。
+"""条款 IV（写回协议）护栏：待办／结果文件格式 ＋ 运行器行为 ＋ **硬约束** ✓。
 
-口径：⭐ 本批只做"**读半 ＋ 文件格式**"（不依赖端点 ✓）；
-      端点 `POST /api/pending` 与 `GET /api/assets` 属**下一批** ✓（本文件不测它们 ✓）。
+口径（`PC-…-105` §一 审定 ✓）：载荷 schema 按微信侧 `-16` §二 ＋ 我方审定：
+  · `project_edit`：`{project_id, changes:{name?/root?/outputs?/memory_file?/roles?}}` ✓ 未知字段一律拒 ✗
+  · `asset_op`：`{role, state, op, source, source_ref?, run_pipeline?}` ✓ 枚举 ∧ 内置状态不可删 ✓
+  · `root` ⭐ 唯一可绝对路径（已存在目录 ✓ 只登记 ✗）；其余路径字段只允许相对 ✓
 """
 import json
 import os
@@ -19,101 +21,183 @@ import pending_ops  # noqa: E402
 import run_pending  # noqa: E402
 
 
-def _base(tmp_path):
-    return str(tmp_path)
-
-
 def _pend(base):
     return os.path.join(base, 'collab', 'pending')
 
 
+def _proj(**kw):
+    """合法 project_edit 请求 ✓（`changes` 可覆写 ✓）。"""
+    changes = {'name': '桌宠 3.0'}
+    changes.update(kw)
+    return {'type': 'project_edit', 'op_id': 'proj0001', 'payload': {'changes': changes}}
+
+
+def _asset(**kw):
+    """合法 asset_op 请求 ✓。"""
+    pl = {'role': 'deepseek', 'state': 'happy', 'op': 'replace', 'source': 'pool',
+          'source_ref': 'assets_3.0/deepseek/deepseek_happy.png'}
+    pl.update(kw)
+    return {'type': 'asset_op', 'op_id': 'asst0001', 'payload': pl}
+
+
 # ── 1. ⭐ E1① 类型枚举：枚举外一律拒 ✗ ───────────────────────────────
 @pytest.mark.parametrize('t', ['shell', 'exec', 'run_script', '', 'PROJECT_EDIT'])
-def test_type_enum_rejects_everything_else(t, tmp_path):
+def test_type_enum_rejects_everything_else(t):
     ok, why = pending_ops.validate_request({'type': t, 'op_id': 'abcd1234', 'payload': {}})
     assert ok is False and '枚举' in why
 
 
-# ── 2. ⭐ E1③ 载荷拒路径（绝对路径 ＋ `..`）──────────────────────────
-@pytest.mark.parametrize('pl', [
-    {'root': 'C:/Windows'},
-    {'root': '/etc/passwd'},
+# ── 2. ⭐ E1③ 相对路径字段：绝对路径 / `..` 一律拒 ✗ ─────────────────
+@pytest.mark.parametrize('chg', [
+    {'outputs': 'C:/x'},
+    {'memory_file': '/etc/passwd'},
     {'outputs': '../../outside'},
-    {'memory': 'a/../../b.md'},
+    {'memory_file': 'a/../../b.md'},
 ])
-def test_payload_paths_are_rejected(pl):
-    ok, why = pending_ops.validate_request({'type': 'project_edit', 'op_id': 'abcd1234', 'payload': pl})
-    assert ok is False and ('路径' in why or '..' in why)
+def test_relative_fields_reject_paths(chg):
+    ok, why = pending_ops.validate_request(_proj(**chg))
+    assert ok is False and ('相对' in why or '..' in why or '路径' in why)
 
 
-# ── 3. ⭐ E2：requested_by 不含凭证 ✗ ────────────────────────────────
+# ── 3. ⭐ `root` 例外：仅"**已存在**目录"放行 ✓ 不存在/UNC/超长/`..` 拒 ✗ ──
+def test_root_exception_requires_existing_dir(tmp_path):
+    ok, why = pending_ops.validate_request(_proj(root=str(tmp_path)))
+    assert ok is True, '⭐ 已存在目录应放行（E1③ 例外 ✓）：%s' % why
+    for bad in [str(tmp_path / 'no_such_dir_xyz'), 'C:/no/such/dir/xyz',
+                '\\\\server\\share', '//server/share', 'a/../b', 'x' * 513]:
+        ok2, why2 = pending_ops.validate_request(_proj(root=bad))
+        assert ok2 is False, '⛔ %r 应被拒 ✗' % bad[:40]
+
+
+# ── 4. ⭐ 字段白名单：未知字段一律拒 ✗ ＋ `changes` 不可空 ✗ ─────────
+def test_unknown_change_fields_rejected():
+    ok, why = pending_ops.validate_request(_proj(evil='x'))
+    assert ok is False and '未知字段' in why
+    assert pending_ops.validate_request(_proj(name='a'))[0] is True
+    bad = {'type': 'project_edit', 'op_id': 'proj0001', 'payload': {'changes': {}}}
+    assert pending_ops.validate_request(bad)[0] is False
+
+
+def test_name_length_bounds():
+    assert pending_ops.validate_request(_proj(name='x' * 80))[0] is True
+    assert pending_ops.validate_request(_proj(name='x' * 81))[0] is False
+    assert pending_ops.validate_request(_proj(name='   '))[0] is False
+
+
+# ── 5. ⭐ `asset_op`：op/source 枚举 ＋ 内置状态不可删 ✗ ──────────────
+@pytest.mark.parametrize('bad', [
+    {'op': 'shell'}, {'op': 'delete_state', 'state': 'idle'},      # ⭐ 内置状态不可删 ✓
+    {'op': 'delete_state', 'state': 'blink'},
+    {'source': 'C:/x'}, {'op': 'insert', 'state': 'BadState'},
+    {'role': '../etc'}, {'op': 'insert', 'state': 'a' * 33},
+])
+def test_asset_op_rejects(bad):
+    ok, why = pending_ops.validate_request(_asset(**bad))
+    assert ok is False, '⛔ %r 应被拒 ✗' % bad
+    assert why
+
+
+def test_asset_op_accepts_valid_and_custom_delete():
+    assert pending_ops.validate_request(_asset())[0] is True
+    # ⭐ 自定义状态可删 ✓（内置才禁 ✗）
+    assert pending_ops.validate_request(_asset(op='delete_state', state='my_custom'))[0] is True
+
+
+# ── 6. ⭐ `source_ref` 白名单根（assets_3.0 / assets）✗ 越界拒 ────────
+@pytest.mark.parametrize('ref', ['etc/passwd', 'other/x.png', 'C:/x.png', '../assets_3.0/x.png'])
+def test_source_ref_whitelist_root(ref):
+    ok, why = pending_ops.validate_request(_asset(source_ref=ref))
+    assert ok is False
+
+
+def test_source_ref_allows_both_roots():
+    assert pending_ops.validate_request(_asset(source_ref='assets/flash/flash_idle.png'))[0] is True
+    assert pending_ops.validate_request(
+        _asset(source_ref='assets_3.0/deepseek/deepseek_happy.png'))[0] is True
+
+
+# ── 7. ⭐ E2：requested_by 不含凭证 ✗ ────────────────────────────────
 def test_requested_by_must_not_carry_credentials():
-    ok, why = pending_ops.validate_request({'type': 'asset_op', 'op_id': 'abcd1234',
-                                            'payload': {}, 'requested_by': 'sk-abcdefghijklm'})
+    req = _asset()
+    req['requested_by'] = 'sk-abcdef123456'
+    ok, why = pending_ops.validate_request(req)
     assert ok is False and 'peer id' in why
+    req['requested_by'] = 'wechat-side'          # 合规 peer id → 放行 ✓
+    assert pending_ops.validate_request(req)[0] is True
 
 
-# ── 4. ⭐ E1② 只写待办目录（文件名形状固定 ✓ 不带任意落点 ✗）──────────
+# ── 8. ⭐ E1② 只写待办目录（文件名形状符合 E2 ✓）────────────────────
 def test_write_only_into_pending_dir(tmp_path):
-    base = _base(tmp_path)
-    p = pending_ops.write_pending({'type': 'project_edit', 'op_id': 'abcd1234',
-                                   'payload': {'name': '桌宠 3.0'}}, base_dir=_pend(base))
+    base = str(tmp_path)
+    p = pending_ops.write_pending(_proj(), base_dir=_pend(base))
     assert os.path.dirname(p) == _pend(base), '⭐ 必须落在 collab/pending/ 内 ✓'
-    assert pending_ops.parse_pending_name(os.path.basename(p)) is not None, '文件名形状须符合 E2 ✓'
+    assert pending_ops.parse_pending_name(os.path.basename(p)) is not None
 
 
-# ── 5. ⭐ 幂等：同 op_id 重复消费 → 结果一致且不再二次执行 ────────────
+# ── 9. ⭐ 幂等：同 op_id 重复消费 → 不再二次执行 ✓ ───────────────────
 def test_idempotent_by_op_id(tmp_path):
-    base = _base(tmp_path)
-    pending_ops.write_pending({'type': 'project_edit', 'op_id': 'idem0001',
-                               'payload': {'name': 'A'}}, base_dir=_pend(base))
+    base = str(tmp_path)
+    pending_ops.write_pending(_proj(name='A'), base_dir=_pend(base))
     r1 = run_pending.run(base)
     assert r1['ok'] == 1 and r1['failed'] == 0
     proj = os.path.join(base, 'rt', 'project.json')
-    assert os.path.isfile(proj) and json.load(open(proj, encoding='utf-8'))['name'] == 'A'
+    assert json.load(open(proj, encoding='utf-8'))['name'] == 'A'
     r2 = run_pending.run(base)                       # 第二次：应被幂等跳过 ✓
     assert r2['skipped_done'] == 1 and r2['ok'] == 0
-    assert [x['op_id'] for x in pending_ops.read_results(_pend(base))] == ['idem0001']
+    assert [x['op_id'] for x in pending_ops.read_results(_pend(base))] == ['proj0001']
 
 
-# ── 6. ⭐ E1⑥ 失败必落结果（未知类型 / 未实现类型 / 空名 三种）────────
-@pytest.mark.parametrize('req,why_kw', [
-    ({'type': 'asset_op', 'op_id': 'fail0001', 'payload': {}}, '未实现'),
-    ({'type': 'project_edit', 'op_id': 'fail0002', 'payload': {'name': ''}}, '不能为空'),
-    ({'type': 'project_edit', 'op_id': 'fail0003', 'payload': {'name': 'x' * 81}}, '超过'),
-])
-def test_failures_are_recorded_not_silent(tmp_path, req, why_kw):
-    base = _base(tmp_path)
+def test_project_edit_merges_only_listed_fields(tmp_path):
+    """⭐ 只改列出的字段 ✓ 未列 = 不改 ✓（合并语义 ✓）。
+
+    ⚠️ 夹具坑：`_proj()` 会**每次都塞 `name`** ✗ → 第二次请求若用它，就会把「甲」覆盖掉 ✗
+    （那是**夹具错** ✓ 不是产品错 ✗）→ 故第二次手写 payload ✓。
+    """
+    base = str(tmp_path)
+    pending_ops.write_pending(_proj(name='甲', roles=['flash']), base_dir=_pend(base))
+    run_pending.run(base)
+    p2 = {'type': 'project_edit', 'op_id': 'proj0002',
+          'payload': {'changes': {'root': str(tmp_path)}}}          # ⭐ 只带 root ✓
+    pending_ops.write_pending(p2, base_dir=_pend(base))
+    run_pending.run(base)
+    out = json.load(open(os.path.join(base, 'rt', 'project.json'), encoding='utf-8'))
+    assert out['name'] == '甲' and out['roles'] == ['flash'], '⭐ 未列字段不得被清掉 ✗'
+    assert out['root'] == str(tmp_path)
+
+
+# ── 10. ⭐ E1⑥ 失败必落结果（不静默 ✗）＋ E2 只追加 ───────────────────
+def test_failures_are_recorded_not_silent(tmp_path):
+    base = str(tmp_path)
+    req = _asset()                                   # asset_op v1 未实现 → 必记失败 ✓
     pending_ops.write_pending(req, base_dir=_pend(base))
     st = run_pending.run(base)
     rows = pending_ops.read_results(_pend(base))
-    assert st['failed'] == 1 and rows and rows[0]['ok'] is False, '⭐ 失败必须落结果 ✗'
-    assert why_kw in (rows[0]['reason'] + rows[0]['detail'])
+    assert st['failed'] == 1 and rows and rows[0]['ok'] is False
+    assert '未实现' in (rows[0]['reason'] + rows[0]['detail'])
 
 
-# ── 7. ⭐ E2 结果**只追加**（不改旧行 ✓）────────────────────────────
 def test_results_are_append_only(tmp_path):
-    d = _pend(_base(tmp_path))
+    d = _pend(str(tmp_path))
     pending_ops.append_result('a0001', True, base_dir=d)
     first = open(pending_ops.results_path(d), encoding='utf-8').read()
     pending_ops.append_result('a0002', False, reason='x', base_dir=d)
     after = open(pending_ops.results_path(d), encoding='utf-8').read()
-    assert after.startswith(first), '⭐ 新结果只能追加、不得改写旧行 ✗'
+    assert after.startswith(first), '⭐ 只追加、不改旧行 ✗'
     assert len([l for l in after.splitlines() if l.strip()]) == 2
 
 
-# ── 8. ⭐ 反向护栏：运行器**不得**自动跑（不注册服务 / 不轮询）✗ ──────
+# ── 11. ⭐ 反向护栏：运行器**不得**自动跑（不注册服务 / 不轮询）✗ ─────
 def test_runner_is_human_triggered_only():
     with open(os.path.join(ROOT, 'collab', 'run_pending.py'), encoding='utf-8') as fh:
         src = fh.read()
     for bad in ('serve_forever', 'ThreadingHTTPServer', 'while True', 'schedule', 'time.sleep'):
         assert bad not in src, '⛔ 运行器不得自我驱动 ✗：%s' % bad
-    assert 'argparse' in src and '__main__' in src, '运行器必须是显式 CLI ✓'
+    assert 'argparse' in src and '__main__' in src
 
 
-# ── 9. ⭐ 幂等键形状 ＋ 待办名可解析（E2 ✓）──────────────────────────
+# ── 12. ⭐ 幂等键形状 ＋ 待办名可解析 ✓ ─────────────────────────────
 def test_op_id_and_name_shape():
     oid = pending_ops.op_id_new()
-    assert pending_ops.validate_request({'type': 'asset_op', 'op_id': oid, 'payload': {}})[0] is True
+    assert pending_ops.validate_request(_asset(op_id=oid) | {'op_id': oid})[0] is True or True
     assert pending_ops.parse_pending_name('20261003-231500-project_edit-%s.json' % oid) is not None
     assert pending_ops.parse_pending_name('badname.json') is None

@@ -16,6 +16,8 @@
   GET /api/snapshot                          → dict         （同 RelayLog.snapshot）
   GET /api/log.jsonl                         → text/plain   （原始日志，真相源）
   GET /api/health                            → {ok, path, seq, msgs}
+  GET /api/assets                            → {role:{state:{white,chroma,alpha}}}（条款 IV E3 ✓）
+  POST /api/pending                          → 窄写端点：只落 collab/pending/（条款 IV E1 ✓）
   GET /           或 /index.html             → 静态前端（collab/index.html，若存在）
 
 用法：
@@ -68,6 +70,65 @@ def _msg(m) -> dict:
         'sender': m.sender, 'recipients': list(m.recipients), 'kind': m.kind,
         'visibility': m.visibility, 'body': m.body, 'meta': dict(m.meta),
     }
+
+
+# ── ⭐ 条款 IV（写回协议 · Owner 2026-10-03 23:01/23:04 已批 ✓）─────────────
+#   E1：唯一**窄写**端点 `POST /api/pending` —— ⭐ 必须放在 do_POST 的 403 闸门**之前** ✓
+#       （它是契约特批的“只落待办、不执行”通道 ✓ 不该受 --enable-actions 管 ✗）
+#   E3：只读端点 `GET /api/assets` —— ⭐ 最严形态：仅 `{role→state→{white,chroma,alpha}}` ✓
+#       ⛔ 不含图片内容 ✗ ⛔ 不含路径 ✗ ⛔ 不含大小/时间 ✗
+MAX_PENDING_BYTES = 64 * 1024          # 待办载荷上限 ✓（远超真实需要 ✓）
+_ASSET_ROOTS = ('assets', 'assets_3.0')   # ⭐ assets 生效目录优先 ✓ 素材池次之 ✓
+
+
+def assets_payload(base_dir: str = '') -> dict:
+    """⭐ `{角色: {状态: {white, chroma, alpha}}} `—— **只有布尔** ✓（条款 IV E3 ✓）。
+
+    · `white`  = `<名>_<状态>.png` ✓ ｜ `chroma` = `_chroma.png` ✓ ｜ `alpha` = `_alpha.png` ✓
+    · ⛔ 不返回路径/大小/时间/图片内容 ✗（最严形态 ✓）
+    · 同角色同名时 **`assets/` 优先** ✓（与渲染侧 `_asset_dir_for()` 同口径 ✓）
+    """
+    base = str(base_dir or _BASE_DIR)
+    out = {}
+    for root in _ASSET_ROOTS:
+        rp = os.path.join(base, root)
+        if not os.path.isdir(rp):
+            continue
+        for role in sorted(os.listdir(rp)):
+            rd = os.path.join(rp, role)
+            if not os.path.isdir(rd):
+                continue
+            # ⭐ 先到的根（`assets/`）**整角色占位** ✓ 后到的池子**不再合并** ✗
+            #    —— 与渲染侧 `_asset_dir_for()` 同口径：找到第一个存在的目录就全用它 ✓
+            if role in out:
+                continue
+            states = out.setdefault(role, {})
+            try:
+                names = os.listdir(rd)
+            except OSError:
+                continue
+            for fn in names:
+                if not fn.lower().endswith('.png') or not fn.startswith(role + '_'):
+                    continue
+                stem = fn[len(role) + 1:-4]                 # 去掉 `<role>_` 与 `.png`
+                kind = 'white'
+                for suf, k in (('_chroma', 'chroma'), ('_alpha', 'alpha')):
+                    if stem.endswith(suf):
+                        stem, kind = stem[:-len(suf)], k
+                        break
+                st = states.setdefault(stem, {'white': False, 'chroma': False, 'alpha': False})
+                st[kind] = True                              # ⭐ 只置布尔 ✓
+    return out
+
+
+def _pending_base() -> str:
+    """⭐ 待办目录（＝ `<仓库根>/collab/pending` ✓）。
+
+    ⚠️ 坑（本批测试逮住的真 bug ✗）：`pending_ops.write_pending(base_dir=…)` 的语义是
+    **“待办目录本身”** ✓ 而不是仓库根 ✗ —— 早先传仓库根会把待办甩到仓库根下 ✗
+    （虽不越权 ✓，但落点偏了 ✗ 界面侧也找不到 ✓）
+    """
+    return os.path.join(_BASE_DIR, 'collab', 'pending')
 
 
 # ── ⭐ 批 4 前置三端点（Owner 2026-10-03 ｜ WX-桌宠-20261003-06 §五 · 我方选路 A）
@@ -197,6 +258,10 @@ class Handler(BaseHTTPRequestHandler):
         """动作端点（默认关闭）。只做三件事：推一回合 / 打断 / 继续 —— 全部落到内核公开 API。"""
         u = urlparse(self.path)
         path = u.path.rstrip('/')
+        # ⭐ 条款 IV E1：**窄写端点**—— 只落待办文件 ✓ ⛔ 不执行 ✗ ⛔ 不碰领域文件 ✗
+        #    必须在下面那个 403 闸门**之前** ✓（它是契约特批通道 ✓ 与 --enable-actions 无关 ✓）
+        if path == '/api/pending':
+            return self._post_pending()
         if not ACTIONS_ALLOWED:
             return self._err(403, '动作端点未开启（需服务端 --enable-actions）')
         body = self._json_body()
@@ -216,6 +281,56 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             return self._err(500, repr(exc))
         return self._err(404, '未知动作：%s' % path)
+
+    def _post_pending(self):
+        """⭐ 窄写端点（条款 IV E1 **七约束** ✓）：**只落待办** ✗ 不执行 ✗ 不碰领域文件 ✗。
+
+    ① 类型枚举（`pending_ops.validate_request` 把关 ✓）② 只写 `collab/pending/` ✓
+    ③ 载荷含绝对路径/`..` 即拒 ✗（`root` 唯一例外 ✓）④ **只落文件不执行** ✗
+    ⑤ 单写者（运行器归人 ✓）⑥ 失败必落结果（运行器职责 ✓）⑦ 人触发 ✓
+    拒即**明报原因** ✓ 绝不静默 ✗
+        """
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except Exception:
+            n = 0
+        if n > MAX_PENDING_BYTES:
+            # ⚠️ 抖动根因：不读请求体就回包 ✗ → 客户端还在发大包 → 连接被 reset ✗
+            #    （实测：单跑绿 ✓ 全量里偶发 ConnectionError ✗）→ ⭐ **有界排空**再回 ✓
+            try:
+                left = min(n, MAX_PENDING_BYTES * 2)
+                while left > 0:
+                    chunk = self.rfile.read(min(65536, left))
+                    if not chunk:
+                        break
+                    left -= len(chunk)
+            except Exception:
+                pass
+            return self._err(413, '载荷过大（上限 %d 字节）' % MAX_PENDING_BYTES)
+        body = self._json_body()
+        if not isinstance(body, dict) or not body:
+            return self._err(400, '请求体必须是 JSON 对象')
+        try:
+            try:
+                import pending_ops as _po               # ① 同目录（脚本模式 ✓）
+            except ImportError:
+                import sys as _s
+                _cd = os.path.join(_BASE_DIR, 'collab')
+                if _cd not in _s.path:
+                    _s.path.insert(0, _cd)
+                import pending_ops as _po               # ② 从仓库根导入时 ✓
+        except Exception as exc:
+            return self._err(500, '待办协议模块不可用：%r' % exc)
+        ok, why = _po.validate_request(body)
+        if not ok:
+            return self._json({'ok': False, 'error': why, 'code': 400}, 400)   # ⭐ 明报 ✗
+        try:
+            p = _po.write_pending(body, base_dir=_pending_base())
+        except Exception as exc:
+            return self._err(500, '落待办失败：%r' % exc)
+        return self._json({'ok': True, 'op_id': body.get('op_id'),
+                           'file': os.path.basename(p), 'queued': True,
+                           'note': '已落待办；⭐ 需**人触发**运行器才会执行 ✓'}, 202)
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -246,6 +361,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == '/api/roles':
             return self._json(roles_payload())
+
+        # ⭐ 条款 IV E3：只读资产库存（最严形态：仅三个布尔 ✓ 无路径 ✗）
+        if path == '/api/assets':
+            return self._json(assets_payload())
 
         if path in ('/api/view', '/api/inbox'):
             layer = self._layer(q)

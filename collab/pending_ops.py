@@ -18,6 +18,15 @@ import time
 PENDING_DIRNAME = 'pending'                      # ⭐ E1② 只写这一个目录 ✓
 RESULTS_NAME = 'results.jsonl'                   # ⭐ E2 只追加 ✓
 OP_TYPES = ('project_edit', 'asset_op')          # ⭐ E1① 类型枚举 ✓（不收命令/脚本 ✗）
+# ⭐ 载荷字段白名单（`-105` §一 审定 ✓ 未知字段一律拒 ✗）
+PROJECT_FIELDS = ('name', 'root', 'outputs', 'memory_file', 'roles')
+ASSET_OPS = ('insert', 'replace', 'add_state', 'add_role', 'delete_state', 'run_pipeline')
+ASSET_SOURCES = ('pool', 'assets')               # ⭐ 白名单根 ✓
+# ⭐ 运行必需的**内置状态**（⛔ 不可删 ✗ —— 微信侧 `-16` §2.3#2 补的，我方漏了 ✓）
+BUILTIN_STATES = ('idle', 'blink', 'happy', 'angry', 'sad', 'sleep', 'hungry',
+                  'eating', 'thinking', 'crying', 'cry', 'surprised', 'shy')
+_MAX_ROOT = 512
+_BAD_DEVICE = re.compile(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)', re.I)
 _NAME_RE = re.compile(r'^(\d{8}-\d{6})-([a-z_]+)-([A-Za-z0-9_-]{4,64})\.json$')
 _PATHISH = re.compile(r'^(?:[A-Za-z]:[\\/]|/|\\\\|~[\\/])')          # 绝对路径类 ✓
 _LEVEL_WORDS = ('\\.\\.', '..')                                       # ⭐ E1③ 拒 `..` ✓
@@ -70,8 +79,72 @@ def op_id_new() -> str:
     return '%s-%04d' % (time.strftime('%Y%m%d%H%M%S'), random.randint(0, 9999))
 
 
+def _root_problem(v) -> str:
+    r"""⭐ `root` 的**唯一绝对路径例外**（条款 IV E1③ 例外 · Owner 23:04 已批 ✓）
+
+    四条限缩（`PC-…-105` §〇 ✓）：① 只此一项 ✓ ② 必须**已存在目录** ✓（只登记·不创建 ✗）
+    ③ 长度 ≤ %d 且不得含 `..` 段 ✗ ④ 拒 UNC／设备前缀／设备名 ✗
+    """
+    s = str(v or '').strip()
+    if not s:
+        return 'root 不能为空'
+    if len(s) > _MAX_ROOT:
+        return 'root 超过 %d 字' % _MAX_ROOT
+    if s.startswith('\\\\') or s.startswith('//') or s.startswith('\\\\?\\'):
+        return 'root 不得为 UNC/设备前缀'
+    if any(seg == '..' for seg in s.replace('\\', '/').split('/')):
+        return 'root 不得含 ..'
+    if not os.path.isdir(s):
+        return 'root 必须是**已存在**的目录（只登记，不创建）'
+    return ''
+
+
+def _rel_problem(v) -> str:
+    """相对路径字段（`outputs`／`memory_file`／`source_ref`）⭐ **只允许相对形式** ✓。"""
+    s = str(v or '').strip()
+    if not s:
+        return '不能为空'
+    t = s.replace('\\', '/')
+    if re.match(r'^[A-Za-z]:', t) or t.startswith('/') or t.startswith('~'):
+        return '只允许相对路径（不得盘符/根/~/UNC）'
+    if any(seg == '..' for seg in t.split('/')):
+        return '不得含 ..'
+    return ''
+
+
+def _asset_payload_problem(payload: dict) -> str:
+    """`asset_op` 载荷校验（`-105` §一.2 ✓）。"""
+    role = str(payload.get('role') or '').strip()
+    if not re.match(r'^[A-Za-z0-9_-]{1,64}$', role):
+        return 'role 形状非法'
+    st = str(payload.get('state') or '').strip()
+    if not re.match(r'^[a-z0-9_]{1,32}$', st):
+        return 'state 形状非法（[a-z0-9_]{1,32}）'
+    op = str(payload.get('op') or '')
+    if op not in ASSET_OPS:                                  # 枚举 ✓
+        return 'op 不在枚举内：%r' % payload.get('op')
+    # ⭐ 内置状态不可删 ✗（运行必需 ✓）
+    if op == 'delete_state' and st in BUILTIN_STATES:
+        return '内置状态 %r 不可删（运行必需）' % st
+    src = payload.get('source')
+    if src is not None and str(src) not in ASSET_SOURCES:
+        return 'source 不在枚举内：%r' % src
+    ref = payload.get('source_ref')
+    if ref is not None:
+        p = _rel_problem(ref)
+        if p:
+            return 'source_ref %s' % p
+        head = str(ref).replace('\\', '/').split('/')[0]
+        if head not in ('assets_3.0', 'assets'):             # ⭐ 白名单根 ✓
+            return 'source_ref 必须在 assets_3.0/ 或 assets/ 之下'
+    return ''
+
+
 def validate_request(req) -> tuple:
-    """校验一条变更请求 → `(ok, why)`。⭐ 全是**拒绝式**校验 ✓ 宁严勿松 ✓"""
+    """校验一条变更请求 → `(ok, why)`。⭐ 全是**拒绝式**校验 ✓ 宁严勿松 ✓
+
+    `known_roles`（可选）：当前 `/api/roles` 见过的 key 集合 ✓ 传入则校验 `roles` 项 ✓
+    """
     if not isinstance(req, dict):
         return False, '请求必须是对象'
     t = str(req.get('type') or '')
@@ -83,10 +156,46 @@ def validate_request(req) -> tuple:
     payload = req.get('payload')
     if not isinstance(payload, dict):
         return False, 'payload 必须是对象'
-    # ⭐ E1③：载荷里出现绝对路径或 `..` → 直接拒 ✗（防越界写 ✓）
-    _p = _scan_paths(payload)
+    # ⭐ E1③：载荷里出现绝对路径或 `..` → 直接拒 ✗
+    # ⭐ 例外：`project_edit.changes.root`（唯一一项 ✓ 由 `_root_problem` 单独把关 ✓）
+    #    —— 坑：若先整块扫，`root` 的绝对路径会在这里被叉掉 ✗，永远走不到例外 ✓
+    if t == 'project_edit':
+        _p = _scan_paths({k: v for k, v in payload.items() if k != 'changes'})
+        if not _p:
+            _ch = payload.get('changes')
+            if isinstance(_ch, dict):
+                _p = _scan_paths({k: v for k, v in _ch.items() if k != 'root'}, 'payload.changes')
+    else:
+        _p = _scan_paths(payload)
     if _p:
         return False, 'payload %s，已拒' % _p
+    if t == 'project_edit':
+        changes = payload.get('changes')
+        if not isinstance(changes, dict) or not changes:
+            return False, 'project_edit 必须给非空 changes'
+        unknown = [k for k in changes if k not in PROJECT_FIELDS]   # 字段白名单 ✓
+        if unknown:
+            return False, 'changes 含未知字段：%s' % ', '.join(unknown)
+        name = str(changes.get('name') or '').strip()
+        if 'name' in changes and not (1 <= len(name) <= 80):
+            return False, 'name 长度须为 1–80 字（去空白后非空）'
+        for k in ('outputs', 'memory_file'):
+            if k in changes:
+                p = _rel_problem(changes[k])
+                if p:
+                    return False, '%s %s' % (k, p)
+        if 'root' in changes:
+            p = _root_problem(changes['root'])               # ⭐ 唯一例外 ✓
+            if p:
+                return False, p
+        if 'roles' in changes:
+            rl = changes['roles']
+            if not isinstance(rl, list) or any(not isinstance(x, str) for x in rl):
+                return False, 'roles 必须是字符串数组'
+    elif t == 'asset_op':
+        p = _asset_payload_problem(payload)
+        if p:
+            return False, p
     rb = str(req.get('requested_by') or '')
     if rb and ('sk-' in rb.lower() or 'token' in rb.lower() or 'secret' in rb.lower()):
         return False, 'requested_by 只允许 peer id 引用，不含凭证'   # E2 ✓
