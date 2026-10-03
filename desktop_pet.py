@@ -2463,8 +2463,10 @@ class PetWidget(QWidget):
                     self._set_live2d_model(value)
                 elif key == 'sedentary_minutes':
                     self.sedentary_minutes = int(value)
-            except Exception:
-                pass
+            except Exception as _exc:
+                # ⭐ 风险 1 第一批（夜检报告）：热加载失败**不能静默** ✗ ——
+                #   否则界面回“✅ 已修改”，而运行态其实没更新 ✗（静默不一致）
+                _silent_log('_save_cfg_value:hot_reload', _exc)
             return f'✅ 已修改 {key}={value}'
         return '（写入失败）'
 
@@ -5232,8 +5234,10 @@ class PetWidget(QWidget):
             try:
                 if self.api_stats.balance_stale(getattr(self, 'balance_auto_minutes', 10)):
                     self._query_balance_async(manual=False)
-            except Exception:
-                pass
+            except Exception as _exc:
+                # ⭐ 风险 1 第一批（夜检报告）：网络路径失败至少留日志 ✓
+                #   （仍**不弹提示** ✓ 保持原有“不打扰”语义 ✗）
+                _silent_log('_record_api_usage:balance_auto', _exc)
         except Exception as _exc:
             _silent_log('_record_api_usage:3851', _exc, user_facing=True)   # v1-B：记账失败
 
