@@ -169,6 +169,17 @@
   .estate.bad{background:var(--mark-soft);border:1px solid #ecc9bb;color:var(--mark)}
   .editacts{display:flex;gap:8px;align-items:center;margin-top:6px}
 
+  /* ===== 批 4b-3：真三态（接只读 GET /api/pending）===== */
+  .opsbox{border:1px solid var(--rule);background:#fff;border-radius:3px;padding:7px 10px;margin-bottom:10px;display:none}
+  .opsbox .lbl{font-family:var(--mono);font-size:10.5px;color:var(--ink3);letter-spacing:.1em;text-transform:uppercase}
+  .oprow{display:flex;gap:9px;align-items:baseline;margin-top:4px;flex-wrap:wrap}
+  .opstate{font-family:var(--mono);font-size:11px;border-radius:3px;padding:1px 7px;border:1px solid var(--rule);white-space:nowrap}
+  .opstate.wait{border-color:#e6ccae;background:var(--warn-soft);color:var(--warn)}
+  .opstate.ok{border-color:#b9dbc6;background:var(--ok-soft);color:var(--ok)}
+  .opstate.bad{border-color:#ecc9bb;background:var(--mark-soft);color:var(--mark)}
+  .opstate.unknown{background:var(--card);color:var(--ink3)}
+  .opmeta{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+
   /* ===== 批 4b-2：状态图矩阵（数据源 GET /api/assets —— 只有三布尔 ✓ 无图片/路径 ✓）===== */
   .mxpanel{border:1px solid var(--acc);background:#fff;border-radius:3px;padding:12px 14px;margin-bottom:12px;display:none}
   .mxpanel.on{display:block}
@@ -229,6 +240,11 @@
   <span class="pchips" id="proj-chips"></span>
   <button id="btn-proj-edit" title="编辑项目五字段（提交为待办，须人触发运行器执行）">✎ 编辑项目</button>
   <button id="btn-matrix" title="状态图矩阵（数据源 GET /api/assets；操作提交为待办）">▦ 资产矩阵</button>
+</div>
+
+<div class="opsbox" id="opsbox">
+  <span class="lbl">我的提交（真三态 · 数据源只读 GET /api/pending）</span>
+  <div id="ops-list"></div>
 </div>
 
 <div class="editpanel" id="editpanel">
@@ -700,6 +716,7 @@
       return res.text().then(function (t) {
         var j = null; try { j = JSON.parse(t); } catch (e) { /* 非 JSON 也要展示原文 ✓ */ }
         if (res.status === 202) {
+          trackOp(req, '项目编辑');
           setPjState('wait', '⏳ 已投递为待办：' + ((j && j.file) || '') +
             '　⭐ 须人触发运行器才真执行：python collab\\run_pending.py --base .');
         } else {
@@ -802,6 +819,7 @@
       return res.text().then(function (t) {
         var j = null; try { j = JSON.parse(t); } catch (e) {}
         if (res.status === 202) {
+          trackOp(req, '资产 · ' + payload.op + ' · ' + payload.role + '/' + payload.state);
           setMxState('wait', '⏳ 已投递为待办：' + ((j && j.file) || '') +
             '　⭐ 须人跑 python collab\\run_pending.py --base . ✓；⚠️ 若运行器尚不支持该类操作，会在结果文件里明报原因（不假成功 ✗）');
         } else {
@@ -809,6 +827,45 @@
         }
       });
     }).catch(function (e) { setMxState('bad', '⛔ 提交失败：' + e.message); });
+  }
+
+  // ================= 批 4b-3：真三态（接只读 GET /api/pending）=================
+  var MY_OPS = [];                          // 我投递过的 op（只展示自己的 ✓）
+  var PEND = { pending: null, results: null };  // null = 未取到（⛔ 不假装有数据 ✗）
+
+  function trackOp(req, desc) {
+    MY_OPS.unshift({ op_id: req.op_id, type: req.type, desc: desc || '', at: Date.now() });
+    if (MY_OPS.length > 10) { MY_OPS.pop(); }
+    renderOps();
+  }
+  function opStateOf(opId) {
+    if (!PEND.pending && !PEND.results) { return { s: 'unknown', t: '状态未知（读回端点不可用）' }; }
+    var r = null;
+    (PEND.results || []).forEach(function (x) { if (x && x.op_id === opId) { r = x; } });
+    if (r) {
+      return r.ok
+        ? { s: 'ok', t: '已完成' + (r.detail ? '：' + r.detail : '') }
+        : { s: 'bad', t: '失败：' + (r.reason || '（未给原因）') };
+    }
+    var p = null;
+    (PEND.pending || []).forEach(function (x) { if (x && x.op_id === opId) { p = x; } });
+    if (p) { return { s: 'wait', t: '待办中（等人触发运行器）' }; }
+    return { s: 'unknown', t: '未见于待办/结果（可能已被清理）' };
+  }
+  function renderOps() {
+    var box = $('opsbox'), list = $('ops-list');
+    if (!box || !list) { return; }
+    if (!MY_OPS.length) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    list.innerHTML = '';
+    MY_OPS.forEach(function (o) {
+      var st = opStateOf(o.op_id);
+      var d = document.createElement('div');
+      d.className = 'oprow';
+      d.innerHTML = '<span class="opstate ' + st.s + '" title="投递 ' + esc(new Date(o.at).toLocaleTimeString()) + '">'
+        + esc(st.t) + '</span><span class="opmeta">' + esc(o.type) + (o.desc ? ' · ' + esc(o.desc) : '') + ' · ' + esc(o.op_id) + '</span>';
+      list.appendChild(d);
+    });
   }
 
   function refresh() {
@@ -821,10 +878,17 @@
       getJSON('/api/view?channel=' + c + '&layer=L3'),
       getJSONSoft('/api/projects'),
       getJSONSoft('/api/project/current'),
-      getJSONSoft('/api/roles')
+      getJSONSoft('/api/roles'),
+      getJSONSoft('/api/pending')
     ]).then(function (r) {
       renderState(r[0]); renderL1(r[1]); renderL2(r[2]); renderL3(r[3]);
       renderProjectLayer(r[4], r[5], r[6]);   // ⭐ 项目层（不可用时为空态 ✓ 不白屏 ✗）
+      if (r[7] && (r[7].pending || r[7].results)) {
+        PEND = { pending: r[7].pending || [], results: r[7].results || [] };
+      } else {
+        PEND = { pending: null, results: null };   // ⭐ 取不到 → 状态显示“未知”✓ 不假装 ✗
+      }
+      renderOps();
       $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
       $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
     }).catch(function (e) { err(e.message); });
