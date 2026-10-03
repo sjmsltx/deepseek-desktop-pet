@@ -8914,7 +8914,7 @@ class PetWidget(QWidget):
             return False                                   # ⭐ 防连点堆叠 ✓
         self._dsh_busy = True
         try:
-            self._notify(T('dsh_opening'))                 # ⭐ 先给非阻塞提示 ✓
+            self._notify(self._t('dsh_opening'))                 # ⭐ 先给非阻塞提示 ✓
         except Exception as _e:
             _silent_log('_open_dsh_panel.notify', _e)
         import threading as _th
@@ -8931,7 +8931,7 @@ class PetWidget(QWidget):
             return False
         self._collab_busy = True
         try:
-            self._notify(T('collab_opening'))
+            self._notify(self._t('collab_opening'))
         except Exception as _e:
             _silent_log('_open_collab.notify', _e)
         import threading as _th
@@ -8952,9 +8952,9 @@ class PetWidget(QWidget):
             running = _cp(port)
             allow = False
             if not running:
-                allow = bool(self._request_confirm(T('collab_start_ask') % {'port': port}))
+                allow = bool(self._request_confirm(self._t('collab_start_ask') % {'port': port}))
                 if not allow:
-                    ok, msg = False, T('collab_start_cancelled')
+                    ok, msg = False, self._t('collab_start_cancelled')
             if allow or running:
                 ok, msg = open_collab(base, port=port, allow_start=allow,
                                       timeout_ready=12, poll=0.3)
@@ -8971,7 +8971,7 @@ class PetWidget(QWidget):
         self._collab_busy = False
         if not ok and msg:
             try:
-                self.say_plain('%s%s' % (T('collab_fail'), msg))
+                self.say_plain('%s%s' % (self._t('collab_fail'), msg))
             except Exception as _e:
                 _silent_log('_collab_done.say', _e)
         return ok
@@ -8985,9 +8985,9 @@ class PetWidget(QWidget):
             allow = False
             if not running:
                 # ⭐ 先问用户（跨线程确认 ✓）；⛔ 不自动重启用户的服务 ✗
-                allow = bool(self._request_confirm(T('dsh_start_ask')))
+                allow = bool(self._request_confirm(self._t('dsh_start_ask')))
                 if not allow:
-                    ok, msg = False, T('dsh_start_cancelled')
+                    ok, msg = False, self._t('dsh_start_cancelled')
             if allow or running:
                 from dsh_panel import open_panel
                 ok, msg = open_panel(allow_start=allow, timeout_ready=10, poll=0.3)
@@ -9004,7 +9004,7 @@ class PetWidget(QWidget):
         self._dsh_busy = False
         if not ok and msg:
             try:
-                self.say_plain('%s%s' % (T('dsh_panel_fail'), msg))
+                self.say_plain('%s%s' % (self._t('dsh_panel_fail'), msg))
             except Exception as _e:
                 _silent_log('_dsh_open_done.say', _e)
         return ok
