@@ -123,6 +123,33 @@
              border:2px dashed var(--acc);border-radius:4px}
   body.m2-dragging{cursor:move;user-select:none}
 
+  /* ===== 批 4 第一刀·项目层：项目切换器 + 角色条（⭐ .cols 内部零改动 → 浮窗/停靠/自动隐藏不受影响）===== */
+  .projbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .projbar .lbl{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .projsel{display:flex;align-items:center;gap:8px;border:1px solid var(--acc);background:var(--acc-soft);
+           border-radius:3px;padding:5px 10px;font-size:13px;color:var(--acc);font-weight:600}
+  .pchips{display:flex;gap:6px;flex-wrap:wrap}
+  .pchip{font-family:var(--mono);font-size:11.5px;border:1px solid var(--rule);background:#fff;color:var(--ink2);
+         border-radius:3px;padding:3px 8px}
+  .pchip.on{border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+  .shell{display:grid;grid-template-columns:126px minmax(0,1fr);gap:12px;align-items:start}
+  .rail{border:1px solid var(--rule);background:#fff;border-radius:3px;padding:8px 6px}
+  .rail-h{font-family:var(--mono);font-size:10.5px;color:var(--ink3);text-align:center;margin-bottom:6px;
+          letter-spacing:.1em;text-transform:uppercase}
+  .rail-list{display:flex;flex-direction:column}
+  .role{position:relative;text-align:center;padding:5px 2px 7px;border-radius:4px;cursor:pointer}
+  .role:hover{background:var(--card)}
+  .role.on{background:var(--acc-soft);border:1px solid #bfe0e0}
+  .role .face{width:66px;height:66px;object-fit:contain;display:block;margin:0 auto;
+              filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
+  .role .face.ph{border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;
+                 font-size:18px;font-family:var(--serif)}
+  .role .rn{font-size:11px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .role.on .rn{color:var(--acc);font-weight:600}
+  .rail-empty,.rail-proj{font-family:var(--mono);font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.6;padding:2px}
+  .rail-proj b{color:var(--ink2);font-weight:600}
+  @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}}
+
   /* ===== 阶段①.5 简化版自动隐藏（只对右侧 V2/V3 ✓ 不依赖停靠系统 ✓）
      规格 §六：移出收起／移入展开／📌 钉住；收起后停在其停靠边的边缘，只显示面板名
      ⭐ 不挤压主区：右侧列宽由 --colA 固定 ✓ 面板自身变窄不改列宽 → 无布局拖拽 ✓ */
@@ -154,6 +181,12 @@
   </div>
 </header>
 
+<div class="projbar" id="projbar">
+  <span class="lbl">当前项目</span>
+  <span class="projsel" id="proj-sel">—</span>
+  <span class="pchips" id="proj-chips"></span>
+</div>
+
 <div class="gauges">
   <div class="g"><div class="k">回合</div><div class="v" id="g-turn">—</div></div>
   <div class="g"><div class="k">成本（元）</div><div class="v" id="g-cost">—</div></div>
@@ -184,7 +217,15 @@
   <button class="tab" role="tab" id="tab-all" data-view="all" aria-selected="true" tabindex="0">⧉ 全部显示</button>
 </div>
 
-<div class="cols reading" id="cols">
+<div class="shell" id="shell">
+  <div class="rail" id="rolebar" aria-label="角色条（数据源 GET /api/roles）">
+    <div class="rail-h">角色</div>
+    <div class="rail-list" id="rail-list"><div class="rail-empty">（未取到角色）</div></div>
+    <div class="rail-h" style="margin-top:10px">项目边界</div>
+    <div class="rail-proj" id="rail-proj">—</div>
+  </div>
+
+  <div class="cols reading" id="cols">
   <div class="slot" id="slot-left" data-slot="left">
   <div class="panel" id="panel-l1" data-panel="L1">
     <div class="panel-h" data-drag><span class="ph-title">V1 · 群聊流（human）—— 阅读模式占满宽；行宽可切档</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c1">0</span></span></div>
@@ -208,6 +249,7 @@
     </div>
     </div>
   </div>
+</div>
 </div>
 <div class="slot" id="slot-bottom" data-slot="bottom"></div>
 <div id="float-layer"></div>
@@ -383,6 +425,94 @@
     }
   }
 
+  // ================= 批 4 第一刀·项目层（只读面接线：/api/projects · /api/project/current · /api/roles）=================
+  // ⭐ 契约安全红线：角色条**只做展示与选中态** ✓；⛔ **不做客户端过滤/重排** ✗
+  //    （否则 DOM 会与 /api/view 不一致 ✗ → 直接打红契约 §4 的比对③）
+  var PROJ = { current: null, list: [], boundary: null };
+  var ROLES = [];
+  var selectedRole = null;
+
+  function getJSONSoft(url) { return getJSON(url).catch(function () { return null; }); }
+
+  function renderProjectBar() {
+    var sel = $('proj-sel');
+    if (!sel) { return; }
+    var cur = PROJ.current;
+    sel.textContent = cur ? (cur.name || cur.id) : '（未取到项目）';
+    var chips = $('proj-chips');
+    if (chips) {
+      chips.innerHTML = '';
+      PROJ.list.forEach(function (p) {
+        var c = document.createElement('span');
+        c.className = 'pchip' + (cur && p.id === cur.id ? ' on' : '');
+        c.textContent = (p.name || p.id) + (p.unread ? ' · ' + p.unread : '');
+        c.title = cur && p.id === cur.id ? '当前项目（只读展示）' : '项目（切换未实现，v1 仅默认项目）';
+        chips.appendChild(c);
+      });
+    }
+    var pel = $('rail-proj');
+    if (pel) {
+      var n = (PROJ.boundary && PROJ.boundary.roles ? PROJ.boundary.roles.length : 0);
+      pel.innerHTML = cur ? ('<b>' + esc(cur.id || 'default') + '</b><br>' + n + ' 个角色') : '—';
+    }
+  }
+
+  function faceFallback(role) {
+    var el = document.createElement('span');
+    el.className = 'face ph';
+    el.style.background = role.color || '#8b949c';
+    el.textContent = String(role.display_name || role.key || '?').slice(0, 1).toUpperCase();
+    return el;
+  }
+
+  function renderRoleBar() {
+    var box = $('rail-list');
+    if (!box) { return; }
+    box.innerHTML = '';
+    if (!ROLES.length) {
+      box.innerHTML = '<div class="rail-empty">（未取到角色）</div>';
+      return;
+    }
+    ROLES.forEach(function (r) {
+      var d = document.createElement('div');
+      d.className = 'role' + (selectedRole === r.key ? ' on' : '');
+      d.title = (r.display_name || r.key) + '（' + r.key + '）';
+      d.setAttribute('data-role', r.key);
+      var prefix = r.portrait_prefix || r.key;
+      var img = document.createElement('img');
+      img.className = 'face';
+      img.alt = r.display_name || r.key;
+      // ⭐ 落位：<asset_dir>/<portrait_prefix>_<state>_alpha.png（取不到 → 回落颜色块＋首字，不阻塞 ✓）
+      img.onerror = function () {
+        var fb = faceFallback(r);
+        if (img.parentNode) { img.parentNode.replaceChild(fb, img); }
+      };
+      img.src = '../assets_3.0/' + prefix + '/' + prefix + '_idle_alpha.png';
+      d.appendChild(img);
+      var nm = document.createElement('div');
+      nm.className = 'rn';
+      nm.textContent = r.display_name || r.key;
+      d.appendChild(nm);
+      d.onclick = function () { selectedRole = r.key; renderRoleBar(); };
+      box.appendChild(d);
+    });
+  }
+
+  function renderProjectLayer(projects, current, roles) {
+    if (projects && projects.projects) {
+      PROJ.list = projects.projects;
+      if (!PROJ.current) { PROJ.current = projects.projects[0] || null; }
+    }
+    if (current) {
+      PROJ.current = current.project || PROJ.current;
+      PROJ.boundary = current.boundary || null;
+      if (PROJ.current && (!PROJ.list || !PROJ.list.length)) { PROJ.list = [PROJ.current]; }
+    }
+    if (Array.isArray(roles)) { ROLES = roles; }
+    renderProjectBar();
+    renderRoleBar();
+  }
+
   function refresh() {
     $('errs').innerHTML = '';
     var c = encodeURIComponent(CHANNEL);
@@ -390,9 +520,13 @@
       getJSON('/api/snapshot'),
       getJSON('/api/view?channel=' + c + '&layer=L1'),
       getJSON('/api/view?channel=' + c + '&layer=L2'),
-      getJSON('/api/view?channel=' + c + '&layer=L3')
+      getJSON('/api/view?channel=' + c + '&layer=L3'),
+      getJSONSoft('/api/projects'),
+      getJSONSoft('/api/project/current'),
+      getJSONSoft('/api/roles')
     ]).then(function (r) {
       renderState(r[0]); renderL1(r[1]); renderL2(r[2]); renderL3(r[3]);
+      renderProjectLayer(r[4], r[5], r[6]);   // ⭐ 项目层（不可用时为空态 ✓ 不白屏 ✗）
       $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
       $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
     }).catch(function (e) { err(e.message); });
