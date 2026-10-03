@@ -107,6 +107,22 @@ def test_contract_appendix_ii_in_place():
     assert '不得含密钥' in m2 and '/api/roles' in m2
 
 
+# ── 6b. ⭐ 追加条款 III（Owner 2026-10-03 22:17 亲批）在位 ────────────
+def test_contract_appendix_iii_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert '追加条款 III' in m1, 'Owner 已亲批的条款 III 未落盘 ✗'
+    # D1：额度改“双上限同时生效、先到者停”（min 语义 ✓）
+    assert '三档同时生效、先到者停' in m1, 'D1 额度口径未写入 ✗'
+    assert 'min' in m1 and '停 ＋ 出结论 ＋ @人类' in m1
+    # D1 必须说明“实现零改动 / 只改文字”，避免后人以为要改代码 ✗
+    assert '实现零改动' in m1 and '只改文字' in m1
+    # D2：身份 = peer 白名单，零新增凭证，不得存密钥
+    assert 'peer 白名单' in m1 and '零新增凭证' in m1
+    assert 'identity' in m1
+    # 效力递增声明在位 ✓
+    assert 'III > II' in m1
+
+
 # ── 7. ⭐ ③-2 非法值必须“可见”（设置页回显，不只收进变量） ────────────
 def test_invalid_config_visible_in_settings():
     with io.open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8') as fh:
