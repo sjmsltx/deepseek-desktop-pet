@@ -168,3 +168,18 @@ def test_invalid_config_visible_in_settings():
     # 并确认回显确由 load_limits 的 problems 驱动（不是写死的文字）
     seg = src[src.index('_probs = []'):]
     assert '_probs' in seg and 'load_limits(warn=_probs.append)' in src
+
+
+# ── 6e. ⭐ 追加条款 E5（只读 GET /api/pending ✓ 界面侧提请 ✓ 电脑侧采纳）──
+def test_contract_appendix_e5_pending_readonly_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert 'E5' in m1 and 'GET /api/pending' in m1, 'E5（只读面扩充）未落盘 ✗'
+    assert 'pending' in m1 and 'results' in m1
+    # ⭐ 必须写明"只读、不新增写能力、不含路径/凭证" ✓
+    assert '只读' in m1 and '不含绝对路径' in m1 and '不含凭证' in m1
+    # ⭐ 代码侧双向钉：路由存在 ✓ 且是 do_GET 里的 handler ✓
+    srv = io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    assert 'def pending_view' in srv and "'/api/pending'" in srv
+    get_seg = srv[srv.index('def do_GET'):]
+    assert "'/api/pending'" in get_seg, '⭐ 必须在 do_GET 里（只读面）✗ 不得放进 do_POST（除窄写外）✗'
+    assert 'pending_view()' in get_seg
