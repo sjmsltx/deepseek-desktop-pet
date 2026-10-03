@@ -296,9 +296,12 @@
     <span class="meta">新增状态（作用于上方选中的角色）：</span>
     <input type="text" id="mx-newstate" placeholder="如 coffee（[a-z0-9_]{1,32}）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
     <button id="mx-op-addstate">＋ 新增状态</button>
-    <span class="meta" style="margin-left:10px">新增角色：</span>
-    <input type="text" id="mx-newrole" placeholder="角色 key（如 deepseek）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
-    <button id="mx-op-addrole">＋ 新增角色</button>
+    <span class="meta" style="margin-left:10px">设绑定（set_portrait）：</span>
+    <select id="mx-bind-role" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
+    <span class="meta">→</span>
+    <select id="mx-bind-prefix" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
+    <button id="mx-op-setportrait">🔗 设绑定</button>
+    <span class="meta">（⭐ 重启桌宠后生效）</span>
     <button id="mx-refresh">⟳ 重新读取</button>
   </div>
   <div class="mxwrap"><table class="mx2" id="mx-table"></table></div>
@@ -775,6 +778,7 @@
       ASSETS = j || {};
       renderMatrix();
       applyMxMode();
+      if (window.__fillBindSelects) { window.__fillBindSelects(); }
       setMxState('ok', '✅ 已读取：角色 ' + Object.keys(ASSETS).filter(function (r) { return r.charAt(0) !== '_'; }).length + ' 个 ✓');
     }).catch(function (e) {
       setMxState('bad', '⛔ 读取失败：' + e.message + '（只读端点 /api/assets 不可用？）');
@@ -892,8 +896,14 @@
     if (single) { renderSingle(Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort()); }
   }
 
+  // ⭐ 资产类 op 的载荷：set_portrait **只收** {role, op, portrait_prefix}（⛔ 不带 state ✗ 多余字段会被正当拒掉）
   function submitAsset(payload) {
-    if (!payload || !payload.role || !payload.state) { setMxState('bad', '⛔ 请先点一个格子选中 角色／状态'); return; }
+    if (payload && payload.op === 'set_portrait') {
+      if (!payload.role) { setMxState('bad', '⛔ 请选一个角色'); return; }
+    } else if (!payload || !payload.role || !payload.state) {
+      setMxState('bad', '⛔ 请先点一个格子选中 角色／状态');
+      return;
+    }
     var req = { type: 'asset_op', op_id: opIdNew(), payload: payload };
     setMxState('wait', '⏳ 正在投递资产待办…');
     fetch('/api/pending', {
@@ -1493,10 +1503,33 @@
   if ($('mx-op-replace')) { $('mx-op-replace').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'replace', source: 'pool', run_pipeline: true }); }; }
   if ($('mx-op-insert')) { $('mx-op-insert').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'insert', source: 'pool', run_pipeline: true }); }; }
   if ($('mx-op-addstate')) { $('mx-op-addstate').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: ($('mx-newstate').value || '').trim(), op: 'add_state', source: 'pool' }); }; }
+  // ⭐ set_portrait（Owner 00:36 已批 ✓ 对方已上线 ✓）：载荷**只收** {role, op, portrait_prefix} ⛔ 不带 state ✗
+  if ($('mx-op-setportrait')) { $('mx-op-setportrait').onclick = function () {
+    var r = $('mx-bind-role') ? $('mx-bind-role').value : '';
+    var pre = $('mx-bind-prefix') ? $('mx-bind-prefix').value : '';
+    if (!r) { setMxState('bad', '⛔ 请选一个角色（角色必须已在档案里 ✗ 不新建）'); return; }
+    submitAsset({ role: r, op: 'set_portrait', portrait_prefix: pre });
+  }; }
   if ($('mx-op-addrole')) { $('mx-op-addrole').onclick = function () {
     var rk = ($('mx-newrole').value || '').trim();
     submitAsset({ role: rk, state: 'idle', op: 'add_role', source: 'pool', portrait_prefix: rk });
   }; }
+  // ⭐ 设绑定的两个下拉：角色取自 /api/roles（= 档案已有 ✓）；前缀取自 /api/assets 的资产目录（= 池子 ✓）
+  function fillBindSelects() {
+    var rs = $('mx-bind-role'), ps = $('mx-bind-prefix');
+    if (rs) {
+      var cur = rs.value;
+      rs.innerHTML = ROLES.map(function (r) { return '<option value="' + esc(r.key) + '">' + esc((r.display_name || r.key) + '（' + r.key + '）') + '</option>'; }).join('');
+      if (cur) { rs.value = cur; }
+    }
+    if (ps) {
+      var cur2 = ps.value;
+      var dirs = Object.keys(ASSETS || {}).filter(function (k) { return k.charAt(0) !== '_'; }).sort();
+      ps.innerHTML = dirs.map(function (d) { return '<option value="' + esc(d) + '">' + esc(d) + '</option>'; }).join('');
+      if (cur2) { ps.value = cur2; }
+    }
+  }
+  window.__fillBindSelects = fillBindSelects;
   // ⭐ 批 4b-3：筛选 / 只看缺口 / 矩阵↔单角色切换 / 角色下拉
   if ($('mx-filter')) { $('mx-filter').oninput = function () { renderMatrix(); }; }
   if ($('mx-onlygap')) { $('mx-onlygap').onchange = function () { renderMatrix(); }; }
