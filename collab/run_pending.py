@@ -20,7 +20,14 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ⭐ 两条都要插：`collab/`（本模块的伙伴 ✓）＋ **仓库根**（`model_registry` 等在其下 ✓）
+#    ⚠️ 微信侧 `WX-…-20261004-07` §二 实测：只插 `collab/` ✗ → CLI 路径下
+#       `asset_ops` 惰性 `import model_registry` **必然 ModuleNotFoundError** ✗
+#       （pytest 跑时仓库根本来就在 sys.path ✓ → **测试绿／CLI 红** ✗）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.dirname(_HERE), _HERE):        # 仓库根 ✓ ＋ collab/ ✓
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 import pending_ops  # noqa: E402
 
 MAX_NAME = 80                                   # 照龙虾口径:项目名 ≤80 字 ✓

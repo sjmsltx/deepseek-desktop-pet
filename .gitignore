@@ -87,3 +87,6 @@ collab/pending/
 
 # 素材/档案备份目录（运行器产物：先备份后写入 ✓ 本地数据，不进仓库）
 _raw_backup/
+
+# 原子写的临时兄弟文件（`_atomic_write_json` 崩在中途会残留 ✓ 属运行态 ✗）
+*.json.tmp

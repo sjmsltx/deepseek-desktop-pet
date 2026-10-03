@@ -128,7 +128,13 @@ def do_set_portrait(base: str, payload: dict, dry: bool = False) -> tuple:
     if not os.path.isfile(cfg):
         return False, '找不到档案 models.json ✗', []
     try:
-        import model_registry
+        try:
+            import model_registry
+        except ImportError:            # ⭐ 任何调用方都稳 ✓（不依赖别人替我们插路径 ✓）
+            _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if _root not in __import__('sys').path:
+                __import__('sys').path.insert(0, _root)
+            import model_registry
     except Exception as exc:
         return False, '档案模块不可用：%r' % exc, []
     reg = model_registry.ModelRegistry(cfg)
