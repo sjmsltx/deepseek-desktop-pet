@@ -169,6 +169,27 @@
   .estate.bad{background:var(--mark-soft);border:1px solid #ecc9bb;color:var(--mark)}
   .editacts{display:flex;gap:8px;align-items:center;margin-top:6px}
 
+  /* ===== 批 4b-2：状态图矩阵（数据源 GET /api/assets —— 只有三布尔 ✓ 无图片/路径 ✓）===== */
+  .mxpanel{border:1px solid var(--acc);background:#fff;border-radius:3px;padding:12px 14px;margin-bottom:12px;display:none}
+  .mxpanel.on{display:block}
+  .mxpanel h3{font-family:var(--serif);font-size:15px;margin:0 0 4px}
+  .mxwrap{overflow:auto;max-height:60vh;border:1px solid var(--rule);border-radius:3px}
+  table.mx2{border-collapse:separate;border-spacing:0;font-size:12px}
+  table.mx2 th,table.mx2 td{border-right:1px solid var(--rule2);border-bottom:1px solid var(--rule2);padding:5px 8px;text-align:center;white-space:nowrap}
+  table.mx2 thead th{font-family:var(--mono);font-size:10.5px;color:var(--ink3);background:var(--card);position:sticky;top:0;z-index:2}
+  table.mx2 th.rh{text-align:left;background:#fff;position:sticky;left:0;z-index:1;font-family:var(--mono);font-size:11.5px;padding-left:10px}
+  table.mx2 thead th.rh{background:var(--card);z-index:3}
+  table.mx2 td.cell{cursor:pointer}
+  table.mx2 td.cell:hover{background:var(--acc-soft);outline:1px solid var(--acc)}
+  .tick{display:inline-flex;gap:2px}
+  .tick b{font-family:var(--mono);font-size:9.5px;font-weight:400;border:1px solid var(--rule);border-radius:2px;padding:0 3px;background:#fff;color:var(--ink3)}
+  .tick b.on{border-color:#b9dbc6;background:var(--ok-soft);color:var(--ok)}
+  .tick b.no{border-color:#ecc9bb;background:var(--mark-soft);color:var(--mark)}
+  .mxadd{background:var(--card);color:var(--acc);font-family:var(--mono);font-size:11px;cursor:pointer}
+  .mxadd:hover{background:var(--acc-soft)}
+  .mxnote{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:8px;line-height:1.7}
+  .mxstat{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--ink2);margin:4px 0 8px}
+
   @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}}
 
   /* ===== 阶段①.5 简化版自动隐藏（只对右侧 V2/V3 ✓ 不依赖停靠系统 ✓）
@@ -207,6 +228,7 @@
   <span class="projsel" id="proj-sel">—</span>
   <span class="pchips" id="proj-chips"></span>
   <button id="btn-proj-edit" title="编辑项目五字段（提交为待办，须人触发运行器执行）">✎ 编辑项目</button>
+  <button id="btn-matrix" title="状态图矩阵（数据源 GET /api/assets；操作提交为待办）">▦ 资产矩阵</button>
 </div>
 
 <div class="editpanel" id="editpanel">
@@ -223,6 +245,33 @@
     <span class="meta" id="pj-msg"></span>
   </div>
   <div class="estate" id="pj-state"></div>
+</div>
+
+<div class="mxpanel" id="mxpanel">
+  <h3>状态图矩阵（行 = 角色 ／ 列 = 状态）</h3>
+  <div class="mxstat" id="mx-stat">—</div>
+  <div class="bar" id="mx-actions" style="display:none">
+    <span class="meta" id="mx-pick"></span>
+    <button id="mx-op-pipe">补三件套（run_pipeline）</button>
+    <button id="mx-op-replace">从素材池替换（replace）</button>
+    <button id="mx-op-insert">从素材池插入（insert）</button>
+  </div>
+  <div class="bar">
+    <span class="meta">新增状态（作用于上方选中的角色）：</span>
+    <input type="text" id="mx-newstate" placeholder="如 coffee（[a-z0-9_]{1,32}）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
+    <button id="mx-op-addstate">＋ 新增状态</button>
+    <span class="meta" style="margin-left:10px">新增角色：</span>
+    <input type="text" id="mx-newrole" placeholder="角色 key（如 deepseek）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
+    <button id="mx-op-addrole">＋ 新增角色</button>
+    <button id="mx-refresh">⟳ 重新读取</button>
+  </div>
+  <div class="mxwrap"><table class="mx2" id="mx-table"></table></div>
+  <div class="mxnote">
+    ⭐ 三布尔 = 白底 / 绿幕 / 透明（<code>GET /api/assets</code> ✓ 只有布尔，不含图片与路径 ✓）。<br>
+    点格子或行尾「＋」→ ⭐ 生成 <code>asset_op</code> <b>待办</b> ✓（<b>只投递不执行</b> ✗）→ 须<b>人</b>跑 <code>python collab\run_pending.py --base .</code> ✓。<br>
+    ⚠️ 若运行器尚不支持某类操作，会在结果文件里<b>明报原因</b>（界面不会假装成功 ✗）。
+  </div>
+  <div class="estate" id="mx-state"></div>
 </div>
 
 <div class="gauges">
@@ -660,6 +709,106 @@
     }).catch(function (e) {
       setPjState('bad', '⛔ 提交失败：' + e.message + '（窄写端点不可用？）');
     }).then(function () { btn.disabled = false; });
+  }
+
+  // ================= 批 4b-2：状态图矩阵（GET /api/assets → 三勾 → asset_op 待办）=================
+  var ASSETS = null;
+  var mxPick = null;
+
+  function setMxState(cls, text) {
+    var el = $('mx-state'); if (!el) { return; }
+    el.className = 'estate on ' + cls; el.textContent = text;
+  }
+  function openMatrix() { $('mxpanel').classList.add('on'); loadAssets(); }
+  function closeMatrix() { $('mxpanel').classList.remove('on'); }
+  function collectStates() {
+    var s = {};
+    Object.keys(ASSETS || {}).forEach(function (r) { Object.keys(ASSETS[r] || {}).forEach(function (st) { s[st] = 1; }); });
+    return Object.keys(s).sort();
+  }
+  function loadAssets() {
+    setMxState('wait', '⏳ 正在读取资产矩阵…');
+    fetch('/api/assets', { cache: 'no-store' }).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status + ' ' + t); }
+        return JSON.parse(t);
+      });
+    }).then(function (j) {
+      ASSETS = j || {};
+      renderMatrix();
+      setMxState('ok', '✅ 已读取：角色 ' + Object.keys(ASSETS).length + ' 个 ✓');
+    }).catch(function (e) {
+      setMxState('bad', '⛔ 读取失败：' + e.message + '（只读端点 /api/assets 不可用？）');
+    });
+  }
+  function renderMatrix() {
+    var tb = $('mx-table'); if (!tb) { return; }
+    // ⚠️ 防御：`/api/assets` 会把备份目录（如 `_raw_backup`）也列出来 ✗ —— 那不是角色 ✗
+    //    ⭐ 界面侧先过滤 `_` 开头（同时已提请端点侧排除 ✓）
+    var roles = Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort();
+    var states = collectStates();
+    var full = 0, partial = 0;
+    roles.forEach(function (r) {
+      states.forEach(function (st) {
+        var v = (ASSETS[r] || {})[st];
+        if (v) { if (v.white && v.chroma && v.alpha) { full++; } else { partial++; } }
+      });
+    });
+    var stat = $('mx-stat');
+    if (stat) {
+      stat.innerHTML = '角色 <b>' + roles.length + '</b> ｜ 状态 <b>' + states.length + '</b> ｜ 三件套齐 <b>' + full
+        + '</b> ｜ 不全 <b>' + partial + '</b> ｜ 空格 <b>' + (roles.length * states.length - full - partial) + '</b>';
+    }
+    var h = ['<thead><tr><th class="rh">角色 ＼ 状态</th>'];
+    states.forEach(function (st) { h.push('<th>' + esc(st) + '</th>'); });
+    h.push('<th class="mxadd">行操作</th></tr></thead><tbody>');
+    roles.forEach(function (r) {
+      h.push('<tr><th class="rh">' + esc(r) + '</th>');
+      states.forEach(function (st) {
+        var v = (ASSETS[r] || {})[st];
+        var ticks = v
+          ? ('<span class="tick"><b class="' + (v.white ? 'on' : 'no') + '" title="白底">白</b>'
+             + '<b class="' + (v.chroma ? 'on' : 'no') + '" title="绿幕">绿</b>'
+             + '<b class="' + (v.alpha ? 'on' : 'no') + '" title="透明">透</b></span>')
+          : '<span class="tick"><b class="no" title="无此状态图（可插入）">＋</b></span>';
+        h.push('<td class="cell" data-role="' + esc(r) + '" data-state="' + esc(st) + '" title="点击选中该格">' + ticks + '</td>');
+      });
+      h.push('<td class="mxadd" data-pipe="' + esc(r) + '">整行补三件套</td></tr>');
+    });
+    h.push('</tbody>');
+    tb.innerHTML = h.join('');
+    [].slice.call(tb.querySelectorAll('td.cell')).forEach(function (td) {
+      td.onclick = function () {
+        mxPick = { role: td.getAttribute('data-role'), state: td.getAttribute('data-state') };
+        var bar = $('mx-actions'); if (bar) { bar.style.display = 'flex'; }
+        var pk = $('mx-pick'); if (pk) { pk.textContent = '已选中：' + mxPick.role + ' ／ ' + mxPick.state; }
+      };
+    });
+    [].slice.call(tb.querySelectorAll('td.mxadd')).forEach(function (td) {
+      td.onclick = function () {
+        var r = td.getAttribute('data-pipe');
+        submitAsset({ role: r, state: 'idle', op: 'run_pipeline', source: 'pool', run_pipeline: true });
+      };
+    });
+  }
+
+  function submitAsset(payload) {
+    if (!payload || !payload.role || !payload.state) { setMxState('bad', '⛔ 请先点一个格子选中 角色／状态'); return; }
+    var req = { type: 'asset_op', op_id: opIdNew(), payload: payload };
+    setMxState('wait', '⏳ 正在投递资产待办…');
+    fetch('/api/pending', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req)
+    }).then(function (res) {
+      return res.text().then(function (t) {
+        var j = null; try { j = JSON.parse(t); } catch (e) {}
+        if (res.status === 202) {
+          setMxState('wait', '⏳ 已投递为待办：' + ((j && j.file) || '') +
+            '　⭐ 须人跑 python collab\\run_pending.py --base . ✓；⚠️ 若运行器尚不支持该类操作，会在结果文件里明报原因（不假成功 ✗）');
+        } else {
+          setMxState('bad', '⛔ 被拒（HTTP ' + res.status + '）：' + String((j && j.error) || t || '').slice(0, 300));
+        }
+      });
+    }).catch(function (e) { setMxState('bad', '⛔ 提交失败：' + e.message); });
   }
 
   function refresh() {
@@ -1191,6 +1340,16 @@
   if ($('btn-proj-edit')) { $('btn-proj-edit').onclick = openProjEdit; }
   if ($('btn-pj-cancel')) { $('btn-pj-cancel').onclick = closeProjEdit; }
   if ($('btn-pj-submit')) { $('btn-pj-submit').onclick = submitProjEdit; }
+  if ($('btn-matrix')) { $('btn-matrix').onclick = function () { $('mxpanel').classList.contains('on') ? closeMatrix() : openMatrix(); }; }
+  if ($('mx-refresh')) { $('mx-refresh').onclick = loadAssets; }
+  if ($('mx-op-pipe')) { $('mx-op-pipe').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'run_pipeline', source: 'pool', run_pipeline: true }); }; }
+  if ($('mx-op-replace')) { $('mx-op-replace').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'replace', source: 'pool', run_pipeline: true }); }; }
+  if ($('mx-op-insert')) { $('mx-op-insert').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'insert', source: 'pool', run_pipeline: true }); }; }
+  if ($('mx-op-addstate')) { $('mx-op-addstate').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: ($('mx-newstate').value || '').trim(), op: 'add_state', source: 'pool' }); }; }
+  if ($('mx-op-addrole')) { $('mx-op-addrole').onclick = function () {
+    var rk = ($('mx-newrole').value || '').trim();
+    submitAsset({ role: rk, state: 'idle', op: 'add_role', source: 'pool', portrait_prefix: rk });
+  }; }
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
 })();
 </script>
