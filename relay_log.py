@@ -110,7 +110,7 @@ DEFAULT_LIMITS = {
     'retry_max': 2,
     'converge_no_new': 2,
     'msg_max_bytes': 65_536,
-    'interrupt_timeout_ms': 60_000,   # 仅用于"提醒一次";严禁自动恢复
+    'interrupt_notice_ms': 60_000,   # 仅用于"提醒一次";严禁自动恢复
 }
 
 # 显式"继续"白名单(N2)
@@ -123,7 +123,9 @@ RESUME_WORDS = {'继续', '继续吧', '继续。', 'continue', 'go on', 'resume
 #   · 未设置 = 不覆盖默认（仍是不限 ✓）；非法值**不静默** ✗
 LIMITS_CONFIG_KEY = 'roundtable_limits'
 _FLAT_KEY_PREFIX = 'roundtable_'          # ⭐ GUI 保存的扁平键前缀（roundtable_max_tokens 等 ✓）
-_CUSTOM_LIMIT_KEYS = ('max_tokens', 'max_cost_micro', 'interrupt_timeout_ms')
+_CUSTOM_LIMIT_KEYS = ('max_tokens', 'max_cost_micro', 'interrupt_notice_ms')
+# ⭐ 旧名兼容（2026-10-03 改名：interrupt_timeout_ms -> interrupt_notice_ms ✓；旧配置仍认 ✓）
+_LEGACY_LIMIT_KEYS = {'interrupt_timeout_ms': 'interrupt_notice_ms'}
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
 
 
@@ -154,6 +156,9 @@ def load_limits(config_path=None, *, warn=None) -> dict:
             raw = None
     if isinstance(raw, dict):
         _pairs = [(k, raw[k]) for k in _CUSTOM_LIMIT_KEYS if k in raw]
+        for _old, _new in _LEGACY_LIMIT_KEYS.items():       # ⭐ 旧名兼容 ✓
+            if _old in raw and _new not in raw:
+                _pairs.append((_new, raw[_old]))
     else:
         if raw is not None:
             problems.append('圆桌额度 %s 应为对象，已忽略（实得 %s）'
@@ -161,11 +166,14 @@ def load_limits(config_path=None, *, warn=None) -> dict:
         # ⭐ 后门：也认**扁平键**（GUI 保存路径 ✓ 不需嵌套 JSON ✓）
         _pairs = [(_k, cfg.get(_FLAT_KEY_PREFIX + _k))
                   for _k in _CUSTOM_LIMIT_KEYS if _FLAT_KEY_PREFIX + _k in cfg]
+        for _old, _new in _LEGACY_LIMIT_KEYS.items():       # ⭐ 旧名兼容 ✓
+            if (_FLAT_KEY_PREFIX + _old) in cfg and (_FLAT_KEY_PREFIX + _new) not in cfg:
+                _pairs.append((_new, cfg[_FLAT_KEY_PREFIX + _old]))
     for k, v in _pairs:
         if isinstance(v, bool) or not isinstance(v, int):
             problems.append('圆桌额度 %s 必须是整数，已忽略（实得 %r）' % (k, v))
             continue
-        if v < 0 or (k == 'interrupt_timeout_ms' and v == 0):
+        if v < 0 or (k == 'interrupt_notice_ms' and v == 0):
             problems.append('圆桌额度 %s 取值非法，已忽略（实得 %r）' % (k, v))
             continue
         out[k] = v

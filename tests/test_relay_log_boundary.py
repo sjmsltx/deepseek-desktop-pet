@@ -49,7 +49,7 @@ class StubProvider:
 
 
 LIMITS = dict(max_turns=8, time_limit_ms=300_000, max_tokens=0, max_cost_micro=0,
-              retry_max=2, converge_no_new=2, msg_max_bytes=65536, interrupt_timeout_ms=60_000)
+              retry_max=2, converge_no_new=2, msg_max_bytes=65536, interrupt_notice_ms=60_000)
 
 
 @pytest.fixture
@@ -263,7 +263,7 @@ def test_c7_double_limit_stops_once(log, clock):
 def test_c8_limits_config_frozen_keys():
     """④ 冻结：limits 键名固定（写死，防漂移）"""
     for k in ('max_turns', 'time_limit_ms', 'max_tokens', 'max_cost_micro',
-              'retry_max', 'converge_no_new', 'msg_max_bytes', 'interrupt_timeout_ms'):
+              'retry_max', 'converge_no_new', 'msg_max_bytes', 'interrupt_notice_ms'):
         assert k in LIMITS
 
 
@@ -321,7 +321,7 @@ def test_d4_never_auto_resume_after_timeout(log, clock):
     """④ 冻结：插队超时**绝不自动恢复**（提醒最多一次）"""
     log.open_issue(issue())
     log.interrupt('插队')
-    clock.tick(LIMITS['interrupt_timeout_ms'] * 3)
+    clock.tick(LIMITS['interrupt_notice_ms'] * 3)
     r = log.step()
     assert r.stopped and r.reason == 'interrupted'
     assert log.snapshot()['interrupted'] is True

@@ -20,7 +20,7 @@ import pytest
 relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现（反向用例已就位，落地即生效）')
 
 LIMITS = dict(max_turns=8, time_limit_ms=300_000, max_tokens=0, max_cost_micro=0,
-              retry_max=2, converge_no_new=2, msg_max_bytes=65536, interrupt_timeout_ms=60_000)
+              retry_max=2, converge_no_new=2, msg_max_bytes=65536, interrupt_notice_ms=60_000)
 
 
 class Clock:
