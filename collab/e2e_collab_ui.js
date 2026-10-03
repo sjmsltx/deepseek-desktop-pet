@@ -140,17 +140,22 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   }
   // ⭐ 批 4b-4 升级：探针**未上线** → ⛔ 一个图片请求都不发 ✓（只允许 1 条＝探针自身 ✓）
   //    ⚠️ 旧版只筛 `assets_3.0` ✗ → 探针的 `/api/thumb` 404 漏过 ✗ ＝“跛脚断言” ✗（本轮改严 ✓）
+  // ⭐ 批 4b-4：缩略图**双向**断言（端点已上线后重写 ✓）
+  //    ⚠️ 旧版写的是“未上线”分支 ✗ —— 端点上线（对方 241419f）后**必须同步改成断言新现实** ✓
+  //       （否则测试会一直红 ✗——或者更糟：被改成“只要不报错就算过” ✗）
   const thumbReqs = bad404.filter(u => u.indexOf('/api/thumb') >= 0);
   const otherBad = bad404.filter(u => u.indexOf('/api/thumb') < 0 && u.indexOf('assets_3.0') >= 0);
   const mxImgs = await pg.locator('img.mthumb').count();
+  const mxLoaded = await pg.locator('img.mthumb[src]').count();
   const pvImgs = await pg.locator('img.mbig').count();
-  const mxMsg = await pg.locator('#mx-state').innerText().catch(() => '');
   const tnMsg = await pg.locator('#thumb-note').innerText().catch(() => '');
-  ok('⭐ 探针至多 1 条（端点未上线 → 不进图片面 ✓）', thumbReqs.length <= 1, { thumbReqs });
-  ok('⛔ 矩阵零缩略图 img（未上线 → 不假装 ✓）', mxImgs === 0 && pvImgs === 0, { mxImgs, pvImgs });
+  const probeOk = thumbReqs.some(u => u.indexOf('400 ') === 0 && /\/api\/thumb$/.test(u));
+  ok('⭐ 探针命中“无参→40\x30”＝端点已就绪（判据照 E12 ✓）', probeOk, { thumbReqs });
+  ok('⛔ 除探针外无多余图片 404（角色无资产目录则不发请求 ✓）', thumbReqs.length <= 1, { thumbReqs });
+  ok('⭐ 矩阵缩略图已挂载（探测通过后自动接线 ✓）', mxImgs > 0, { mxImgs });
+  ok('⭐ lazy 生效（只对可见格赋 src ✓）', mxLoaded >= 1 && mxLoaded < mxImgs, { mxImgs, mxLoaded });
   ok('⛔ 无 assets_3.0 图片 404', otherBad.length === 0, { otherBad });
-  // ⭐ 提示必须**常驻**（旧版寄在 `#mx-state` ✗ → 被投递文案覆掉 ✗ ＝“自以为写了提示” ✗）
-  ok('⭐ 常驻明示“端点未上线”（不静默 ✓）', /端点未上线/.test(tnMsg), { tnMsg: tnMsg.slice(0, 120), mxMsg: mxMsg.slice(0, 40) });
+  ok('⭐ 常驻行明确报出状态（已就绪/未上线 ✓ 不静默 ✗）', /端点(已就绪|未上线)/.test(tnMsg), { tnMsg: tnMsg.slice(0, 100) });
 
   await br.close();
   sec('汇总');

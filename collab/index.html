@@ -603,6 +603,13 @@
          + (st ? ('&state=' + encodeURIComponent(st)) : '')
          + '&kind=' + encodeURIComponent(kind) + '&w=' + (w || 128);
   }
+  // ⭐ 角色是否真有可用缩略图（⛔ 没有则**不发请求** ✗ —— 否则 `flash`/`pro` 这类无资产目录的角色会白送 404 ✗）
+  function roleHasAlpha(prefix) {
+    var d = (ASSETS || {})[prefix];      // ⭐ 必须防 `ASSETS` 尚未赋值 ✗（否则 TypeError 会被上游 try 静默吞掉 ✗ → 角色条空白却无任何报错 ✗）
+    if (!d) { return false; }
+    for (var s in d) { if (d[s] && d[s].alpha) { return true; } }
+    return false;
+  }
   function thumbKindOf(v) {          // ⭐ 本地挑第一个可用 kind（不额外发请求 ✓）
     if (!v) { return null; }
     for (var i = 0; i < THUMB_KINDS.length; i++) { if (v[THUMB_KINDS[i]]) { return THUMB_KINDS[i]; } }
@@ -693,7 +700,7 @@
       //    ⚠️ 仅当**探针通过**（THUMB_STATE==='on'）才建 `img` ✗ —— 否则**一个请求都不发** ✓（不 404 ✗ 不假装 ✗）
       //    ⚠️ 建议补条：E12 原稿只写了 `prefix`＋`kind`，**没写 `state`** ✗ → 无法定位是哪个状态的图 ✗
       //       → 我方已按 `&state=` 先实现（向前兼容 ✓）并**另件提请**补 `state` 参数 ✓
-      var tk = (THUMB_STATE === 'on') ? 'alpha' : null;
+      var tk = (THUMB_STATE === 'on' && roleHasAlpha(prefix)) ? 'alpha' : null;
       if (tk) {
         var img = document.createElement('img');
         img.className = 'face';
