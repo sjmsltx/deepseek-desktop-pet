@@ -143,6 +143,22 @@ def test_contract_appendix_iv_in_place():
     assert 'IV > III' in m1
 
 
+# ── 6d. ⭐ 追加条款 E4（E1③ 例外：`root` 唯一允许绝对路径 ✓ Owner 23:04 已批）──
+def test_contract_appendix_e4_root_exception_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert 'E4' in m1 and 'E1③ 例外' in m1, 'E1③ 例外条款未落盘 ✗'
+    assert '`root`' in m1
+    # 四条限缩逐条在位 ✓
+    assert '只此一项' in m1 and '已存在目录' in m1
+    assert '512' in m1 and 'UNC' in m1
+    # 原则未被削弱 ✓
+    assert '仍只允许相对路径' in m1
+    # ⭐ 代码侧必须与条款一致（双向钉 ✓）：例外函数＋护栏都在 ✓
+    code = io.open(os.path.join(ROOT, 'collab', 'pending_ops.py'), encoding='utf-8').read()
+    assert '_root_problem' in code, '条款写了例外，代码却没实现 ✗'
+    assert 'isdir' in code, '⭐ 例外必须校验「已存在目录」✗'
+
+
 # ── 7. ⭐ ③-2 非法值必须“可见”（设置页回显，不只收进变量） ────────────
 def test_invalid_config_visible_in_settings():
     with io.open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8') as fh:
