@@ -192,6 +192,9 @@
   table.mx2 thead th.rh{background:var(--card);z-index:3}
   table.mx2 td.cell{cursor:pointer}
   table.mx2 td.cell:hover{background:var(--acc-soft);outline:1px solid var(--acc)}
+  /* ⭐ 批 4b-4：矩阵格缩略图（契约 E12）+ 点开大图 */
+  .mthumb{display:block;width:24px;height:24px;object-fit:contain;margin:0 auto 2px;border:1px solid var(--rule);border-radius:2px;background:#fff}
+  .mbig{display:block;max-width:160px;max-height:160px;margin-top:6px;border:1px solid var(--rule);border-radius:3px;background:#fff}
   .tick{display:inline-flex;gap:2px}
   .tick b{font-family:var(--mono);font-size:9.5px;font-weight:400;border:1px solid var(--rule);border-radius:2px;padding:0 3px;background:#fff;color:var(--ink3)}
   .tick b.on{border-color:#b9dbc6;background:var(--ok-soft);color:var(--ok)}
@@ -298,10 +301,12 @@
     <button id="mx-op-pipe">补三件套（run_pipeline）</button>
     <button id="mx-op-replace">从素材池替换（replace）</button>
     <button id="mx-op-insert">从素材池插入（insert）</button>
+    <label class="meta" style="margin-left:10px" title="契约 E8①：整格已齐备时默认跳过；要重跑需显式 force ✓"><input type="checkbox" id="mx-force"> 强制重跑（force）</label>
   </div>
   <div class="bar">
     <span class="meta">新增状态（作用于上方选中的角色）：</span>
     <input type="text" id="mx-newstate" placeholder="如 coffee（[a-z0-9_]{1,32}）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
+    <input type="text" id="mx-newstate-ref" placeholder="首图 source_ref（如 deepseek/deepseek_idle.png）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px;min-width:260px" title="契约 E8②：add_state ＝ 新增状态并同时给出首图（首图必填 ✗ 缺了会被 400 拒）">
     <button id="mx-op-addstate">＋ 新增状态</button>
     <span class="meta" style="margin-left:10px">设绑定（set_portrait）：</span>
     <select id="mx-bind-role" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
@@ -315,6 +320,9 @@
   <div class="mxnote">
     ⭐ 三布尔 = 白底 / 绿幕 / 透明（<code>GET /api/assets</code> ✓ 只有布尔，不含图片与路径 ✓）。<br>
     点格子或行尾「＋」→ ⭐ 生成 <code>asset_op</code> <b>待办</b> ✓（<b>只投递不执行</b> ✗）→ 须<b>人</b>跑 <code>python collab\run_pending.py --base .</code> ✓。<br>
+    ⭐ <b>已齐备的格子默认跳过</b>（结果里明写“已齐备，跳过” ✓ 不静默 ✗）→ 要重跑请勾「<b>强制重跑（force）</b>」✓（契约 <b>E8</b> ✓）。<br>
+    ⭐ <b>新增状态必须带首图</b>（<code>source_ref</code> ✓ 缺则本地先拦下 ＋ 说明 ✓）—— 契约 <b>E8②</b>：状态的存在就是文件本身 ✓。<br>
+    <span id="thumb-note" class="meta">⭐ 缩略图（契约 E12）：正在探测端点…</span><br>
     ⚠️ 若运行器尚不支持某类操作，会在结果文件里<b>明报原因</b>（界面不会假装成功 ✗）。
   </div>
   <div class="estate" id="mx-state"></div>
@@ -580,7 +588,48 @@
   var selectedRole = null;
   // ⭐ 立绘缩略图端点前缀（默认 null = 不发起请求 ✓）：契约 E3 下 `/api/assets` 不含图片
   //    将来若批下只读缩略图端点 → 填成如 '/api/thumb?role=' 即接回 ✓
-  var THUMB_BASE = null;
+  // ================= ⭐ 批 4b-4：立绘缩略图（契约 E12 · 界面半）=================
+  // ⭐ E12：`GET /api/thumb?prefix=<目录>&kind=alpha|chroma|white&w=64..512` → image/png（只读 ✓ 白名单根之下 ✓）
+  // ⭐ 界面三条口径（均本批落地 ✓）：
+  //   ① **先探针** ✗ 未上线则不发图片请求 ＋ 明示原因 ✓（⛔ 不假装 ✗）
+  //   ② **lazy** ✓ 只对**可见格**发请求 ✗ —— 否则 22×59＝**1298 格**并发会打爆 ✗
+  //   ③ **单格 1 图** ✓ 依 `/api/assets` 已知布尔**本地**选 kind（alpha→chroma→white ✓）✗ 不发探测请求 ✗
+  var THUMB_BASE = '/api/thumb';
+  var THUMB_STATE = 'unknown';        // unknown ｜ on ｜ off
+  var THUMB_REASON = '';
+  var THUMB_KINDS = ['alpha', 'chroma', 'white'];
+  function thumbUrl(prefix, st, kind, w) {
+    return THUMB_BASE + '?prefix=' + encodeURIComponent(prefix)
+         + (st ? ('&state=' + encodeURIComponent(st)) : '')
+         + '&kind=' + encodeURIComponent(kind) + '&w=' + (w || 128);
+  }
+  function thumbKindOf(v) {          // ⭐ 本地挑第一个可用 kind（不额外发请求 ✓）
+    if (!v) { return null; }
+    for (var i = 0; i < THUMB_KINDS.length; i++) { if (v[THUMB_KINDS[i]]) { return THUMB_KINDS[i]; } }
+    return null;
+  }
+  function probeThumb() {
+    if (THUMB_STATE !== 'unknown') { return; }
+    // ⭐ 判据（照 E12 明文 ✓）：**参数非法 → 400** ＝ **端点存在** ✓ ；**端点不存在 → 404** ✓
+    fetchT(THUMB_BASE, { cache: 'no-store' }, 6000).then(function (res) {
+      if (res.status === 400) { THUMB_STATE = 'on'; THUMB_REASON = ''; }
+      else if (res.status === 404) { THUMB_STATE = 'off'; THUMB_REASON = 'HTTP 404 · 端点未上线'; }
+      else if (res.ok) { THUMB_STATE = 'on'; THUMB_REASON = ''; }
+      else { THUMB_STATE = 'off'; THUMB_REASON = 'HTTP ' + res.status; }
+    }).catch(function (e) {
+      THUMB_STATE = 'off'; THUMB_REASON = '请求失败：' + (e && e.message ? e.message : e);
+    }).then(function () {
+      var tn = $('thumb-note');
+      if (tn) {
+        tn.innerHTML = (THUMB_STATE === 'on')
+          ? '⭐ 缩略图（契约 E12）：端点已就绪 ✓ —— 矩阵格按需懒加载 ✓（只对可见格发请求 ✗）'
+          : ('⚠️ 缩略图（契约 E12）：<b>端点未上线</b>（' + esc(THUMB_REASON) + '）→ 本页<b>不发起任何图片请求</b> ✓ 矩阵仍以三布尔显示 ✓（此状态常驻显示 ✓ 不静默 ✗）');
+      }
+      if (THUMB_STATE === 'on') {
+        try { renderRoleBar(true); renderMatrix(); } catch (e) {}
+      }
+    });
+  }
 
   function getJSONSoft(url) { return getJSON(url).catch(function () { return null; }); }
 
@@ -640,23 +689,24 @@
       d.title = (r.display_name || r.key) + '（' + r.key + '）';
       d.setAttribute('data-role', r.key);
       var prefix = r.portrait_prefix || r.key;
-      // ⭐ 立绘缩略图：契约 **E3** 明定 `/api/assets` ⛔ 不含图片内容 ✗ ⛔ 不含路径 ✗
-      //    → 服务端**本就没有、也不该有**此路由 ✓ → v1 **不发起请求** ✗
-      //    （否则必然 404 ✗ ＋ 控制台噪声 ✗ —— 电脑侧 `PC-…-117` §二 实测指出 ✓）
-      //    ⭐ 将来若批下“只读缩略图端点”（如 `GET /api/thumb?role=&state=` ✓ 仅白名单根之下 ✓）
-      //       → 把 `THUMB_BASE` 填上即接回 ✓（属新增只读面 → 须走契约升级 ✓）
-      if (THUMB_BASE) {
+      // ⭐ 契约 **E12**（已确认 ✓）：`GET /api/thumb?prefix=&state=&kind=&w=` → image/png
+      //    ⚠️ 仅当**探针通过**（THUMB_STATE==='on'）才建 `img` ✗ —— 否则**一个请求都不发** ✓（不 404 ✗ 不假装 ✗）
+      //    ⚠️ 建议补条：E12 原稿只写了 `prefix`＋`kind`，**没写 `state`** ✗ → 无法定位是哪个状态的图 ✗
+      //       → 我方已按 `&state=` 先实现（向前兼容 ✓）并**另件提请**补 `state` 参数 ✓
+      var tk = (THUMB_STATE === 'on') ? 'alpha' : null;
+      if (tk) {
         var img = document.createElement('img');
         img.className = 'face';
+        img.loading = 'lazy';                       // ⭐ lazy ✓
         img.alt = r.display_name || r.key;
-        img.onerror = function () {
+        img.onerror = function () {                 // ⭐ 失败退回色块＋首字（不碎图 ✗）
           var fb = faceFallback(r);
           if (img.parentNode) { img.parentNode.replaceChild(fb, img); }
         };
-        img.src = THUMB_BASE + encodeURIComponent(r.key) + '&state=idle';
+        img.src = thumbUrl(prefix, 'idle', tk, 128);
         d.appendChild(img);
       } else {
-        d.appendChild(faceFallback(r));   // ⭐ 无缩略图端点 → 直接色块＋首字（不 404 ✓ 不假装 ✓）
+        d.appendChild(faceFallback(r));             // ⭐ 无缩略图端点 → 色块＋首字（不 404 ✓ 不假装 ✓）
       }
       var nm = document.createElement('div');
       nm.className = 'rn';
@@ -877,11 +927,38 @@
     });
     h.push('</tbody>');
     tb.innerHTML = h.join('');
+    // ⭐ 批 4b-4：矩阵格缩略图 —— **lazy** ✓（只对**可见格**发请求 ✗ 否则 22×59＝1298 格并发 ✗）
+    if (typeof IntersectionObserver !== 'undefined' && !window.__thumbIO) {
+      window.__thumbIO = new IntersectionObserver(function (ents) {
+        ents.forEach(function (en) {
+          if (!en.isIntersecting) { return; }
+          var im = en.target;
+          if (im && im.getAttribute('data-src') && !im.getAttribute('src')) { im.src = im.getAttribute('data-src'); }
+          window.__thumbIO.unobserve(im);
+        });
+      }, { root: null, rootMargin: '200px' });
+    }
     [].slice.call(tb.querySelectorAll('td.cell')).forEach(function (td) {
+      var r0 = td.getAttribute('data-role'), st0 = td.getAttribute('data-state');
+      // ⭐ 仅当**探针通过**才建 img ✗ —— 否则一个图片请求都不发 ✓（不 404 ✗ 不假装 ✗）
+      if (THUMB_STATE === 'on') {
+        var k0 = thumbKindOf((ASSETS[r0] || {})[st0]);
+        if (k0) {
+          var im = document.createElement('img');
+          im.className = 'mthumb'; im.loading = 'lazy';
+          im.alt = r0 + ' / ' + st0;
+          im.setAttribute('data-src', thumbUrl(r0, st0, k0, 96));
+          im.onerror = function () { if (im.parentNode) { im.remove(); } };   // ⭐ 缺图撤掉（不留碎图 ✗）
+          td.appendChild(im);
+          if (window.__thumbIO) { window.__thumbIO.observe(im); } else { im.src = im.getAttribute('data-src'); }
+        }
+      }
       td.onclick = function () {
-        mxPick = { role: td.getAttribute('data-role'), state: td.getAttribute('data-state') };
+        mxPick = { role: r0, state: st0 };
         var bar = $('mx-actions'); if (bar) { bar.style.display = 'flex'; }
-        var pk = $('mx-pick'); if (pk) { pk.textContent = '已选中：' + mxPick.role + ' ／ ' + mxPick.state; }
+        var pk = $('mx-pick'); if (pk) { pk.textContent = '已选中：' + r0 + ' ／ ' + st0; }
+        var pb = $('mx-preview'); if (pb) { pb.__big = null; }   // ⭐ 换格重选 kind
+        renderMxPreview();
       };
     });
     [].slice.call(tb.querySelectorAll('td.mxadd')).forEach(function (td) {
@@ -938,6 +1015,31 @@
     if (single) { renderSingle(Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort()); }
   }
 
+  // ⭐ 批 4b-4：点开那格后的预览（三 kind 可切 ✓ 尺寸走 w=512 ✓；探针未通则什么都不显示 ✗）
+  function renderMxPreview() {
+    var host = $('mx-actions'); if (!host) { return; }
+    var box = $('mx-preview');
+    if (!box) { box = document.createElement('span'); box.id = 'mx-preview'; box.className = 'meta'; host.appendChild(box); }
+    box.innerHTML = '';
+    if (THUMB_STATE !== 'on' || !mxPick) { return; }
+    var v = (ASSETS[mxPick.role] || {})[mxPick.state] || {};
+    box.appendChild(document.createTextNode('预览：'));
+    THUMB_KINDS.forEach(function (kd) {
+      if (!v[kd]) { return; }
+      var b = document.createElement('button');
+      b.className = 'ghost'; b.textContent = kd; b.title = '看该 kind 的大图（w=512）';
+      b.onclick = function () { box.__big = kd; renderMxPreview(); };
+      box.appendChild(b);
+    });
+    var kd2 = box.__big || thumbKindOf(v);
+    if (kd2 && v[kd2]) {
+      var im = document.createElement('img');
+      im.className = 'mbig'; im.alt = mxPick.role + '/' + mxPick.state;
+      im.src = thumbUrl(mxPick.role, mxPick.state, kd2, 512);
+      box.appendChild(im);
+    }
+  }
+
   // ⭐ 资产类 op 的载荷：set_portrait **只收** {role, op, portrait_prefix}（⛔ 不带 state ✗ 多余字段会被正当拒掉）
   function submitAsset(payload) {
     if (payload && payload.op === 'set_portrait') {
@@ -945,6 +1047,16 @@
     } else if (!payload || !payload.role || !payload.state) {
       setMxState('bad', '⛔ 请先点一个格子选中 角色／状态');
       return;
+    }
+    // ⭐ 契约 E8②：add_state ＝ 新增状态 ＋ **同时给出首图**（首图必填 ✗）→ **本地先拦** ✓（别等 400 ✗）
+    if (payload.op === 'add_state' && !String(payload.source_ref || '').trim()) {
+      setMxState('bad', '⛔ add_state 需要**首图**（source_ref）✗ —— 契约 E8②：“状态的存在”就是文件本身 ✓（无图则界面与渲染都看不到它 ✗）→ 请在「首图 source_ref」填一张 ✓');
+      return;
+    }
+    // ⭐ 契约 E8①：已齐备默认跳过；要重跑须显式 force ✓（仅对会写图的 op 有意义 ✓）
+    var fc = $('mx-force');
+    if (fc && fc.checked && ['run_pipeline', 'insert', 'replace', 'add_state'].indexOf(payload.op) >= 0) {
+      payload = Object.assign({}, payload, { force: true });
     }
     var req = { type: 'asset_op', op_id: opIdNew(), payload: payload };
     setMxState('wait', '⏳ 正在投递资产待办…');
@@ -1562,7 +1674,7 @@
   if ($('mx-op-pipe')) { $('mx-op-pipe').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'run_pipeline', source: 'pool', run_pipeline: true }); }; }
   if ($('mx-op-replace')) { $('mx-op-replace').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'replace', source: 'pool', run_pipeline: true }); }; }
   if ($('mx-op-insert')) { $('mx-op-insert').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'insert', source: 'pool', run_pipeline: true }); }; }
-  if ($('mx-op-addstate')) { $('mx-op-addstate').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: ($('mx-newstate').value || '').trim(), op: 'add_state', source: 'pool' }); }; }
+  if ($('mx-op-addstate')) { $('mx-op-addstate').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: ($('mx-newstate').value || '').trim(), op: 'add_state', source: 'pool', source_ref: ($('mx-newstate-ref') && $('mx-newstate-ref').value || '').trim() }); }; }
   // ⭐ set_portrait（Owner 00:36 已批 ✓ 对方已上线 ✓）：载荷**只收** {role, op, portrait_prefix} ⛔ 不带 state ✗
   if ($('mx-op-setportrait')) { $('mx-op-setportrait').onclick = function () {
     var r = $('mx-bind-role') ? $('mx-bind-role').value : '';
@@ -1604,6 +1716,7 @@
     };
   });
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
+  probeThumb();                     // ⭐ 批 4b-4：缩略图端点探针（未上线 → 一个图片请求都不发 ✗ 明示原因 ✓）
 })();
 </script>
 </body>

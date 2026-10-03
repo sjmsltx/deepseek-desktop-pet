@@ -138,8 +138,19 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   } else {
     ok('行级 data-layer 契约仍在', s4.hasDataLayer, s4);
   }
-  ok('⛔ 无立绘缩略图 404（v1 不发起请求 ✓）', bad404.filter(u => u.indexOf('assets_3.0') >= 0).length === 0,
-     { bad404: bad404.slice(0, 4) });
+  // ⭐ 批 4b-4 升级：探针**未上线** → ⛔ 一个图片请求都不发 ✓（只允许 1 条＝探针自身 ✓）
+  //    ⚠️ 旧版只筛 `assets_3.0` ✗ → 探针的 `/api/thumb` 404 漏过 ✗ ＝“跛脚断言” ✗（本轮改严 ✓）
+  const thumbReqs = bad404.filter(u => u.indexOf('/api/thumb') >= 0);
+  const otherBad = bad404.filter(u => u.indexOf('/api/thumb') < 0 && u.indexOf('assets_3.0') >= 0);
+  const mxImgs = await pg.locator('img.mthumb').count();
+  const pvImgs = await pg.locator('img.mbig').count();
+  const mxMsg = await pg.locator('#mx-state').innerText().catch(() => '');
+  const tnMsg = await pg.locator('#thumb-note').innerText().catch(() => '');
+  ok('⭐ 探针至多 1 条（端点未上线 → 不进图片面 ✓）', thumbReqs.length <= 1, { thumbReqs });
+  ok('⛔ 矩阵零缩略图 img（未上线 → 不假装 ✓）', mxImgs === 0 && pvImgs === 0, { mxImgs, pvImgs });
+  ok('⛔ 无 assets_3.0 图片 404', otherBad.length === 0, { otherBad });
+  // ⭐ 提示必须**常驻**（旧版寄在 `#mx-state` ✗ → 被投递文案覆掉 ✗ ＝“自以为写了提示” ✗）
+  ok('⭐ 常驻明示“端点未上线”（不静默 ✓）', /端点未上线/.test(tnMsg), { tnMsg: tnMsg.slice(0, 120), mxMsg: mxMsg.slice(0, 40) });
 
   await br.close();
   sec('汇总');
