@@ -123,6 +123,20 @@
              border:2px dashed var(--acc);border-radius:4px}
   body.m2-dragging{cursor:move;user-select:none}
 
+  /* ===== 阶段①.5 简化版自动隐藏（只对右侧 V2/V3 ✓ 不依赖停靠系统 ✓）
+     规格 §六：移出收起／移入展开／📌 钉住；收起后停在其停靠边的边缘，只显示面板名
+     ⭐ 不挤压主区：右侧列宽由 --colA 固定 ✓ 面板自身变窄不改列宽 → 无布局拖拽 ✓ */
+  .panel.m2-hide{transition:width .12s ease}
+  .panel.collapsed{width:34px;min-width:34px;max-width:34px;margin-left:auto;overflow:hidden}
+  .panel.collapsed>.panel-h{height:100%;flex-direction:column;justify-content:flex-start;align-items:center;padding:8px 0;gap:6px}
+  .panel.collapsed>.panel-h .ph-title,
+  .panel.collapsed>.panel-h .ph-ctl{display:none}
+  .panel.collapsed .lane-scroll,.panel.collapsed .stream{display:none}
+  .ph-vert{display:none;writing-mode:vertical-rl;font-family:var(--mono);font-size:11px;color:var(--ink3);letter-spacing:.08em}
+  .panel.collapsed .ph-vert{display:block}
+  .ph-pin{font-size:11px;opacity:.5}
+  .panel.pinned>.panel-h .ph-pin{opacity:1;border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+
   @media (max-width:900px){.cols.reading,.cols.board{grid-template-columns:1fr}.stream,.lane-scroll{max-height:none}}
 </style>
 </head>
@@ -182,14 +196,14 @@
     <div class="split-h" id="split-h" title="拖动调整下方面板高度（双击重置）"></div>
     <div class="slot" id="slot-right" data-slot="right">
     <div class="panel" id="panel-l2" data-panel="L2" style="margin-bottom:12px">
-      <div class="panel-h" data-drag><span class="ph-title">V2 · 投递轨道（meta）</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c2">0</span></span></div>
+      <div class="panel-h" data-drag><span class="ph-title">V2 · 投递轨道（meta）</span><span class="ph-vert">V2 · 投递轨道</span><span class="ph-ctl"><button class="ph-btn ph-pin" data-act="pin" title="钉住（不自动收起）">📌</button><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c2">0</span></span></div>
       <div class="lane-scroll">
         <table><thead><tr><th>seq</th><th>投递</th><th>类型</th><th>tok</th><th>成本(微元)</th></tr></thead>
         <tbody id="lane-l2"></tbody></table>
       </div>
     </div>
     <div class="panel" id="panel-l3" data-panel="L3">
-      <div class="panel-h" data-drag><span class="ph-title">V3 · 后台总线（debug）</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c3">0</span></span></div>
+      <div class="panel-h" data-drag><span class="ph-title">V3 · 后台总线（debug）</span><span class="ph-vert">V3 · 后台总线</span><span class="ph-ctl"><button class="ph-btn ph-pin" data-act="pin" title="钉住（不自动收起）">📌</button><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c3">0</span></span></div>
       <div class="lane-scroll" id="lane-l3"></div>
     </div>
     </div>
@@ -538,10 +552,13 @@
   ];
   var SLOTS = { left: 'slot-left', right: 'slot-right', bottom: 'slot-bottom' };
   var MINW = 260, MINH = 140;
+  // ⭐ 阶段①.5 简化版自动隐藏：只对右侧 V2/V3 ✓（规格 §六“简化版不依赖停靠系统”✓）
+  var AUTOHIDE = { V2: true, V3: true };
+  var COLLAPSE_MS = 250;
   var pstate = {
-    V1: { mode: 'dock', slot: 'left' },
-    V2: { mode: 'dock', slot: 'right' },
-    V3: { mode: 'dock', slot: 'right' }
+    V1: { mode: 'dock', slot: 'left', pinned: false },
+    V2: { mode: 'dock', slot: 'right', pinned: false },
+    V3: { mode: 'dock', slot: 'right', pinned: false }
   };
 
   function pEl(id) {
@@ -561,10 +578,11 @@
   function encHash() {
     var parts = PMAP.map(function (m) {
       var s = pstate[m.id];
+      var pin = s.pinned ? '~p' : '';   // ⭐ 钉住状态随哈希持久 ✓
       if (s.mode === 'float') {
-        return [m.id, 'f', Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.round(s.h)].join('~');
+        return [m.id, 'f', Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.round(s.h)].join('~') + pin;
       }
-      return [m.id, 'd', s.slot].join('~');
+      return [m.id, 'd', s.slot].join('~') + pin;
     });
     var c = $('cols');
     var mode = c.classList.contains('board') ? 'board' : 'reading';
@@ -586,10 +604,11 @@
       q.m2.split('|').forEach(function (seg) {
         var a = seg.split('~');
         if (a.length < 3 || !pstate[a[0]]) { return; }
+        var pinned = a.indexOf('p') >= 0;
         if (a[1] === 'f' && a.length >= 6) {
-          pstate[a[0]] = { mode: 'float', x: +a[2], y: +a[3], w: +a[4], h: +a[5] };
+          pstate[a[0]] = { mode: 'float', x: +a[2], y: +a[3], w: +a[4], h: +a[5], pinned: pinned };
         } else if (a[1] === 'd' && SLOTS[a[2]]) {
-          pstate[a[0]] = { mode: 'dock', slot: a[2] };
+          pstate[a[0]] = { mode: 'dock', slot: a[2], pinned: pinned };
         }
       });
     }
@@ -638,8 +657,10 @@
     var p = pEl(key); if (!p) { return; }
     var r = rect || p.getBoundingClientRect();
     var g = clampGeom(r);
-    pstate[key] = { mode: 'float', x: g.x, y: g.y, w: g.w, h: g.h };
-    applyPanel(key); syncBtns(); saveHash();
+    var pin = !!(pstate[key] && pstate[key].pinned);   // ⭐ 保留钉住状态 ✓
+    pstate[key] = { mode: 'float', x: g.x, y: g.y, w: g.w, h: g.h, pinned: pin };
+    expandNow(key);
+    applyPanel(key); syncBtns(); updatePin(key); updateHide(key); saveHash();
   }
   // ⭐ 浮窗几何归一：宽高上限 = 视口 62%/74%（否则宽面板浮起来会把右侧标题栏控件推到屏外 ✗）
   function clampGeom(rect) {
@@ -658,12 +679,13 @@
   }
   function dockPanel(key, slot) {
     if (!SLOTS[slot]) { return; }
-    pstate[key] = { mode: 'dock', slot: slot };
+    var pin = !!(pstate[key] && pstate[key].pinned);   // ⭐ 保留钉住状态 ✓
+    pstate[key] = { mode: 'dock', slot: slot, pinned: pin };
     var p = pEl(key);
     if (p) { p.classList.remove('dragging'); }
     applyPanel(key);
     Object.keys(SLOTS).forEach(reorderSlot);
-    syncBtns(); saveHash();
+    syncBtns(); updatePin(key); updateHide(key); saveHash();
   }
   function resetPanel(key) {
     var h = homeEl(key);
@@ -766,17 +788,61 @@
     hd.addEventListener('pointercancel', end);
   }
 
+  // ---- 阶段①.5 简化版自动隐藏（V2/V3：移出收起 / 移入展开 / 📌 钉住）规格 §六 ----
+  var _hideTimers = {};
+  function canAutohide(key) {
+    var s = pstate[key];
+    return !!AUTOHIDE[key] && s && s.mode === 'dock' && !s.pinned;
+  }
+  function collapseNow(key) {
+    var p = pEl(key); if (!p || !canAutohide(key)) { return; }
+    if (p.classList.contains('collapsed')) { return; }
+    var h = Math.round(p.getBoundingClientRect().height);
+    if (h > 0) { p.style.height = h + 'px'; p.style.minHeight = h + 'px'; }  // ⭐ 保留高度 → 竖向不挤压 ✓
+    p.classList.add('m2-hide', 'collapsed');
+  }
+  function expandNow(key) {
+    if (_hideTimers[key]) { clearTimeout(_hideTimers[key]); _hideTimers[key] = null; }
+    var p = pEl(key); if (!p) { return; }
+    p.classList.remove('collapsed');
+    p.style.height = ''; p.style.minHeight = '';
+  }
+  function scheduleCollapse(key) {
+    if (!canAutohide(key)) { return; }
+    if (_hideTimers[key]) { clearTimeout(_hideTimers[key]); }
+    _hideTimers[key] = setTimeout(function () {
+      _hideTimers[key] = null;
+      var p = pEl(key); if (!p) { return; }
+      // ⭐ 延迟期间鼠标又回到面板上 → 不收起 ✓
+      try { if (p.matches(':hover')) { return; } } catch (e) { /* 旧内核：无 :hover → 继续收起 ✓ */ }
+      collapseNow(key);
+    }, COLLAPSE_MS);
+  }
+  function updateHide(key) {
+    var p = pEl(key); if (!p) { return; }
+    if (canAutohide(key)) { p.classList.add('m2-hide'); }
+    else { p.classList.remove('m2-hide'); expandNow(key); }
+  }
+  function updatePin(key) {
+    var p = pEl(key); if (!p) { return; }
+    var pinned = !!(pstate[key] && pstate[key].pinned);
+    p.classList.toggle('pinned', pinned);
+    var b = p.querySelector('button[data-act="pin"]');
+    if (b) { b.title = pinned ? '已钉住（鼠标移出也不收起）· 点击取消' : '钉住（不自动收起）'; }
+  }
+
   // ---- 出错回落：任何异常 → 回三栏固定布局（不白屏 ✗）----
   function fallbackLayout() {
     try {
       PMAP.forEach(function (m) {
         var p = $(m.panel); if (!p) { return; }
-        p.classList.remove('floating', 'dragging');
-        p.style.left = ''; p.style.top = ''; p.style.width = ''; p.style.height = '';
+        p.classList.remove('floating', 'dragging', 'collapsed', 'm2-hide');   // ⭐ 回落时清掉收起态 ✓
+        if (_hideTimers[m.id]) { clearTimeout(_hideTimers[m.id]); _hideTimers[m.id] = null; }
+        p.style.left = ''; p.style.top = ''; p.style.width = ''; p.style.height = ''; p.style.minHeight = '';
         var rs = p.querySelector('.ph-rs'); if (rs) { rs.parentNode.removeChild(rs); }
         var home = $(m.home);
         if (home && p.parentNode !== home) { home.appendChild(p); }
-        pstate[m.id] = { mode: 'dock', slot: m.home.replace('slot-', '') };
+        pstate[m.id] = { mode: 'dock', slot: m.home.replace('slot-', ''), pinned: !!(pstate[m.id] && pstate[m.id].pinned) };
       });
       var c = $('cols'); if (c) { c.classList.remove('single'); }
       document.body.classList.remove('view-L1', 'view-L2', 'view-L3', 'm2-dragging');
@@ -795,11 +861,22 @@
           if (act === 'float') { floatPanel(m.id); }
           else if (act === 'dock') { resetPanel(m.id); }
           else if (act === 'reset') { resetPanel(m.id); }
+          else if (act === 'pin') {
+            pstate[m.id].pinned = !pstate[m.id].pinned;
+            if (pstate[m.id].pinned) { expandNow(m.id); }
+            updatePin(m.id); updateHide(m.id); saveHash();
+          }
         });
       });
+      // ⭐ 阶段①.5：移出收起（延迟 250ms）/ 移入立即展开 ✓
+      if (AUTOHIDE[m.id]) {
+        p.addEventListener('pointerenter', function () { expandNow(m.id); });
+        p.addEventListener('pointerleave', function () { scheduleCollapse(m.id); });
+      }
     });
     loadHash();
     PMAP.forEach(function (m) { applyPanel(m.id); });
+    PMAP.forEach(function (m) { updatePin(m.id); updateHide(m.id); });
     syncBtns();
     saveHash();
   }
