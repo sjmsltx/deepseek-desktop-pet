@@ -557,6 +557,9 @@
   var PROJ = { current: null, list: [], boundary: null };
   var ROLES = [];
   var selectedRole = null;
+  // ⭐ 立绘缩略图端点前缀（默认 null = 不发起请求 ✓）：契约 E3 下 `/api/assets` 不含图片
+  //    将来若批下只读缩略图端点 → 填成如 '/api/thumb?role=' 即接回 ✓
+  var THUMB_BASE = null;
 
   function getJSONSoft(url) { return getJSON(url).catch(function () { return null; }); }
 
@@ -608,16 +611,24 @@
       d.title = (r.display_name || r.key) + '（' + r.key + '）';
       d.setAttribute('data-role', r.key);
       var prefix = r.portrait_prefix || r.key;
-      var img = document.createElement('img');
-      img.className = 'face';
-      img.alt = r.display_name || r.key;
-      // ⭐ 落位：<asset_dir>/<portrait_prefix>_<state>_alpha.png（取不到 → 回落颜色块＋首字，不阻塞 ✓）
-      img.onerror = function () {
-        var fb = faceFallback(r);
-        if (img.parentNode) { img.parentNode.replaceChild(fb, img); }
-      };
-      img.src = '../assets_3.0/' + prefix + '/' + prefix + '_idle_alpha.png';
-      d.appendChild(img);
+      // ⭐ 立绘缩略图：契约 **E3** 明定 `/api/assets` ⛔ 不含图片内容 ✗ ⛔ 不含路径 ✗
+      //    → 服务端**本就没有、也不该有**此路由 ✓ → v1 **不发起请求** ✗
+      //    （否则必然 404 ✗ ＋ 控制台噪声 ✗ —— 电脑侧 `PC-…-117` §二 实测指出 ✓）
+      //    ⭐ 将来若批下“只读缩略图端点”（如 `GET /api/thumb?role=&state=` ✓ 仅白名单根之下 ✓）
+      //       → 把 `THUMB_BASE` 填上即接回 ✓（属新增只读面 → 须走契约升级 ✓）
+      if (THUMB_BASE) {
+        var img = document.createElement('img');
+        img.className = 'face';
+        img.alt = r.display_name || r.key;
+        img.onerror = function () {
+          var fb = faceFallback(r);
+          if (img.parentNode) { img.parentNode.replaceChild(fb, img); }
+        };
+        img.src = THUMB_BASE + encodeURIComponent(r.key) + '&state=idle';
+        d.appendChild(img);
+      } else {
+        d.appendChild(faceFallback(r));   // ⭐ 无缩略图端点 → 直接色块＋首字（不 404 ✓ 不假装 ✓）
+      }
       var nm = document.createElement('div');
       nm.className = 'rn';
       nm.textContent = r.display_name || r.key;
@@ -1123,13 +1134,26 @@
     }
   };
 
-  function act(path, payload) {
+  function act(path, payload, btn) {
     return post(path, payload).then(function () { return refresh(); })
-      .catch(function (e) { err(e.message); });
+      .catch(function (e) {
+        var m = String((e && e.message) || '');
+        // ⭐ 默认未开动作端点（`--enable-actions`）→ 置灰 ＋ 说清原因（免得用户以为坏了 ✗）
+        //    电脑侧 `PC-…-117` §三 指出：这三个是**遗留动作面**、默认必然 403 ✓
+        if (m.indexOf('HTTP 403') >= 0) {
+          [].slice.call(document.querySelectorAll('#btn-step,#btn-interrupt,#btn-resume')).forEach(function (b) {
+            b.disabled = true;
+            b.title = '动作端点未开启：需服务端以 --enable-actions 启动（契约 C1：默认面只有窄写端点 /api/pending）';
+          });
+          err('动作端点未开启（HTTP 403）：请以 --enable-actions 启动协作台；默认面只有窄写端点 POST /api/pending ✓');
+          return;
+        }
+        err(m);
+      });
   }
-  $('btn-step').onclick = function () { act('/api/step', {}); };
-  $('btn-interrupt').onclick = function () { act('/api/interrupt', { body: '［人类接管］先停一下' }); };
-  $('btn-resume').onclick = function () { act('/api/resume', { text: '继续' }); };
+  $('btn-step').onclick = function () { act('/api/step', {}, this); };
+  $('btn-interrupt').onclick = function () { act('/api/interrupt', { body: '［人类接管］先停一下' }, this); };
+  $('btn-resume').onclick = function () { act('/api/resume', { text: '继续' }, this); };
 
   // ================= 阶段②③④ 面板停靠系统（浮动 / 停靠 / 状态持久 / 出错回落）=================
   // 规格：docs/3.0-M2-面板停靠系统规格-20260921.md
