@@ -103,17 +103,29 @@ def test_asset_op_accepts_valid_and_custom_delete():
     assert pending_ops.validate_request(_asset(op='delete_state', state='my_custom'))[0] is True
 
 
-# ── 6. ⭐ `source_ref` 白名单根（assets_3.0 / assets）✗ 越界拒 ────────
-@pytest.mark.parametrize('ref', ['etc/passwd', 'other/x.png', 'C:/x.png', '../assets_3.0/x.png'])
-def test_source_ref_whitelist_root(ref):
+# ── 6. ⭐ `source_ref`：**两种写法都收** ✓ 越界一律拒 ✗ ─────────────────
+#   （微信侧 `WX-…-20261004-11` §2.1 实测：裸形式 `deepseek/deepseek_idle.png` 被 400 ✗
+#     → 但解析器本来就支持裸形式 ✗ → 校验与解析**不一致** ✗ → 本批统一为"都收" ✓）
+@pytest.mark.parametrize('ref', ['C:/x.png', '/etc/passwd', '../assets_3.0/x.png',
+                                 'assets_3.0/../x.png'])
+def test_source_ref_rejects_out_of_bounds(ref):
     ok, why = pending_ops.validate_request(_asset(source_ref=ref))
-    assert ok is False
+    assert ok is False, '⛔ 越界源路径必须拒 ✗：%r' % ref[:40]
 
 
-def test_source_ref_allows_both_roots():
+def test_source_ref_accepts_both_forms():
+    # ⭐ 带白名单根 ✓
     assert pending_ops.validate_request(_asset(source_ref='assets/flash/flash_idle.png'))[0] is True
     assert pending_ops.validate_request(
         _asset(source_ref='assets_3.0/deepseek/deepseek_happy.png'))[0] is True
+    # ⭐ 裸形式（按 source 指定的根解析 ✓）—— 你方实测撞到的那种 ✓
+    assert pending_ops.validate_request(
+        _asset(source_ref='deepseek/deepseek_idle.png'))[0] is True
+    # ⛔ 裸形式必须恰好两段 ✗
+    ok, why = pending_ops.validate_request(_asset(source_ref='a/b/c.png'))
+    assert ok is False and '裸形式' in why, why
+    # ⛔ 带根形式必须给文件名 ✗
+    assert pending_ops.validate_request(_asset(source_ref='assets_3.0/deepseek'))[0] is False
 
 
 # ── 7. ⭐ E2：requested_by 不含凭证 ✗ ────────────────────────────────

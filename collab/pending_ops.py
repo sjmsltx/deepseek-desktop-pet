@@ -113,6 +113,32 @@ def _rel_problem(v) -> str:
     return ''
 
 
+def _rel_ok(v) -> str:
+    """⭐ `source_ref` 两种写法**都收**（微信侧 `WX-…-20261004-11` §2.1 实测撞到 ✓）：
+
+      · 带白名单根：`assets_3.0/deepseek/deepseek_idle.png` ✓ / `assets/flash/flash_idle.png` ✓
+      · ⭐ 裸形式：`deepseek/deepseek_idle.png` ✓（按 `source` 指定的根解析 ✓ 更好用 ✓）
+
+    ⛔ 两形式均**不得**含绝对路径／`..` ✗；裸形式**必须恰好两段**（角色/文件名 ✓）
+    ⚠️ 旧行为：校验只认带根形式 ✗ 而解析器**两种都支持** ✗ → 不一致 → 裸形式被 400 拒 ✓
+       （你方实测：`source_ref:"deepseek/deepseek_idle.png"` → 400 ✓ 报错文案本身没错 ✓ 但不友好 ✓）
+    """
+    s = str(v or '').strip()
+    if not s:
+        return 'source_ref 不能为空'
+    p = _rel_problem(s)                                   # 拒绝对路径 / `..` ✓
+    if p:
+        return 'source_ref %s' % p
+    parts = s.replace('\\', '/').split('/')
+    if parts[0] in ('assets_3.0', 'assets'):
+        # ⭐ 带根形式必须是 root/角色/文件 ✓（≥3 段 ✗ 否则缺文件名 ✓）
+        return '' if len(parts) >= 3 else 'source_ref 带根时必须写到文件（assets_3.0/<角色>/<文件>）'
+    if len(parts) != 2:
+        return ('source_ref 应写 `assets_3.0/<角色>/<文件>` 或裸形式 `<角色>/<文件>`；'
+                '例如 assets_3.0/deepseek/deepseek_idle.png')
+    return ''
+
+
 def _asset_payload_problem(payload: dict) -> str:
     """`asset_op` 载荷校验（`-105` §一.2 ✓ ＋ `set_portrait` 补充口径 ✓）。"""
     role = str(payload.get('role') or '').strip()
@@ -144,12 +170,9 @@ def _asset_payload_problem(payload: dict) -> str:
         return 'source 不在枚举内：%r' % src
     ref = payload.get('source_ref')
     if ref is not None:
-        p = _rel_problem(ref)
+        p = _rel_ok(ref)
         if p:
-            return 'source_ref %s' % p
-        head = str(ref).replace('\\', '/').split('/')[0]
-        if head not in ('assets_3.0', 'assets'):             # ⭐ 白名单根 ✓
-            return 'source_ref 必须在 assets_3.0/ 或 assets/ 之下'
+            return p
     return ''
 
 
