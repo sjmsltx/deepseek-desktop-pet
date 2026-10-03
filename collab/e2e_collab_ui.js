@@ -107,8 +107,14 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   ok('前缀下拉取自 /api/assets（含池子）', s3.prefixes.length >= 1, { n: s3.prefixes.length });
   await pg.selectOption('#mx-bind-role', s3.roles[0]);
   if (s3.prefixes.length) { await pg.selectOption('#mx-bind-prefix', s3.prefixes[0]); }
-  await pg.click('#mx-op-setportrait'); await pg.waitForTimeout(1400);
-  const s3b = await pg.evaluate(() => document.getElementById('mx-state').textContent);
+  await pg.click('#mx-op-setportrait');
+  // ⭐ 改成**轮询等待**（原来固定等 1400ms —— 实测偶发不足 → 误报 ✗；不当“碰巧通过”✓）
+  let s3b = '';
+  for (let i = 0; i < 20; i++) {
+    await pg.waitForTimeout(300);
+    s3b = await pg.evaluate(() => document.getElementById('mx-state').textContent);
+    if (String(s3b).indexOf('已投递') >= 0 || String(s3b).indexOf('被拒') >= 0) { break; }
+  }
   ok('提示须人跑运行器（不假装成功）', String(s3b).indexOf('run_pending') >= 0, { txt: String(s3b).slice(0, 120) });
   const after = fs.existsSync(PEND) ? fs.readdirSync(PEND) : [];
   const created = after.filter(f => !before.includes(f) && f.endsWith('.json'));

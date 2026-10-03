@@ -395,8 +395,10 @@
   var $ = function (id) { return document.getElementById(id); };
 
   function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    // ⭐ 补单引号（$#39;）：当前属性都是双引号故不可利用 ✗，但属**潜在缺口** ✓
+    //    （电脑侧 `PC-…-117` §五 指出 ✓ 我方 `-10` 已自报 ✓）
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
   // 轻量正文渲染：``` 围栏 → <pre>（不换行、横向滚动，排版不丢）；`行内` → <code>
@@ -417,8 +419,20 @@
   }
   function isLong(t) { return String(t || '').length > 300 || String(t || '').indexOf('```') >= 0; }
 
+  // ⭐ 带**超时**的 fetch（本机服务卡住时不让请求挂死 ✗ —— 与"DSH 卡死"同族的防护 ✓）
+  //    契约/铁律不变：仍只读或窄写 ✓ 仅多一层客户端超时 ✓
+  function fetchT(url, opts, ms) {
+    var o = opts || {};
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctl) { try { ctl.abort(); } catch (e) {} } }, ms || 6000);
+    if (ctl) { o.signal = ctl.signal; }
+    return fetch(url, o).then(
+      function (r) { clearTimeout(t); return r; },
+      function (e) { clearTimeout(t); throw new Error('请求超时/' + ((e && e.name) || 'error') + '：' + url); }
+    );
+  }
   function getJSON(url) {
-    return fetch(url, { cache: 'no-store' }).then(function (r) {
+    return fetchT(url, { cache: 'no-store' }, 6000).then(function (r) {
       return r.text().then(function (t) {
         if (!r.ok) { throw new Error(url + ' → HTTP ' + r.status + ' ' + t); }
         return t ? JSON.parse(t) : {};
@@ -426,11 +440,11 @@
     });
   }
   function post(path, payload) {
-    return fetch(path, {
+    return fetchT(path, {
       method: 'POST', cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {})
-    }).then(function (r) {
+    }, 10000).then(function (r) {
       return r.text().then(function (t) {
         if (!r.ok) { throw new Error(path + ' → HTTP ' + r.status + ' ' + t); }
         return t ? JSON.parse(t) : {};
@@ -563,9 +577,13 @@
 
   function getJSONSoft(url) { return getJSON(url).catch(function () { return null; }); }
 
-  function renderProjectBar() {
+  function renderProjectBar(force) {
     var sel = $('proj-sel');
     if (!sel) { return; }
+    // ⭐ 数据未变则不重建 DOM（本函数每 2s 被调一次 ✓ 避免无谓重绘 ✓）
+    var _k = JSON.stringify(PROJ);
+    if (!force && _k === renderProjectBar._k) { return; }
+    renderProjectBar._k = _k;
     var cur = PROJ.current;
     sel.textContent = cur ? (cur.name || cur.id) : '（未取到项目）';
     // ⭐ 降级：项目端点不可用 → ⛔ 不让用户以为能编辑（守“不假装可用”✓）
@@ -597,9 +615,13 @@
     return el;
   }
 
-  function renderRoleBar() {
+  function renderRoleBar(force) {
     var box = $('rail-list');
     if (!box) { return; }
+    // ⭐ 同上：数据未变不重建（每 2s 一次 ✓）
+    var _k = JSON.stringify(ROLES) + '|' + selectedRole;
+    if (!force && _k === renderRoleBar._k) { return; }
+    renderRoleBar._k = _k;
     box.innerHTML = '';
     if (!ROLES.length) {
       box.innerHTML = '<div class="rail-empty">（未取到角色）</div>';
@@ -633,7 +655,7 @@
       nm.className = 'rn';
       nm.textContent = r.display_name || r.key;
       d.appendChild(nm);
-      d.onclick = function () { selectedRole = r.key; renderRoleBar(); };
+      d.onclick = function () { selectedRole = r.key; renderRoleBar(true); };
       box.appendChild(d);
     });
   }
@@ -780,7 +802,7 @@
   }
   function loadAssets() {
     setMxState('wait', '⏳ 正在读取资产矩阵…');
-    fetch('/api/assets', { cache: 'no-store' }).then(function (r) {
+    fetchT('/api/assets', { cache: 'no-store' }, 8000).then(function (r) {
       return r.text().then(function (t) {
         if (!r.ok) { throw new Error('HTTP ' + r.status + ' ' + t); }
         return JSON.parse(t);
@@ -973,6 +995,10 @@
   }
 
   function refresh() {
+    // ⭐ 防重入：上一轮没回来就不叠下一轮 ✗
+    //    （本机服务卡住时，2s 一次轮询会**堆积请求** —— 与"DSH 主线程被占"同族的风险 ✓）
+    if (refresh._busy) { return Promise.resolve(); }
+    refresh._busy = true;
     $('errs').innerHTML = '';
     var c = encodeURIComponent(CHANNEL);
     return Promise.all([
@@ -995,7 +1021,7 @@
       renderOps();
       $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
       $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
-    }).catch(function (e) { err(e.message); });
+    }).catch(function (e) { err(e.message); }).then(function () { refresh._busy = false; });
   }
 
   function download(name, text, mime) {
