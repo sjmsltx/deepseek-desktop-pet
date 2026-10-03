@@ -174,19 +174,46 @@ def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', 
     return diag
 
 
+def _asset_prefix(role):
+    """⭐ 立绘绑定（Owner 2026-10-03）：档案 `appearance.portrait` 有值 → 当作该角色的**资产目录前缀** ✓
+
+    · 留空 / 未配 / 目录不存在 → ⭐ **回落角色 key** ✓（**行为与从前完全一致** ✓）
+    · 查档案失败 → 回落 key ✓ **不崩** ✗
+    · ⛔ 不缓存（免得界面改完不生效 ✗）；`registry.get()` 是内存字典查找 ✓ 开销可忽略 ✓
+    """
+    r = str(role)
+    try:
+        reg = globals().get('MODEL_REGISTRY')
+        p = reg.get(r) if reg is not None else None
+        v = str(getattr(p, 'portrait', '') or '').strip()
+        if v and os.path.isdir(os.path.join(ASSETS, v)):
+            return v
+    except Exception as _exc:
+        _silent_log('_asset_prefix', _exc)
+    return r
+
+
 def asset(role, state):
-    p = os.path.join(ASSETS, role, f'{role}_{state}.png')
+    pfx = _asset_prefix(role)          # ⭐ 立绘绑定：优先用档案指定的资产目录 ✓ 否则用 key ✓
+    p = os.path.join(ASSETS, pfx, f'{pfx}_{state}.png')
     if os.path.exists(p):
         return p
+    if pfx != role:                    # ⭐ 前缀目录里没这张 → 再试角色 key 目录 ✓
+        p0 = os.path.join(ASSETS, role, f'{role}_{state}.png')
+        if os.path.exists(p0):
+            return p0
     # v6.30 兜底：新状态素材缺失时降级到已有状态
     fallback = {'hungry': 'eating', 'victory': 'happy', 'defeat': 'sad',
                 'kiss': 'hug_whale', 'shy_hug': 'hug_whale'}
     fb = fallback.get(state)
     if fb:
-        p2 = os.path.join(ASSETS, role, f'{role}_{fb}.png')
+        p2 = os.path.join(ASSETS, pfx, f'{pfx}_{fb}.png')
         if os.path.exists(p2):
             return p2
-    return os.path.join(ASSETS, role, f'{role}_idle.png')
+    p3 = os.path.join(ASSETS, pfx, f'{pfx}_idle.png')
+    if os.path.exists(p3):
+        return p3
+    return os.path.join(ASSETS, role, f'{role}_idle.png')   # 最终回落：原行为 ✓
 
 # ============ 国际化（v6.20，右键菜单/提示/AI 回复语言） ============
 UI_ZH = {
