@@ -70,6 +70,82 @@ def _msg(m) -> dict:
     }
 
 
+# ── ⭐ 批 4 前置三端点（Owner 2026-10-03 ｜ WX-桌宠-20261003-06 §五 · 我方选路 A）
+#   全部在契约 ④-1 已预留的白名单内 ✓ **只读** ✓ 不新增写端点 ✗（守 C1 ✓）
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def roles_payload(base_dir: str = '') -> list:
+    """角色列表（⭐ 取自档案 ✓ 只输出 key／显示名／立绘前缀／颜色 ✓ **绝不含密钥** ✗）。
+
+    · 立绘前缀 v1 = **`key` 派生** ✓（= 资产目录名 ✓）→ 不必等新字段 `portrait_prefix` ✓
+    · 档案来源：`model_registry.BUILTIN_PROFILES` ＋ `models.json.profiles` 覆盖 ✓
+    · ⭐ 受保护导入：服务侧须能在**无 GUI 环境**独立跑 ✓（导入失败 → 空表，不崩 ✗）
+    · ⛔ 不输出 `endpoint` / `api_key_field` / `params` / `price`（契约 ④-2 只列四项 ✓）
+    """
+    import json as _json_mod                      # 局部导入 ✓ 不依赖模块头部 ✗
+    base = str(base_dir or _BASE_DIR)
+    profs = {}
+    try:
+        import model_registry as _mr              # ⭐ 该模块明确不依赖 PySide6 ✓
+        raw = getattr(_mr, 'BUILTIN_PROFILES', None)
+        # ⚠️ 实测：出厂档案是 **list[dict]**（含 key ✓）而非 dict ✗ → 两种形状都认 ✓
+        if isinstance(raw, dict):
+            profs = {str(k): (v if isinstance(v, dict) else {}) for k, v in raw.items()}
+        elif isinstance(raw, (list, tuple)):
+            profs = {str(p.get('key')): p for p in raw
+                     if isinstance(p, dict) and p.get('key')}
+    except Exception:
+        profs = {}
+    try:
+        with open(os.path.join(base, 'models.json'), encoding='utf-8') as fh:
+            over = (_json_mod.load(fh) or {}).get('profiles') or {}
+        if isinstance(over, dict):
+            for k, v in over.items():
+                if isinstance(v, dict):
+                    profs.setdefault(str(k), {}).update(v)
+        elif isinstance(over, (list, tuple)):      # ⭐ 同样两种形状都认 ✓
+            for v in over:
+                if isinstance(v, dict) and v.get('key'):
+                    profs.setdefault(str(v['key']), {}).update(v)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    out = []
+    for key, p in profs.items():
+        p = p if isinstance(p, dict) else {}
+        ap = p.get('appearance') if isinstance(p.get('appearance'), dict) else {}
+        out.append({'key': str(key),
+                    'display_name': str(p.get('display_name') or key),
+                    'portrait_prefix': str(key),           # ⭐ v1 派生 ✓
+                    'color': str(ap.get('color') or '')})
+    out.sort(key=lambda r: r['key'])
+    return out
+
+
+def projects_payload(base_dir: str = '', log_path: str = '') -> dict:
+    """项目列表（v1：**一个默认项目** ✓ 空态可读 ✗ 不返空数组 ✓）。"""
+    base = str(base_dir or _BASE_DIR)
+    name = os.path.basename(base.rstrip('\\/')) or 'default'
+    last = 0
+    try:
+        if log_path and os.path.isfile(log_path):
+            last = int(os.path.getmtime(log_path) * 1000)
+    except Exception:
+        last = 0
+    return {'projects': [{'id': 'default', 'name': name, 'root': base,
+                          'unread': 0, 'last_active': last}]}
+
+
+def project_current_payload(base_dir: str = '', log_path: str = '') -> dict:
+    """当前项目 ＋ 边界最小形式（≈ `PROJECT_CONTEXT` ✓ 与 rt_assembler 将来入参同形 ✓）。"""
+    proj = projects_payload(base_dir, log_path)['projects'][0]
+    return {'project': proj,
+            'boundary': {'project_id': proj['id'], 'root': proj['root'],
+                         'roles': [r['key'] for r in roles_payload(base_dir)]}}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'RelayServer/0.1'
     log: relay.RelayLog = None       # 由 create_server 注入
@@ -155,6 +231,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, fh.read(), 'application/x-ndjson; charset=utf-8')
             except FileNotFoundError:
                 return self._send(200, b'', 'application/x-ndjson; charset=utf-8')
+
+        # ⭐ 批 4 前置：三个**只读**端点（契约 ④-1 已预留 ✓ 只读 ✓ 不新增写端点 ✗）
+        if path == '/api/projects':
+            return self._json(projects_payload(log_path=self.log.path))
+
+        if path == '/api/project/current':
+            return self._json(project_current_payload(log_path=self.log.path))
+
+        if path == '/api/roles':
+            return self._json(roles_payload())
 
         if path in ('/api/view', '/api/inbox'):
             layer = self._layer(q)
