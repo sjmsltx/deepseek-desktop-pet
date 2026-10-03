@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -114,6 +115,71 @@ DEFAULT_LIMITS = {
 
 # 显式"继续"白名单(N2)
 RESUME_WORDS = {'继续', '继续吧', '继续。', 'continue', 'go on', 'resume'}
+
+# ---------------------------------------------------------------- 圆桌额度配置（门槛第 1 件）
+# ⭐ Owner 2026-10-02 21:53 批：「成本上限默认值 → 自定义」
+#   · DEFAULT_LIMITS 里的 0 = 不限 **保持不动** ✗（不预先塞死数 ✓）
+#   · 用户可配：config.json 的 `roundtable_limits` 键 ✓（GUI 入口见 settings_ui 的「用量与计费」页 ✓）
+#   · 未设置 = 不覆盖默认（仍是不限 ✓）；非法值**不静默** ✗
+LIMITS_CONFIG_KEY = 'roundtable_limits'
+_FLAT_KEY_PREFIX = 'roundtable_'          # ⭐ GUI 保存的扁平键前缀（roundtable_max_tokens 等 ✓）
+_CUSTOM_LIMIT_KEYS = ('max_tokens', 'max_cost_micro', 'interrupt_timeout_ms')
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+
+
+def load_limits(config_path=None, *, warn=None) -> dict:
+    """从配置文件读**自定义**圆桌额度；返回的 dict 供 `RelayLog(limits=...)` 用。
+
+    兼容两种写法：① `"roundtable_limits": {...}` 对象 ✓  ② 存成 JSON 字符串 ✓（GUI 保存路径）
+    未配置/文件不存在 → 返回 `{}`（= 不覆盖默认 = 不限 ✓）
+    非法值 → 跳过该键 ＋ `warn(msg)`（无 warn 则写 stderr ✓ **不静默** ✗）
+    """
+    path = config_path or DEFAULT_CONFIG_PATH
+    out: dict = {}
+    problems: list = []
+    try:
+        with open(path, encoding='utf-8') as fh:
+            cfg = json.load(fh)
+    except FileNotFoundError:
+        return out
+    except Exception as exc:
+        problems.append('配置读取失败（%s）：%s' % (path, exc))
+        cfg = {}
+    raw = cfg.get(LIMITS_CONFIG_KEY) if isinstance(cfg, dict) else None
+    if isinstance(raw, str):                      # 若存成 JSON 字符串 ✓
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            problems.append('圆桌额度不是合法 JSON，已忽略')
+            raw = None
+    if isinstance(raw, dict):
+        _pairs = [(k, raw[k]) for k in _CUSTOM_LIMIT_KEYS if k in raw]
+    else:
+        if raw is not None:
+            problems.append('圆桌额度 %s 应为对象，已忽略（实得 %s）'
+                            % (LIMITS_CONFIG_KEY, type(raw).__name__))
+        # ⭐ 后门：也认**扁平键**（GUI 保存路径 ✓ 不需嵌套 JSON ✓）
+        _pairs = [(_k, cfg.get(_FLAT_KEY_PREFIX + _k))
+                  for _k in _CUSTOM_LIMIT_KEYS if _FLAT_KEY_PREFIX + _k in cfg]
+    for k, v in _pairs:
+        if isinstance(v, bool) or not isinstance(v, int):
+            problems.append('圆桌额度 %s 必须是整数，已忽略（实得 %r）' % (k, v))
+            continue
+        if v < 0 or (k == 'interrupt_timeout_ms' and v == 0):
+            problems.append('圆桌额度 %s 取值非法，已忽略（实得 %r）' % (k, v))
+            continue
+        out[k] = v
+    for msg in problems:
+        if warn:
+            warn(msg)
+        else:
+            sys.stderr.write('[relay_log] %s\n' % msg)
+    return out
+
+
+def limits_configured(config_path=None) -> bool:
+    """是否已显式配置圆桌额度（供"首次进圆桌提示一次"用 ✓）。"""
+    return bool(load_limits(config_path, warn=lambda _m: None))
 
 _STOP = set('的 了 是 我 你 他 她 它 们 和 与 及 或 在 有 就 都 也 还 把 被 让 给 对 从 到 这 那 一个 一种 可以 需要 应该 我们 你们 他们 而且 但是 所以 因为 如果 那么 什么 怎么 这个 那个 一点 一下 吧 呢 啊 呀 嗯 好 行 要 会 能'.split())
 _SIG_TOKEN = re.compile(r'[A-Za-z0-9_./\\:-]+|[\u4e00-\u9fff]{2,}')

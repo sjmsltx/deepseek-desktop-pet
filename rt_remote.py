@@ -254,7 +254,8 @@ def build_consumer_from_config(cfg, *, base_dir, emit=None, agent='owner', reque
     d = _os.path.dirname(ch)
     if d:
         _os.makedirs(d, exist_ok=True)
-    relay_log_obj = relay_log.RelayLog(ch)
+    # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：自定义圆桌额度（未配置 = 不覆盖默认 = 不限 ✓）
+    relay_log_obj = relay_log.RelayLog(ch, limits=relay_log.load_limits())
     return RemoteConsumer(
         relay_log_obj,
         interval_ms=int(interval_ms or cfg.get('remote_interval_ms') or DEFAULT_INTERVAL_MS),

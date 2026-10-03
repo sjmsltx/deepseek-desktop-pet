@@ -206,7 +206,13 @@ def main():
     ap.add_argument('--issue-title', default='')
     args = ap.parse_args()
 
-    log = relay.RelayLog(args.log, provider=demo_provider if args.demo_provider else None)
+    # ⭐ 门槛第 1 件（Owner 2026-10-02 21:53 批：「成本上限默认值 → 自定义」）
+    #   未设置 = 不覆盖默认（仍是不限 ✓）→ 这里**明报一次**（不静默 ✗）
+    _limits = relay.load_limits()
+    if not _limits:
+        print('  ⚠️ 圆桌额度未设置（= 不限）—— 建议在桌宠「设置 → 用量与计费 → 圆桌额度」设一个上限')
+    log = relay.RelayLog(args.log, provider=demo_provider if args.demo_provider else None,
+                         limits=_limits)
     if args.issue_title:
         log.open_issue(relay.Issue(args.issue_title, '给出 3 条方案并收敛到 1 条', '出现可执行方案即停'))
     httpd, port = create_server(log, '127.0.0.1', args.port, args.ui,

@@ -244,6 +244,26 @@ class SettingsDialog(QDialog):
         except Exception as e:
             self._notify('成本上限设置失败：%s' % e)
 
+    def _apply_roundtable_limits(self):
+        """⭐ 门槛第 1 件（Owner 2026-10-02 21:53 批「成本上限默认值 → 自定义」）
+
+        · 圆桌额度由**用户自己填** ✓（不写死数 ✗）· 0 = 不限 ✓ · 未启用 = 不配置 ✓
+        · 写入 **config.json 扁平键** ✓（`roundtable_max_tokens` / `roundtable_max_cost_micro`）
+          —— ⭐ 不走 HTTP ✗（守「写面只走文件通道」口径 ✓）；由 relay_log.load_limits() 读回 ✓
+        """
+        if self._building:
+            return
+        try:
+            on = bool(self.ck_rt.isChecked())
+            tok = int(round(float(self.sp_rt_tok.value())))
+            micro = int(round(round(float(self.sp_rt_cost.value()), 2) * 1_000_000))
+            self.host._save_cfg_value('roundtable_max_tokens',
+                                      tok if (on and tok > 0) else 0)
+            self.host._save_cfg_value('roundtable_max_cost_micro',
+                                      micro if (on and micro > 0) else 0)
+        except Exception as e:
+            self._notify('圆桌额度设置失败：%s' % e)
+
     # ---------- ② 对话 ----------
     def _toggle_advanced_tools(self, on):
         """v6.53：进阶工具模式开关（默认关 → 只放开 core 工具）"""
@@ -523,6 +543,34 @@ class SettingsDialog(QDialog):
         self.sp_cost.setToolTip('当日累计模型费用超过此值就不再发起请求（设为 0 = 不限）')
         self.sp_cost.editingFinished.connect(self._apply_cost_limit)
         f.addRow('', self.sp_cost)
+        # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：圆桌额度 → 「自定义」✓
+        #   用户自己填 ✓ 不写死数 ✗；0 = 不限 ✓；写 config.json 扁平键 ✓（不经 HTTP ✗）
+        self.ck_rt = QCheckBox('给圆桌设额度上限（大厅 / @点名 / 投递 触发模型调用时生效）')
+        self.ck_rt.setToolTip('圆桌（多模型协作）会真实消耗 token 与费用 ✓\n'
+                              '默认「不限」✗ —— 建议设一个上限；触顶会「停 + 出结论 + @人类」✓')
+        self.ck_rt.toggled.connect(self._apply_roundtable_limits)
+        f.addRow('圆桌额度', self.ck_rt)
+        self.sp_rt_tok = QDoubleSpinBox()
+        self.sp_rt_tok.setRange(0.0, 100000000.0)
+        self.sp_rt_tok.setDecimals(0)
+        self.sp_rt_tok.setSingleStep(10000.0)
+        self.sp_rt_tok.setSpecialValueText('不限')
+        self.sp_rt_tok.setToolTip('圆桌累计 token 上限（0 = 不限 ✓）')
+        self.sp_rt_tok.editingFinished.connect(self._apply_roundtable_limits)
+        f.addRow('', self.sp_rt_tok)
+        self.sp_rt_cost = QDoubleSpinBox()
+        self.sp_rt_cost.setRange(0.0, 100000.0)
+        self.sp_rt_cost.setDecimals(2)
+        self.sp_rt_cost.setSingleStep(1.0)
+        self.sp_rt_cost.setSuffix(' 元')
+        self.sp_rt_cost.setSpecialValueText('不限')
+        self.sp_rt_cost.setToolTip('圆桌累计费用上限（0 = 不限 ✓）；按微元整数记账 ✓')
+        self.sp_rt_cost.editingFinished.connect(self._apply_roundtable_limits)
+        f.addRow('', self.sp_rt_cost)
+        self.lb_rt_note = QLabel('留空/不加锁 = 不限；未设置时协作台启动会提示一次 ✓')
+        self.lb_rt_note.setStyleSheet(STYLE_HINT)
+        self.lb_rt_note.setWordWrap(True)
+        f.addRow('', self.lb_rt_note)
         # 缺陷 4（批 B · Owner 2026-09-26）：⭐ 口径**分列两行** ——
         #   「账户余额（全项目共享）」✗ ≠ 「桌宠今日花费」✓（日上限只按后者判 ✓ 不看余额 ✗）
         self.lb_bal_shared = QLabel('未查询')
@@ -1025,6 +1073,17 @@ class SettingsDialog(QDialog):
                 import governance as _gov_r
                 self.ck_cost.setChecked(bool(_gov_r.cost_limit_enabled()))
                 self.sp_cost.setValue(float(_gov_r.cost_limit_daily() or 0))
+                # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：圆桌额度回显（缺省/0 = 不限 ✓）
+                try:
+                    import relay_log as _rl
+                    _lim = _rl.load_limits(warn=lambda _m: None)
+                    _rt_tok = int(_lim.get('max_tokens') or 0)
+                    _rt_micro = int(_lim.get('max_cost_micro') or 0)
+                    self.ck_rt.setChecked(bool(_rt_tok or _rt_micro))
+                    self.sp_rt_tok.setValue(float(_rt_tok))
+                    self.sp_rt_cost.setValue(round(_rt_micro / 1_000_000.0, 2))
+                except Exception:
+                    pass
             except Exception:
                 pass
             # 缺陷 4/3（批 B）：两行分列 + 主动关心分项（均带 try ✓ 取不到不影响设置页 ✓）
