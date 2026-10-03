@@ -90,13 +90,17 @@ class ModelManagerDialog(QDialog):
         f1.addRow('主题色', self.ed_color)
         # ⭐ 立绘绑定（Owner 2026-10-03「立绘要想自定义」）：只记**目录名**，⛔ 不复制不覆盖任何图 ✓
         self.ed_portrait = QLineEdit()
-        self.ed_portrait.setPlaceholderText('留空 = 用角色 id（默认）；填 assets/ 下的目录名 = 换用那套立绘')
-        self.ed_portrait.setToolTip('⭐ 立绘绑定：填 assets/ 下的**目录名**（如 deepseek）→ 该角色改用那套图 ✓\n'
+        self.ed_portrait.setPlaceholderText(
+            '留空 = 用角色 id（默认）；填目录名 = 换用那套立绘（assets/ 或素材池 assets_3.0/ 均可）')
+        self.ed_portrait.setToolTip('⭐ 立绘绑定：填**目录名**（如 deepseek）→ 该角色改用那套图 ✓\n'
+                                    '· 两个根下都能解析：assets/（生效目录 ✓）或 assets_3.0/（素材池 ✓）\n'
                                     '留空 ＝ 保持默认（用角色 id ✓，行为与从前一致 ✓）\n'
-                                    '⛔ 本项只记录绑定，**不复制、不覆盖**任何图片 ✗')
+                                    '⛔ 本项只记录绑定，**不复制、不覆盖**任何图片 ✗\n'
+                                    '⚠️ 保存后需**重启桌宠**才生效（启动读一次 ✓ 不热加载 ✓）')
         f1.addRow('立绘目录', self.ed_portrait)
         self.btn_portrait = QPushButton('选择…')
-        self.btn_portrait.setToolTip('从 assets/ 的子目录里挑一个（只记绑定，不搬文件 ✓）')
+        self.btn_portrait.setToolTip(
+            '从 assets/ 或素材池 assets_3.0/ 的子目录里挑一个（只记绑定，不搬文件 ✓）')
         self.btn_portrait.clicked.connect(self._on_pick_portrait)
         f1.addRow('', self.btn_portrait)
         right.addWidget(gb1)
@@ -229,15 +233,17 @@ class ModelManagerDialog(QDialog):
         self.sp_pout.setValue(float(p.price.get('output', 0)))
 
     def _on_pick_portrait(self):
-        """⭐ 选一个 assets/ 下的子目录作为该角色的立绘（只记绑定 ✓ 不搬文件 ✗）。"""
+        """⭐ 选一个目录作为该角色的立绘（**两个根都行** ✓ 只记绑定 ✓ 不搬文件 ✗）。"""
         from PySide6.QtWidgets import QFileDialog
         import os as _os
-        base = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'assets')
-        d = QFileDialog.getExistingDirectory(self, '选择立绘目录（assets 下）', base)
+        base = _os.path.dirname(_os.path.abspath(__file__))      # ⭐ 仓库根（两个根都可见 ✓）
+        d = QFileDialog.getExistingDirectory(
+            self, '选择立绘目录（assets 或 assets_3.0 下）', base)
         if not d:
             return
         name = _os.path.basename(d.rstrip('\\/'))
-        if name and name != 'assets':
+        # ⭐ 起始目录是仓库根 → 选中"根目录本身"会得到假前缀 ✗ → 一律不写 ✓
+        if name and name not in ('assets', 'assets_3.0'):
             self.ed_portrait.setText(name)
 
     def _endpoint(self):
