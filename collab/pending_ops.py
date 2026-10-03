@@ -183,6 +183,11 @@ def validate_request(req) -> tuple:
     if _p:
         return False, 'payload %s，已拒' % _p
     if t == 'project_edit':
+        # ⭐ `payload` **顶层**也要白名单（微信侧 `WX-…-20261004-09` §4.1 ✓）——
+        #    与 `changes` 同口径 ✓：不然只拦内层不拦外层 ✗ 契约扫描也没法一致 ✓
+        _extra = [k for k in payload if k not in ('project_id', 'changes')]
+        if _extra:
+            return False, 'payload 顶层含未知字段：%s' % ', '.join(_extra)
         changes = payload.get('changes')
         if not isinstance(changes, dict) or not changes:
             return False, 'project_edit 必须给非空 changes'
@@ -281,13 +286,16 @@ def read_results(base_dir: str = '') -> list:
 
 
 def done_op_ids(base_dir: str = '') -> set:
-    """已真发生结果的 `op_id`（⭐ 幂等依据 ✓）。
+    """已**真被消费**的 `op_id`（⭐ 幂等依据 ✓）。
 
-    ⚠️ **必须排除 `dry_run:true` 的行** ✗ —— 否则预演一次就会把真跑“幂等跳过” ✗
-    （预演结果照样落盘 ✓ 但它**不算已消费** ✓）
+    ⚠️ 必须排除两类 ✗（⭐ 微信侧两轮 QA 各揪出一类 ✓）：
+      · `dry_run:true` —— 预演不算消费 ✓
+      · ⭐ `ok:false` —— **失败也不算消费** ✓（失败时**什么都没发生** ✓ → 重跑安全 ✓）
+    ⭐ 否则：用户提交 → 失败 → 我们修好 bug → 用户重跑 → **幂等跳过、毫无反应** ✗
+       → 用户会以为“还没修好” ✗（`WX-…-20261004-09` §4.2 实测 ✓）
     """
     return {str(r.get('op_id')) for r in read_results(base_dir)
-            if r.get('op_id') and not r.get('dry_run')}
+            if r.get('op_id') and not r.get('dry_run') and r.get('ok')}
 
 
 def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',

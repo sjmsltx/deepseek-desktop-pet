@@ -298,3 +298,62 @@ def test_add_state_succeeds_with_image(repo):
         dry=False)
     assert ok is True, d
     assert os.path.isfile(os.path.join(repo, 'assets', 'alpha', 'alpha_happy.png'))
+
+
+
+# ── 13. ⭐⭐ 失败不算已消费 → 修好后重跑必须真执行（复刻今晚真实故事 ✓）──
+def test_failed_op_can_be_retried_after_fix(repo):
+    """⭐ 故事：投递 → 失败（源图还没到位）→ 补上源图 → **必须能重跑成功** ✓
+
+    微信侧 `WX-…-20261004-09` §4.2 实测：旧行为是"失败也记已完成" ✗ →
+    修好后重跑仍"幂等跳过、毫无反应" ✗ → 用户以为**还没修好** ✗。
+    """
+    d = os.path.join(repo, 'collab', 'pending')
+    req = {'type': 'asset_op', 'op_id': 'retry001',
+           'payload': {'role': 'alpha', 'state': 'later', 'op': 'insert', 'source': 'pool'}}
+    pending_ops.write_pending(req, base_dir=d)
+
+    # ① 第一次：源图不存在 → 失败 ✓
+    st = run_pending.run(repo)
+    assert st['failed'] == 1 and st['ok'] == 0
+    # ⭐ 关键：失败**不得**进入"已消费"集合 ✗
+    assert 'retry001' not in pending_ops.done_op_ids(d), \
+        '⛔ 失败不得算已消费 ✗（否则用户重跑毫无反应 ✗）'
+
+    # ② 补上源图（＝"我们修好了 bug" ✓）
+    _png(os.path.join(repo, 'assets_3.0', 'alpha', 'alpha_later.png'))
+
+    # ③ 重跑：⭐ 必须真执行并成功 ✓
+    st2 = run_pending.run(repo)
+    assert st2['skipped_done'] == 0 and st2['ok'] == 1, \
+        '⭐ 修好后重跑必须真执行 ✗（实测 skipped=%s ok=%s）' % (st2['skipped_done'], st2['ok'])
+    assert os.path.isfile(os.path.join(repo, 'assets', 'alpha', 'alpha_later.png')), \
+        '⭐ 结果必须真落地 ✓'
+    # ④ 而**成功**之后再跑 → 才该跳过 ✓
+    st3 = run_pending.run(repo)
+    assert st3['skipped_done'] == 1 and st3['ok'] == 0, '⭐ 成功后才幂等跳过 ✓'
+
+
+def test_success_is_consumed(tmp_path):
+    """对照组：**成功**的 op 才算已消费 ✓（防把幂等整个关掉 ✗）。"""
+    base = str(tmp_path)
+    os.makedirs(os.path.join(base, 'models.json.tmp'), exist_ok=True)   # 无关占位
+    d = os.path.join(base, 'collab', 'pending')
+    pending_ops.append_result('ok0001', True, base_dir=d)
+    pending_ops.append_result('bad0001', False, reason='x', base_dir=d)
+    pending_ops.append_result('dry0001', True, dry_run=True, base_dir=d)
+    done = pending_ops.done_op_ids(d)
+    assert done == {'ok0001'}, '⭐ 只有成功且非 dry-run 才算已消费 ✓：%s' % done
+
+
+# ── 14. ⭐ payload 顶层未知字段必须拒（微信侧 §4.1 ✓ 与外层同口径 ✓）────
+def test_project_edit_rejects_unknown_top_level_keys():
+    req = {'type': 'project_edit', 'op_id': 'evil0001',
+           'payload': {'changes': {'name': 'x'}, 'evil': 1}}
+    ok, why = pending_ops.validate_request(req)
+    assert ok is False and '顶层' in why, '⛔ payload 顶层未知字段必须拒 ✗：%s' % why
+    # 顶层允许 project_id ✓ 与 changes ✓
+    ok2, why2 = pending_ops.validate_request(
+        {'type': 'project_edit', 'op_id': 'ok0002',
+         'payload': {'project_id': 'default', 'changes': {'name': 'x'}}})
+    assert ok2 is True, why2
