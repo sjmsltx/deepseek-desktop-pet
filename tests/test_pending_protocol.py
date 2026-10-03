@@ -167,13 +167,20 @@ def test_project_edit_merges_only_listed_fields(tmp_path):
 
 # ── 10. ⭐ E1⑥ 失败必落结果（不静默 ✗）＋ E2 只追加 ───────────────────
 def test_failures_are_recorded_not_silent(tmp_path):
+    """⭐ E1⑥ 失败必落结果（不静默 ✗）。
+
+    ⚠️ 本用例曾断言 `asset_op` 报“未实现” ✗ —— 自 `asset_op` **真执行**上线（Owner 00:15 已批 ✓）
+       该前提已过期 ✗ → 改为断言"**真失败也被如实记录**" ✓（原因非空 ✓）。
+    """
     base = str(tmp_path)
-    req = _asset()                                   # asset_op v1 未实现 → 必记失败 ✓
+    req = _asset()                                   # 源图不存在 → 必失败 ✓
     pending_ops.write_pending(req, base_dir=_pend(base))
     st = run_pending.run(base)
     rows = pending_ops.read_results(_pend(base))
-    assert st['failed'] == 1 and rows and rows[0]['ok'] is False
-    assert '未实现' in (rows[0]['reason'] + rows[0]['detail'])
+    assert st['failed'] == 1 and rows and rows[0]['ok'] is False, '⭐ 失败必须落结果 ✗'
+    why = rows[0]['reason'] + rows[0]['detail']
+    assert why.strip(), '⭐ 必须给原因（不得空白）✗'
+    assert '找不到源图' in why or '未实现' in why, '⭐ 原因要说人话 ✗：%r' % why
 
 
 def test_results_are_append_only(tmp_path):

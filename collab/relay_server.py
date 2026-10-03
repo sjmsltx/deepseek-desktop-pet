@@ -99,6 +99,10 @@ def assets_payload(base_dir: str = '') -> dict:
             rd = os.path.join(rp, role)
             if not os.path.isdir(rd):
                 continue
+            # ⭐ 微信侧 `WX-…-20261004-02` §三.1 揪出的真 bug：`_` 开头目录（如 `_raw_backup/`）
+            #    会被当成**伪角色** ✗（空 states 也算一条 ✓）→ 一律跳过 ✓
+            if role.startswith('_') or role.startswith('.'):
+                continue
             # ⭐ 先到的根（`assets/`）**整角色占位** ✓ 后到的池子**不再合并** ✗
             #    —— 与渲染侧 `_asset_dir_for()` 同口径：找到第一个存在的目录就全用它 ✓
             if role in out:

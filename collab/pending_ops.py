@@ -268,14 +268,28 @@ def read_results(base_dir: str = '') -> list:
 
 
 def done_op_ids(base_dir: str = '') -> set:
-    """已出现过结果的 op_id（⭐ 幂等依据 ✓）。"""
-    return {str(r.get('op_id')) for r in read_results(base_dir) if r.get('op_id')}
+    """已真发生结果的 `op_id`（⭐ 幂等依据 ✓）。
+
+    ⚠️ **必须排除 `dry_run:true` 的行** ✗ —— 否则预演一次就会把真跑“幂等跳过” ✗
+    （预演结果照样落盘 ✓ 但它**不算已消费** ✓）
+    """
+    return {str(r.get('op_id')) for r in read_results(base_dir)
+            if r.get('op_id') and not r.get('dry_run')}
 
 
-def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '') -> str:
-    """⭐ 追加一条结果（**只追加** ✗ 不改旧行 ✓；E1⑥ 失败也必须落 ✓）。"""
+def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',
+                  dry_run: bool = False, artifacts=None) -> str:
+    """⭐ 追加一条结果（**只追加** ✗ 不改旧行 ✓；E1⑥ 失败也必须落 ✓）。
+
+    ⭐ `dry_run=True`：预演结果也落盘 ✓（口径 ③ ✓）—— ⭐ 但它**不算已消费** ✗，
+       否则真跑会被“幂等”误跳过 ✗（见 `done_op_ids` 的过滤 ✓）
+    """
     rec = {'op_id': str(op_id), 'ok': bool(ok), 'reason': str(reason or ''),
            'detail': str(detail or '')[:2000], 'ts': int(time.time() * 1000)}
+    if dry_run:
+        rec['dry_run'] = True
+    if artifacts:
+        rec['artifacts'] = [str(x) for x in artifacts][:64]
     p = results_path(base_dir)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'a', encoding='utf-8') as fh:

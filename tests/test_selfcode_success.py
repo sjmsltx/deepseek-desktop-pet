@@ -19,9 +19,20 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _sandbox(name):
+    # ⭐ 微信侧 `WX-…-20261004-02` §三.3 实测揪出的真根因：
+    #   固定目录名 ＋ `rmtree(ignore_errors=True)`（**失败静默** ✗，如文件被占 ✓）
+    #   ＋ `makedirs()` **无 `exist_ok`** ✗ → 一旦有遗留目录（上次被中断 ✓）
+    #   → `FileExistsError` ✗ → 表现为「单跑绿 ✓ 全量红 ✗」的**假失败** ✗
     d = os.path.join(tempfile.gettempdir(), "selfcode_t_" + name)
     shutil.rmtree(d, ignore_errors=True)
-    os.makedirs(d)
+    os.makedirs(d, exist_ok=True)          # ⭐ 遗留目录不再炸 ✗
+    if os.path.isdir(d):
+        for _f in os.listdir(d):            # ⭐ rmtree 失败时残留物也要扫掉 ✓
+            _p = os.path.join(d, _f)
+            try:
+                shutil.rmtree(_p) if os.path.isdir(_p) else os.remove(_p)
+            except Exception:
+                pass
     subprocess.run(["git", "init", "-q"], cwd=d, capture_output=True)
     return d
 
