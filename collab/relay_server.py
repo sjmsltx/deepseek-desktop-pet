@@ -28,8 +28,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
+import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -80,6 +83,44 @@ def _msg(m) -> dict:
 #       ⛔ 不含图片内容 ✗ ⛔ 不含路径 ✗ ⛔ 不含大小/时间 ✗
 MAX_PENDING_BYTES = 64 * 1024          # 待办载荷上限 ✓（远超真实需要 ✓）
 _ASSET_ROOTS = ('assets', 'assets_3.0')   # ⭐ assets 生效目录优先 ✓ 素材池次之 ✓
+
+
+# ── ⭐ 条款 E12：只读缩略图端点（微信侧 `WX-…-20` 提请补 `state` ✓ Owner 02:29 批"必须有" ✓）──
+MAX_THUMB_W = 512
+MIN_THUMB_W = 64
+_SAFE_SEG = re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
+
+
+def thumb_path(base_dir: str, prefix: str, state: str, kind: str):
+    """解析出**白名单根之下**的图片路径 ✓；⛔ 参数不合法或越界 → None ✗。"""
+    if not (_SAFE_SEG.match(prefix or '') and _SAFE_SEG.match(state or '')):
+        return None
+    if kind not in ('alpha', 'chroma', 'white'):
+        return None
+    suffix = '' if kind == 'white' else '_' + kind
+    fname = '%s_%s%s.png' % (prefix, state, suffix)
+    for root in _ASSET_ROOTS:                       # assets/ 优先 ✓ 再 assets_3.0/ ✓
+        p = os.path.join(str(base_dir or _BASE_DIR), root, prefix, fname)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def thumb_bytes(path: str, w: int):
+    """按宽度生成缩略图（⭐ 只在内存里 ✓ 不落盘 ✗ 守 C1 ✓）；失败返回 None。"""
+    try:
+        from PIL import Image
+        im = Image.open(path)
+        if im.width > w:
+            h = max(1, int(round(im.height * (float(w) / im.width))))
+            im = im.resize((w, h), Image.LANCZOS)
+        if im.mode not in ('RGB', 'RGBA'):
+            im = im.convert('RGBA' if 'A' in im.mode else 'RGB')
+        buf = io.BytesIO()
+        im.save(buf, format='PNG', optimize=True)
+        return buf.getvalue()
+    except Exception:
+        return None
 
 
 def assets_payload(base_dir: str = '') -> dict:
@@ -402,6 +443,41 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(roles_payload())
 
         # ⭐ 条款 IV E3：只读资产库存（最严形态：仅三个布尔 ✓ 无路径 ✗）
+        # ⭐ 条款 E12：只读缩略图（⛔ 无参必须 400 ✗ —— 对方探针以此判定端点是否存在 ✓）
+        if path == '/api/thumb':
+            pre = (q.get('prefix') or [''])[0]
+            st = (q.get('state') or [''])[0]
+            kd = (q.get('kind') or ['alpha'])[0]
+            if not pre or not st:
+                return self._err(400, '缺少必填参数 prefix / state')
+            try:
+                w = int((q.get('w') or ['128'])[0])
+            except Exception:
+                return self._err(400, 'w 必须是整数')
+            if not (MIN_THUMB_W <= w <= MAX_THUMB_W):
+                return self._err(400, 'w 必须在 %d..%d' % (MIN_THUMB_W, MAX_THUMB_W))
+            p = thumb_path(_BASE_DIR, pre, st, kd)
+            if not p:
+                # ⭐ 区分两种情形（契约 E12 ✓）：参数**形状非法** → 400 ✓；图**真不存在** → 404 ✓
+                if not (_SAFE_SEG.match(pre or '') and _SAFE_SEG.match(st or '')):
+                    return self._err(400, 'prefix / state 形状非法（只允许字母数字下划线连字符）')
+                if kd not in ('alpha', 'chroma', 'white'):
+                    return self._err(400, 'kind 必须是 alpha / chroma / white')
+                return self._err(404, '没有这张图')
+            data = thumb_bytes(p, w)
+            if data is None:
+                return self._err(500, '缩略图生成失败')
+            etag = '"%s-%d"' % (hashlib.md5((p + str(w)).encode('utf-8')).hexdigest()[:16], w)
+            if (self.headers.get('If-None-Match') or '').strip() == etag:
+                return self._send(304, b'', 'image/png')
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'public, max-age=600')
+            self.send_header('ETag', etag)
+            self.end_headers()
+            return self.wfile.write(data)
+
         if path == '/api/assets':
             return self._json(assets_payload())
 
