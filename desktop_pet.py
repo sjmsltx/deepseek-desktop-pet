@@ -5903,7 +5903,8 @@ class PetWidget(QWidget):
                 if not os.path.isfile(p):
                     return m.group(0)
                 try:
-                    raw = open(p, 'rb').read()
+                    with open(p, 'rb') as _fh:      # ⭐ S3：with 关句柄（长驻 GUI 里漏句柄是真隐患 ✗）
+                        raw = _fh.read()
                 except Exception:
                     return m.group(0)
                 if img_bytes + len(raw) > MAX_IMG_BYTES:
