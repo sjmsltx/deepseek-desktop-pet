@@ -183,3 +183,28 @@ def test_contract_appendix_e5_pending_readonly_in_place():
     get_seg = srv[srv.index('def do_GET'):]
     assert "'/api/pending'" in get_seg, '⭐ 必须在 do_GET 里（只读面）✗ 不得放进 do_POST（除窄写外）✗'
     assert 'pending_view()' in get_seg
+
+
+# ── 6f. ⭐ 追加条款 E11（写面分层 ＋ 图片预览决定 ✓ Owner 01:46 已批）──
+def test_contract_appendix_e11_write_layers_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert 'E11' in m1 and '写面分层' in m1, 'E11（写面分层）未落盘 ✗'
+    # ⭐ 两层都要写明 ✓
+    assert '默认面' in m1 and '遗留动作面' in m1
+    assert '--enable-actions' in m1 and '403' in m1
+    # ⭐ 扫描口径：必须提示"间接调用"这一类（防漏扫 ✗）
+    assert '间接调用' in m1 and 'act()' in m1, '⭐ 必须写明间接调用也要算 ✗'
+    # ⭐ 图片预览决定：v1 不做、不新增端点 ✓
+    assert '不做图片预览' in m1 or '去掉' in m1
+    assert '不新增' in m1
+    # ⭐ 代码侧双向钉：三个遗留端点确实存在且受开关管 ✓
+    srv = io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    for p in ('/api/step', '/api/interrupt', '/api/resume'):
+        assert p in srv, '%s 不存在 ✗' % p
+    assert 'if not ACTIONS_ALLOWED' in srv, '遗留动作面的 403 闸门必须还在 ✗'
+    # ⭐ 而窄写端点必须在闸门**之前** ✓（承 E1 ✓）
+    seg = srv[srv.index('def do_POST'):srv.index('def _post_pending')]
+    assert "'/api/pending'" in seg and 'not ACTIONS_ALLOWED' in seg, \
+        '⛔ 窄写端点必须排在 403 闸门之前 ✗'
+    assert seg.index("'/api/pending'") < seg.index('not ACTIONS_ALLOWED'), \
+        '⛔ 顺序反了：窄写端点会受 --enable-actions 影响 ✗'
