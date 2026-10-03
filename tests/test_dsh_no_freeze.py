@@ -69,7 +69,13 @@ def test_panel_signature_spec():
     import dsh_panel
     p = inspect.signature(dsh_panel.open_panel).parameters
     assert p['allow_start'].default is False, '⭐ 默认不得自动启动 ✗'
-    assert p['timeout_ready'].default == 10, '⭐ 超时应降到 10s ✓'
+    # ⭐ 修正（微信侧 2026-10-04 03:4x，`WX-桌宠-20261004-25`）：
+    #    原文写死 `== 10` ✗ —— 而 `876d17b` 已把默认值改成 **40**（⭐ 实测冷启动需 ~19s，
+    #    10s 那次真的线上失败 ✗）⇒ 护栏与实现**脱钩** → 全量**红了一条**而没人看见 ✗
+    #    ⇒ ⭐ 改为**下限**：只锁"够冷启动用"这一契约（19s → 留 1.5x 余量），
+    #    ⛔ 不再写死具体数字 ✗（否则改一次值就要改一次护栏，护栏反成噪声 ✗）
+    assert p['timeout_ready'].default >= 30, \
+        '⭐ 超时下限须 ≥30s（冷启动实测 ~19s，见 876d17b）✓ 当前 %r' % p['timeout_ready'].default
     assert p['poll'].default == 0.3, '⭐ 轮询粒度 0.3s ✓'
 
 
