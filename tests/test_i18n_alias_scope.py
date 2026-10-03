@@ -126,6 +126,14 @@ def test_open_collab_runs_without_name_error(monkeypatch):
     """
     import collab_panel as _cp
     monkeypatch.setattr(_cp, '_probe', lambda *a, **k: False, raising=False)
+    # ⭐ 修正（微信侧 2026-10-04 03:5x，`WX-桌宠-20261004-26`）：⭐ **必须同时打桩 `open_collab`** ✗
+    #    —— `a2caabc` 把 `_collab_worker` 改成「服务没跑就**自动启动**」（⛔ 不再先问 ✗），
+    #    故本用例的 `_Stub(confirm=False)` **已拦不住启动** ✗ → ⭐ 实测本用例**真起了服务**
+    #    且**不回收**（跑完残留 `relay_server.py` 占住 **8792** ＋ 污染仓库 `collab/relay.log` ✗）。
+    #    同文件第三个用例早就打桩了此路径并注明「否则会真去起服务…且会留孤儿进程」✓，
+    #    首例在 a2caabc 改行为时没同步更新 ✗。⭐ 本用例验的是**作用域（T 未定义）** ✓，打桩不影响其意图 ✓。
+    monkeypatch.setattr(_cp, 'open_collab',
+                        lambda *a, **k: (False, '（桩：未启动）'), raising=False)
     stub = _Stub(confirm=False)        # 不启动服务 ✓
     _run('_open_collab', stub)
     assert stub.msgs, '⭐ 至少应给一次提示（说明没静默 ✗）'
