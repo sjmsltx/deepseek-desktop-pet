@@ -2155,8 +2155,10 @@ class PetWidget(QWidget):
                     self.memory_summaries = self.memory_summaries[-6:]
                 self._save_memory()
             self.chat_history_msgs = self.chat_history_msgs[10:]
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续：这里含**模型调用 ＋ 记忆落盘** ✗ —— 失败至少要在**日志**留痕 ✓
+            #    （不做弹窗：自动摘要失败频度可能高 ✓ 且用户无可操作性 ✓）
+            _silent_log('_summarize_old', exc)
 
     def _request_confirm(self, message):
         """跨线程请求用户确认（主线程弹窗），返回 True/False"""
@@ -2259,8 +2261,14 @@ class PetWidget(QWidget):
     def _save_todos(self):
         try:
             self._atomic_write_json(TODO_PATH, self.todos)
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续：待办是**用户数据** ✗ —— 写盘失败**不得静默** ✗
+            #    （静默吞掉 = 用户以为存上了、其实丢了 ✗）
+            _silent_log('_save_todos', exc)
+            try:
+                self._notify('⚠ 待办保存失败：%s' % type(exc).__name__)
+            except Exception as _e2:
+                _silent_log('_save_todos.notify', _e2)
 
     def _todo_block(self):
         """生成注入 prompt 的待办清单块（拆至 prompt_builder.build_todo_block）"""
@@ -4310,8 +4318,13 @@ class PetWidget(QWidget):
     def _save_reminders(self):
         try:
             self._atomic_write_json(self._reminders_path(), self.reminders)
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续：提醒也是**用户数据** ✗ —— 静默 = 关机后丢了都不知道 ✗
+            _silent_log('_save_reminders', exc)
+            try:
+                self._notify('⚠ 提醒保存失败：%s' % type(exc).__name__)
+            except Exception as _e2:
+                _silent_log('_save_reminders.notify', _e2)
 
     def _load_reminders(self):
         """加载持久化提醒：关机期间已到期的 → 补发到聊天面板（用户能看到）；未到期 → 继续计时"""
@@ -4326,8 +4339,14 @@ class PetWidget(QWidget):
                 self._save_reminders()   # 关键：补发过的从文件移除，防重启/重开重复补发
                 for r in missed:
                     self._deliver_missed_reminder(r)
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续（护栏抓出 ✓）：这里**连读带存**都吞 ✗
+            #    —— 提醒读不出来 = 用户数据**静默丢** ✗（且补发过的存不回去 → 重启会重复补 ✗）
+            _silent_log('_load_reminders', exc)
+            try:
+                self._notify('⚠ 提醒读取异常：%s' % type(exc).__name__)
+            except Exception as _e2:
+                _silent_log('_load_reminders.notify', _e2)
 
     def _deliver_missed_reminder(self, r):
         """补发关机期间错过的提醒到聊天面板"""

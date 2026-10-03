@@ -71,13 +71,16 @@ def _req(**kw):
 # ── 1. ⭐⭐ 窄写端点**不依赖** `--enable-actions`（闸门顺序铁证 ✓）────────
 def test_pending_endpoint_works_without_enable_actions(srv):
     port, base = srv
-    assert relay_server.ACTIONS_ALLOWED is False, '本用例前提：动作端点**关闭** ✓'
+    # ⭐ 自诊断：偶发时能把现场说清（免以后再靠猜 ✗）
+    assert relay_server.ACTIONS_ALLOWED is False, \
+        '本用例前提：动作端点**关闭** ✓（实测 = %r）' % relay_server.ACTIONS_ALLOWED
     st, body = _post(port, '/api/pending', _req())
-    assert st == 202 and body.get('ok') is True, '⭐ 关着 --enable-actions 也必须能用 ✓'
+    assert st == 202 and body.get('ok') is True, \
+        '⭐ 关着 --enable-actions 也必须能用 ✓（实测 status=%s body=%s）' % (st, body)
     assert body.get('queued') is True
     # ⭐ 而其它动作端点仍被 403 挡住（闸门本身没坏 ✓）
-    st2, _ = _post(port, '/api/step', {})
-    assert st2 == 403, '⛔ 其它动作端点不得因此被放开 ✗'
+    st2, b2 = _post(port, '/api/step', {})
+    assert st2 == 403, '⛔ 其它动作端点不得因此被放开 ✗（实测 status=%s body=%s）' % (st2, b2)
 
 
 # ── 2. ⭐ 只落文件、**不执行**（不产 project.json ✓ 不产 results ✓）─────
