@@ -96,17 +96,21 @@ def test_limits_configured_helper(tmp_path):
 
 # ── 6. 两个真实构造点必须传入（源头护栏 ✓）─────────────────────────
 def test_both_construction_sites_pass_limits():
-    srv = io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    # ⭐ 用 with 关句柄 ✓（不给自己造 ResourceWarning ✗）
+    with io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8') as fh:
+        srv = fh.read()
     assert 'relay.load_limits()' in srv, '协作台必须读自定义额度 ✓'
     assert 'limits=_limits' in srv, '协作台必须把额度传给内核 ✓'
     assert '未设置' in srv, '未设置时要明报一次（不静默 ✗）'
-    rem = io.open(os.path.join(ROOT, 'rt_remote.py'), encoding='utf-8').read()
+    with io.open(os.path.join(ROOT, 'rt_remote.py'), encoding='utf-8') as fh:
+        rem = fh.read()
     assert 'limits=relay_log.load_limits()' in rem, '桌宠侧构造点也要读额度 ✓'
 
 
 # ── 7. GUI 入口存在，且**不新增 HTTP 写面** ✗ ──────────────────────
 def test_gui_entry_exists_and_writes_config_not_http():
-    src = io.open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8').read()
+    with io.open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8') as fh:
+        src = fh.read()
     assert 'def _apply_roundtable_limits' in src
     assert "roundtable_max_tokens" in src and "roundtable_max_cost_micro" in src
     assert '圆桌额度' in src, '设置界面必须有可见入口 ✓'

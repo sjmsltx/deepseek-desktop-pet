@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+"""术语一致性护栏（C2③ 防山机制③）—— 把"三层用名"与"两步走"钉成可机械核对的断言。
+
+背景（2026-10-03）：
+  · 同一个 L 字串曾管三件事（视图层 / 存储层 / 架构层）→ 已解撞 ✓
+  · 字段 interrupt_timeout_ms 已更名 interrupt_notice_ms ✓（旧名只留兼容别名与留痕 ✓）
+  · M2 契约里 data-layer="L1|L2|L3" 已冻结 → 属**第②步**，本批**不许偷跑** ✗
+"""
+import io
+import os
+import subprocess
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GIT = r"E:\Git\cmd\git.exe"
+
+
+def _read(rel):
+    """读仓库内文件（⭐ 用 with 关句柄 ✓ 不留 ResourceWarning ✗）"""
+    with io.open(os.path.join(ROOT, rel), encoding="utf-8", errors="ignore") as fh:
+        return fh.read()
+
+
+# ── 1. 三层术语表存在且三套用名都在（按用途命名 ✓） ───────────────────
+def test_terminology_table_declares_three_namespaces():
+    doc = _read('docs/3.0-总方案-20260921.md')
+    assert '术语澄清' in doc, '必须有术语澄清块 ✓'
+    for token in ('V1/V2/V3', 'L0/L1/L2', '桌宠', '协作台', 'DSH'):
+        assert token in doc, '术语表缺 %s' % token
+    # 视图层三个视图用 V 前缀 ✓
+    for name in ('V1 群聊流', 'V2 投递轨道', 'V3 后台总线'):
+        assert name in doc, '视图层应使用 %s ✓' % name
+
+
+# ── 2. 旧写法不许复活（视图层不再连写 Lx + 中文名；架构层不再挂 L 编号）──
+def test_old_layer_writing_is_gone():
+    doc = _read('docs/3.0-总方案-20260921.md')
+    for bad in ('L1 群聊流', 'L2 投递轨道', 'L3 后台总线'):
+        assert bad not in doc, '视图层旧写法复活 ✗：%s' % bad
+    for bad in ('桌宠（L1）', '协作台（L2', 'DSH（L3）'):
+        assert bad not in doc, '架构层不应再挂 L 编号 ✗：%s' % bad
+
+
+# ── 3. 字段更名：旧名只允许留在 relay_log.py 的兼容别名与契约留痕处 ────
+def test_legacy_field_name_only_in_alias_and_contract():
+    # relay_log.py 里必须有兼容别名（否则旧配置会被静默忽略 ✗）
+    rl = _read('relay_log.py')
+    assert '_LEGACY_LIMIT_KEYS' in rl and 'interrupt_timeout_ms' in rl
+    assert "'interrupt_notice_ms': 60_000," in rl, '默认值应用新名 ✓'
+    # 其它 .py 一律不许再出现旧名 ✗（测试与产品代码都算 ✓）
+    out = subprocess.run([GIT, "-c", "core.quotepath=false", "ls-files", "*.py"],
+                         cwd=ROOT, capture_output=True)
+    offenders = []
+    for f in out.stdout.decode("utf-8", "replace").splitlines():
+        f = f.strip()
+        if not f or f.endswith('relay_log.py'):
+            continue
+        p = os.path.join(ROOT, f)
+        if os.path.isfile(p):
+            with io.open(p, encoding='utf-8', errors='ignore') as fh:
+                if 'interrupt_timeout_ms' in fh.read():
+                    offenders.append(f)
+    assert offenders == [], '旧字段名不应再出现在这些文件 ✗：%s' % offenders
+    # 契约件保留"原名 -> 现名"留痕 ✓（防后人误读成超时自动恢复）
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert 'interrupt_notice_ms' in m1 and '原名' in m1
+
+
+# ── 4. 契约追加条款在位（写面/进程/额度/更名/术语 五条） ───────────────
+def test_contract_appendix_clauses_in_place():
+    m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
+    m2 = _read('docs/3.0-M2-UI导出契约-冻结v1.md')
+    for doc in (m1, m2):
+        assert '追加条款（2026-10-03' in doc, '契约件必须有追加条款小节 ✓'
+        assert '只读投影' in doc and '不新增' in doc, 'C1 写面唯一通道条款缺 ✗'
+        assert '互不启动' in doc, 'C2 进程关系条款缺 ✗'
+    for tag in ('C1（写面唯一通道）', 'C2（进程关系）', 'C3（额度默认值来源）',
+                'C4（字段更名留痕）', 'C5（术语三层解撞）'):
+        assert tag in m1, 'M1 契约缺 %s' % tag
+
+
+# ── 5. ⭐ 第②步不许偷跑：M2 已冻结的 data-layer 串必须原样保留 ─────────
+def test_step_two_not_prematurely_applied():
+    m2 = _read('docs/3.0-M2-UI导出契约-冻结v1.md')
+    assert 'data-layer="L1|L2|L3"' in m2, \
+        '⭐ 已冻结的 data-layer 不得在本批改名 ✗（须与下次契约版本同批 ✓）'
+    idx = _read('collab/index.html') if os.path.isfile(os.path.join(ROOT, 'collab', 'index.html')) else ''
+    if idx:
+        assert 'data-layer' in idx, '协作台前端仍依赖 data-layer ✓（故不许半拉子改名 ✗）'
+    # 追加条款里必须写明"不许半拉子"的处置
+    assert '同批' in m2 and '半拉子' in m2
