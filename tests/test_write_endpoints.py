@@ -24,15 +24,27 @@ import relay_server  # noqa: E402
 
 @pytest.fixture()
 def srv(tmp_path, monkeypatch):
-    """真起一个只读服务 ✓ 且把 `_BASE_DIR` 指到临时目录（⭐ 绝不污染真仓库 ✗）。"""
+    """真起一个只读服务 ✓ 且把 `_BASE_DIR` 指到临时目录（⭐ 绝不污染真仓库 ✗）。
+
+    ⚠️ 两个坑（本批实测）：
+      ① `create_server()` 会**写全局 `ACTIONS_ALLOWED`** ✗（每次调用都覆盖 ✓）
+         → 故 **先 patch 再 create** ✓，不依赖上一次调用留下的值 ✓
+      ② 服务 **不关会漏 socket** ✗（告警里就是它 ✓）→ 收尾 `server_close()` ＋ join ✓
+    """
     monkeypatch.setattr(relay_server, '_BASE_DIR', str(tmp_path), raising=False)
     monkeypatch.setattr(relay_server, 'ACTIONS_ALLOWED', False, raising=False)
     lg = relay_log.RelayLog(str(tmp_path / 'log.jsonl'))
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    assert relay_server.ACTIONS_ALLOWED is False, '⭐ create_server 不得把开关置真 ✗'
+    httpd.daemon_threads = True
     th = threading.Thread(target=httpd.serve_forever, daemon=True)
     th.start()
-    yield port, tmp_path
-    httpd.shutdown()
+    try:
+        yield port, tmp_path
+    finally:
+        httpd.shutdown()
+        httpd.server_close()          # ⭐ 关掉监听 socket（防漏 ✓）
+        th.join(timeout=5)
 
 
 def _post(port, path, body):
@@ -155,3 +167,50 @@ def test_endpoints_do_not_execute():
     for bad in ('subprocess', 'run_pending', 'os.system', 'popen', 'exec('):
         assert bad not in seg, '⛔ 窄写端点不得执行任何东西 ✗：%s' % bad
     assert 'write_pending' in seg and 'validate_request' in seg
+
+
+
+# ── 10. ⭐ 只读 GET /api/pending（界面侧“真三态”所需 ✓ 微信侧提请 ✓）──
+def test_get_pending_shows_real_three_states(srv):
+    """⭐ 投递 → 人触发 → 结果回写，全过程能被只读端点看见 ✓。"""
+    port, base = srv
+    st, body = _post(port, '/api/pending', _req())
+    assert st == 202
+    r0 = _get(port, '/api/pending')[1]
+    assert len(r0['pending']) == 1 and r0['pending'][0]['op_id'] == 'e2e0001'
+    assert r0['pending'][0]['type'] == 'project_edit'
+    assert r0['results'] == [], '⭐ 未跑运行器前无结果 ✓'
+    import run_pending
+    run_pending.run(str(base))                     # 人触发（真执行）
+    r1 = _get(port, '/api/pending')[1]
+    assert r1['results'] and r1['results'][0]['ok'] is True
+    assert r1['results'][0]['at'], '⭐ 必须给人可读的 at ✓'
+
+
+def test_get_pending_no_paths(srv):
+    """⛔ 只读响应里**不得出现路径** ✗（与 E3 同口径 ✓）。"""
+    port, base = srv
+    _post(port, '/api/pending', _req())
+    blob = json.dumps(_get(port, '/api/pending')[1], ensure_ascii=False)
+    assert chr(92) not in blob and str(base) not in blob, '⛔ 不得返路径 ✗'
+
+
+def test_get_pending_is_read_only(srv):
+    """⛔ 只读端点**不得**产生任何文件（反例护栏 ✓）。"""
+    port, base = srv
+    _get(port, '/api/pending')
+    assert not (base / 'collab').exists(), '⛔ 只读端点不得建目录/文件 ✗'
+    _post(port, '/api/pending', _req())
+    before = sorted(os.listdir(base / 'collab' / 'pending'))
+    _get(port, '/api/pending')
+    assert sorted(os.listdir(base / 'collab' / 'pending')) == before, '⛔ 读不得改盘 ✗'
+
+
+def test_get_pending_has_no_secrets(srv):
+    port, base = srv
+    req = _req()
+    req['requested_by'] = 'wechat-side'
+    _post(port, '/api/pending', req)
+    blob = json.dumps(_get(port, '/api/pending')[1], ensure_ascii=False).lower()
+    for bad in ('sk-', 'api_key', 'secret', 'token', 'password'):
+        assert bad not in blob, '⛔ 只读响应含敏感字样 %r ✗' % bad

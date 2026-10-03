@@ -17,6 +17,7 @@
   GET /api/log.jsonl                         → text/plain   （原始日志，真相源）
   GET /api/health                            → {ok, path, seq, msgs}
   GET /api/assets                            → {role:{state:{white,chroma,alpha}}}（条款 IV E3 ✓）
+  GET /api/pending                           → {pending:[…], results:[…]}（只读 ✓ 不含路径 ✗）
   POST /api/pending                          → 窄写端点：只落 collab/pending/（条款 IV E1 ✓）
   GET /           或 /index.html             → 静态前端（collab/index.html，若存在）
 
@@ -119,6 +120,40 @@ def assets_payload(base_dir: str = '') -> dict:
                 st = states.setdefault(stem, {'white': False, 'chroma': False, 'alpha': False})
                 st[kind] = True                              # ⭐ 只置布尔 ✓
     return out
+
+
+def pending_view(base_dir: str = '') -> dict:
+    """⭐ 只读：待办队列 ＋ 结果（缓解“界面看不到三态” ✗ 不给写能力 ✓）。
+
+    · 返回 `{pending:[…], results:[…]}` ✓
+    · 待办字段：`op_id`/`type`/`ts`/`file`（⭐ 只给**文件名** ✗ 不给路径 ✓）
+    · 结果字段：`op_id`/`ok`/`reason`/`ts`/`at`/`detail`（⭐ `at` 由 `ts` 推得 ✓ 人可读 ✓）
+    · ⛔ 不含凭证 ✗ ⛔ 不含绝对路径 ✗ ⛔ 不含图片内容 ✗
+    """
+    import datetime as _dt
+    d = os.path.join(str(base_dir or _BASE_DIR), 'collab', 'pending')
+    try:
+        import pending_ops as _po
+    except ImportError:
+        sys.path.insert(0, os.path.join(_BASE_DIR, 'collab'))
+        import pending_ops as _po
+    pend = []
+    for it in _po.list_pending(d):
+        pend.append({'op_id': it.get('op_id'), 'type': it.get('type'),
+                     'ts': it.get('ts'), 'file': it.get('file')})
+    res = []
+    for r in _po.read_results(d):
+        ts = r.get('ts')
+        at = ''
+        try:
+            if ts:
+                at = _dt.datetime.fromtimestamp(float(ts) / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            at = ''
+        res.append({'op_id': r.get('op_id'), 'ok': bool(r.get('ok')),
+                    'reason': r.get('reason') or '', 'ts': ts, 'at': at,
+                    'detail': r.get('detail') or ''})
+    return {'pending': pend, 'results': res}
 
 
 def _pending_base() -> str:
@@ -365,6 +400,10 @@ class Handler(BaseHTTPRequestHandler):
         # ⭐ 条款 IV E3：只读资产库存（最严形态：仅三个布尔 ✓ 无路径 ✗）
         if path == '/api/assets':
             return self._json(assets_payload())
+
+        # ⭐ 只读：待办/结果队列（界面侧“真三态”所需 ✓ ⛔ 不给任何写能力 ✗）
+        if path == '/api/pending':
+            return self._json(pending_view())
 
         if path in ('/api/view', '/api/inbox'):
             layer = self._layer(q)
