@@ -140,7 +140,8 @@ def check(html: str) -> list:
         bad.append('⛔ Plan 态未拦截 `step` ✗ —— 那就成了“只读讨论也会改文件” ✗')
 
     # ⑪ ⭐ E13.3 完全体：必须据 `/api/health.actions` **事先**置灰 ✓（⛔ 只靠 403 事后补救不够 ✗）
-    if not re.search(r"j\.actions\s*===\s*false", reg):
+    #    ⚠️ 该逻辑在**连接灯那段**（probeConn ✓）⇒ 要在**全文**里找 ✓，⛔ 不在 `reg`（起手区）里 ✗
+    if not re.search(r"j\.actions\s*===\s*false", html):
         bad.append('未据 `/api/health.actions` **事先**置灰 ✗（E13.3 完全体要求 ✓）—— '
                    '⛔ 只靠 403 事后补救＝仍是“调了才发现” ✗')
 
