@@ -496,3 +496,44 @@ def test_e15_queue_endpoints_are_read_only(tmp_path):
         assert len(lg.replay()) == n0, '⛔ 只读端点不得写日志 ✗'
     finally:
         httpd.shutdown()
+
+
+# ── ⭐ D1 护栏：自改码备份**绝不落在仓库内** ✗ ──
+def test_d1_backup_root_is_outside_repo():
+    """⭐ D1：`backup_root()` 结果**不得**位于仓库目录内 ✗（真跑 ✓ 带默认 ✓）。"""
+    import pet_selfcode
+    r = pet_selfcode.backup_root(REPO)
+    assert r, '⭐ 必须有默认（未配也要有 ✓）✗'
+    assert not os.path.abspath(r).lower().startswith(os.path.abspath(REPO).lower()), \
+        '⭐ 备份根不得落在仓库内 ✗（这正是 D1 的缺陷本身 ✓）：%s' % r
+
+
+def test_d1_env_override_wins(tmp_path, monkeypatch):
+    """⭐ D1：环境变量优先 ✓（⭐ 用 monkeypatch ⇒ 自动还原 ✗ 不污染后续用例 ✓）。"""
+    import pet_selfcode
+    monkeypatch.setenv('AC_PET_BACKUP_DIR', str(tmp_path / 'bk'))
+    assert pet_selfcode.backup_root(REPO) == str(tmp_path / 'bk')
+
+
+
+def test_d1_backup_write_site_is_outside_repo():
+    """⭐ D1 有牙：⭐ **写备份的那行**不得再拼 `base_dir/'backup'` ✗（代码级 ✓）。
+
+    ⚠️ 如实说明：⭐ 走 `edit_own_code()` **端到端**需要过它的**文件白名单** ✓
+      （实测：非项目内路径会被拒："只能改项目内的 .py 模块" ✓）
+      ⇒ ⭐ 本用例只钉**写入点**（那是缺陷本体 ✓），⭐ 端到端记为【由白名单路径覆盖】
+      —— ⛔ 不假装跑过端到端 ✗（⭐ 与 E16 的诚实口径一致 ✓）。
+    """
+    src = io.open(os.path.join(REPO, 'pet_selfcode.py'), encoding='utf-8').read()
+    assert "os.path.join(base_dir, 'backup')" not in src, \
+        "⭐ 不得再把备份写进仓库（D1 缺陷本体 ✗）"
+    assert 'backup_root(base_dir)' in src, '⭐ 应改走 backup_root() ✓'
+
+
+def test_d1_backup_root_never_under_repo(tmp_path, monkeypatch):
+    """⭐ D1：⭐ 即便传了 `base_dir=仓库`，备份根**也不得**落在仓库内 ✗（参数不参与拼接 ✓）。"""
+    import pet_selfcode
+    monkeypatch.delenv('AC_PET_BACKUP_DIR', raising=False)
+    r = pet_selfcode.backup_root(REPO)
+    assert not os.path.abspath(r).lower().startswith(os.path.abspath(REPO).lower()), \
+        '⭐ backup_root 绝不能被 base_dir 带进仓库 ✗：%s' % r

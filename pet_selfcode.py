@@ -38,6 +38,28 @@ import shutil
 import sys
 
 
+def backup_root(base_dir=None):
+    """⭐ D1：自改码备份的根目录 —— ⭐ **⛔ 绝不落在仓库内** ✗（可移植性 E14／P5 ✓）。
+
+    取值顺序（⭐ 未配也有默认 ✓ 承 E14.1 口径 ✓）：
+      ① 环境变量 `AC_PET_BACKUP_DIR` ✓
+      ② 用户数据目录 `<APPDATA>/DeepSeekPet/backup` ✓（复用 platform_layer 的约定 ✓）
+    ⚠️ 参数 `base_dir` 仅为**兼容旧调用**保留 ✓ —— ⭐ **不参与拼接** ✗（⭐ 那正是缺陷本身 ✓）。
+    """
+    env = (os.environ.get('AC_PET_BACKUP_DIR') or '').strip()
+    if env:
+        return env
+    try:
+        import platform_layer
+        d = platform_layer.data_dir()
+        if d:
+            return os.path.join(d, 'backup')
+    except Exception as exc:
+        _log('backup_root.platform_layer', exc)      # ⭐ 落痕 ✓（不静默 ✓）
+    appdata = os.environ.get('APPDATA') or os.path.expanduser(r'~\AppData\Roaming')
+    return os.path.join(appdata, 'DeepSeekPet', 'backup')
+
+
 def _log(where, exc):
     """v6.56：本模块统一出口——只记日志，不改变行为（原先 4 处静默吞异常，出问题无从查）"""
     try:
@@ -204,7 +226,7 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
         backup_name = ''
         try:
             import datetime as _dt
-            bdir = os.path.join(base_dir, 'backup')
+            bdir = backup_root(base_dir)          # ⭐ D1：仓库外 ✓（⛔ 不再写进仓库 ✗）
             os.makedirs(bdir, exist_ok=True)
             backup_name = f'{fname[:-3]}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'
             shutil.copy2(path, os.path.join(bdir, backup_name))
@@ -222,8 +244,9 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
             f.write(new_src)
         os.replace(tmp, path)
         # 5. 返回（v6.56：只在备份真的成功时才提它；给出文件与行号）
-        rollback = f'git restore {fname}' if base_hash else 'backup/ 备份'
-        bk = f'（改前备份：backup/{backup_name}）' if backup_name else '（⚠️ 改前备份失败，已记日志）'
+        rollback = f'git restore {fname}' if base_hash else '备份目录里的改前副本'
+        bk = (f'（改前备份：{backup_name}，位于备份目录）' if backup_name
+              else '（⚠️ 改前备份失败，已记日志）')
         return (f'✅ 已修改 {fname} {where}。回滚：{rollback}。{bk}\n'
                 f'修改会在下次 git 提交时入库；**需重启桌宠生效**；若异常对我说"回滚桌宠修改"。')
     except Exception as e:

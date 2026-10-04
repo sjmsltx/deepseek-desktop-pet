@@ -561,3 +561,15 @@ def clear_dwm_shadow(hwnd):
         return True
     except Exception:
         return False
+
+
+def data_dir():
+    """⭐ 产品数据目录（⭐ D1 起用于放"仓库外的东西" ✓ 承可移植性 E14 ✓）。
+
+    顺序：`AC_PET_DATA_DIR` 环境变量 → `<APPDATA>/DeepSeekPet` ✓
+    """
+    env = (os.environ.get('AC_PET_DATA_DIR') or '').strip()
+    if env:
+        return env
+    appdata = os.environ.get('APPDATA') or os.path.expanduser(r'~\AppData\Roaming')
+    return os.path.join(appdata, 'DeepSeekPet')

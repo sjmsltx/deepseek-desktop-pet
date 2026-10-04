@@ -70,22 +70,29 @@ def test_line_endings_preserved():
     assert raw2.count(b"\r\n") == 0 and raw2.count(b"\n") == 3, "LF 文件被污染"
 
 
-def test_backup_really_created():
-    """R3 修复：改前备份必须真的落盘（此前 datetime 未导入 → backup/ 一直是空的）"""
+def test_backup_really_created(monkeypatch, tmp_path):
+    """R3 修复：改前备份必须真的落盘。
+
+    ⭐ D1 更新（2026-10-04）：⭐ 备份位置**从 `base_dir/backup` 改为仓库外** ✓
+      （承 E14/P5 可移植性 ✓）—— ⭐ 本用例**保留原本意**（"必须真落盘" ✓），
+      ⭐ 只把**位置判据**换成新口径 ✓ ＋ ⭐ 反向钉一句"⛔ 不得落在仓库内" ✗。
+    """
+    monkeypatch.setenv("AC_PET_BACKUP_DIR", str(tmp_path / "bk"))
     d = _sandbox("r3")
     p = os.path.join(d, "m.py")
-    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
     with open(p, "w", encoding="utf-8") as _fh:
         _fh.write("A = 1\n")
     r = edit_own_code("A = 1", "A = 2", file="m.py", base_dir=d)
     assert r.startswith("✅")
-    bdir = os.path.join(d, "backup")
+    bdir = str(tmp_path / "bk")
     files = os.listdir(bdir) if os.path.isdir(bdir) else []
-    assert files, "backup/ 仍为空（备份没写出）"
+    assert files, "备份仍为空（备份没写出）"
     assert "改前备份" in r, "成功消息未提到备份"
-    # 备份内容应为改前版本
+    # ⭐ 备份内容应为改前版本
     assert open(os.path.join(bdir, files[0]), encoding="utf-8").read().strip() == "A = 1"
-
+    # ⭐ D1：⛔ 仓库内**不得**再出现 backup/ ✗
+    assert not os.path.isdir(os.path.join(d, "backup")), \
+        "⭐ 备份不得再落进仓库（D1 ✗）"
 
 def test_trailing_space_tolerant():
     """行尾空格差异可容忍（AI 常把行尾空格丢掉）"""
