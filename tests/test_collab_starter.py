@@ -123,6 +123,22 @@ def check(html: str) -> list:
     if not re.search(r'403', reg):
         bad.append('未识别 403（动作端点未开启）✗ —— 会把“需 --enable-actions”当成普通报错 ✗')
 
+    # ⑩ ⭐ B6/D6-4：Plan（只读讨论）/ Act（可执行）两态
+    if 'id="starter-pm-act"' not in html or 'id="starter-pm-plan"' not in html:
+        bad.append('缺 Plan/Act 两态控件（D6-4）✗')
+    else:
+        m3 = re.search(r'<span[^>]*id="starter-pm-plan"[^>]*>', html)
+        if not (m3 and re.search(r'class="on"', m3.group(0))):
+            bad.append('⭐ 默认态不是 Plan（只读讨论）✗ —— 默认就可执行＝危险默认 ✗')
+        m4 = re.search(r'<span[^>]*id="starter-pm-act"[^>]*>', html)
+        if m4 and re.search(r'class="on"', m4.group(0)):
+            bad.append('Act 被写成默认态 ✗（默认必须 Plan ✓）')
+    if '现在会改文件' not in html:
+        bad.append('切换 Act **未显式提示“现在会改文件”** ✗（D6-4 要求 ✓）')
+    # ⭐ Plan 不得推进：`step` 必须在 Act 分支下
+    if not re.search(r"pmMode\(\)\s*!==\s*'act'", reg):
+        bad.append('⛔ Plan 态未拦截 `step` ✗ —— 那就成了“只读讨论也会改文件” ✗')
+
     return bad
 
 
@@ -138,6 +154,9 @@ def _mutations(html: str) -> list:
     out.append(('拿掉通道初始化指引', html.replace('init_channel.py', 'init_channel_x.py')))
     # ⚠️ 自纠：篡改名**不得含原名做前缀** ✗（如 `markActionsOff`→`markActionsOffX` 仍含原名 ⇒ 护栏"看不到变化" ✗）
     out.append(('拿掉 E13.3 动作面未开处理', html.replace('markActionsOff', 'noActionsOffGuard')))
+    out.append(('默认态改成 Act', html.replace('class="on" data-pm="plan"', 'data-pm="plan"')))
+    out.append(('拿掉“会改文件”提示', html.replace('现在会改文件', '随便改改')))
+    out.append(('Plan 也推进（拿掉 Act 拦截）', html.replace("pmMode() !== 'act'", "pmMode() !== 'actX'")))
     return out
 
 

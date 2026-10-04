@@ -20,7 +20,7 @@
  *
  * 【退出码】0 = 全绿 ✓ ｜ 1 = 有断言失败 ✗ ｜ 2 = 环境错误
  *
- * 【覆盖】项目层接线 / 角色条 / 资产矩阵（三勾）/ 单角色列表 / 设绑定载荷形状 / 真三态 / 不回归 / ⭐ D6-5 服务连接灯（🟢 与 🔴 两态）/ ⭐ A2-A3 起手区与向导
+ * 【覆盖】项目层接线 / 角色条 / 资产矩阵（三勾）/ 单角色列表 / 设绑定载荷形状 / 真三态 / 不回归 / ⭐ D6-5 服务连接灯（🟢 与 🔴 两态）/ ⭐ A2-A3 起手区与向导 / ⭐ B6 Plan·Act 两态（真点击）
  * 【边界】⛔ 本脚本**只读** ✓（只点界面、只投递待办 ✓ 不跑运行器 ✗ 不改仓库 ✗）
  *         ⚠️ 它会往 collab/pending/ 投递 1 条待办（用于验"待办/真三态"）→ 请自行清理 ✓
  */
@@ -202,12 +202,33 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
              roundOff: !!(rd && rd.classList.contains('off')),
              cards: ['starter-card-resume', 'starter-card-pending', 'starter-card-matrix']
                       .filter(x => document.getElementById(x)).length,
-             guide: !!g, guideSkippable: !!document.getElementById('guide-skip') };
+             guide: !!g, guideSkippable: !!document.getElementById('guide-skip'),
+             pmPlanOn: !!(document.getElementById('starter-pm-plan') || {}).classList
+                        && document.getElementById('starter-pm-plan').classList.contains('on'),
+             pmActOn: !!(document.getElementById('starter-pm-act') || {}).classList
+                        && document.getElementById('starter-pm-act').classList.contains('on'),
+             actWarnHidden: !!(document.getElementById('starter-act-warn') || {}).hidden };
   });
   ok('起手区齐备且可用（容器＋输入框＋发起钮）', s7.has && !s7.disabled && !s7.sendDisabled, s7);
   ok('⭐ 默认参与＝单点（**不选模型也能发起** ✓）', s7.singleOn && s7.roundOff, s7);
   ok('三张起手卡齐备（继续议题/待办/矩阵）', s7.cards === 3, s7);
   ok('首次向导存在且**可跳过**（⛔ 不挡路 ✗）', s7.guide && s7.guideSkippable, s7);
+  // ⭐ B6/D6-4：Plan（只读讨论）/ Act（可执行）—— 默认 Plan；切 Act **必须显式提示“会改文件”** ✓
+  ok('⭐ 默认模式＝Plan（只读讨论）', s7.pmPlanOn && !s7.pmActOn && s7.actWarnHidden, s7);
+  await pg.click('#starter-pm-act');
+  await pg.waitForTimeout(300);
+  const s7c = await pg.evaluate(() => {
+    const w = document.getElementById('starter-act-warn'), n = document.getElementById('starter-pm-note');
+    return { warnHidden: !!w.hidden, note: (n ? n.textContent : '') };
+  });
+  ok('⭐⭐ 切到 Act → **显式提示“现在会改文件”**（⛔ 不静默切 ✗）',
+     !s7c.warnHidden && /会改文件/.test(s7c.note), s7c);
+  await pg.click('#starter-pm-plan');
+  await pg.waitForTimeout(300);
+  const s7d = await pg.evaluate(() => ({
+    warnHidden: !!document.getElementById('starter-act-warn').hidden,
+    planOn: document.getElementById('starter-pm-plan').classList.contains('on') }));
+  ok('切回 Plan → 提示收回且 Plan 为主态', s7d.warnHidden && s7d.planOn, s7d);
   // ⚠️ 实测踩坑：`.banner{display:flex}` 会盖掉 `[hidden]` → 服务在跑、横条却一直显示 ✗
   const s7b = await pg.evaluate(() => {
     const b = document.getElementById('conn-banner');

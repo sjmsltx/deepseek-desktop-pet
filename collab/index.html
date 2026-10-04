@@ -333,6 +333,20 @@
     </div>
     <span class="meta" style="margin:0" id="starter-roles-note">⭐ 默认单点：不选任何模型也能发起 ✓</span>
   </div>
+  <div class="srow">
+    <span class="meta" style="margin:0">模式：</span>
+    <div class="seg" id="starter-pm" role="group" aria-label="Plan / Act">
+      <span class="on" data-pm="plan" id="starter-pm-plan"
+        title="Plan（只读讨论）：只写下这句话，⛔ 不推进执行 ✗ 不会改文件 ✓">Plan（只读讨论）</span>
+      <span data-pm="act" id="starter-pm-act"
+        title="Act（可执行）：写下并推进一回合 —— ⚠️ 会改文件 ✓">Act（可执行）</span>
+    </div>
+    <span class="meta" style="margin:0" id="starter-pm-note">⭐ 默认 Plan：只写下意图、⛔ 不推进 ✗</span>
+  </div>
+  <div class="banner" id="starter-act-warn" hidden style="margin:10px 0 0">
+    ⚠️ <b>现在会改文件</b>
+    <span class="meta" style="margin:0">Act 会推进一回合（可能写盘／改文件 ✓）；切回 Plan 只是写下意图、⛔ 不推进 ✗</span>
+  </div>
 </div>
 
 <!-- ⭐ 起手卡（有历史时显示）-->
@@ -628,6 +642,7 @@
   var starterReady = false;      // ⭐ 必须**先声明**：页面为严格模式 ⇒ 未声明就赋值会抛 ReferenceError ✗
                                  //   （本条由 e2e 当场逮住 ✓：连接灯曾变成“🔴 未连上（starterReady is not defined）”✗）
   var actionsOff = false;        // ⭐ E13.3：动作面**默认关**（需服务端 --enable-actions ✓）
+  var PM_WARN_TEXT = '⚠️ 现在会改文件';   // ⭐ B6/D6-4：切到 Act 必须说这句 ✓（⛔ 不静默切换 ✗）
 
   function howEmpty(what, how) {
     // ⭐ 空面板指引（⛔ 不再是一片空白 ✗；也不泄后端路径 ✗）
@@ -657,6 +672,30 @@
   function starterMode() {
     var s = $('starter-mode-single');
     return (s && s.classList.contains('on')) ? 'single' : 'round';
+  }
+
+  // ⭐ B6/D6-4：Plan（只读讨论）/ Act（可执行）两态 —— **默认 Plan** ✓（对照 Cline Plan&Act ✓）
+  //   · Plan 👉 只写“这一句”＝ `POST /api/interrupt` ✓（⛔ 不推进 ✗ 不改文件 ✓）
+  //   · Act  👉 写下＋推进一回合 ＝ `interrupt` ＋ `step` ✓
+  //   ⭐ 切换时必须**显式提示“现在会改文件”** ✗（⛔ 不静默切 ✗）
+  function pmMode() {
+    var a = $('starter-pm-act');
+    return (a && a.classList.contains('on')) ? 'act' : 'plan';
+  }
+
+  function setPm(m) {
+    var plan = $('starter-pm-plan'), act = $('starter-pm-act');
+    if (!plan || !act) { return; }
+    plan.className = (m === 'act') ? '' : 'on';
+    act.className = (m === 'act') ? 'on' : '';
+    var warn = $('starter-act-warn');
+    if (warn) { warn.hidden = (m !== 'act'); }           // ⭐ 只有 Act 才把“会改文件”摆出来 ✓
+    var note = $('starter-pm-note');
+    if (note) {
+      note.textContent = (m === 'act')
+        ? PM_WARN_TEXT + ' —— 会推进一回合（可能写盘 ✓）；切回 Plan 可停 ✓'
+        : '⭐ 默认 Plan：只写下意图、⛔ 不推进 ✗';
+    }
   }
 
   function setStarter(ok, why) {
@@ -698,8 +737,12 @@
     var send = $('starter-send');
     send.disabled = true;
     // ⛔ 不新增端点 ✗：① 人类发话 → /api/interrupt ② 推进一格 → /api/step
+    // ⭐ B6：**Plan 态只发第一句**（⛔ 不推进 ✗）；只有 Act 才补 `step` ✓
     post('/api/interrupt', { body: t })
-      .then(function () { return post('/api/step', {}); })
+      .then(function () {
+        if (pmMode() !== 'act') { return null; }
+        return post('/api/step', {});
+      })
       .then(function () { inp.value = ''; return refresh(); })
       .catch(function (e) {
         var m = (e && e.message) || '未知原因';
@@ -2014,6 +2057,10 @@
     $('conn-retry').onclick = function () { probeConn(); };     // ⭐ 不用刷新整页 ✓
   }
   if ($('guide-skip')) { $('guide-skip').onclick = skipGuide; }
+  // ⭐ B6/D6-4：Plan / Act 切换接线（默认 Plan ✓；切 Act 显式提示“会改文件” ✓）
+  if ($('starter-pm-plan')) { $('starter-pm-plan').onclick = function () { setPm('plan'); }; }
+  if ($('starter-pm-act')) { $('starter-pm-act').onclick = function () { setPm('act'); }; }
+  setPm('plan');                    // 默认态（也把横幅藏好 ✓）
   if ($('guide-next')) {
     $('guide-next').onclick = function () {
       guideActive = Math.min(guideActive + 1, GUIDE_STEPS.length - 1);
