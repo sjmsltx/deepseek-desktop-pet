@@ -152,3 +152,67 @@ def test_guards_have_teeth():
     assert '_assign_to_job' not in calls, '⭐ 旧实现应缺 Job 归属 ✓'
     # A6：旧写法应被"写死 120s"判红 ✓
     assert 'timeout=120' in 'evt.wait(timeout=120)', '⭐ 探针须能识别旧写法 ✓'
+
+
+# ── A4 ⭐ 就绪标记（D1-1）：服务自写 ＋ GUI 双确认 ✓ ────────────────────
+def _kill_relay():
+    import subprocess
+    subprocess.run(['powershell', '-NoProfile', '-Command',
+                    "Get-CimInstance Win32_Process -Filter \"Name='python.exe' or "
+                    "Name='pythonw.exe'\" | Where-Object { $_.CommandLine -like "
+                    "'*relay_server*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
+                    "-ErrorAction SilentlyContinue }"], capture_output=True)
+
+
+def test_a4_ready_marker_written_and_cleared(tmp_path):
+    """⭐ 真跑：起服务 → 标记出现 ✓ → GUI 双确认 True ✓ → 杀掉 → False ✓"""
+    import json
+    import subprocess
+    import sys
+    import time
+    _kill_relay()
+    mk = os.path.join(REPO, 'collab', '.ready')
+    if os.path.isfile(mk):
+        os.remove(mk)
+    log = str(tmp_path / 'a4.jsonl')
+    p = subprocess.Popen([sys.executable, os.path.join(REPO, 'collab', 'relay_server.py'),
+                          '--log', log, '--port', '8892'],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, encoding='utf-8', cwd=REPO)
+    try:
+        seen = None
+        for _ in range(40):
+            time.sleep(0.25)
+            if os.path.isfile(mk):
+                seen = True
+                break
+        assert seen, '⛔ 起服后应有就绪标记 ✗（A4 判据 ✗）'
+        d = json.load(io.open(mk, encoding='utf-8'))
+        assert d.get('port') == 8892 and d.get('pid') and d.get('ts'), d
+        import collab_panel as cp
+        assert cp.is_ready(8892, REPO) is True, '⭐ 双确认应为 True ✓'
+        assert cp.ready_info(REPO).get('port') == 8892
+    finally:
+        p.terminate()
+        time.sleep(2.0)
+    # ⭐ 强杀后：标记可能残留 ✓，但 **is_ready 必须 False** ✓（双确认的意义 ✓）
+    import collab_panel as cp
+    assert cp.is_ready(8892, REPO) is False, '⛔ 服务已死时 is_ready 必须 False ✗（陈旧标记不得撒谎 ✗）'
+    if os.path.isfile(mk):
+        os.remove(mk)
+    _kill_relay()
+
+
+def test_a4_create_server_does_not_write_marker():
+    """⛔ 标记只能由 **main()**（真服务 ✓）写 ✗ —— 否则测试会被污染 ✓"""
+    s = io.open(os.path.join(REPO, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    seg = s[s.index('def create_server('):s.index('def main(')]
+    assert '_write_ready' not in seg, '⛔ create_server 里不得写标记 ✗（会污染测试 ✓）'
+    assert '_write_ready(port)' in s, '⭐ main() 里应写标记 ✓'
+
+
+def test_a4_guard_has_teeth():
+    """⭐ 有牙：双确认若退化成"只看标记" ✗，本护栏的第二个断言会红 ✓"""
+    src = ('def is_ready(port, base_dir=""):\n'
+           '    return bool(ready_info(base_dir))\n')      # ⛔ 只看标记 ✗
+    assert '_probe' not in src, '⭐ 探针须能识别"只看标记"这一退化 ✓'

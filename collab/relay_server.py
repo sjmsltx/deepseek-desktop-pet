@@ -512,6 +512,60 @@ class Handler(BaseHTTPRequestHandler):
         return self._err(404, '未知路径：%s' % path)
 
 
+# ── ⭐ A4（D1-1）就绪标记：`<base>/collab/.ready`（JSON：pid/port/ts ✓）──────────
+READY_NAME = '.ready'
+
+
+def _ready_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), READY_NAME)
+
+
+def _write_ready(port: int) -> bool:
+    """⭐ 绑定成功（＝真能服务 ✓）即写标记；⛔ 失败只记日志 ✗ 不阻断服务 ✓。"""
+    try:
+        import json as _json
+        import time as _time
+        p = _ready_path()
+        tmp = p + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            _json.dump({'pid': os.getpid(), 'port': int(port),
+                        'ts': int(_time.time() * 1000)}, fh)
+        os.replace(tmp, p)
+        return True
+    except Exception as exc:
+        # ⭐ 直接落痕 ✗ 不再套 try（今天第 3 次在"落痕"的代码里写静默 ✗ —— 已记入判例 ✓）
+        print('  ⚠️ 就绪标记写入失败（不影响服务）：%r' % (exc,))
+        return False
+
+
+def _clear_ready() -> bool:
+    try:
+        os.remove(_ready_path())
+        return True
+    except Exception as exc:
+        # ⭐ 已落痕（护栏要求 ✓）：文件本就不存在是常态 ✓ 但仍留一行便于排查 ✓
+        print('  ℹ️ 清理就绪标记：%r' % (exc,))
+        return False
+
+
+def read_ready(timeout_ms: int = 0) -> dict:
+    """GUI 侧读标记 ✓；不存在／超龄 → `{}` ✓（`timeout_ms>0` 时判陈旧 ✗）。"""
+    try:
+        import json as _json
+        import time as _time
+        p = _ready_path()
+        if not os.path.isfile(p):
+            return {}
+        with open(p, encoding='utf-8') as fh:
+            d = _json.load(fh) or {}
+        if timeout_ms and (int(_time.time() * 1000) - int(d.get('ts') or 0)) > timeout_ms:
+            return {}
+        return d
+    except Exception as exc:
+        print('  ℹ️ 读就绪标记失败：%r' % (exc,))     # ⭐ 落痕 ✓
+        return {}
+
+
 def create_server(log: relay.RelayLog, host: str = '127.0.0.1', port: int = 0,
                   ui_path: str = '', enable_actions: bool = False):
     """返回 (httpd, port)。**host 默认且仅建议 127.0.0.1**。"""
@@ -546,6 +600,10 @@ def main():
         log.open_issue(relay.Issue(args.issue_title, '给出 3 条方案并收敛到 1 条', '出现可执行方案即停'))
     httpd, port = create_server(log, '127.0.0.1', args.port, args.ui,
                                 enable_actions=args.enable_actions)
+    # ⭐ A4（D1-1）：**绑定成功＝已能服务** ✓ → 立刻写就绪标记（原子 ✓）
+    #    ⛔ 不写进 create_server ✗（测试会反复调用 → 污染 ✓）
+    #    ⛔ 不靠"等 N 秒算就绪" ✗（EXP.0108：阈值会猜错 ✗）
+    _write_ready(port)
     url = 'http://127.0.0.1:%d/' % port
     print('协作台已启动：%s' % url)
     print('  只读导出：/api/view /api/inbox /api/snapshot /api/log.jsonl')
@@ -559,8 +617,9 @@ def main():
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        pass
+        print('  ℹ️ 收到中断，正常退出 ✓')      # ⭐ 落痕 ✓（顺带让"退出"这件事对用户可见 ✓）
     finally:
+        _clear_ready()                 # ⭐ A4：退出即清标记（陈旧标记会撒谎 ✗）
         httpd.server_close()
 
 

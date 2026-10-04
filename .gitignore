@@ -90,3 +90,6 @@ _raw_backup/
 
 # 原子写的临时兄弟文件（`_atomic_write_json` 崩在中途会残留 ✓ 属运行态 ✗）
 *.json.tmp
+
+# A4 就绪标记（运行态：服务自写自清 ✓）
+collab/.ready

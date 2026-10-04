@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import io
 import os
 import sys
 import time
@@ -31,6 +32,30 @@ def _probe(port: int, timeout: float = 1.0) -> bool:
             return fh.status == 200
     except Exception:
         return False
+
+
+def ready_info(base_dir: str = '') -> dict:
+    """⭐ A4：读服务自写的就绪标记（`<base>/collab/.ready` ✓ 含 pid/port/ts ✓）。"""
+    try:
+        d = base_dir or os.path.dirname(os.path.abspath(__file__))
+        p = os.path.join(d, 'collab', '.ready')
+        if not os.path.isfile(p):
+            return {}
+        import json
+        with io.open(p, encoding='utf-8') as fh:
+            return json.load(fh) or {}
+    except Exception as exc:
+        print('  ℹ️ 读就绪标记失败：%r' % (exc,))     # ⭐ 落痕 ✓
+        return {}
+
+
+def is_ready(port: int, base_dir: str = '') -> bool:
+    """⭐ A4：**双确认** —— ① 就绪标记在且端口对 ✓ ② 端口真能应答 ✓
+    （⛔ 只看标记 ✗ 陈旧会撒谎；⛔ 只探测 ✗ 慢启动期会误判 ✗）"""
+    info = ready_info(base_dir)
+    if not info or int(info.get('port') or 0) != int(port):
+        return False
+    return _probe(port)
 
 
 def _server_script(base_dir: str) -> str:
