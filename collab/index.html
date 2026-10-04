@@ -72,6 +72,17 @@
   .howempty{text-align:center;color:var(--ink3);padding:16px 8px}
   .howempty .t{font-family:var(--serif);font-size:14.5px;color:var(--ink2);margin:4px 0 3px}
   .howempty .h{font-family:var(--mono);font-size:11.5px}
+  /* ⭐ B5/B7：队列区（E15）＋ 运行历史（E16）*/
+  .qbox{border:1px solid var(--rule);background:#fff;padding:10px 12px;margin:0 0 12px;border-radius:3px}
+  .qhead{font-family:var(--mono);font-size:12px;color:var(--ink2);margin-bottom:6px}
+  .qitem{border-top:1px solid var(--rule2);padding:6px 0;font-size:13px}
+  .qitem:first-child{border-top:none}
+  .qmeta{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .hrow{border-top:1px solid var(--rule2);padding:6px 0}
+  .hrow:first-child{border-top:none}
+  .hstep{font-family:var(--mono);font-size:11.5px;color:var(--ink2);padding:2px 0 2px 14px}
+  .hderiv{font-family:var(--mono);font-size:11px;color:var(--warn)}
+  .herr{border-left:3px solid #e6ccae;background:var(--warn-soft);color:var(--warn);padding:6px 8px;margin-top:5px;font-family:var(--mono);font-size:11.5px;white-space:pre-wrap}
   .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
   button{font-family:var(--sans);font-size:13px;padding:7px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
   button:hover{background:var(--card)}
@@ -321,8 +332,14 @@
   <h2>开始一轮</h2>
   <div class="hint" id="starter-hint">⭐ 一句普通话就能开始 ✓ ｜ 不必先选多模型 ✓ ｜ 运行中也能继续排队（B 阶段上线）✓</div>
   <div class="srow">
-    <input type="text" id="starter-input" placeholder="想让它做什么？一句话就行（回车或点「发起」）" autocomplete="off">
-    <button class="primary" id="starter-send">▶ 发起</button>
+    <input type="text" id="starter-input" placeholder="想让它做什么？一句话就行（回车＝排队 ✓）" autocomplete="off">
+  </div>
+  <!-- ⭐ B5/E15.4：**两个明确动作**（⛔ 不合成一个含糊按钮 ✗）；⭐ 两者都**显式传 mode** ✓ -->
+  <div class="srow">
+    <span class="meta" style="margin:0">提交：</span>
+    <button id="starter-queue" title="不打断：入队，本轮自然结束后按序执行（默认 ✓）">⏳ 排队（不打断）</button>
+    <button id="starter-interrupt" title="立即打断当前回合并进暂停（现有语义 ✓）；恢复需点「继续」">⚡ 插话（打断）</button>
+    <span class="meta" style="margin:0" id="starter-act-note">⭐ 默认「排队」：不打断、等本轮结束自动执行 ✓</span>
   </div>
   <div class="srow">
     <span class="meta" style="margin:0">参与：</span>
@@ -333,8 +350,8 @@
     </div>
     <span class="meta" style="margin:0" id="starter-roles-note">⭐ 默认单点：不选任何模型也能发起 ✓</span>
   </div>
-  <div class="srow">
-    <span class="meta" style="margin:0">模式：</span>
+  <div class="srow" id="starter-pmrow">
+    <span class="meta" style="margin:0">推进：</span>
     <div class="seg" id="starter-pm" role="group" aria-label="Plan / Act">
       <span class="on" data-pm="plan" id="starter-pm-plan"
         title="Plan（只读讨论）：只写下这句话，⛔ 不推进执行 ✗ 不会改文件 ✓">Plan（只读讨论）</span>
@@ -350,6 +367,18 @@
 </div>
 
 <!-- ⭐ 起手卡（有历史时显示）-->
+<!-- ⭐ B5／E15：队列区（只读 `GET /api/queue` ✓）——⭐ 未启用时只能写「已暂停，待处理 N 条」 ✓ -->
+<div class="qbox" id="qbox">
+  <div class="qhead">⏳ 排队与暂停<span class="meta" id="q-note" style="margin-left:8px">（本次刷新未取到）</span></div>
+  <div id="q-list"></div>
+</div>
+
+<!-- ⭐ B7／E16：运行历史（只读 `GET /api/history` ✓）——⭐ 步骤必须明标「由消息序列派生（近似）」 ✓ -->
+<div class="qbox" id="hbox">
+  <div class="qhead">🕘 运行历史（最近 20 轮）<span class="meta" id="h-note" style="margin-left:8px">（本次刷新未取到）</span></div>
+  <div id="h-list"></div>
+</div>
+
 <div class="cards" id="starter-cards">
   <div class="card" id="starter-card-resume"><b>🔁 继续上次议题</b><p id="c-resume">—</p></div>
   <div class="card" id="starter-card-pending"><b>📋 处理待办</b><p id="c-pending">—</p></div>
@@ -628,9 +657,11 @@
         actionsOff = off;
         setConn('ok', 'seq=' + ((j && j.seq !== undefined) ? j.seq : '?'));
         if (off) {
-          var sd = $('starter-send');
-          if (sd) { sd.title = '动作面未开启：服务端未开 --enable-actions'; }
-          $('starter-hint').textContent = '⛔ 动作面未开启（服务端未开 --enable-actions ✓）⇒ 发起已**事先**置灰 ✓；'
+          ['starter-queue', 'starter-interrupt'].forEach(function (bid) {
+            var b = $(bid);
+            if (b) { b.title = '动作面未开启：服务端未开 --enable-actions'; }
+          });
+          $('starter-hint').textContent = '⛔ 动作面未开启（服务端未开 --enable-actions ✓）⇒ 两个提交按钮已**事先**置灰 ✓；'
             + '要用请按上面「怎么起协作台」加上 --enable-actions 再重启服务 ✓';
         }
       })
@@ -718,18 +749,21 @@
   function setStarter(ok, why) {
     var box = $('starter');
     var inp = $('starter-input');
-    var send = $('starter-send');
     var bn = $('conn-banner');
-    if (!box || !inp || !send) { return; }          // ⛔ 缺元素不抛 ✗
+    if (!box || !inp) { return; }                    // ⛔ 缺元素不抛 ✗
     starterReady = !!ok;
     box.classList.toggle('dim', !ok);
     inp.disabled = !ok;
-    send.disabled = !ok || actionsOff;      // ⭐ E13.3：动作面未开时**置灰** ✗ 不让“点了才发现” ✗
-    inp.placeholder = ok ? '想让它做什么？一句话就行（回车或点「发起」）'
-                         : '（服务未连上，暂不能发起）';
+    // ⭐ E15.4：两个**明确动作**——一起置灰／一起恢复
+    ['starter-queue', 'starter-interrupt'].forEach(function (bid) {
+      var b = $(bid);
+      if (b) { b.disabled = !ok || actionsOff; }
+    });
+    inp.placeholder = ok ? '想让它做什么？一句话就行（回车＝排队 ✓）'
+                         : '（服务未连上，暂不能提交）';
     $('starter-hint').textContent = ok
-      ? '⭐ 一句普通话就能开始 ✓ ｜ 不必先选多模型 ✓ ｜ 运行中也能继续排队（B 阶段上线）✓'
-      : '⛔ 服务未连上 —— 先起服务再发起 ✗（按钮已禁用 ✓ 不让“点了没反应”✗）';
+      ? '⭐ 一句普通话就能开始 ✓ ｜ 默认「排队」不打断 ✓ ｜「插话」会立即打断 ✓'
+      : '⛔ 服务未连上 —— 先起服务再提交 ✗（按钮已禁用 ✓ 不让“点了没反应”✗）';
     if (bn) {
       bn.hidden = !!ok;
       if (!ok) { $('conn-banner-why').textContent = '原因：' + (why || '未知') ; }
@@ -739,26 +773,33 @@
   function markActionsOff(why) {
     // ⭐ 契约 E13.3：动作面默认关 ⇒ ⛔ 不许“点了才发现” ✗ ⇒ 置灰 ＋ 写明原因 ＋ 给开启指引 ✓
     actionsOff = true;
-    var send = $('starter-send');
-    if (send) { send.disabled = true; send.title = '动作面未开启：' + why; }
-    $('starter-hint').textContent = '⛔ 动作面未开启 —— ' + why + ' ⇒ 已置灰 ✓（⛔ 不让“点了才发现” ✗）';
+    ['starter-queue', 'starter-interrupt'].forEach(function (bid) {
+      var b = $(bid);
+      if (b) { b.disabled = true; b.title = '动作面未开启：' + why; }
+    });
+    $('starter-hint').textContent = '⛔ 动作面未开启 —— ' + why + ' ⇒ 两个提交按钮已置灰 ✓（⛔ 不让“点了才发现” ✗）';
     err('动作面未开启：' + why + ' ｜ 出路：用 --enable-actions 起服务（如 python collab\\relay_server.py --enable-actions ✓），'
         + '或从桌宠菜单「🍵 打开协作台」✓');
   }
 
-  function submitStarter() {
-    if (!starterReady) { err('服务未连上 —— 先起服务再发起 ✗（右上角小灯有原因 ✓）'); return; }
+  // ⭐ B5／E15：提交（**两个明确动作** ✓ 两者都**显式传 `mode`** ✓ ⛔ 不依赖端点默认值 ✗）
+  //   kind='queue'     → mode='queue'（不打断 ✓ 本轮自然结束后内核按序执行 ✓）
+  //   kind='interrupt' → mode='interrupt'（立即打断 ✓ 现有语义 ✓）
+  //   ⭐ Plan/Act 只管“**要不要顺手推一格**” —— 四种组合各有意义 ✓ 无一是空动作 ✓
+  function submitStarter(kind) {
+    if (!starterReady) { err('服务未连上 —— 先起服务再提交 ✗（右上角小灯有原因 ✓）'); return; }
+    if (actionsOff) { err('动作面未开启 —— 两个提交按钮已置灰 ✓（见上方提示 ✓）'); return; }
     var inp = $('starter-input');
     var t = (inp.value || '').trim();
-    if (!t) { err('请先写一句要它做的事 ✗（空内容不发起 ✓）'); inp.focus(); return; }
-    var send = $('starter-send');
-    send.disabled = true;
-    // ⛔ 不新增端点 ✗：① 人类发话 → /api/interrupt ② 推进一格 → /api/step
-    // ⭐ B6：**Plan 态只发第一句**（⛔ 不推进 ✗）；只有 Act 才补 `step` ✓
-    post('/api/interrupt', { body: t })
+    if (!t) { err('请先写一句要它做的事 ✗（空内容不提交 ✓）'); inp.focus(); return; }
+    var mode = (kind === 'interrupt') ? 'interrupt' : 'queue';   // ⭐ 一律显式 ✓
+    var btns = ['starter-queue', 'starter-interrupt'];
+    btns.forEach(function (b) { if ($(b)) { $(b).disabled = true; } });
+    // ⛔ 不新增端点 ✗：① 人类发话 → /api/interrupt（扩参 mode ✓ E15）② 推进一格 → /api/step
+    post('/api/interrupt', { body: t, mode: mode })
       .then(function () {
-        if (pmMode() !== 'act') { return null; }
-        return post('/api/step', {});
+        if (pmMode() !== 'act') { return null; }     // ⭐ Plan：只写下、⛔ 不推进 ✗
+        return post('/api/step', {});                 // ⭐ Act：顺手推一格 ✓
       })
       .then(function () { inp.value = ''; return refresh(); })
       .catch(function (e) {
@@ -767,9 +808,105 @@
         if (/403/.test(m) && /(动作端点未开启|enable-actions)/.test(m)) {
           markActionsOff('需服务端 --enable-actions（默认只读 ✓）');
           return;
-        }        err('发起失败：' + m);                  // ⛔ 不静默 ✗
+        }
+        err('提交失败（' + mode + '）：' + m);       // ⛔ 不静默 ✗
       })
-      .then(function () { send.disabled = !starterReady; });
+      .then(function () {
+        btns.forEach(function (b) { if ($(b)) { $(b).disabled = !starterReady || actionsOff; } });
+      });
+  }
+
+  // ════════ ⭐ B5/E15：队列与暂停（只读 `GET /api/queue` ✓） ════════
+  //   ⭐ E15.4 硬约束：⛔ 界面**不得**写“排队·执行中”这类字样 ✗
+  //   —— 未启用 E15 时，人类插话 ＝ **打断进暂停** ✓ ⇒ 只能写「已暂停，待处理 N 条」✓
+  function qNote(t) { var el = $('q-note'); if (el) { el.textContent = t; } }
+
+  function loadQueue() {
+    return fetchT('/api/queue', { cache: 'no-store' }, 8000).then(function (r) {
+      if (r.status === 404) { return { __unready: true }; }      // ⭐ 未就绪**明示** ✗ 不空白 ✓
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    }).then(renderQueue).catch(function (e) {
+      qNote('取不到队列：' + ((e && e.message) || '未知原因') + ' ✓');   // ⛔ 不静默 ✗
+    });
+  }
+
+  function renderQueue(j) {
+    var box = $('q-list');
+    if (!box) { return; }
+    if (!j || j.__unready) {
+      qNote('⭐ 队列端点未就绪 ✓（等内核半上线 ✓）');
+      box.innerHTML = '<div class="qmeta">端点未就绪 ✓ —— 本页其余功能不受影响 ✓</div>';
+      return;
+    }
+    var qs = j.queued || [];
+    var n = (j.queued_count !== undefined) ? j.queued_count : qs.length;
+    if (j.interrupted) {
+      qNote('⭐ **已暂停**，待处理 ' + n + ' 条 ✓（⭐ 点「继续」才恢复 ✓）');
+    } else if (j.running) {
+      qNote('运行中（turn ' + ((j.turn_no !== undefined) ? j.turn_no : '—') + '）｜ 待处理 ' + n + ' 条 ✓');
+    } else {
+      qNote('空闲 ✓（已停/已结束 ✓）');
+    }
+    if (!n) { box.innerHTML = '<div class="qmeta">当前无排队 ✓</div>'; return; }
+    box.innerHTML = qs.map(function (it) {
+      var who = String(it.sender || '?') + (it.line ? ' · ' + it.line : '') + (it.channel ? ' · ' + it.channel : '');
+      return '<div class="qitem"><span class="qmeta">seq ' + esc(String(it.seq)) + ' ｜ ' + esc(who)
+           + ' ｜ mode=' + esc(String(it.mode || '—')) + '</span><br>' + esc(String(it.preview || '')) + '</div>';
+    }).join('') + '<div class="qmeta">⭐ v1 不可撤回 ✓（撤回属新写操作，另案 ✓）</div>';
+  }
+
+  // ════════ ⭐ B7/E16：运行历史（只读 `GET /api/history` ✓） ════════
+  //   ⭐ E16.2 硬约束：⭐ 步骤＝**由消息序列派生（近似）** ✗ ⇒ 界面**必须标明** ✓
+  function hNote(t) { var el = $('h-note'); if (el) { el.textContent = t; } }
+
+  function loadHistory() {
+    return fetchT('/api/history?limit=20', { cache: 'no-store' }, 8000).then(function (r) {
+      if (r.status === 404) { return { __unready: true }; }
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    }).then(renderHistory).catch(function (e) {
+      hNote('取不到历史：' + ((e && e.message) || '未知原因') + ' ✓');
+    });
+  }
+
+  function renderHistory(arr) {
+    var box = $('h-list');
+    if (!box) { return; }
+    if (!arr || arr.__unready) {
+      hNote('⭐ 历史端点未就绪 ✓');
+      box.innerHTML = '<div class="qmeta">端点未就绪 ✓ —— 本页其余功能不受影响 ✓</div>';
+      return;
+    }
+    if (!arr.length) {
+      hNote('还没有运行记录 ✓');
+      box.innerHTML = '<div class="qmeta">跑一轮后这里会出现该轮 ✓</div>';
+      return;
+    }
+    hNote(arr.length + ' 轮 ✓ ｜ ⭐ 步骤＝由消息序列派生（近似）✓');
+    box.innerHTML = arr.map(function (t, i) {
+      var ok = (t.ok !== false);
+      var head = 'turn ' + esc(String(t.turn_no)) + ' ｜ ' + (ok ? '✅ 正常' : '❌ 有错') +
+                 ' ｜ ' + esc(String(t.cost_micro)) + ' 微元 ｜ ' + esc(String(t.tokens)) + ' tok' +
+                 ' ｜ stop=' + esc(String(t.stop_reason || '—'));
+      var steps = (t.steps || []).map(function (s) {
+        return '<div class="hstep">seq ' + esc(String(s.seq)) + ' ｜ ' + esc(String(s.kind || '')) +
+               ' ｜ ' + esc(String(s.sender || '')) + (s.line ? ' · ' + esc(String(s.line)) : '') +
+               ' ｜ ' + esc(String(s.preview || '')) + '</div>';
+      }).join('');
+      var errBlk = t.error ? ('<div class="herr">原始错误：' + esc(String(t.error)) + '</div>') : '';
+      return '<div class="hrow"><div class="qmeta" data-hidx="' + i + '" style="cursor:pointer">▸ ' + head + '</div>' +
+        '<div id="hdetail-' + i + '" hidden><div class="hderiv">⭐ 以下步骤由消息序列派生（近似 ✓）—— ⛔ 非内核精确步骤 ✗</div>' +
+        (steps || '<div class="hstep">（该轮无步骤记录）</div>') + errBlk + '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-hidx]'), function (el) {
+      el.onclick = function () {
+        var d = $('hdetail-' + el.getAttribute('data-hidx'));
+        if (!d) { return; }
+        d.hidden = !d.hidden;
+        el.textContent = (d.hidden ? '▸ ' : '▾ ') + el.textContent.replace(/^[▸▾]\s*/, '');
+      };
+    });
   }
 
   function updateStarter(snap, projects, pend) {
@@ -1472,7 +1609,9 @@
       getJSONSoft('/api/projects'),
       getJSONSoft('/api/project/current'),
       getJSONSoft('/api/roles'),
-      getJSONSoft('/api/pending')
+      getJSONSoft('/api/pending'),
+      loadQueue(),                                   // ⭐ B5/E15：队列（只读 ✓ 自带降级 ✓）
+      loadHistory()                                  // ⭐ B7/E16：运行历史（只读 ✓ 自带降级 ✓）
     ]).then(function (r) {
       renderState(r[0]); renderL1(r[1]); renderL2(r[2]); renderL3(r[3]);
       renderProjectLayer(r[4], r[5], r[6]);   // ⭐ 项目层（不可用时为空态 ✓ 不白屏 ✗）
@@ -2063,11 +2202,12 @@
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
   probeConn();                     // ⭐ D6-5：启动即探一次（页面能开但服务没了 → 立刻显 🔴＋原因 ✓）
   // ⭐ A2/D6-2 ＋ A3/D6-1：起手区/向导/起手卡/重试按钮 接线
-  if ($('starter-send')) { $('starter-send').onclick = submitStarter; }
+  if ($('starter-queue')) { $('starter-queue').onclick = function () { submitStarter('queue'); }; }
+  if ($('starter-interrupt')) { $('starter-interrupt').onclick = function () { submitStarter('interrupt'); }; }
   if ($('starter-input')) {
     $('starter-input').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStarter(); }
-    });
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStarter('queue'); }
+    });                                       // ⭐ 回车＝**最安全**那个（排队不打断 ✓）
   }
   if ($('conn-retry')) {
     $('conn-retry').onclick = function () { probeConn(); };     // ⭐ 不用刷新整页 ✓

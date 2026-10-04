@@ -29,8 +29,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 HTML = os.path.join(REPO, 'collab', 'index.html')
 
-# ⭐ 端点白名单：起手区的"发起"只允许复用这两个既有端点（⛔ 不新增 ✗）
-ALLOWED = {'/api/interrupt', '/api/step'}
+# ⭐ 端点白名单：起手区的"提交"只允许复用既有**写**端点（⛔ 不新增 ✗）
+#   ⭐ 2026-10-04 扩：直加契约 E15.3／E16 的两个**只读**端点（`/api/queue`／`/api/history` ✓）
+#      —— ⭐ 它们**不是新端点** ✓（E15.3／E16 已定案 ✓）且**纯读** ✓（调用前后日志条数不变 ✓）
+ALLOWED = {'/api/interrupt', '/api/step', '/api/queue', '/api/history'}
 
 
 def read_html(path: str = HTML) -> str:
@@ -54,10 +56,13 @@ def _starter_region(html: str) -> str:
 def check(html: str) -> list:
     bad = []
 
-    # ① 起手区三件套
-    for eid, name in (('starter', '起手区容器'), ('starter-input', '主输入框'), ('starter-send', '发起按钮')):
+    # ① 起手区三件套（⭐ E15.4：提交＝**两个明确动作** ✗ 不是单一“发起” ✗）
+    for eid, name in (('starter', '起手区容器'), ('starter-input', '主输入框'),
+                      ('starter-queue', '⏳ 排队按钮'), ('starter-interrupt', '⚡ 插话按钮')):
         if 'id="%s"' % eid not in html:
-            bad.append('缺%s（#%s）✗ —— 首屏就没有"开始一件事"的入口 ✗' % (name, eid))
+            bad.append('缺%s（#%s）✗' % (name, eid))
+    if 'id="starter-send"' in html:
+        bad.append('⛔ 仍存在单一“发起”按钮（#starter-send）✗ —— E15.4 明确“不许合成一个含糊按钮” ✗')
 
     # ② 默认单点（核心契约：不选模型也能发起）
     m = re.search(r'<span[^>]*id="starter-mode-single"[^>]*>', html)
@@ -145,6 +150,26 @@ def check(html: str) -> list:
         bad.append('未据 `/api/health.actions` **事先**置灰 ✗（E13.3 完全体要求 ✓）—— '
                    '⛔ 只靠 403 事后补救＝仍是“调了才发现” ✗')
 
+    # ⑫ ⭐ E15.4（真排队）：两个明确动作 ＋ **一律显式传 mode** ＋ 不得写“排队执行中” ＋ 明写不可撤回
+    if not re.search(r"mode:\s*mode", html):
+        bad.append('⭐ 未**显式传 `mode`** ✗（E15.1 定案：界面必须显式传 ✓ ⛔ 不依赖端点默认值 ✗）')
+    if "'queue'" not in html or "'interrupt'" not in html:
+        bad.append('缺 mode 的两个取值（queue／interrupt）✗')
+    if '排队执行中' in html:
+        bad.append('⛔ 出现了禁写字样（“排队执行中”类）✗ —— 未启用 E15 时只是**打断进暂停** ✗')
+    if '已暂停' not in html:
+        bad.append('未写明“已暂停，待处理 N 条”✗（E15.4.3 ✓）')
+    if '不可撤回' not in html:
+        bad.append('未明写“v1 不可撤回”✗（E15.2 ✓ ⛔ 不假装 ✗）')
+
+    # ⑬ ⭐ E16.2（运行历史）：必须明标“步骤由消息序列派生” ＋ 端点未就绪要明示 ＋ 原始错误位
+    if '消息序列派生' not in html:
+        bad.append('历史未明标“由消息序列派生（近似）”✗（E16.2 ✓ ⛔ 不冒充精确步骤 ✗）')
+    if '未就绪' not in html:
+        bad.append('端点未就绪时未明示 ✗（⛔ 不空白 ✗）')
+    if '原始错误' not in html:
+        bad.append('历史无“原始错误”展示位 ✗（E16.2 ✓）')
+
     return bad
 
 
@@ -164,6 +189,9 @@ def _mutations(html: str) -> list:
     out.append(('拿掉“会改文件”提示', html.replace('现在会改文件', '随便改改')))
     out.append(('Plan 也推进（拿掉 Act 拦截）', html.replace("pmMode() !== 'act'", "pmMode() !== 'actX'")))
     out.append(('拿掉 actions 事前置灰', html.replace('j.actions === false', 'j.actionsX === false')))
+    out.append(('把两个动作并回单一发起键', html.replace('id="starter-queue"', 'id="starter-send"')))
+    out.append(('不显式传 mode', html.replace('mode: mode', 'mode: undefined')))
+    out.append(('历史抽掉“派生”标注', html.replace('消息序列派生', '步骤'))) 
     return out
 
 

@@ -195,9 +195,11 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   sec('【7】A2/D6-2 首屏起手区 ＋ A3/D6-1 向导');
   const s7 = await pg.evaluate(() => {
     const st = document.getElementById('starter'), i = document.getElementById('starter-input');
-    const sd = document.getElementById('starter-send'), one = document.getElementById('starter-mode-single');
+    const sd = document.getElementById('starter-queue'), sd2 = document.getElementById('starter-interrupt');
+    const one = document.getElementById('starter-mode-single');
     const rd = document.getElementById('starter-mode-round'), g = document.getElementById('guide');
     return { has: !!st, disabled: !!(i && i.disabled), sendDisabled: !!(sd && sd.disabled),
+             interruptDisabled: !!(sd2 && sd2.disabled),
              singleOn: !!(one && one.classList.contains('on')),
              roundOff: !!(rd && rd.classList.contains('off')),
              cards: ['starter-card-resume', 'starter-card-pending', 'starter-card-matrix']
@@ -209,7 +211,8 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
                         && document.getElementById('starter-pm-act').classList.contains('on'),
              actWarnHidden: !!(document.getElementById('starter-act-warn') || {}).hidden };
   });
-  ok('起手区齐备且可用（容器＋输入框＋发起钮）', s7.has && !s7.disabled && !s7.sendDisabled, s7);
+  ok('起手区齐备且可用（容器＋输入框＋**两个明确动作**）',
+     s7.has && !s7.disabled && !s7.sendDisabled && !s7.interruptDisabled, s7);
   ok('⭐ 默认参与＝单点（**不选模型也能发起** ✓）', s7.singleOn && s7.roundOff, s7);
   ok('三张起手卡齐备（继续议题/待办/矩阵）', s7.cards === 3, s7);
   ok('首次向导存在且**可跳过**（⛔ 不挡路 ✗）', s7.guide && s7.guideSkippable, s7);
@@ -229,6 +232,20 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
     warnHidden: !!document.getElementById('starter-act-warn').hidden,
     planOn: document.getElementById('starter-pm-plan').classList.contains('on') }));
   ok('切回 Plan → 提示收回且 Plan 为主态', s7d.warnHidden && s7d.planOn, s7d);
+
+  // ⭐ B5/E15 ＋ B7/E16：队列区与运行历史（只读端点 ✓；两个区块必存在且**未就绪要明示** ✓）
+  const s8 = await pg.evaluate(() => ({
+    qbox: !!document.getElementById('qbox'), hbox: !!document.getElementById('hbox'),
+    qnote: ((document.getElementById('q-note') || {}).textContent || '').trim(),
+    hnote: ((document.getElementById('h-note') || {}).textContent || '').trim(),
+    qhtml: ((document.getElementById('q-list') || {}).textContent || '').trim(),
+    hhtml: ((document.getElementById('h-list') || {}).textContent || '').trim()
+  }));
+  ok('队列区与运行历史区均存在', s8.qbox && s8.hbox, s8);
+  ok('⭐ 队列区给出状态（已暂停/运行中/空闲 或 端点未就绪 ✓ ⛔ 不空白 ✗）',
+     s8.qnote.length > 2 && s8.qhtml.length > 0, s8);
+  ok('⭐ 历史区给出说明（含“派生”字样 ✓ ⛔ 不冒充精确步骤 ✗）',
+     /派生/.test(s8.hnote) || /未就绪|还没有/.test(s8.hnote), s8);
   // ⚠️ 实测踩坑：`.banner{display:flex}` 会盖掉 `[hidden]` → 服务在跑、横条却一直显示 ✗
   const s7b = await pg.evaluate(() => {
     const b = document.getElementById('conn-banner');
