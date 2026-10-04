@@ -139,6 +139,11 @@ def check(html: str) -> list:
     if not re.search(r"pmMode\(\)\s*!==\s*'act'", reg):
         bad.append('⛔ Plan 态未拦截 `step` ✗ —— 那就成了“只读讨论也会改文件” ✗')
 
+    # ⑪ ⭐ E13.3 完全体：必须据 `/api/health.actions` **事先**置灰 ✓（⛔ 只靠 403 事后补救不够 ✗）
+    if not re.search(r"j\.actions\s*===\s*false", reg):
+        bad.append('未据 `/api/health.actions` **事先**置灰 ✗（E13.3 完全体要求 ✓）—— '
+                   '⛔ 只靠 403 事后补救＝仍是“调了才发现” ✗')
+
     return bad
 
 
@@ -157,6 +162,7 @@ def _mutations(html: str) -> list:
     out.append(('默认态改成 Act', html.replace('class="on" data-pm="plan"', 'data-pm="plan"')))
     out.append(('拿掉“会改文件”提示', html.replace('现在会改文件', '随便改改')))
     out.append(('Plan 也推进（拿掉 Act 拦截）', html.replace("pmMode() !== 'act'", "pmMode() !== 'actX'")))
+    out.append(('拿掉 actions 事前置灰', html.replace('j.actions === false', 'j.actionsX === false')))
     return out
 
 

@@ -622,7 +622,17 @@
         return r.json();
       })
       .then(function (j) {
+        // ⭐ E13.3 完全体：据 `GET /api/health` 的**只读字段 `actions`** **事先**置灰 ✓
+        //   （电脑侧 `ff0c7d5` 已加该字段 ✓）⇒ ⛔ 不必“调了才发现” ✗
+        var off = (j && j.actions === false);
+        actionsOff = off;
         setConn('ok', 'seq=' + ((j && j.seq !== undefined) ? j.seq : '?'));
+        if (off) {
+          var sd = $('starter-send');
+          if (sd) { sd.title = '动作面未开启：服务端未开 --enable-actions'; }
+          $('starter-hint').textContent = '⛔ 动作面未开启（服务端未开 --enable-actions ✓）⇒ 发起已**事先**置灰 ✓；'
+            + '要用请按上面「怎么起协作台」加上 --enable-actions 再重启服务 ✓';
+        }
       })
       .catch(function (e) {
         var why = (e && e.name === 'AbortError') ? '探测超时 4s'
@@ -757,8 +767,7 @@
         if (/403/.test(m) && /(动作端点未开启|enable-actions)/.test(m)) {
           markActionsOff('需服务端 --enable-actions（默认只读 ✓）');
           return;
-        }
-        err('发起失败：' + m);                  // ⛔ 不静默 ✗
+        }        err('发起失败：' + m);                  // ⛔ 不静默 ✗
       })
       .then(function () { send.disabled = !starterReady; });
   }
