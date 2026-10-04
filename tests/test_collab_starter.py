@@ -107,6 +107,11 @@ def check(html: str) -> list:
         if u not in ALLOWED:
             bad.append('起手区出现白名单外端点 %s ✗（⛔ 不得为起手区新增端点 ✗）' % u)
 
+    # ⑦ ⭐ hidden 必须真的生效（实测踩坑：`.banner{display:flex}` 优先级高于 `[hidden]` ✗）
+    if '.banner[hidden]' not in html:
+        bad.append('⛔ `.banner[hidden]` 未显式声明 ✗ —— `display:flex` 会盖掉 `hidden` → '
+                   '服务明明在跑、“服务没在跑”横条却一直显示 ✗（已实测踩过 ✓）')
+
     return bad
 
 
@@ -118,6 +123,7 @@ def _mutations(html: str) -> list:
     out.append(('删掉向导"跳过"', html.replace('id="guide-skip"', 'id="guide-skip-x"', 1)))
     out.append(('换成白名单外端点', html.replace("post('/api/interrupt'", "post('/api/startturn'", 1)))
     out.append(('拿掉一个空面板指引', html.replace('howEmpty(', 'howEmptyX(', 1)))
+    out.append(('拿掉 hidden 生效规则', html.replace('.banner[hidden]', '.banner[hidden-x]', 1)))
     return out
 
 

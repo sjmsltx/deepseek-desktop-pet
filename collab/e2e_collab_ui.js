@@ -208,6 +208,13 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   ok('⭐ 默认参与＝单点（**不选模型也能发起** ✓）', s7.singleOn && s7.roundOff, s7);
   ok('三张起手卡齐备（继续议题/待办/矩阵）', s7.cards === 3, s7);
   ok('首次向导存在且**可跳过**（⛔ 不挡路 ✗）', s7.guide && s7.guideSkippable, s7);
+  // ⚠️ 实测踩坑：`.banner{display:flex}` 会盖掉 `[hidden]` → 服务在跑、横条却一直显示 ✗
+  const s7b = await pg.evaluate(() => {
+    const b = document.getElementById('conn-banner');
+    return { hidden: !!(b && b.hidden), disp: b ? getComputedStyle(b).display : 'n/a' };
+  });
+  ok('⭐ 服务在跑 → “服务没在跑”横条**真的不显示**（hidden 生效 ✓）',
+     s7b.hidden && s7b.disp === 'none', s7b);
 
   await br.close();
   sec('汇总');

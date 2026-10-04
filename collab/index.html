@@ -63,6 +63,12 @@
   .step .t{font-size:12.5px;font-weight:600}
   .step .d{font-size:11.5px;color:var(--ink3);line-height:1.5}
   .banner{border:1px solid #e6ccae;background:var(--warn-soft);color:var(--warn);padding:9px 11px;border-radius:3px;font-size:13px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+  /* ⚠️ 实测踩坑（2026-10-04）：`.banner{display:flex}` 的优先级高于 UA 的 `[hidden]{display:none}`
+     ⇒ 服务明明在跑，顶部“服务没在跑”横条却**一直显示** ✗（截图当场逮住 ✓）
+     ⇒ 必须显式把 hidden 拉回来 ✓（其它带 display 的自定义类同理 ✓） */
+  .banner[hidden]{display:none}
+  .guide[hidden]{display:none}
+  .starter[hidden]{display:none}
   .howempty{text-align:center;color:var(--ink3);padding:16px 8px}
   .howempty .t{font-family:var(--serif);font-size:14.5px;color:var(--ink2);margin:4px 0 3px}
   .howempty .h{font-family:var(--mono);font-size:11.5px}
