@@ -208,3 +208,23 @@ def test_contract_appendix_e11_write_layers_in_place():
         '⛔ 窄写端点必须排在 403 闸门之前 ✗'
     assert seg.index("'/api/pending'") < seg.index('not ACTIONS_ALLOWED'), \
         '⛔ 顺序反了：窄写端点会受 --enable-actions 影响 ✗'
+
+
+# ── 6g. ⭐ E13（发起一轮＝interrupt＋step 组合）／E14（共存与可移植性原则）──
+def test_contract_appendix_e13_e14_in_place():
+    m = _read('docs/3.0-M1-API契约-冻结v1.md')
+    assert 'E13' in m and '发起一轮' in m, 'E13 未落盘 ✗'
+    assert 'interrupt' in m and 'step' in m
+    # ⭐ E13 的核心：不新增端点 ✓ 且组合两步须可见 ✓
+    assert '不新增端点' in m and '两步' in m
+    assert '默认关' in m and '置灰' in m, '⭐ 动作面默认关的呈现未写入 ✗'
+    assert 'E14' in m and '可移植性' in m, 'E14 未落盘 ✗'
+    # ⭐ E14 8 条里最要紧的几条
+    for kw in ('线名', 'mtime', '不是自己建', '同一语义', '加锁',
+               '不假定任何外部库存在', '未初始化', '门禁'):
+        assert kw in m, '⭐ E14 缺关键条目：%s ✗' % kw
+    # ⭐ 代码侧双向钉：三个动作端点确实存在且受开关管 ✓
+    srv = io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    for p in ('/api/interrupt', '/api/step', '/api/resume'):
+        assert p in srv
+    assert 'if not ACTIONS_ALLOWED' in srv, '⭐ 动作面 403 闸门必须还在 ✗'
