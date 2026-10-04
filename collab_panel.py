@@ -38,7 +38,7 @@ def _server_script(base_dir: str) -> str:
 
 
 def open_collab(base_dir: str, port: int = DEFAULT_PORT, allow_start: bool = False,
-                timeout_ready: int = 12, poll: float = 0.3):
+                start_budget: int = 40, poll: float = 0.3, timeout_ready: int = None):
     """打开协作台窗口。返回 `(ok, 说明)` ✓。
 
     ⛔ `allow_start=False`（默认）：服务没跑就**立刻返回** ✗ 不擅自启动 ✓（由用户确认后再来 ✓）
@@ -59,14 +59,14 @@ def open_collab(base_dir: str, port: int = DEFAULT_PORT, allow_start: bool = Fal
         ok_spawn = _hp._spawn([sys.executable, script, '--log', log, '--port', str(port)])
         if not ok_spawn:
             return False, '启动协作台失败（spawn 被拒）'
-        deadline = time.time() + timeout_ready
+        deadline = time.time() + start_budget
         while time.time() < deadline:
             time.sleep(poll)                       # ⭐ 0.3s 粒度 ✓
             if _probe(port):
                 break
         if not _probe(port):
             return False, ('已尝试启动协作台，但 %d 秒内没起来 —— 请手动跑一次看提示：'
-                           'python collab\\relay_server.py --port %d' % (timeout_ready, port))
+                           'python collab\\relay_server.py --port %d' % (start_budget, port))
     url = 'http://127.0.0.1:%d/' % port
     for name, paths in _hp.BROWSERS:
         for exe in paths:

@@ -74,9 +74,15 @@ def test_panel_signature_spec():
     #    10s 那次真的线上失败 ✗）⇒ 护栏与实现**脱钩** → 全量**红了一条**而没人看见 ✗
     #    ⇒ ⭐ 改为**下限**：只锁"够冷启动用"这一契约（19s → 留 1.5x 余量），
     #    ⛔ 不再写死具体数字 ✗（否则改一次值就要改一次护栏，护栏反成噪声 ✗）
-    assert p['timeout_ready'].default >= 30, \
-        '⭐ 超时下限须 ≥30s（冷启动实测 ~19s，见 876d17b）✓ 当前 %r' % p['timeout_ready'].default
-    assert p['poll'].default == 0.3, '⭐ 轮询粒度 0.3s ✓'
+    # ⭐ 再修正（电脑侧 2026-10-04 19:5x，A5/D1-2）：把"启动预算"与"失败判定"**拆成两参**后 ✗，
+    #    `timeout_ready` 只作**兼容别名**（默认 None ✗）→ 原断言 `None >= 30` 会 **TypeError** ✗。
+    #    ⇒ ⭐ 断言改到真参数 `start_budget` ✓，并同样**只锁契约**（够冷启动用 ✓ 实测 ≈19s）✗ 不写死 ✓
+    assert p['start_budget'].default >= 20, \
+        '⭐ 启动预算下限须 ≥20s（冷启动实测 ~19s ✓ 见 876d17b）当前 %r' % p['start_budget'].default
+    assert p['probe_timeout'].default <= 10, \
+        '⭐ 单次探测应短（≤10s ✓）当前 %r' % p['probe_timeout'].default
+    assert p['poll'].default <= 1.0, \
+        '⭐ 轮询粒度应细（≤1s ✓）当前 %r' % p['poll'].default
 
 
 # ── 4. ⭐ 探针有牙：旧实现用同一套检查**必须**判红 ✗ ───────────────────

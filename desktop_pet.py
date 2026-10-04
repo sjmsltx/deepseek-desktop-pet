@@ -247,6 +247,7 @@ UI_ZH = {
     'dsh_panel': '🐳 打开 DSH 面板（3.0）', 'dsh_panel_fail': '🫧 DSH 面板打不开：',
         'dsh_opening': '⏳ 正在打开 DSH…（后台进行，不卡界面）',
         'dsh_starting': '⏳ DSH 服务没在运行，正在启动它（约 10~30 秒，界面不会卡）…',
+        'confirm_timeout_note': '⚠️ 等了你 %(s)d 秒没回应（可能窗口被挡住）→ 已按「不确认」处理，随时可以再点一次 ✓',
         'dsh_starting_long': '⏳ DSH 正在启动中，请稍等（首次约 20~40 秒，界面不会卡）…',
         'dsh_start_ask': 'DSH 服务没在运行。\n\n是否现在启动它？（约 10~30 秒，期间界面不会卡）',
         'dsh_start_cancelled': '已取消：没有启动 DSH（服务未运行）。',
@@ -293,6 +294,7 @@ UI_EN = {
     'dsh_panel': '🐳 Open DSH panel (3.0)', 'dsh_panel_fail': '🫧 Cannot open DSH panel: ',
         'dsh_opening': '⏳ Opening DSH… (background, UI stays responsive)',
         'dsh_starting': '⏳ DSH service not running; starting it (10-30s, UI stays responsive)…',
+        'confirm_timeout_note': '⚠️ No answer in %(s)ds (window may be covered) → treated as "No"; you can click again anytime ✓',
         'dsh_start_ask': 'DSH service is not running.\n\nStart it now? (about 10-30s, UI will not freeze)',
         'dsh_start_cancelled': 'Cancelled: DSH was not started (service not running).',
         'dsh_panel_missing': '🐳 DSH panel (⚠️ DSH not detected; install it or set DSH_ROOT)',
@@ -2205,7 +2207,26 @@ class PetWidget(QWidget):
                 result['ok'] = False
             evt.set()
         self.confirm_signal.emit(ask)
-        evt.wait(timeout=120)
+        # ⭐ A9（D2-2）：⭐ **不得长挂** ✗ —— 界面被遮挡/无可窗口/主线程忙时，
+        #    旧实现要卡满 120 秒 ✗（用户视角＝程序死了 ✗）。
+        #    现：budget 可配（默认 30s ✓）；⭐ 超时**明说**并按「不确认」处理 ✗ 不静默挂住 ✓。
+        budget = 30.0
+        try:
+            budget = float((getattr(self, 'config', {}) or {}).get('confirm_timeout_s') or 30)
+        except Exception as _e:
+            _silent_log('_request_confirm.budget', _e)
+        got = evt.wait(timeout=budget)
+        if not got:
+            # ⭐ 超时**必须留痕**（日志 ✓）＋ **对用户可见**（状态条 ✓）✗ 不静默 ✓
+            # ⭐ 直接落痕 ✗ 不再套 try（我上一版这里是 `except: pass` ✗
+            #    —— 在"给失败留痕"的代码里写静默 pass ✓ 被对方护栏当场抓出 ✓）
+            _silent_log('_request_confirm.timeout', RuntimeError(
+                '确认框 %.0fs 未回应 → 按「不确认」处理' % budget))
+            try:
+                self._notify(self._t('confirm_timeout_note') % {'s': int(budget)}, ms=8000)
+            except Exception as _e:
+                _silent_log('_request_confirm.notify', _e)
+            return False
         return result['ok']
 
     # ============ 记忆管理 UI（v6.12） ============
@@ -8962,8 +8983,9 @@ class PetWidget(QWidget):
                 except Exception as _e:
                     _silent_log('_collab_worker.notify', _e)
             ok, msg = open_collab(base, port=port, allow_start=(not running),
-                                  timeout_ready=40, poll=0.3)
+                                  start_budget=40, poll=0.3)
         except Exception as exc:
+            _silent_log('_collab_worker.exc', exc)      # ⭐ 显式落痕（护栏要求 ✓）
             ok, msg = False, repr(exc)
         finally:
             try:
@@ -8999,8 +9021,9 @@ class PetWidget(QWidget):
             # ⭐⭐ 实测（2026-10-04 03:2x ✓）：DSH 服务从冷启动到监听 3080 **需要约 19 秒** ✗ ——
             #    而我此前把超时压到 10 秒 ✗ → **不等它起完就放弃** ✗ → 用户看到"拉了没用" ✗。
             #    ⭐ 现改为**最多等 40 秒** ✓（0.3s 轮询 ✓ 一旦就绪立刻返回 ✓ 不会白等 ✓）
-            ok, msg = open_panel(allow_start=(not running), timeout_ready=40, poll=0.3)
+            ok, msg = open_panel(allow_start=(not running), start_budget=40, poll=0.3)
         except Exception as exc:
+            _silent_log('_dsh_open_worker.exc', exc)    # ⭐ 显式落痕（护栏要求 ✓）
             ok, msg = False, repr(exc)
         finally:
             try:
