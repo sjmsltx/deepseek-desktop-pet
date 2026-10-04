@@ -61,7 +61,41 @@ def _unparse(node):
         return repr(node)
 
 
+def _scope_of(tree):
+    """`id(node) → 限定名`（如 `PetWindow._request_confirm` ✓）—— 用于指纹 ✓
+
+    ⭐ 为何要它：⭐ 改用"只哈希 handler"后，**同文件里两处文字完全一样的 `except Exception: pass`**
+    会得到**同一个指纹** ✗ ⇒ ⭐ "新增一处"会被当成存在 ✓ ⇒ 护栏被削弱 ✗
+    ⇒ ⭐ 把**所在函数/类的限定名**一起纳入指纹 ✓：
+       · ⭐ 改 try 体 ⇒ 限定名与 handler 文字都没变 ⇒ **不误报** ✓
+       · ⭐ 新增长处 ⇒ 限定名不同（或在同函数的第二次出现会被记为同指纹 ✗ 可接受边界 ✓）⇒ **能报到** ✓
+    """
+    out = {}
+
+    def walk(node, prefix):
+        for child in ast.iter_child_nodes(node):
+            name = getattr(child, 'name', None)
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and name:
+                q = (prefix + '.' + name) if prefix else name
+                out[id(child)] = q
+                walk(child, q)
+            else:
+                out[id(child)] = prefix
+                walk(child, prefix)
+
+    walk(tree, '')
+    return out
+
+
 def _key_hash(node):
+    """指纹（用于"基线冻结 ＋ 只判新增"✓）—— 传入的应是 **handler**（或 `'限定名|handler源码'` 串 ✓）
+
+    ⚠️ 实测踩坑（2026-10-04，电脑侧 `PC-…-137` §三 实证并给出一行改 ✓）：
+        ⭐ 原实现传的是**整个 `Try` 节点** ✗ ⇒ ⭐ **只要改 try 体（哪怕只加一行正常代码 ✓）**，
+        该 handler 的指针就变了 ⇒ **一律被判成"新增"** ✗ ⇒ 误报会随改动**累积** ✗
+        ⇒ ⭐ 改为**只哈希 handler 自身** ✓（不含 try 体 ✓）：
+        ⭐ "改 try 体"不再误报 ✓；而"**改 handler 的吞异常写法**"仍会被抓到 ✓
+    """
     return hashlib.sha1(_unparse(node).encode('utf-8')).hexdigest()[:10]
 
 
@@ -112,17 +146,20 @@ def scan_source(src, fname):
         out.append({'file': fname, 'line': getattr(exc, 'lineno', 0) or 0,
                     'kind': 'parse-error', 'snippet': repr(exc), 'key': 'parse-error'})
         return out
+    scope = _scope_of(tree)                        # ⭐ 限定名表（指纹用 ✓）
     for node in ast.walk(tree):
         if not isinstance(node, ast.Try):
             continue
+        qual = scope.get(id(node), '')
         for h in node.handlers:
+            fp = _key_hash('%s|%s' % (qual, _unparse(h)))      # ⭐ 限定名 ＋ handler 源码 ✓
             if _is_pass_only(h):
                 kind = 'optional-import' if _is_optional_import(h) else 'except-pass'
                 out.append({'file': fname, 'line': h.lineno, 'kind': kind,
-                            'snippet': _unparse(node)[:160], 'key': _key_hash(node)})
+                            'snippet': _unparse(node)[:160], 'key': fp})
             elif len(node.body) >= BROAD_N and not _handler_logs_reason(h):
                 out.append({'file': fname, 'line': h.lineno, 'kind': 'broad-swallow',
-                            'snippet': _unparse(node)[:160], 'key': _key_hash(node)})
+                            'snippet': _unparse(node)[:160], 'key': fp})
     return out
 
 
@@ -205,6 +242,39 @@ def test_no_new_silent_spots():
                      '⭐ 处置：落 reason（`_silent_log` / `raise` / 日志）✓，'
                      '⛔ 不许直接 `--freeze` ✗（须在 PR 说明为何无法落痕 ✗）'
                      % (len(new), len(known), detail))
+
+
+def test_key_不受try体改动影响():
+    """⭐ 回归：改 **try 体**不得改变指纹 ✓（电脑侧 `PC-…-137` 实证的误报源 ✓）
+
+    ⭐ 而**改 handler 的吞异常写法**必须改变指纹 ✓（否则"把 pass 换成 log"会被当成新点 ✓ 或反过来放过 ✗）
+    """
+    def keys(src):
+        return sorted(i['key'] for i in scan_source(src, 't.py'))
+
+    base = ('def f():\n    try:\n        a = 1\n        b = 2\n        c = 3\n        d = 4\n'
+            '    except Exception:\n        pass\n')
+    body_changed = ('def f():\n    try:\n        a = 1\n        b = 2\n        c = 3\n        d = 4\n'
+                    '        e = 5\n    except Exception:\n        pass\n')
+    h_changed = ('def f():\n    try:\n        a = 1\n        b = 2\n        c = 3\n        d = 4\n'
+                 '    except Exception:\n        print(1)\n')
+    assert keys(base) and keys(base) == keys(body_changed), \
+        '⭐ 改了 try 体就变了指纹 ✗ —— 会造成"改动累积误报"✗'
+    assert keys(h_changed) != keys(base), '⭐ 改了 handler 指纹却没变 ✗ —— 那就抓不到真改动 ✗'
+
+
+def test_key_区分同文件不同函数里的同款handler():
+    """⭐ 回归：同文件里两处**文字完全一样**的 `except Exception: pass` 必须**指纹不同** ✓
+
+    （若不加限定名 ⇒ 新增一处会被当成"已存在"⇒ 护栏被削弱 ✗）
+    """
+    src = ('def a():\n    try:\n        x = 1\n        y = 2\n        z = 3\n        w = 4\n'
+           '    except Exception:\n        pass\n'
+           'def b():\n    try:\n        x = 1\n        y = 2\n        z = 3\n        w = 4\n'
+           '    except Exception:\n        pass\n')
+    keys = [i['key'] for i in scan_source(src, 't.py')]
+    assert len(keys) == 2, keys
+    assert keys[0] != keys[1], '⭐ 两处同款 handler 指纹相同 ✗ —— 新增会被漏报 ✗'
 
 
 def test_no_new_broad_swallow():
