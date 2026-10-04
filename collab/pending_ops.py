@@ -321,8 +321,36 @@ def done_op_ids(base_dir: str = '') -> set:
             if r.get('op_id') and not r.get('dry_run') and r.get('ok')}
 
 
+# ── ⭐ E14.1 后半：产品**自动**给产出补线名（⛔ 不靠人记 ✗）──────────────────
+DEFAULT_LINE = 'PC'          # ⭐ 本侧默认线名（runner 跑在电脑侧 ✓）
+
+
+def product_line(base_dir: str = '') -> str:
+    """线名：优先环境变量 `AC_COLLAB_LINE` ✓ → 再 `<base>/collab/config.json` 的 `collab_line` ✓
+    → 兜底 `DEFAULT_LINE` ✓（⛔ 不静默失败 ✗：读不到就用默认 ✓ 且有默认值可判 ✓）。"""
+    try:
+        v = os.environ.get('AC_COLLAB_LINE', '').strip()
+        if v:
+            return v
+    except Exception as exc:
+        print('  ℹ️ 读环境变量 AC_COLLAB_LINE 失败：%r' % (exc,))     # ⭐ 落痕 ✓
+    try:
+        import json as _json
+        p = os.path.join(str(base_dir or os.path.dirname(os.path.abspath(__file__))),
+                         'config.json')
+        if os.path.isfile(p):
+            with open(p, encoding='utf-8') as fh:
+                d = _json.load(fh) or {}
+            v = str(d.get('collab_line') or '').strip()
+            if v:
+                return v
+    except Exception as exc:
+        print('  ℹ️ 读 collab/config.json 失败：%r' % (exc,))          # ⭐ 落痕 ✓
+    return DEFAULT_LINE
+
+
 def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',
-                  dry_run: bool = False, artifacts=None) -> str:
+                  dry_run: bool = False, artifacts=None, line: str = '') -> str:
     """⭐ 追加一条结果（**只追加** ✗ 不改旧行 ✓；E1⑥ 失败也必须落 ✓）。
 
     ⭐ `dry_run=True`：预演结果也落盘 ✓（口径 ③ ✓）—— ⭐ 但它**不算已消费** ✗，
@@ -330,6 +358,10 @@ def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base
     """
     rec = {'op_id': str(op_id), 'ok': bool(ok), 'reason': str(reason or ''),
            'detail': str(detail or '')[:2000], 'ts': int(time.time() * 1000)}
+    # ⭐ E14.1 后半（产品自动补线名 ✓）：⛔ 不靠人记 ✗ —— 结果行自带"哪条线跑的" ✓
+    _ln = str(line or product_line()).strip()
+    if _ln:
+        rec['line'] = _ln
     if dry_run:
         rec['dry_run'] = True
     if artifacts:

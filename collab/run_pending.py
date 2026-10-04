@@ -133,11 +133,11 @@ def run(base: str, dry: bool = False) -> dict:
         stats['rows'].append({'op_id': oid, 'type': t, 'ok': ok, 'why': why or detail})
         if not dry:
             pending_ops.append_result(oid, ok, reason=why, detail=detail, dry_run=False,
-                                      artifacts=arts,
+                                      artifacts=arts, line=pending_ops.product_line(base),
                                       base_dir=os.path.join(base, 'collab', 'pending'))
         elif dry:                                              # ⭐ ③ dry-run 也落结果 ✓
             pending_ops.append_result(oid, ok, reason=why, detail=detail, dry_run=True,
-                                      artifacts=arts,
+                                      artifacts=arts, line=pending_ops.product_line(base),
                                       base_dir=os.path.join(base, 'collab', 'pending'))
     return stats
 

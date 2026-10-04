@@ -216,3 +216,69 @@ def test_a4_guard_has_teeth():
     src = ('def is_ready(port, base_dir=""):\n'
            '    return bool(ready_info(base_dir))\n')      # ⛔ 只看标记 ✗
     assert '_probe' not in src, '⭐ 探针须能识别"只看标记"这一退化 ✓'
+
+
+# ── E13.3 ⭐ `/api/health` 只读 `actions`（界面据此**事先置灰** ✗ 不必调了才发现 ✓）──
+def test_health_exposes_actions_flag():
+    import json
+    import threading
+    import time
+    import urllib.request
+    import relay_log
+    import relay_server
+    import tempfile as _tf
+    base = _tf.mkdtemp(prefix='hz_')
+    import os as _os
+    _os.makedirs(_os.path.join(base, 'collab', 'pending'))
+    for flag, want in ((False, False), (True, True)):
+        lg = relay_log.RelayLog(_os.path.join(base, 'l%s.jsonl' % flag))
+        httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='',
+                                                 enable_actions=flag)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        time.sleep(0.3)
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/health' % port, timeout=3) as fh:
+            d = json.loads(fh.read().decode('utf-8'))
+        httpd.shutdown()
+        assert d.get('actions') is want, '⭐ actions 必须如实反映开关（E13.3 ✗）：%r' % d
+
+
+def test_health_actions_is_read_only_field():
+    """⛔ `actions` 只读 ✗ —— 不得因它而新增写面 ✓（守 C1 ✓）。"""
+    s = io.open(os.path.join(REPO, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    # ⚠️ 坑（本用例第一版踩过 ✗）：`s.index("/api/health")` 命中的是**文档字符串**里的那行 ✗
+    #    → 段落里当然有 `os.` ✓ → 断言假红 ✓ ⇒ ⭐ 必须定位 **handler**（`if path == …`）✓
+    i = s.index("if path == '/api/health'")
+    seg = s[i:i + 420]
+    assert 'ACTIONS_ALLOWED' in seg, '⭐ 必须由全局开关派生 ✓'
+    assert 'write' not in seg.lower() and 'os.' not in seg, '⛔ health 不得写盘 ✗'
+
+
+# ── E14.1 后半 ⭐ 结果行**自动带线名**（⛔ 不靠人记 ✗）───────────────────
+def test_result_rows_carry_line_name():
+    import json
+    import tempfile as _tf
+    import pending_ops
+    d = os.path.join(_tf.mkdtemp(prefix='ln_'), 'collab', 'pending')
+    os.makedirs(d)
+    assert pending_ops.product_line(d), '⭐ 必须总有线名（有默认 ✓ 不返回空 ✗）'
+    pending_ops.append_result('x0001', True, base_dir=d, line='PC')
+    row = pending_ops.read_results(d)[0]
+    assert row.get('line') == 'PC', '⭐ 结果行应带线名 ✓：%r' % row
+
+
+def test_result_line_defaults_when_not_passed():
+    """⛔ 不传也要有默认线名 ✗（产品补 ✓ 不靠调用方记得 ✗）。"""
+    import tempfile as _tf
+    import pending_ops
+    d = os.path.join(_tf.mkdtemp(prefix='ln2_'), 'collab', 'pending')
+    os.makedirs(d)
+    pending_ops.append_result('y0001', False, reason='x', base_dir=d)   # ⭐ 不传 line ✓
+    row = pending_ops.read_results(d)[0]
+    assert row.get('line'), '⭐ 未显式传 line 时也必须有默认值 ✗：%r' % row
+
+
+# ── 有牙证明 ──────────────────────────────────────────────────────────
+def test_e14_line_guard_has_teeth():
+    # ⭐ 若实现退化成"只有显式传才有 line" ✗，上面的默认用例会红 ✓
+    assert 'line: str' in io.open(os.path.join(REPO, 'collab', 'pending_ops.py'),
+                                  encoding='utf-8').read(), '⭐ 签名须含 line ✓'

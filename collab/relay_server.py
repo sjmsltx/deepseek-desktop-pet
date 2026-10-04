@@ -15,7 +15,7 @@
   GET /api/inbox?agent=<a>&layer=L1|L2|L3    → Msg[]        （同 RelayLog.inbox）
   GET /api/snapshot                          → dict         （同 RelayLog.snapshot）
   GET /api/log.jsonl                         → text/plain   （原始日志，真相源）
-  GET /api/health                            → {ok, path, seq, msgs}
+  GET /api/health                            → {ok, path, seq, msgs, actions}（actions=E13.3 ✓）
   GET /api/assets                            → {role:{state:{white,chroma,alpha}}}（条款 IV E3 ✓）
   GET /api/pending                           → {pending:[…], results:[…]}（只读 ✓ 不含路径 ✗）
   POST /api/pending                          → 窄写端点：只落 collab/pending/（条款 IV E1 ✓）
@@ -420,7 +420,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/health':
             return self._json({'ok': True, 'log': self.log.path,
                                'seq': self.log.snapshot()['seq'],
-                               'msgs': len(self.log.replay())})
+                               'msgs': len(self.log.replay()),
+                               # ⭐ E13.3 完全体：⭐ **只读**告知动作面开没开 ✓
+                               #    ⇒ 界面可据此**事先置灰** ✗ 不必"调了才发现" ✓
+                               'actions': bool(ACTIONS_ALLOWED)})
 
         if path == '/api/snapshot':
             return self._json(self.log.snapshot())
