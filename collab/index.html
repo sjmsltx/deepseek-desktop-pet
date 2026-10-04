@@ -305,7 +305,9 @@
 <!-- ⭐ A3/D6-1：首次向导（5 步，可跳过；只占一块不遮挡面板）-->
 <div class="guide" id="guide" hidden>
   <h3>👋 第一次用？五步就能跑起来</h3>
-  <div class="hint">⭐ 不用先配多模型 —— 默认「单点」即可发起 ✓；圆桌/多模型是「可选项」✓</div>
+  <div class="hint">⭐ 不用先配多模型 —— 默认「单点」即可发起 ✓；圆桌/多模型是「可选项」✓<br>
+  ⭐ 第 0 步（可选但推荐）：先在终端跑 <code>python collab\init_channel.py --base . --check</code> ——
+  未就绪就加 <code>--apply</code> 建通道目录 ＋ <code>COLLAB.md</code>（⛔ 不初始化 ⇒ 两条线的产出会互相覆盖 ✗）</div>
   <div class="steps" id="guide-steps"></div>
   <div class="srow">
     <button id="guide-next">▶ 下一步</button>
@@ -352,7 +354,10 @@
   ⭐ <b>怎么起协作台</b>：① 右键桌宠菜单 →「<b>🍵 打开协作台</b>」（本机 <code>127.0.0.1:8792</code> ✓ 绝不上网 ✓）；
   ② 或手动：<code>python collab\relay_server.py --port 8792</code> ✓；
   ③ 端口可在 <code>config.json</code> 的 <code>collab_port</code> 改 ✓。<br>
-  ⚠️ 投递的待办<b>须人触发</b>才真执行：<code>python collab\run_pending.py --base .</code> ✓（终端里跑 ✓）
+  ⚠️ 投递的待办<b>须人触发</b>才真执行：<code>python collab\run_pending.py --base .</code> ✓（终端里跑 ✓）<br>
+  ⭐ <b>第 0 步·初始化通道</b>：<code>python collab\init_channel.py --base . --check</code>（看缺什么 ✓）；
+  未就绪则 <code>--apply</code> 建（建目录 ＋ 落 <code>COLLAB.md</code> 约定 ✓ 默认 dry-run ✗ 不加 <code>--apply</code> 不写盘 ✓）——
+  ⭐ <b>未初始化时产出会散在同一个目录里、极易被另一条线静默覆盖</b> ✗
 </div>
 
 <div class="opsbox" id="opsbox">

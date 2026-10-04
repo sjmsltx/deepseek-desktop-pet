@@ -112,6 +112,11 @@ def check(html: str) -> list:
         bad.append('⛔ `.banner[hidden]` 未显式声明 ✗ —— `display:flex` 会盖掉 `hidden` → '
                    '服务明明在跑、“服务没在跑”横条却一直显示 ✗（已实测踩过 ✓）')
 
+    # ⑧ ⭐ A3+：通道初始化必须**在界面上被明示**（可移植性 P2）
+    if 'init_channel.py' not in html:
+        bad.append('界面未明示“第 0 步·初始化通道”（`init_channel.py` ✗）' +
+                   ' —— ⛔ 未初始化时产出会互相覆盖 ✗ 而用户根本不知道 ✓')
+
     return bad
 
 
@@ -124,6 +129,7 @@ def _mutations(html: str) -> list:
     out.append(('换成白名单外端点', html.replace("post('/api/interrupt'", "post('/api/startturn'", 1)))
     out.append(('拿掉一个空面板指引', html.replace('howEmpty(', 'howEmptyX(', 1)))
     out.append(('拿掉 hidden 生效规则', html.replace('.banner[hidden]', '.banner[hidden-x]', 1)))
+    out.append(('拿掉通道初始化指引', html.replace('init_channel.py', 'init_channel_x.py')))
     return out
 
 
