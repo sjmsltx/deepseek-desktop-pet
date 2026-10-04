@@ -220,6 +220,8 @@ class RelayLog:
         self.warnings: list = []
         self.issue: Optional[Issue] = None
         self.turn_no = 0
+        # ⭐ B5/B7：本轮的**起始 seq**（「排队/待处理」判据要用 ✓）
+        self.turn_start_seq = 0
         self.tokens = 0
         self.cost_micro = 0
         self.interrupted = False
@@ -288,6 +290,8 @@ class RelayLog:
                     tno = int(meta.get('turn_no') or 0)
                     if tno > self.turn_no:
                         self.turn_no = tno
+                        # ⭐ B5/B7：重载时也重建「本轮起始 seq」✓（否则刷新后队列判据失效 ✗）
+                        self.turn_start_seq = int(getattr(msg, 'seq', 0) or 0)
                     # ★ 状态必须能从日志重建("可回放"验收要求)
                     if msg.kind == 'system' and meta.get('arbitrate'):
                         self.concluded = True
@@ -385,6 +389,14 @@ class RelayLog:
         tno = int(meta.get('turn_no') or 0)
         if tno > self.turn_no:
             self.turn_no = tno
+            # ⭐ B5/B7：换轮 → 记「本轮起始 seq」（队列/待处理判据 ✓）
+            self.turn_start_seq = int(getattr(out, 'seq', 0) or 0)
+        # ⭐ B5/B7：每条消息的 meta 盖上轮次号（按轮分组 ⛔ 不靠猜 ✓）
+        try:
+            if isinstance(meta, dict):
+                meta.setdefault('turn_no', tno)
+        except Exception as exc:
+            print('  ℹ️ 盖轮次号失败：%r' % (exc,))     # ⭐ 落痕 ✓
         return out
 
     def deliver(self, msg):
@@ -443,6 +455,23 @@ class RelayLog:
     # ------------------------------------------------------------ 人类交互
     def _next_id(self, prefix: str) -> str:
         return '%s-%d' % (prefix, self._seq + 1)
+
+    def error(self, text: str, *, raw: str = '', meta: Optional[dict] = None) -> Msg:
+        """⭐ B7：把**关键路径失败**写进日志（`kind='error'` ✓ 带 `raw` ✓）。
+
+        ⭐ 目的：让运行历史能**展开到原始错误** ✗ —— 现状日志没有错误结构 ✗
+          （见 `PC-桌宠-20261004-139` §二 的诚实说明 ✓）。
+        ⛔ 不吞 ✗：调用方仍须自行处置异常 ✓，本方法只**记录** ✓。
+        """
+        m = dict(meta or {})
+        if raw:
+            m['raw'] = str(raw)[:4000]
+        m.setdefault('turn_no', self.turn_no)
+        return self.append({
+            'id': self._next_id('error'), 'channel': self._use_current_issue_channel,
+            'sender': 'system', 'recipients': [], 'kind': 'error',
+            'visibility': 'human', 'body': str(text)[:2000], 'meta': m,
+        })
 
     def interrupt(self, body: str):
         """人类插队:**立即进入暂停**(不再有新回合);绝不自动恢复。"""

@@ -282,3 +282,86 @@ def test_e14_line_guard_has_teeth():
     # ⭐ 若实现退化成"只有显式传才有 line" ✗，上面的默认用例会红 ✓
     assert 'line: str' in io.open(os.path.join(REPO, 'collab', 'pending_ops.py'),
                                   encoding='utf-8').read(), '⭐ 签名须含 line ✓'
+
+
+# ── ⭐ B5 队列 / B7 历史（我方后端半 ✓ 只读 ✓）──────────────────────────
+def _boot(tmp, enable_actions=False):
+    import relay_log
+    import relay_server
+    import threading
+    import time
+    lg = relay_log.RelayLog(str(tmp))
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='',
+                                             enable_actions=enable_actions)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    return lg, httpd, port
+
+
+def _get(port, u):
+    import json
+    import urllib.request
+    with urllib.request.urlopen('http://127.0.0.1:%d%s' % (port, u), timeout=3) as fh:
+        return json.loads(fh.read().decode('utf-8'))
+
+
+def test_b5_queue_endpoint(tmp_path):
+    """⭐ 真跑：空队列结构正确 ✓；插一句话后**出现在 queued** ✓。"""
+    import time
+    import uuid
+    lg, httpd, port = _boot(tmp_path / ('q%s.jsonl' % uuid.uuid4().hex[:6]))
+    try:
+        d = _get(port, '/api/queue')
+        for k in ('running', 'turn_no', 'interrupted', 'queued', 'queued_count'):
+            assert k in d, '⭐ B5 载荷缺字段 %s ✗' % k
+        assert d['queued_count'] == 0
+        assert lg.step().ok is not None          # ⭐ 起一轮（让 turn_start_seq 生效 ✓）
+        lg.turn_start_seq = int(lg.snapshot()['seq'])   # ⭐ 人为把"本轮起点"放到当前 ✓
+        lg.interrupt('先做 A 再做 B')
+        time.sleep(0.2)
+        d2 = _get(port, '/api/queue')
+        assert d2['queued_count'] >= 1, '⭐ 插话后应出现在待处理 ✓：%r' % d2
+        item = d2['queued'][-1]
+        assert item['preview'].startswith('先做 A'), item
+        assert item['channel'] is not None, '⭐ 归属会话应可见 ✓'
+        assert d2['interrupted'] is True, '⭐ 如实反映"已暂停"✗ 不谎称"排队执行"✓'
+    finally:
+        httpd.shutdown()
+
+
+def test_b7_history_endpoint(tmp_path):
+    """⭐ 真跑：跑一轮 → 历史出现该轮（含步骤 ✓）；⭐ 落一条 error → 能读到原始错误 ✓。"""
+    import time
+    import uuid
+    lg, httpd, port = _boot(tmp_path / ('h%s.jsonl' % uuid.uuid4().hex[:6]))
+    try:
+        lg.step()
+        lg.error('上游返回 502', raw='Traceback: upstream 502 at line 42')
+        time.sleep(0.2)
+        h = _get(port, '/api/history?limit=5')
+        assert isinstance(h, list) and h, '⭐ B7 应返回按轮列表 ✗'
+        last = h[-1]
+        for k in ('turn_no', 'ok', 'steps', 'error'):
+            assert k in last, '⭐ B7 载荷缺字段 %s ✗' % k
+        assert last['ok'] is False, '⭐ 有错误时应 ok=False ✓'
+        assert '502' in last['error'] or 'Traceback' in last['error'], \
+            '⭐ 应能读到**原始错误** ✓：%r' % last['error']
+        assert isinstance(last['steps'], list) and last['steps'], '⭐ 应有步骤（消息序列派生 ✓）'
+    finally:
+        httpd.shutdown()
+
+
+def test_b5_b7_are_read_only(tmp_path):
+    """⛔ 两个端点都**只读** ✗：调用前后日志行数不变 ✓（守 C1 ✓）。"""
+    import time
+    import uuid
+    lg, httpd, port = _boot(tmp_path / ('r%s.jsonl' % uuid.uuid4().hex[:6]))
+    try:
+        lg.step()
+        time.sleep(0.1)
+        before = len(lg.replay())
+        _get(port, '/api/queue')
+        _get(port, '/api/history')
+        assert len(lg.replay()) == before, '⛔ 只读端点不得写日志 ✗'
+    finally:
+        httpd.shutdown()

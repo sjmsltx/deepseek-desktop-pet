@@ -16,6 +16,8 @@
   GET /api/snapshot                          → dict         （同 RelayLog.snapshot）
   GET /api/log.jsonl                         → text/plain   （原始日志，真相源）
   GET /api/health                            → {ok, path, seq, msgs, actions}（actions=E13.3 ✓）
+  GET /api/queue                             → {running,turn_no,interrupted,queued[]}（B5 ✓）
+  GET /api/history?limit=                    → [{turn_no,ok,steps[],error}]（B7 ✓）
   GET /api/assets                            → {role:{state:{white,chroma,alpha}}}（条款 IV E3 ✓）
   GET /api/pending                           → {pending:[…], results:[…]}（只读 ✓ 不含路径 ✗）
   POST /api/pending                          → 窄写端点：只落 collab/pending/（条款 IV E1 ✓）
@@ -121,6 +123,119 @@ def thumb_bytes(path: str, w: int):
         return buf.getvalue()
     except Exception:
         return None
+
+
+# ── ⭐ B5／B7（只读 ✓ 全部由日志派生 ✓ ⛔ 不新增存储 ✗）：供界面半对接 ──────
+def _msgs(log):
+    try:
+        return list(log.replay())
+    except Exception as exc:
+        print('  ℹ️ 读消息失败：%r' % (exc,))          # ⭐ 落痕 ✓
+        return []
+
+
+def _f(m, key, default=None):
+    """⭐ 兼容访问器：`replay()` 给的是 **`Msg` 对象** ✗ 不是 dict ✓（本批实测踩过 ✓）。
+
+    ⇒ dict 走 `.get` ✓，对象走 `getattr` ✓，两边通吃 ✓。
+    """
+    try:
+        if isinstance(m, dict):
+            return m.get(key, default)
+        return getattr(m, key, default)
+    except Exception as exc:
+        print('  ℹ️ 读字段 %s 失败：%r' % (key, exc,))     # ⭐ 落痕 ✓
+        return default
+
+
+def _prev(m, n: int = 90) -> str:
+    """正文预览（⛔ 不原样回整篇 ✗ 免得界面一屏塞爆 ✓）。"""
+    t = str(_f(m, 'body', '') or '').replace('\n', ' ')
+    return t[:n]
+
+
+def queue_payload(log) -> dict:
+    """⭐ **B5 队列**（只读 ✓）：运行中/第几轮/**待处理的人类发言** ＋ 归属会话 ✓。
+
+    ⚠️ 如实口径（见 `PC-桌宠-20261004-139` §一 ✓）：⭐ 本项目里人类插话走 `interrupt`
+      ＝**立即暂停** ✗ **不是排队执行** ✓ ⇒ ⭐ 本端点如实返回 `interrupted`／`queued` ✓
+      ⛔ 不把它说成「排队执行中」 ✗（那是界面说谎 ✓）。
+    """
+    snap = dict(log.snapshot() or {})
+    running = not bool(snap.get('stopped') or snap.get('concluded'))
+    start = int(getattr(log, 'turn_start_seq', 0) or 0)
+    queued = []
+    for m in _msgs(log):
+        try:
+            if int(_f(m, 'seq', 0) or 0) <= start:
+                continue
+            sd = str(_f(m, 'sender', '') or '')
+            if str(_f(m, 'kind', '')) == 'speak' and sd.startswith('human'):
+                queued.append({
+                    'seq': _f(m, 'seq'), 'ts': _f(m, 'ts'),
+                    'sender': sd, 'kind': _f(m, 'kind', ''),
+                    'channel': _f(m, 'channel'),          # ⭐ 归属会话（复用现有字段 ✓）
+                    'line': (_f(m, 'meta', {}) or {}).get('line') or '',
+                    'preview': _prev(m),
+                })
+        except Exception as exc:
+            print('  ℹ️ 解析队列项失败：%r' % (exc,))   # ⭐ 落痕 ✓
+    return {'running': running, 'turn_no': int(snap.get('turn_no') or 0),
+            'interrupted': bool(snap.get('interrupted')),
+            'stopped': bool(snap.get('stopped')), 'concluded': bool(snap.get('concluded')),
+            'stop_reason': snap.get('stop_reason') or '',
+            'turn_start_seq': start,
+            'queued': queued, 'queued_count': len(queued)}
+
+
+def history_payload(log, limit: int = 20) -> list:
+    """⭐ **B7 运行历史**（只读 ✓）：按轮返回 ＋ 逐轮步骤（由消息序列派生 ✓）＋ 原始错误 ✓。
+
+    ⚠️ 如实口径（`PC-…-139` §二 ✓）：⭐ 现状**没有** `steps`／`error` 结构 ✗
+      ⇒ 步骤由消息序列**近似** ✓；原始错误取自 `kind='error'` 的落痕 ✓（我方已加 `RelayLog.error()` ✓）。
+    """
+    limit = max(1, min(int(limit or 20), 200))
+    buckets = {}
+    order = []
+    for m in _msgs(log):
+        try:
+            tno = int((_f(m, 'meta', {}) or {}).get('turn_no') or 0)
+        except Exception as exc:
+            print('  ℹ️ 读 turn_no 失败：%r' % (exc,))     # ⭐ 落痕 ✓
+            tno = 0
+        if tno not in buckets:
+            buckets[tno] = []
+            order.append(tno)
+        buckets[tno].append(m)
+    out = []
+    for tno in order[-limit:]:
+        ms = buckets[tno]
+        step = []
+        err = ''
+        warns = []
+        cost = 0
+        for m in ms:
+            mt = _f(m, 'meta', {}) or {}
+            try:
+                cost += int(mt.get('cost_micro') or 0)
+            except Exception as exc:
+                print('  ℹ️ 累计费用失败：%r' % (exc,))    # ⭐ 落痕 ✓
+            if str(_f(m, 'kind', '')) == 'error':
+                if not err:
+                    err = _prev(m, 400)
+                raw = str(mt.get('raw') or '')
+                if raw:
+                    err = raw[:800]
+            for w in (mt.get('warnings') or []):
+                warns.append(w)
+            step.append({'seq': _f(m, 'seq'), 'ts': _f(m, 'ts'),
+                         'kind': _f(m, 'kind', ''), 'sender': _f(m, 'sender', ''),
+                         'preview': _prev(m, 120)})
+        out.append({'turn_no': tno, 'ts': (_f(ms[0], 'ts') if ms else None),
+                    'ok': not bool(err), 'stop_reason': '', 'cost_micro': cost,
+                    'tokens': 0, 'provider_calls': len(step),
+                    'steps': step, 'warnings': warns, 'error': err})
+    return out
 
 
 def assets_payload(base_dir: str = '') -> dict:
@@ -416,6 +531,17 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         path = u.path.rstrip('/') or '/'
+
+        # ⭐ B5 队列（只读 ✓ 界面半对接用 ✓）
+        if path == '/api/queue':
+            return self._json(queue_payload(self.log))
+        # ⭐ B7 运行历史（只读 ✓ limit 默认 20／上限 200 ✓）
+        if path == '/api/history':
+            try:
+                _lim = int((q.get('limit') or ['20'])[0])
+            except Exception:
+                return self._err(400, 'limit 必须是整数')
+            return self._json(history_payload(self.log, _lim))
 
         if path == '/api/health':
             return self._json({'ok': True, 'log': self.log.path,
