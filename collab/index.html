@@ -627,6 +627,7 @@
   var guideActive = 0;
   var starterReady = false;      // ⭐ 必须**先声明**：页面为严格模式 ⇒ 未声明就赋值会抛 ReferenceError ✗
                                  //   （本条由 e2e 当场逮住 ✓：连接灯曾变成“🔴 未连上（starterReady is not defined）”✗）
+  var actionsOff = false;        // ⭐ E13.3：动作面**默认关**（需服务端 --enable-actions ✓）
 
   function howEmpty(what, how) {
     // ⭐ 空面板指引（⛔ 不再是一片空白 ✗；也不泄后端路径 ✗）
@@ -667,7 +668,7 @@
     starterReady = !!ok;
     box.classList.toggle('dim', !ok);
     inp.disabled = !ok;
-    send.disabled = !ok;
+    send.disabled = !ok || actionsOff;      // ⭐ E13.3：动作面未开时**置灰** ✗ 不让“点了才发现” ✗
     inp.placeholder = ok ? '想让它做什么？一句话就行（回车或点「发起」）'
                          : '（服务未连上，暂不能发起）';
     $('starter-hint').textContent = ok
@@ -677,6 +678,16 @@
       bn.hidden = !!ok;
       if (!ok) { $('conn-banner-why').textContent = '原因：' + (why || '未知') ; }
     }
+  }
+
+  function markActionsOff(why) {
+    // ⭐ 契约 E13.3：动作面默认关 ⇒ ⛔ 不许“点了才发现” ✗ ⇒ 置灰 ＋ 写明原因 ＋ 给开启指引 ✓
+    actionsOff = true;
+    var send = $('starter-send');
+    if (send) { send.disabled = true; send.title = '动作面未开启：' + why; }
+    $('starter-hint').textContent = '⛔ 动作面未开启 —— ' + why + ' ⇒ 已置灰 ✓（⛔ 不让“点了才发现” ✗）';
+    err('动作面未开启：' + why + ' ｜ 出路：用 --enable-actions 起服务（如 python collab\\relay_server.py --enable-actions ✓），'
+        + '或从桌宠菜单「🍵 打开协作台」✓');
   }
 
   function submitStarter() {
@@ -691,7 +702,13 @@
       .then(function () { return post('/api/step', {}); })
       .then(function () { inp.value = ''; return refresh(); })
       .catch(function (e) {
-        err('发起失败：' + ((e && e.message) || '未知原因'));   // ⛔ 不静默 ✗
+        var m = (e && e.message) || '未知原因';
+        // ⭐ E13.3：403（动作面未开）**不得当普通错误** ✗ —— 须置灰 ＋ 写原因 ＋ 指引 ✓
+        if (/403/.test(m) && /(动作端点未开启|enable-actions)/.test(m)) {
+          markActionsOff('需服务端 --enable-actions（默认只读 ✓）');
+          return;
+        }
+        err('发起失败：' + m);                  // ⛔ 不静默 ✗
       })
       .then(function () { send.disabled = !starterReady; });
   }

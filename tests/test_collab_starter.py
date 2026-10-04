@@ -117,6 +117,12 @@ def check(html: str) -> list:
         bad.append('界面未明示“第 0 步·初始化通道”（`init_channel.py` ✗）' +
                    ' —— ⛔ 未初始化时产出会互相覆盖 ✗ 而用户根本不知道 ✓')
 
+    # ⑨ ⭐ 契约 E13.3：动作面**默认关** ⇒ ⛔ 403 不得当普通错误 ✗（须置灰 ＋ 写原因 ＋ 给指引 ✓）
+    if 'markActionsOff' not in reg:
+        bad.append('未处理“动作面未开”（E13.3）✗ —— ⛔ 不许让用户“点了才发现” ✗')
+    if not re.search(r'403', reg):
+        bad.append('未识别 403（动作端点未开启）✗ —— 会把“需 --enable-actions”当成普通报错 ✗')
+
     return bad
 
 
@@ -130,6 +136,8 @@ def _mutations(html: str) -> list:
     out.append(('拿掉一个空面板指引', html.replace('howEmpty(', 'howEmptyX(', 1)))
     out.append(('拿掉 hidden 生效规则', html.replace('.banner[hidden]', '.banner[hidden-x]', 1)))
     out.append(('拿掉通道初始化指引', html.replace('init_channel.py', 'init_channel_x.py')))
+    # ⚠️ 自纠：篡改名**不得含原名做前缀** ✗（如 `markActionsOff`→`markActionsOffX` 仍含原名 ⇒ 护栏"看不到变化" ✗）
+    out.append(('拿掉 E13.3 动作面未开处理', html.replace('markActionsOff', 'noActionsOffGuard')))
     return out
 
 
