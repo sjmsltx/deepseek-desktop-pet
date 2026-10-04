@@ -589,6 +589,12 @@ class RelayLog:
             except Exception as exc:
                 if attempt >= retry_max:
                     self.warnings.append('provider 连续失败 %d 次:%r' % (provider_calls, exc))
+                    # ⭐ B7：把**原始错误**落进日志（`kind='error'` ＋ `meta.raw` ✓）
+                    #    ⇒ 运行历史能展开到原始错误 ✗ 不止"看得出为什么停" ✓
+                    try:
+                        self.error('provider 连续失败 %d 次' % provider_calls, raw=repr(exc))
+                    except Exception as _e2:
+                        print('  ℹ️ error() 落痕失败：%r' % (_e2,))     # ⭐ 落痕 ✓
                     self.conclude('provider_failed')
                     return StepResult(ok=True, stopped=True, reason='provider_failed',
                                       turn_no=self.turn_no, notice_human=True,

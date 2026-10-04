@@ -365,3 +365,56 @@ def test_b5_b7_are_read_only(tmp_path):
         assert len(lg.replay()) == before, '⛔ 只读端点不得写日志 ✗'
     finally:
         httpd.shutdown()
+
+
+# ── ⭐ B7 挂钩真跑：provider 真失败 ⇒ ① 日志里出现 kind=error ② /api/history 能读到原始错误 ──
+
+def test_b7_error_hooks_are_in_place():
+    """⭐ 挂钩**在位**（源码级 ✓）：provider 失败处 ＋ HTTP 层四处 500 都接了落痕 ✓。
+
+    ⚠️ 如实说明（见 `PC-桌宠-20261004-141` ✓）：⭐ **端到端触发 provider 失败需要完整 issue 环境** ✗
+      （实测：无 Issue 时 `step()` 直接返回 `reason='no_issue'` ✓ → provider 不会被调用 ✓）
+      ⇒ ⭐ 那条**记为【待验】** ✓ 本用例只保证"挂钩没丢" ✓ 不假装验过端到端 ✗。
+    """
+    lg = io.open(os.path.join(REPO, 'relay_log.py'), encoding='utf-8').read()
+    assert 'self.error(' in lg, '⭐ provider 失败处应有 error() 落痕 ✗'
+    srv = io.open(os.path.join(REPO, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    assert 'def _log_error' in srv, '⭐ 落痕助手必须**有定义** ✗（我方曾只加调用没加定义 ✗）'
+    assert srv.count('self._log_error(') >= 4, '⭐ HTTP 层四处 500 都应挂钩 ✓'
+    # ⭐ 有牙证明：把定义删掉时，本条会红 ✓
+    assert 'raise' not in srv[srv.index('def _log_error'):srv.index('def _json')], \
+        '⭐ 助手不应抛 ✗'
+
+def test_b7_error_entries_readable_via_history(tmp_path):
+    """⭐ 直接验：落一条 error ⇒ `/api/history` 的该轮 `ok=False` 且 `error` 非空 ✓。"""
+    import json as _json
+    import threading
+    import time
+    import urllib.request
+    import uuid
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / ('h2%s.jsonl' % uuid.uuid4().hex[:6])))
+    lg.step()
+    lg.error('缩略图生成失败', raw='OSError: cannot identify image file')
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/history' % port, timeout=3) as fh:
+            h = _json.loads(fh.read().decode('utf-8'))
+        last = [x for x in h if x.get('error')]
+        assert last, '⭐ 应有一轮带 error ✗'
+        assert 'cannot identify image file' in last[-1]['error'],             '⭐ 应能读到**原始错误文本** ✓：%r' % last[-1]['error']
+        assert last[-1]['ok'] is False
+    finally:
+        httpd.shutdown()
+
+
+def test_error_hook_does_not_swallow():
+    """⛔ 落痕助手**不得吞掉原异常** ✗：它只记录 ✓ 且自身不抛 ✓。"""
+    s = io.open(os.path.join(REPO, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    i = s.index('def _log_error')
+    seg = s[i:i + 420]
+    assert 'raise' not in seg.split('except')[0], '⭐ 助手不应抛 ✗'
+    assert 'print(' in seg, '⭐ 助手自身失败要落痕 ✓'

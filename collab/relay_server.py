@@ -422,6 +422,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != 'HEAD':
             self.wfile.write(body)
 
+    def _log_error(self, what: str, exc=None):
+        """⭐ B7：关键路径失败落进日志（⛔ 绝不抛 ✗ —— 落痕不能拖垮原流程 ✓）。
+
+        ⚠️ 我方自纠：第一版**只加了调用 ✗ 没加定义** ✗（脚本里的存在性判断被调用污染 ✓）
+        → ⭐ 那 4 条错误路径会崩 ✗ —— 本批补上 ✓。
+        """
+        try:
+            self.log.error(str(what), raw=repr(exc) if exc is not None else '')
+        except Exception as _e:
+            print('  ℹ️ error() 落痕失败：%r' % (_e,))     # ⭐ 落痕 ✓
+
     def _json(self, obj, code: int = 200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode('utf-8'),
                    'application/json; charset=utf-8')
@@ -474,6 +485,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok = self.log.resume(str(body.get('text') or '继续'))
                 return self._json({'ok': ok, 'interrupted': self.log.snapshot()['interrupted']})
         except Exception as exc:
+            self._log_error('动作端点异常', exc)      # ⭐ B7 落痕 ✓
             return self._err(500, repr(exc))
         return self._err(404, '未知动作：%s' % path)
 
@@ -515,6 +527,7 @@ class Handler(BaseHTTPRequestHandler):
                     _s.path.insert(0, _cd)
                 import pending_ops as _po               # ② 从仓库根导入时 ✓
         except Exception as exc:
+            self._log_error('待办协议模块不可用', exc)   # ⭐ B7 ✓
             return self._err(500, '待办协议模块不可用：%r' % exc)
         ok, why = _po.validate_request(body)
         if not ok:
@@ -522,6 +535,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             p = _po.write_pending(body, base_dir=_pending_base())
         except Exception as exc:
+            self._log_error('落待办失败', exc)          # ⭐ B7 ✓
             return self._err(500, '落待办失败：%r' % exc)
         return self._json({'ok': True, 'op_id': body.get('op_id'),
                            'file': os.path.basename(p), 'queued': True,
@@ -595,6 +609,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err(404, '没有这张图')
             data = thumb_bytes(p, w)
             if data is None:
+                self._log_error('缩略图生成失败')          # ⭐ B7 ✓（无 exc ✓）
                 return self._err(500, '缩略图生成失败')
             etag = '"%s-%d"' % (hashlib.md5((p + str(w)).encode('utf-8')).hexdigest()[:16], w)
             if (self.headers.get('If-None-Match') or '').strip() == etag:
