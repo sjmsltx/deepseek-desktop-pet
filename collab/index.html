@@ -428,7 +428,7 @@
     <select id="mx-bind-prefix" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
     <button id="mx-op-setportrait">🔗 设绑定</button>
     <span class="meta">（⭐ 重启桌宠后生效）</span>
-    <button id="mx-refresh">⟳ 重新读取</button>
+    <button id="mx-refresh">⟳ 重新读取资产</button>
   </div>
   <div class="mxwrap"><table class="mx2" id="mx-table"></table></div>
   <div class="mxnote">
@@ -455,7 +455,7 @@
   <button class="danger" id="btn-interrupt">⏸ 打断（人类接管）</button>
   <button id="btn-resume">⏵ 继续（显式）</button>
   <button id="btn-width">↔ 行宽：满宽</button>
-  <button id="btn-refresh">⟳ 刷新</button>
+  <button id="btn-refresh">⟳ 刷新投递（V1/V2/V3）</button>
   <button id="btn-export-l1">⤓ 导出 L1 视图</button>
   <button id="btn-export-l2">⤓ 导出 L2 视图</button>
   <button id="btn-export-snap">⤓ 导出快照</button>
@@ -464,6 +464,13 @@
 </div>
 
 <div id="errs"></div>
+
+<!-- ⭐ C4/D5-4：术语对照一行（界面用 V1/V2/V3，内部/契约用 L1/L2/L3 ✓ 同一件事的两个叫法 ✗）-->
+<div class="meta" id="term-map" style="margin:8px 0 0;line-height:1.8">
+  术语对照：⭐ 界面显示 <b>V1 群聊流</b>／<b>V2 投递轨道</b>／<b>V3 后台总线</b>
+  ＝ ⭐ 内部与契约里写作 <b>L1</b>／<b>L2</b>／<b>L3</b>（<code>data-view</code>／<code>data-panel</code> ✓）
+  —— 同一件事的两个叫法 ✓；⭐ 两个“刷新”各带范围：<b>刷新投递</b>（V1/V2/V3）／<b>重新读取资产</b>（矩阵）✓
+</div>
 
 <div class="tabs" id="tabs" role="tablist" aria-label="面板页签（←/→ 切换，Enter 激活）">
   <button class="tab" role="tab" id="tab-L1" data-view="L1" aria-selected="false" tabindex="-1" aria-controls="panel-l1">V1 群聊流</button>
