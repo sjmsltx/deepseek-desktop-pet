@@ -228,3 +228,18 @@ def test_contract_appendix_e13_e14_in_place():
     for p in ('/api/interrupt', '/api/step', '/api/resume'):
         assert p in srv
     assert 'if not ACTIONS_ALLOWED' in srv, '⭐ 动作面 403 闸门必须还在 ✗'
+
+
+# ── ⭐ E15／E16／E14.9 钉（契约与实现必须一致 ✓）──
+def test_e15_e16_e149_in_contract():
+    c = _read('docs/3.0-M1-API契约-冻结v1.md')
+    for k in ('E15', 'E16', 'E14.9', '追加条款 XV'):
+        assert k in c, '⭐ 契约须有 %s ✗' % k
+    seg15 = c[c.index('E15 '):c.index('E16 ')]
+    assert '向后兼容' in seg15, '⭐ E15 必须写死"向后兼容"硬约束 ✓'
+    assert '"queue"' in seg15 and '"interrupt"' in seg15, '⭐ E15 两种意图都要有 ✓'
+    assert '不可撤回' in seg15, '⭐ E15 必须要求界面明写"不可撤回" ✓'
+    seg16 = c[c.index('E16 '):c.index('E14.9 ')]
+    assert '派生' in seg16, '⭐ E16 必须写明步骤是"派生（近似）" ✓'
+    assert 'error()' in seg16, '⭐ E16 必须写明原始错误来自 error() ✓'
+    assert 'pid' in c[c.index('E14.9 '):], '⭐ E14.9 必须要求锁写 pid ✓'
