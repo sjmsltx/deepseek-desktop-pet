@@ -154,6 +154,25 @@ def _prev(m, n: int = 90) -> str:
     return t[:n]
 
 
+
+def _queue_view(log) -> list:
+    """⭐ E15 真队列只读视图（⛔ 不写任何东西 ✗ 纯读 ✓）：FIFO ＋ 每条带 `id` ✓。"""
+    out = []
+    try:
+        for m in log.queued():
+            meta = m.meta or {}
+            out.append({
+                'id': str(m.id), 'seq': int(getattr(m, 'seq', 0) or 0),
+                'ts': int(getattr(m, 'ts', 0) or 0), 'sender': str(getattr(m, 'sender', '')),
+                'kind': str(getattr(m, 'kind', '')), 'channel': str(getattr(m, 'channel', '')),
+                'line': str(meta.get('line') or ''),
+                'preview': str(getattr(m, 'body', ''))[:120],
+            })
+    except Exception as exc:
+        print('  ℹ️ 读真队列失败：%r' % (exc,))       # ⭐ 落痕 ✓
+    return out
+
+
 def queue_payload(log) -> dict:
     """⭐ **B5 队列**（只读 ✓）：运行中/第几轮/**待处理的人类发言** ＋ 归属会话 ✓。
 
@@ -182,6 +201,12 @@ def queue_payload(log) -> dict:
             print('  ℹ️ 解析队列项失败：%r' % (exc,))   # ⭐ 落痕 ✓
     return {'running': running, 'turn_no': int(snap.get('turn_no') or 0),
             'interrupted': bool(snap.get('interrupted')),
+            # ⭐ E15.3：⭐ 回显默认 mode（⛔ 不带 mode 的老调用＝interrupt ✓ 保真兼容 ✓）
+            'mode_default': 'interrupt',
+            # ⭐ E15：**真队列**（`mode='queue'` 入队的 ✓ 从日志重建 ✓）——
+            #    ⚠️ 与上面老的 `queued`（＝本轮开始后的人类发言 ✓ 旧口径 ✓）**并存** ✓
+            #       ⭐ 界面按 E15 呈现用 `queue`；未启用 E15 时用老口径 ✓
+            'queue': _queue_view(log),
             'stopped': bool(snap.get('stopped')), 'concluded': bool(snap.get('concluded')),
             'stop_reason': snap.get('stop_reason') or '',
             'turn_start_seq': start,
@@ -478,9 +503,12 @@ class Handler(BaseHTTPRequestHandler):
                                    'turn_no': r.turn_no, 'notice_human': r.notice_human,
                                    'cost_micro': r.cost_micro, 'provider_calls': r.provider_calls})
             if path == '/api/interrupt':
-                m = self.log.interrupt(str(body.get('body') or '（人类插队）'))
+                # ⭐ E15：`mode` 默认 **interrupt** ⇒ ⭐ 老调用不带 mode 行为一字不变 ✓（向后兼容 ✓）
+                _mode = str(body.get('mode') or 'interrupt').strip().lower()
+                m = self.log.interrupt(str(body.get('body') or '（人类插队）'), mode=_mode)
                 return self._json({'ok': True, 'id': m.id, 'seq': m.seq,
-                                   'interrupted': self.log.snapshot()['interrupted']})
+                                   'interrupted': self.log.snapshot()['interrupted'],
+                                   'mode': _mode, 'queued': bool((m.meta or {}).get('queued'))})
             if path == '/api/resume':
                 ok = self.log.resume(str(body.get('text') or '继续'))
                 return self._json({'ok': ok, 'interrupted': self.log.snapshot()['interrupted']})

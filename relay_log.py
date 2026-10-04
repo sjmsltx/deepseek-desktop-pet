@@ -473,16 +473,76 @@ class RelayLog:
             'visibility': 'human', 'body': str(text)[:2000], 'meta': m,
         })
 
-    def interrupt(self, body: str):
-        """人类插队:**立即进入暂停**(不再有新回合);绝不自动恢复。"""
+    def interrupt(self, body: str, mode: str = 'interrupt'):
+        """人类插话。⭐ E15：`mode` 分两种意图。
+
+        ⭐ `mode='interrupt'`（**默认 ✓ ＝ 旧行为一字不改** ✗）：
+            立即进入暂停（不再有新回合）;绝不自动恢复。
+        ⭐ `mode='queue'`（E15）：⭐ **不打断** ✓ 只入队 ✓，
+            等当前回合**自然结束后**由 `next_queued()` 取出作下一轮首句 ✓。
+        """
+        d = str(mode or 'interrupt').strip().lower()
+        if d not in ('interrupt', 'queue'):
+            self.warnings.append('interrupt 收到未知 mode=%r，按 interrupt 处理并留痕' % (mode,))
+            d = 'interrupt'
+        meta = {'priority': 'highest'}
+        if d == 'queue':
+            # ⭐ 入队：⛔ 不置 interrupted ✗（⭐ 这就是"不打断"的全部含义 ✓）
+            meta['queued'] = True
+        else:
+            meta['interrupt'] = True
         msg = self.append({
             'id': self._next_id('human'), 'channel': self._use_current_issue_channel,
             'sender': 'human:owner', 'recipients': [], 'kind': 'speak',
-            'visibility': 'human', 'body': body,
-            'meta': {'priority': 'highest', 'interrupt': True},
+            'visibility': 'human', 'body': body, 'meta': meta,
         })
-        self.interrupted = True
+        if d == 'interrupt':
+            self.interrupted = True
         return msg
+
+    # ------------------------------------------------------------ ⭐ E15 队列
+    def _queue_scan(self):
+        """⭐ 从**日志**重建队列（⛔ 不另建存储 ✓ 可回放 ✓ 跨重启仍在 ✓）。
+
+        判据：⭐ `kind='speak'` ＋ `meta.queued=True` 且**尚未被出队**（无 `queue_dequeue` 记录 ✓）
+        """
+        deq = set()
+        cand = []
+        for m in self._msgs:
+            meta = m.meta or {}
+            if meta.get('queue_dequeue'):
+                deq.add(str(meta.get('queue_dequeue')))
+            if m.kind == 'speak' and meta.get('queued'):
+                cand.append(m)
+        return [m for m in cand if str(m.id) not in deq]
+
+    def queued(self):
+        """⭐ 只读：当前排队中的消息（FIFO ✓）。"""
+        return self._queue_scan()
+
+    def queued_ids(self):
+        return [str(m.id) for m in self._queue_scan()]
+
+    def queue_pending(self) -> int:
+        return len(self._queue_scan())
+
+    def next_queued(self):
+        """⭐ 出队：把队首标记为已出队（**追加一行** ✓ append-only ✓），返回该 Msg。
+
+        ⭐ 调用时机由上层掌握（＝回合**自然结束**后 ✓）—— ⭐ 内核⛔ 不自动跑下一轮 ✗（守 C1 ✓）
+        """
+        q = self._queue_scan()
+        if not q:
+            return None
+        m = q[0]
+        # ⭐ 消费痕迹：只追加、不改写 ✓（`_reload` 据此重建 ✓）
+        self.append({
+            'id': self._next_id('dequeue'), 'channel': m.channel or self._use_current_issue_channel,
+            'sender': 'system', 'recipients': [], 'kind': 'system', 'visibility': 'meta',
+            'body': '[出队]排队指令 %s 已作为下一轮首句' % m.id,
+            'meta': {'queue_dequeue': str(m.id), 'billable': False},
+        })
+        return m
 
     def resume(self, text: str) -> bool:
         """仅显式"继续"才恢复;其余话语不得视为继续(N2)。(恢复也写日志 → 状态可回放)"""
@@ -640,6 +700,14 @@ class RelayLog:
             self.conclude(hit)
             return StepResult(ok=True, stopped=True, reason=hit, turn_no=self.turn_no,
                               notice_human=True, cost_micro=cost, provider_calls=provider_calls)
+
+        # ⭐ E15：⭐ 回合**自然结束** ⇒ 队首自动出队（⭐ 只标记为下一轮首句 ✓
+        #    ⛔ 内核不自动跑下一轮 ✗ —— 驱动仍由调用方 `/api/step` 掌握 ✓ 守 C1 ✓）
+        try:
+            if self.queue_pending() and not self.interrupted:
+                self.next_queued()
+        except Exception as _e3:
+            print('  ℹ️ 出队失败：%r' % (_e3,))      # ⭐ 落痕 ✓
 
         return StepResult(ok=True, stopped=False, reason='', turn_no=self.turn_no,
                           notice_human=False, cost_micro=cost, provider_calls=provider_calls)

@@ -418,3 +418,81 @@ def test_error_hook_does_not_swallow():
     seg = s[i:i + 420]
     assert 'raise' not in seg.split('except')[0], '⭐ 助手不应抛 ✗'
     assert 'print(' in seg, '⭐ 助手自身失败要落痕 ✓'
+
+
+# ── ⭐ E15 内核半真跑（我方）──
+def test_e15_default_mode_is_backward_compatible(tmp_path):
+    """⭐ E15.1：⭐ **不带 `mode` 必须仍是打断** ✓（真向后兼容 ✗ 不许悄悄改语义 ✗）。"""
+    import relay_log
+    lg = relay_log.RelayLog(str(tmp_path / 'a.jsonl'))
+    lg.interrupt('插话一下')
+    assert lg.interrupted is True, '⭐ 不带 mode 必须是旧的"立即打断" ✓'
+
+
+def test_e15_queue_mode_does_not_interrupt(tmp_path):
+    """⭐ E15：⭐ `mode='queue'` **不打断** ✓ 且真的入队 ✓（从日志重建 ✓）。"""
+    import relay_log
+    lg = relay_log.RelayLog(str(tmp_path / 'b.jsonl'))
+    lg.interrupt('排队一句', mode='queue')
+    assert lg.interrupted is False, '⭐ 排队不得打断 ✓'
+    assert lg.queue_pending() == 1, '⭐ 应入队 1 条 ✗'
+    assert lg.queued_ids()[0].startswith('human'), '⭐ 队首应是那条人类消息 ✓'
+
+
+def test_e15_queue_survives_restart(tmp_path):
+    """⭐ E15.2：⭐ 队列**从日志重建** ✓ ⇒ 新实例（＝模拟重启 ✓）仍看得见 ✓。"""
+    import relay_log
+    p = str(tmp_path / 'c.jsonl')
+    lg = relay_log.RelayLog(p)
+    lg.interrupt('重启也应在', mode='queue')
+    lg2 = relay_log.RelayLog(p)                       # ⭐ 模拟重启 ✓
+    assert lg2.queue_pending() == 1, '⭐ 重启后队列必须还在（从日志重建 ✓）✗'
+    m = lg2.next_queued()
+    assert m is not None and '重启也应在' in str(m.body), '⭐ 出队应取回原句 ✓'
+
+
+def test_e15_dequeue_on_turn_end(tmp_path):
+    """⭐ E15.2：⭐ 回合**自然结束** ⇒ 队首自动出队 ✓（且**只标记** ✗ 内核不自动跑下一轮 ✗）。"""
+    import relay_log
+
+    class _Reply:
+        body = '回合回复：新增数字 42'
+        tokens = 10
+        cost_micro = 5
+        meta = {}
+
+    class _Issue:
+        title = '议题'
+
+    lg = relay_log.RelayLog(str(tmp_path / 'd.jsonl'))
+    lg.issue = _Issue()
+    lg.provider = lambda last, issue: _Reply()
+    lg.interrupt('排着', mode='queue')
+    assert lg.queue_pending() == 1
+    lg.step()                                          # ⭐ 跑完一回合 ✓
+    assert lg.queue_pending() == 0, '⭐ 回合自然结束应出队 ✓'
+
+
+def test_e15_queue_endpoints_are_read_only(tmp_path):
+    """⛔ E15.3：⭐ `/api/queue` 与真队列视图**纯读** ✓（调用前后日志条数不变 ✗）。"""
+    import json as _json
+    import threading
+    import time
+    import urllib.request
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / 'e.jsonl'))
+    lg.interrupt('排一条', mode='queue')
+    n0 = len(lg.replay())
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/queue' % port, timeout=3) as fh:
+            q = _json.loads(fh.read().decode('utf-8'))
+        assert 'queue' in q, '⭐ 应含真队列字段 ✗'
+        assert q['queue'] and q['queue'][0].get('id'), '⭐ 每条必须带 id ✓'
+        assert q.get('mode_default') == 'interrupt', '⭐ 必须回显默认 mode=interrupt ✓'
+        assert len(lg.replay()) == n0, '⛔ 只读端点不得写日志 ✗'
+    finally:
+        httpd.shutdown()
