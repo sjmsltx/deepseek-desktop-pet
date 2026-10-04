@@ -20,7 +20,7 @@
  *
  * 【退出码】0 = 全绿 ✓ ｜ 1 = 有断言失败 ✗ ｜ 2 = 环境错误
  *
- * 【覆盖】项目层接线 / 角色条 / 资产矩阵（三勾）/ 单角色列表 / 设绑定载荷形状 / 真三态 / 不回归 / ⭐ D6-5 服务连接灯（🟢 与 🔴 两态）
+ * 【覆盖】项目层接线 / 角色条 / 资产矩阵（三勾）/ 单角色列表 / 设绑定载荷形状 / 真三态 / 不回归 / ⭐ D6-5 服务连接灯（🟢 与 🔴 两态）/ ⭐ A2-A3 起手区与向导
  * 【边界】⛔ 本脚本**只读** ✓（只点界面、只投递待办 ✓ 不跑运行器 ✗ 不改仓库 ✗）
  *         ⚠️ 它会往 collab/pending/ 投递 1 条待办（用于验"待办/真三态"）→ 请自行清理 ✓
  */
@@ -181,7 +181,33 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   });
   ok('⭐ 连不上 → 🔴（data-conn=down）', !!s6b && s6b.st === 'down', s6b);
   ok('⭐⭐ 连不上时**必须写明原因**（⛔ 不静默 ✗）', !!s6b && (s6b.reason || '').length > 0, s6b);
+  // ⭐ A2/D6-2 × D6-5 联动：未连上 → 起手区禁用 ＋ 横条写明原因（⛔ 不让“点了没反应” ✗）
+  const s6c = await pg2.evaluate(() => {
+    const i = document.getElementById('starter-input'), b = document.getElementById('conn-banner');
+    return { disabled: !!(i && i.disabled), banner: !!(b && !b.hidden),
+             why: ((document.getElementById('conn-banner-why') || {}).textContent || '').trim() };
+  });
+  ok('⭐ 未连上 → 起手区**禁用**（不让“点了没反应”✗）', s6c.disabled, s6c);
+  ok('⭐ 未连上 → 顶部横条**写明原因**', s6c.banner && s6c.why.length > 4, s6c);
   await pg2.close();
+
+  // ⭐⭐ A2/D6-2：首屏起手区（常驻主输入框）＋ A3/D6-1：首次向导
+  sec('【7】A2/D6-2 首屏起手区 ＋ A3/D6-1 向导');
+  const s7 = await pg.evaluate(() => {
+    const st = document.getElementById('starter'), i = document.getElementById('starter-input');
+    const sd = document.getElementById('starter-send'), one = document.getElementById('starter-mode-single');
+    const rd = document.getElementById('starter-mode-round'), g = document.getElementById('guide');
+    return { has: !!st, disabled: !!(i && i.disabled), sendDisabled: !!(sd && sd.disabled),
+             singleOn: !!(one && one.classList.contains('on')),
+             roundOff: !!(rd && rd.classList.contains('off')),
+             cards: ['starter-card-resume', 'starter-card-pending', 'starter-card-matrix']
+                      .filter(x => document.getElementById(x)).length,
+             guide: !!g, guideSkippable: !!document.getElementById('guide-skip') };
+  });
+  ok('起手区齐备且可用（容器＋输入框＋发起钮）', s7.has && !s7.disabled && !s7.sendDisabled, s7);
+  ok('⭐ 默认参与＝单点（**不选模型也能发起** ✓）', s7.singleOn && s7.roundOff, s7);
+  ok('三张起手卡齐备（继续议题/待办/矩阵）', s7.cards === 3, s7);
+  ok('首次向导存在且**可跳过**（⛔ 不挡路 ✗）', s7.guide && s7.guideSkippable, s7);
 
   await br.close();
   sec('汇总');

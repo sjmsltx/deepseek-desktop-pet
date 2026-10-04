@@ -33,6 +33,39 @@
   .conn.ok{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
   .conn.down{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
   .conn.probing{background:var(--card);color:var(--ink2)}
+  /* ⭐ A2/D6-2：首屏起手区 / 首次向导 / 起手卡 / 参与分段 / 空面板指引 */
+  .starter{border:2px solid var(--acc);background:#fff;padding:13px 15px;margin:12px 0 14px;border-radius:4px}
+  .starter.dim{opacity:.55}
+  .starter h2{font-family:var(--serif);font-size:17px;margin:0 0 4px}
+  .starter .hint{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-bottom:9px}
+  .srow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .srow + .srow{margin-top:9px}
+  #starter-input{flex:1 1 auto;min-width:340px;font-family:var(--sans);font-size:15px;padding:10px 12px;border:1px solid var(--ink);border-radius:3px;background:#fff}
+  #starter-input:disabled{background:var(--card);color:var(--ink3)}
+  .primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600;font-size:14px;padding:10px 18px}
+  .primary:disabled{opacity:.5;cursor:not-allowed}
+  .seg{display:inline-flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+  .seg span{font-family:var(--mono);font-size:11.5px;padding:4px 10px;background:#fff;color:var(--ink2);cursor:pointer}
+  .seg span.on{background:var(--acc);color:#fff}
+  .seg span.off{opacity:.5;cursor:not-allowed}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:0 0 14px}
+  .card{border:1px solid var(--rule);background:#fff;padding:10px 12px;border-radius:3px;cursor:pointer}
+  .card:hover{background:var(--card)}
+  .card b{font-size:13.5px}
+  .card p{margin:3px 0 0;color:var(--ink2);font-size:12.5px}
+  .guide{border:1px solid var(--rule);background:#fff;padding:12px 14px;margin:12px 0 14px;border-radius:4px}
+  .guide h3{font-family:var(--serif);font-size:16px;margin:0 0 2px}
+  .guide .hint{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-bottom:8px}
+  .steps{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:8px 0 10px}
+  .step{border:1px solid var(--rule);border-radius:3px;padding:8px 9px;background:#fff}
+  .step.on{border-color:var(--acc);background:var(--acc-soft)}
+  .step .n{font-family:var(--mono);font-size:10.5px;color:var(--acc)}
+  .step .t{font-size:12.5px;font-weight:600}
+  .step .d{font-size:11.5px;color:var(--ink3);line-height:1.5}
+  .banner{border:1px solid #e6ccae;background:var(--warn-soft);color:var(--warn);padding:9px 11px;border-radius:3px;font-size:13px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+  .howempty{text-align:center;color:var(--ink3);padding:16px 8px}
+  .howempty .t{font-family:var(--serif);font-size:14.5px;color:var(--ink2);margin:4px 0 3px}
+  .howempty .h{font-family:var(--mono);font-size:11.5px}
   .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
   button{font-family:var(--sans);font-size:13px;padding:7px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
   button:hover{background:var(--card)}
@@ -254,6 +287,52 @@
       title="服务连接状态（探测只读端点 /api/health）">⚪ 未探测</span>
   </div>
 </header>
+
+<!-- ⭐ A2/D6-2：服务未连上 → 顶部横条（原因 ＋ 出路 ＋ 重试）；⛔ 不静默 ✗ -->
+<div class="banner" id="conn-banner" hidden>
+  <b>服务没在跑</b>
+  <span id="conn-banner-why">—</span>
+  <span class="meta" style="margin:0">→ 右键桌宠菜单 →「🍵 打开协作台」即可启动（本机 <code>127.0.0.1:8792</code> ✓ 绝不上网 ✓）</span>
+  <button id="conn-retry">⟳ 重试探测</button>
+</div>
+
+<!-- ⭐ A3/D6-1：首次向导（5 步，可跳过；只占一块不遮挡面板）-->
+<div class="guide" id="guide" hidden>
+  <h3>👋 第一次用？五步就能跑起来</h3>
+  <div class="hint">⭐ 不用先配多模型 —— 默认「单点」即可发起 ✓；圆桌/多模型是「可选项」✓</div>
+  <div class="steps" id="guide-steps"></div>
+  <div class="srow">
+    <button id="guide-next">▶ 下一步</button>
+    <button id="guide-skip">跳过向导</button>
+    <span class="meta" style="margin:0">向导只占这一块，不遮挡面板 ✓</span>
+  </div>
+</div>
+
+<!-- ⭐ A2/D6-2：首屏起手区（常驻主输入框）—— ⛔ 不新增端点 ✗：发起复用 POST /api/interrupt ＋ /api/step ✓ -->
+<div class="starter" id="starter">
+  <h2>开始一轮</h2>
+  <div class="hint" id="starter-hint">⭐ 一句普通话就能开始 ✓ ｜ 不必先选多模型 ✓ ｜ 运行中也能继续排队（B 阶段上线）✓</div>
+  <div class="srow">
+    <input type="text" id="starter-input" placeholder="想让它做什么？一句话就行（回车或点「发起」）" autocomplete="off">
+    <button class="primary" id="starter-send">▶ 发起</button>
+  </div>
+  <div class="srow">
+    <span class="meta" style="margin:0">参与：</span>
+    <div class="seg" id="starter-mode" role="group" aria-label="参与范围">
+      <span class="on" data-mode="single" id="starter-mode-single">单点（默认）</span>
+      <span class="off" data-mode="round" id="starter-mode-round"
+        title="多模型圆桌：B 阶段上线（契约待定，现在选了也不会生效 ✗ 所以先禁用 ✓）">圆桌 多模型（B 阶段）</span>
+    </div>
+    <span class="meta" style="margin:0" id="starter-roles-note">⭐ 默认单点：不选任何模型也能发起 ✓</span>
+  </div>
+</div>
+
+<!-- ⭐ 起手卡（有历史时显示）-->
+<div class="cards" id="starter-cards">
+  <div class="card" id="starter-card-resume"><b>🔁 继续上次议题</b><p id="c-resume">—</p></div>
+  <div class="card" id="starter-card-pending"><b>📋 处理待办</b><p id="c-pending">—</p></div>
+  <div class="card" id="starter-card-matrix"><b>▦ 看资产矩阵</b><p id="c-matrix">—</p></div>
+</div>
 
 <div class="projbar" id="projbar">
   <span class="lbl">当前项目</span>
@@ -497,6 +576,7 @@
     el.setAttribute('data-reason', reason || '');
     el.textContent = (CONN_TEXT[kind] || CONN_TEXT.probing) + (reason ? '（' + reason + '）' : '');
     el.title = '服务连接：' + (CONN_TEXT[kind] || '') + (reason ? ' ｜ ' + reason : '');
+    setStarter(kind === 'ok', reason);      // ⭐ A2×D6-5 联动：未连上 → 起手区禁用 ＋ 明写原因
   }
 
   function probeConn() {
@@ -520,6 +600,117 @@
       .then(function () { clearTimeout(timer); probeConn._busy = false; });
   }
 
+  // ═══════════ ⭐ A2/D6-2：首屏起手区 ＋ ⭐ A3/D6-1：首次向导 ═══════════
+  //   痛点：首屏**全是“看”**（页签/面板/矩阵/待办）✗ → 不知道从哪开始一件事 ✗
+  //   口径：⭐ 首屏就能「开始一件事」✓；⭐ **不选模型也能发起** ✓（多模型从门槛降为可选项 ✓）
+  //   ⛔ 不新增端点 ✗：发起复用 **POST /api/interrupt**（人类发话）＋ **POST /api/step**（推进一格）✓
+  //   ⛔ 不静默 ✗：服务未连上 → 输入框禁用 ＋ 写明原因 ＋ 给「重试探测」✓
+  var GUIDE_KEY = 'collab_guide_skipped';
+  var GUIDE_STEPS = [
+    ['起服务', '探测到 🟢 就无需操作 ✓'],
+    ['选模型', '默认单点，可跳过 ✓'],
+    ['选工作区', '沿用当前项目，或新建 ✓'],
+    ['写第一条任务', '一句普通话即可 ✓'],
+    ['看投递', 'V1/V2/V3 三层 ✓']
+  ];
+  var guideActive = 0;
+  var starterReady = false;      // ⭐ 必须**先声明**：页面为严格模式 ⇒ 未声明就赋值会抛 ReferenceError ✗
+                                 //   （本条由 e2e 当场逮住 ✓：连接灯曾变成“🔴 未连上（starterReady is not defined）”✗）
+
+  function howEmpty(what, how) {
+    // ⭐ 空面板指引（⛔ 不再是一片空白 ✗；也不泄后端路径 ✗）
+    return '<div class="howempty"><div class="t">' + esc(what) + '</div>' +
+           '<div class="h">' + esc(how) + '</div></div>';
+  }
+
+  function guideSkipped() {
+    try { return window.localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) { return false; }
+  }
+  function skipGuide() {
+    try { window.localStorage.setItem(GUIDE_KEY, '1'); } catch (e) { /* 存不了就不记（下次还会显示 ✓ 不算错 ✓）*/ }
+    $('guide').hidden = true;
+  }
+  function renderGuide() {
+    var box = $('guide-steps');
+    if (!box) { return; }
+    box.innerHTML = GUIDE_STEPS.map(function (it, i) {
+      return '<div class="step' + (i === guideActive ? ' on' : '') + '">' +
+        '<div class="n">STEP ' + (i + 1) + '</div>' +
+        '<div class="t">' + esc(it[0]) + '</div>' +
+        '<div class="d">' + esc(it[1]) + '</div></div>';
+    }).join('');
+  }
+
+  // 参与范围：默认**单点** ✓（圆桌＝B 阶段：控件保留但**禁用 ＋ 写清原因** ✓ 不让“点了没反应”✗）
+  function starterMode() {
+    var s = $('starter-mode-single');
+    return (s && s.classList.contains('on')) ? 'single' : 'round';
+  }
+
+  function setStarter(ok, why) {
+    var box = $('starter');
+    var inp = $('starter-input');
+    var send = $('starter-send');
+    var bn = $('conn-banner');
+    if (!box || !inp || !send) { return; }          // ⛔ 缺元素不抛 ✗
+    starterReady = !!ok;
+    box.classList.toggle('dim', !ok);
+    inp.disabled = !ok;
+    send.disabled = !ok;
+    inp.placeholder = ok ? '想让它做什么？一句话就行（回车或点「发起」）'
+                         : '（服务未连上，暂不能发起）';
+    $('starter-hint').textContent = ok
+      ? '⭐ 一句普通话就能开始 ✓ ｜ 不必先选多模型 ✓ ｜ 运行中也能继续排队（B 阶段上线）✓'
+      : '⛔ 服务未连上 —— 先起服务再发起 ✗（按钮已禁用 ✓ 不让“点了没反应”✗）';
+    if (bn) {
+      bn.hidden = !!ok;
+      if (!ok) { $('conn-banner-why').textContent = '原因：' + (why || '未知') ; }
+    }
+  }
+
+  function submitStarter() {
+    if (!starterReady) { err('服务未连上 —— 先起服务再发起 ✗（右上角小灯有原因 ✓）'); return; }
+    var inp = $('starter-input');
+    var t = (inp.value || '').trim();
+    if (!t) { err('请先写一句要它做的事 ✗（空内容不发起 ✓）'); inp.focus(); return; }
+    var send = $('starter-send');
+    send.disabled = true;
+    // ⛔ 不新增端点 ✗：① 人类发话 → /api/interrupt ② 推进一格 → /api/step
+    post('/api/interrupt', { body: t })
+      .then(function () { return post('/api/step', {}); })
+      .then(function () { inp.value = ''; return refresh(); })
+      .catch(function (e) {
+        err('发起失败：' + ((e && e.message) || '未知原因'));   // ⛔ 不静默 ✗
+      })
+      .then(function () { send.disabled = !starterReady; });
+  }
+
+  function updateStarter(snap, projects, pend) {
+    var issue = (snap && snap.issue && snap.issue.title) || '';
+    var turn = (snap && snap.turn_no !== undefined) ? snap.turn_no : '—';
+    $('c-resume').textContent = issue
+      ? (issue + ' · 上一轮 turn ' + turn + ' ｜ 点这里接着聊')
+      : '还没有议题 ｜ 在下面写一句就能开第一轮 ✓';
+    var pn = (pend && pend.pending) ? pend.pending.length : null;
+    $('c-pending').textContent = (pn === null)
+      ? '取不到待办（服务未连上或未就绪）✓'
+      : (pn + ' 条待办等人触发运行器 ｜ 点开逐条看载荷');
+    var an = 0;
+    if (ASSETS) { Object.keys(ASSETS).forEach(function (k) { an += Object.keys(ASSETS[k] || {}).length; }); }
+    $('c-matrix').textContent = an
+      ? '已载入 ' + an + ' 条状态资产 ｜ 点开看三件套 ✓'
+      : '尚未载入资产 ｜ 点开矩阵即可拉取 ✓';
+    // ⭐ 首次使用判定：无议题 ＋ 无待办 ＋ 无项目 ⇒ 显示向导（可跳过 ✓）
+    var projN = (projects && projects.projects) ? projects.projects.length : 0;
+    var first = !issue && (pn === null || pn === 0) && !projN;
+    var g = $('guide');
+    if (g) { g.hidden = !(first && !guideSkipped()); }
+    if (!g.hidden) {
+      guideActive = starterReady ? 1 : 0;
+      renderGuide();
+    }
+  }
+
   function avatarText(sender) {
     var s = String(sender || '?');
     if (s.indexOf('human:') === 0) return '我';
@@ -536,7 +727,7 @@
   function renderL1(msgs) {
     var box = $('stream-l1');
     box.innerHTML = '';
-    if (!msgs.length) { box.innerHTML = '<div class="empty">暂无记录（L1 为空）</div>'; }
+    if (!msgs.length) { box.innerHTML = howEmpty('这里会出现：每个角色说的话（群聊流 L1）', '怎么让它出现 → 在上面输入一句话，点「▶ 发起」✓'); }
     msgs.forEach(function (m) {
       var d = document.createElement('div');
       d.className = rowClass(m.sender);
@@ -570,6 +761,15 @@
   function renderL2(msgs) {
     var tb = $('lane-l2');
     tb.innerHTML = '';
+    if (!msgs.length) {
+      // ⭐ A2/D6-2：空面板自带「下一步做什么」（⛔ 不再是一片空白 ✗）
+      var tr0 = document.createElement('tr');
+      tr0.className = 'l2-empty';
+      tr0.innerHTML = '<td colspan="5">' +
+        howEmpty('这里会出现：每张投递的去向与花费（V2 投递轨道）',
+                 '怎么让它出现 → 发起一轮 ＋ 让运行器真跑（python collab\\run_pending.py --base .）✓') + '</td>';
+      tb.appendChild(tr0);
+    }
     msgs.forEach(function (m) {
       var meta = m.meta || {};
       var tr = document.createElement('tr');
@@ -593,7 +793,7 @@
   function renderL3(msgs) {
     var box = $('lane-l3');
     box.innerHTML = '';
-    if (!msgs.length) { box.innerHTML = '<div class="empty">暂无（后台总线为空）</div>'; }
+    if (!msgs.length) { box.innerHTML = howEmpty('这里会出现：每一次投递的原始记录（V3 后台总线）', '怎么让它出现 → 先发起一轮 ✓；运行器真跑起来才会有投递 ✓'); }
     msgs.forEach(function (m) {
       var d = document.createElement('div');
       d.className = 'empty';
@@ -1195,6 +1395,7 @@
         PEND = { pending: null, results: null };   // ⭐ 取不到 → 状态显示“未知”✓ 不假装 ✗
       }
       renderOps();
+      updateStarter(r[0], r[4], r[7]);          // ⭐ A2/D6-2：起手区文案 ＋ 首次使用判定
       $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
       $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
     }).catch(function (e) { err(e.message); }).then(function () {
@@ -1774,6 +1975,41 @@
   });
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
   probeConn();                     // ⭐ D6-5：启动即探一次（页面能开但服务没了 → 立刻显 🔴＋原因 ✓）
+  // ⭐ A2/D6-2 ＋ A3/D6-1：起手区/向导/起手卡/重试按钮 接线
+  if ($('starter-send')) { $('starter-send').onclick = submitStarter; }
+  if ($('starter-input')) {
+    $('starter-input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStarter(); }
+    });
+  }
+  if ($('conn-retry')) {
+    $('conn-retry').onclick = function () { probeConn(); };     // ⭐ 不用刷新整页 ✓
+  }
+  if ($('guide-skip')) { $('guide-skip').onclick = skipGuide; }
+  if ($('guide-next')) {
+    $('guide-next').onclick = function () {
+      guideActive = Math.min(guideActive + 1, GUIDE_STEPS.length - 1);
+      renderGuide();
+      if (guideActive >= 3 && $('starter-input')) { $('starter-input').focus(); }
+    };
+  }
+  if ($('starter-card-resume')) {
+    $('starter-card-resume').onclick = function () {
+      var t = $('c-resume').textContent || '';
+      if (t.indexOf('还没有议题') < 0 && $('starter-input')) { $('starter-input').value = '继续上一轮：' + t.split(' ｜ ')[0]; }
+      if ($('starter-input')) { $('starter-input').focus(); }
+    };
+  }
+  if ($('starter-card-pending')) {
+    $('starter-card-pending').onclick = function () {
+      if ($('opsbox')) { $('opsbox').scrollIntoView({ block: 'center' }); }
+    };
+  }
+  if ($('starter-card-matrix')) {
+    $('starter-card-matrix').onclick = function () {
+      if ($('mxpanel') && !$('mxpanel').classList.contains('on')) { openMatrix(); }
+    };
+  }
   probeThumb();                     // ⭐ 批 4b-4：缩略图端点探针（未上线 → 一个图片请求都不发 ✗ 明示原因 ✓）
 })();
 </script>
