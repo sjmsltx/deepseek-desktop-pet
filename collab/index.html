@@ -28,6 +28,11 @@
   .status.running{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
   .status.interrupted{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
   .status.stopped{background:var(--card);color:var(--ink2)}
+  /* ⭐ D6-5：常驻「服务连接」小灯（🟢 在跑 / 🔴 未连上（含原因）/ ⚪ 未探测）*/
+  .conn{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:3px;border:1px solid var(--rule);display:inline-block}
+  .conn.ok{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
+  .conn.down{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
+  .conn.probing{background:var(--card);color:var(--ink2)}
   .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
   button{font-family:var(--sans);font-size:13px;padding:7px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
   button:hover{background:var(--card)}
@@ -242,6 +247,11 @@
   </div>
   <div class="meta">
     状态：<span class="status stopped" id="state" data-state="unknown" data-reason="">—</span>
+  </div>
+  <!-- ⭐ D6-5：服务连接小灯（⛔ 不新增端点 ✗ —— 只读现成的 GET /api/health ✓）-->
+  <div class="meta">
+    服务：<span class="conn probing" id="conn" data-conn="probing" data-reason="尚未探测"
+      title="服务连接状态（探测只读端点 /api/health）">⚪ 未探测</span>
   </div>
 </header>
 
@@ -471,6 +481,43 @@
     d.className = 'err';
     d.textContent = '取数失败：' + msg;
     $('errs').appendChild(d);
+  }
+
+  // ================= ⭐ D6-5：常驻「服务连接」小灯 🟢 / 🔴 / ⚪ =================
+  //   缺陷原形：服务没在跑时，页面**能打开、一切为空、用户不知为何** ✗（＝ Owner 这次体感的直接原因 ✓）
+  //   口径：数据源只用**现成的只读端点** `GET /api/health` ✓（⛔ 不新增端点 ✗ 守契约 C1 ✓）
+  //   ⛔ 不静默 ✗：连不上时**必须把原因摆出来**（超时 / HTTP 码 / fetch 失败原因）✓
+  var CONN_TEXT = { ok: '🟢 服务在跑', down: '🔴 未连上', probing: '⚪ 未探测' };
+
+  function setConn(kind, reason) {
+    var el = $('conn');
+    if (!el) { return; }                       // ⛔ 缺元素不抛 ✗
+    el.className = 'conn ' + kind;
+    el.setAttribute('data-conn', kind);
+    el.setAttribute('data-reason', reason || '');
+    el.textContent = (CONN_TEXT[kind] || CONN_TEXT.probing) + (reason ? '（' + reason + '）' : '');
+    el.title = '服务连接：' + (CONN_TEXT[kind] || '') + (reason ? ' ｜ ' + reason : '');
+  }
+
+  function probeConn() {
+    if (probeConn._busy) { return; }            // 防重入：不堆积请求（同 refresh ✓）
+    probeConn._busy = true;
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) { ctl.abort(); } }, 4000);
+    fetch('/api/health', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.json();
+      })
+      .then(function (j) {
+        setConn('ok', 'seq=' + ((j && j.seq !== undefined) ? j.seq : '?'));
+      })
+      .catch(function (e) {
+        var why = (e && e.name === 'AbortError') ? '探测超时 4s'
+                : ((e && e.message) ? e.message : '未知原因');
+        setConn('down', why);                  // ⛔ 绝不静默 ✗
+      })
+      .then(function () { clearTimeout(timer); probeConn._busy = false; });
   }
 
   function avatarText(sender) {
@@ -1150,7 +1197,10 @@
       renderOps();
       $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
       $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
-    }).catch(function (e) { err(e.message); }).then(function () { refresh._busy = false; });
+    }).catch(function (e) { err(e.message); }).then(function () {
+      refresh._busy = false;
+      probeConn();                              // ⭐ D6-5：每轮刷新顺带探一次连接灯 ✓
+    });
   }
 
   function download(name, text, mime) {
@@ -1723,6 +1773,7 @@
     };
   });
   setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
+  probeConn();                     // ⭐ D6-5：启动即探一次（页面能开但服务没了 → 立刻显 🔴＋原因 ✓）
   probeThumb();                     // ⭐ 批 4b-4：缩略图端点探针（未上线 → 一个图片请求都不发 ✗ 明示原因 ✓）
 })();
 </script>

@@ -20,7 +20,7 @@
  *
  * 【退出码】0 = 全绿 ✓ ｜ 1 = 有断言失败 ✗ ｜ 2 = 环境错误
  *
- * 【覆盖】项目层接线 / 角色条 / 资产矩阵（三勾）/ 单角色列表 / 设绑定载荷形状 / 真三态 / 不回归
+ * 【覆盖】项目层接线 / 角色条 / 资产矩阵（三勾）/ 单角色列表 / 设绑定载荷形状 / 真三态 / 不回归 / ⭐ D6-5 服务连接灯（🟢 与 🔴 两态）
  * 【边界】⛔ 本脚本**只读** ✓（只点界面、只投递待办 ✓ 不跑运行器 ✗ 不改仓库 ✗）
  *         ⚠️ 它会往 collab/pending/ 投递 1 条待办（用于验"待办/真三态"）→ 请自行清理 ✓
  */
@@ -156,6 +156,32 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
   ok('⭐ lazy 生效（只对可见格赋 src ✓）', mxLoaded >= 1 && mxLoaded < mxImgs, { mxImgs, mxLoaded });
   ok('⛔ 无 assets_3.0 图片 404', otherBad.length === 0, { otherBad });
   ok('⭐ 常驻行明确报出状态（已就绪/未上线 ✓ 不静默 ✗）', /端点(已就绪|未上线)/.test(tnMsg), { tnMsg: tnMsg.slice(0, 100) });
+
+  // ⭐⭐ D6-5：常驻「服务连接」小灯（🟢 在跑 / 🔴 未连上（含原因）/ ⚪ 未探测）
+  //    判据：① 服务在跑 → 🟢 且带可核信息（seq）✓
+  //          ② 服务不参与 → 🔴 **且写明原因** ✓（⛔ 不接受“空白/未知”当通过 ✗ —— 那正是 D6-5 要修的缺陷本身）
+  sec('【6】D6-5 服务连接灯');
+  const s6 = await pg.evaluate(() => {
+    const el = document.getElementById('conn');
+    return el ? { cls: el.className, st: el.getAttribute('data-conn'),
+                  reason: el.getAttribute('data-reason'), text: (el.textContent || '').trim() } : null;
+  });
+  ok('连接灯元素存在（#conn）', !!s6, s6);
+  ok('⭐ 服务在跑 → 🟢（data-conn=ok 且带 seq）', !!s6 && s6.st === 'ok' && /seq=/.test(s6.reason || ''), s6);
+
+  // ② 服务不参与的情形：用 file:// 打开同一页面（此时 /api/health 必然连不上 ✓）
+  const fileUrl = 'file:///' + path.join(REPO, 'collab', 'index.html').replace(/\\/g, '/');
+  const pg2 = await br.newPage({ viewport: { width: 1200, height: 800 } });
+  await pg2.goto(fileUrl, { waitUntil: 'load' });
+  await pg2.waitForTimeout(1500);
+  const s6b = await pg2.evaluate(() => {
+    const el = document.getElementById('conn');
+    return el ? { st: el.getAttribute('data-conn'), reason: el.getAttribute('data-reason'),
+                  text: (el.textContent || '').trim() } : null;
+  });
+  ok('⭐ 连不上 → 🔴（data-conn=down）', !!s6b && s6b.st === 'down', s6b);
+  ok('⭐⭐ 连不上时**必须写明原因**（⛔ 不静默 ✗）', !!s6b && (s6b.reason || '').length > 0, s6b);
+  await pg2.close();
 
   await br.close();
   sec('汇总');
