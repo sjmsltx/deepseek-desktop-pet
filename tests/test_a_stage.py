@@ -1191,3 +1191,49 @@ def test_comments_must_not_contradict_implementation():
     src = io.open(os.path.join(REPO, 'collab', 'pending_ops.py'), encoding='utf-8').read()
     for bad in ('**可自动重放至多 2 次**', '自动重放上限（'):
         assert bad not in src, '⛔ 注释与实现相反 ✗：%s' % bad
+
+
+# ── ⭐ E14.9 锁自动化的**嵌套标记**护栏（2026-10-05，⭐ 采纳微信侧 `WX-…-63` 修法② ✓）──
+# ⭐ ⭐ 事故：⭐ 那条"全量红"的真凶 = ⭐ **两条自家机制互撞** ✗ ——
+#   `test_resource_hygiene.py::test_unraisable_leak_turns_run_red` ⭐ **要起子 pytest** ✗
+#   ⇒ ⭐ 子进程继承 `addopts = -p tools.aclock_plugin` ✗ ⇒ ⭐ 而"已持锁"判据只看**自己＋直接父** ✗
+#   ⇒ ⭐ 持锁者是**更上层**（如外层 `ac_lock.py`）⇒ ⭐ 子 pytest **误判没持锁 ⇒ 抢 ⇒ 等 120s 超时中止** ✗
+#   ⇒ ⭐ **子进程输出变成锁报错 ⇒ 依赖该输出的用例红** ✗ ＋ ⭐ **白等 120 秒** ✗（实测 360s vs 243s ✓）。
+# ⭐ 修法：⭐ 插件把"已在锁内"这个事实 ⭐ **用环境变量传给后代** ✗ ⇒ ⭐ 后代**零等待跳过** ✓。
+def test_aclock_plugin_has_nested_marker():
+    """⭐ 结构钉：⭐ 插件必须有**嵌套标记** ✗ —— ⛔ 不许只靠"自己＋直接父"判持锁 ✗（⭐ 那会漏后代 ✓）。"""
+    src = io.open(os.path.join(REPO, 'tools', 'aclock_plugin.py'), encoding='utf-8').read()
+    assert 'NEST_ENV' in src, '⛔ 插件必须定义嵌套标记（环境变量）✗'
+    assert "os.environ[NEST_ENV]" in src or 'os.environ[NEST_ENV] =' in src, \
+        '⛔ 拿到锁／识别到已在锁内时，必须**设置**该环境变量 ✗'
+    assert 'os.environ.get(NEST_ENV)' in src, \
+        '⛔ 后代 pytest 必须**先看该变量并跳过** ✗（⭐ 否则还会去抢锁 ✓）'
+    # ⭐ 顺序钉：⭐ "后代跳过"必须在"判自己/父"**之前** ✗（⛔ 否则后代仍会走父链误判 ✓）
+    # ⚠️ ⭐ 自纠：⭐ 锚点必须取 `pytest_configure` **体内**的调用 ✗ ——
+    #   ⭐ 首版直接 `src.index('_held_by_me_or_parent()')` ✗ ⇒ ⭐ 命中的是**函数定义处** ✗
+    #   （⭐ 定义在文件前部 ✓）⇒ ⭐ 判据**假红** ✓ ⇒ ⭐ 正是我方判例
+    #   "⭐ 工具/护栏的 `index()` 锚点必须取正文里的唯一形式"✗ ⇒ ⭐ 我又犯了一次 ✓。
+    _body = src[src.index('def pytest_configure(config):'):]
+    i_nest = _body.index('os.environ.get(NEST_ENV)')
+    i_parent = _body.index('_held_by_me_or_parent()')
+    assert i_nest < i_parent, '⛔ 后代跳过判据必须排在"判自己／父进程"之前 ✗'
+
+
+def test_subpytest_inherits_nested_marker(tmp_path):
+    """⭐ 后果类：⭐ 在**锁内**起子 pytest，子进程必须**跳过**拿锁 ✗（⭐ 零等待 ✓ 不白等 ✓）。
+    ⭐ 判据 = ⭐ 子 pytest 的输出里出现"祖先已在锁内"✗，⛔ 不是"拿不到锁"✗ ✓。"""
+    import subprocess as _sp
+    import sys as _sys
+    ini = os.path.join(REPO, 'pytest.ini')
+    code = ('import os, subprocess, sys;'
+            'env = dict(os.environ); env["AC_LOCK_NESTED"] = "acquired";'
+            'r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",'
+            ' "--collect-only", os.path.join(%r, "tests", "test_a_stage.py")],'
+            ' capture_output=True, text=True, env=env, cwd=%r);'
+            'print((r.stdout or "") + (r.stderr or ""))' % (REPO, REPO))
+    r = _sp.run([_sys.executable, '-c', code], capture_output=True, text=True, encoding='utf-8',
+                cwd=REPO, timeout=180)
+    out = (r.stdout or '') + (r.stderr or '')
+    assert '祖先已在锁内' in out or '跳过重复获取' in out, \
+        '⛔ 带嵌套标记时，后代 pytest 必须**跳过拿锁** ✗（⭐ 实测输出片段：%r ✓）' % out[-300:]
+    assert '等 120' not in out, '⛔ 不得再出现"等 120s 超时"✗（⭐ 那就是白等 120 秒的根因 ✓）'

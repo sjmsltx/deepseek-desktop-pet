@@ -29,6 +29,17 @@ from tools.ac_lock import file_lock, lock_path  # noqa: E402
 
 LOCK_NAME = '测试'
 
+# ⭐ ⭐ 嵌套标记（2026-10-05，⭐ 采纳微信侧 `WX-…-63` 修法② ✓）
+#   为什么：⭐ 有用例会**起子 pytest** ✗（`test_resource_hygiene.py::test_unraisable_leak_turns_run_red` ✓）
+#     ⇒ ⭐ 子进程读**同一个 `pytest.ini`** ⇒ ⭐ 继承 `addopts = -p tools.aclock_plugin` ✗
+#     ⇒ ⭐ 而"已持锁"判据只看 **自己 ＋ 直接父** ✗ ⇒ ⭐ 子 pytest 的父**不是持锁者**（持锁者可能是
+#       ⭐ 外层 `ac_lock.py` ✓ 或更上层 ✓）⇒ ⭐ **误判没持锁 ⇒ 去抢 ⇒ 等 120s 超时中止** ✗
+#     ⇒ ⭐ 子进程输出变成**锁的报错** ⇒ ⭐ **依赖子进程输出的用例红** ✗ ＋ ⭐ **白等 120 秒** ✗。
+#   ⭐ 对策：⭐ **用环境变量把"已在锁内"这个事实传给后代** ✗（⭐ 环境变量默认会被子进程继承 ✓）
+#     ⇒ ⭐ 后代 pytest 见到 ⇒ ⭐ **直接跳过，零等待** ✓ ⇒ ⭐ 从根上不再和任何"起子 pytest"的用例互撞 ✓。
+#   ⚠️ 不删它 ✓：⭐ 本进程退出时环境变量随之消失 ✓；⭐ 同一进程内的后代**正需要**它 ✓。
+NEST_ENV = 'AC_LOCK_NESTED'
+
 _state = {'ctx': None, 'why': ''}
 
 
@@ -63,8 +74,16 @@ def _held_by_me_or_parent() -> bool:
 
 
 def pytest_configure(config):
+    # ⭐ ① 后代 pytest（⭐ 祖先已在锁内 ✓）⇒ ⭐ **直接跳过，零等待** ✗ —— 见 `NEST_ENV` 说明 ✓
+    if os.environ.get(NEST_ENV):
+        _state['why'] = ('祖先已在锁内（%s=%s ✓）⇒ 跳过重复获取 ✓（⭐ 零等待 ✗）'
+                         % (NEST_ENV, os.environ.get(NEST_ENV)))
+        print('\n🔒 [aclock] %s' % _state['why'])
+        return
     if _held_by_me_or_parent():
         _state['why'] = '锁已由本进程/父进程持有 ⇒ 跳过重复获取 ✓'
+        # ⭐ 让**后代**也能跳过（⭐ 我虽未拿锁，但"已在锁内"这个事实成立 ✓）
+        os.environ[NEST_ENV] = 'inherited'
         print('\n🔒 [aclock] %s' % _state['why'])
         return
     wait = float(os.environ.get('AC_LOCK_WAIT', '120') or 120)
@@ -79,6 +98,8 @@ def pytest_configure(config):
                     '｜⭐ 另一边正在跑测试 ✓ 等它跑完（或改 AC_LOCK_WAIT ✓）' % (LOCK_NAME, e),
                     returncode=3)
     _state['ctx'] = ctx
+    # ⭐ 我拿到了锁 ⇒ ⭐ **后代 pytest 一律跳过** ✗（⭐ 关键的那一步 ✓）
+    os.environ[NEST_ENV] = 'acquired'
     print('\n🔒 [aclock] 已拿锁「%s」✓（等待上限 %ss ✓）' % (LOCK_NAME, wait))
 
 
