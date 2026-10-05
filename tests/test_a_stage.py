@@ -1004,3 +1004,27 @@ def test_b9_both_poll_sites_wired():
                 prev = lines[j]
                 assert len(prev) - len(prev.lstrip()) < len(l) - len(l.lstrip()), \
                     '⭐ %s 的 `_i = 0` 必须在 while **外** ✗（⭐ 否则每次重置 ✓）' % f
+
+
+def test_c5_both_spawn_paths_carry_code():
+    """⭐ 采纳微信侧 `WX-…-55` §二 ✓：⭐ `safe_spawn` **与** `safe_popen` 两条路径
+    ⭐ 抛错消息**都必须带** `SPAWN-403-01` ✗（⭐ 我方首版只给了 `safe_spawn` ⇒ 漏了 ✓）。"""
+    src = io.open(os.path.join(REPO, 'platform_layer.py'), encoding='utf-8').read()
+    n = len(__import__('re').findall(r"\[SPAWN-403-01\]", src))
+    assert n >= 2, '⭐ 两条子进程路径都要带码 ✗（实际 %d 处 ✓）' % n
+    # ⭐ 反向：⭐ 不得留下**不带码**的那句（⭐ 即旧文案不应再出现 ✓）
+    assert "PermissionError('P0-3 子进程白名单" not in src, \
+        '⭐ 仍有不带码的 PermissionError 旧句 ✗'
+
+
+def test_c5_popen_path_really_raises_with_code():
+    """⭐ 真跑：⭐ `safe_popen` 拒未登记程序 ⇒ ⭐ 抛错消息**含码** ✗。"""
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location('pl', os.path.join(REPO, 'platform_layer.py'))
+    pl = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(pl)
+    try:
+        pl.safe_popen(['curl', 'http://x'])
+        raise AssertionError('⭐ 未登记程序必须抛错 ✗')
+    except PermissionError as e:
+        assert 'SPAWN-403-01' in str(e), '⭐ `safe_popen` 抛错必须含码 ✗（实际 %r）' % str(e)[:60]

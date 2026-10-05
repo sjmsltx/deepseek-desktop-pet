@@ -416,7 +416,9 @@ def safe_popen(argv, **kwargs):
     ok, name, why = program_allowed(argv)
     if not ok:
         print('  \u26a0\ufe0f P0-3 拒绝起进程（Popen）：%s（白名单外 ✗）' % (name or '?',))
-        raise PermissionError('P0-3 子进程白名单：%s' % why)
+        # ⭐ 采纳微信侧 `WX-…-20261005-55` §二 ✓：⭐ 此处**曾漏码** ✗（⭐ 我只给 `safe_spawn` 加了 ✓）
+        #   ⇒ ⭐ 两处消息**必须一致** ✗（⭐ 否则 `safe_popen` 路径的报错**没有 `SPAWN-403-01`** ✓）
+        raise PermissionError('[SPAWN-403-01] P0-3 子进程白名单：%s' % why)
     return subprocess.Popen(argv, **kwargs)
 
 
