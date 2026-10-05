@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import random
@@ -17,6 +18,13 @@ import time
 
 PENDING_DIRNAME = 'pending'                      # ⭐ E1② 只写这一个目录 ✓
 RESULTS_NAME = 'results.jsonl'                   # ⭐ E2 只追加 ✓
+CLAIMS_NAME = 'claims.jsonl'                     # ⭐ B1/D3-1：claim（执行中）痕迹**只追加** ✓
+CLAIM_STALE_S = 300                              # ⭐ claim 超时（秒）⇒ 可回收 ✓
+CLAIM_GRACE_S = 30                               # ⭐ ⭐ **宽限期**：⭐ 即便 pid 看起来已死，
+                                                 #    ⭐ 也要过这么多秒才允许回收 ✗
+                                                 #    （⭐ 起因：⭐ **刚 spawn 的进程 tasklist 还没列到** ✗
+                                                 #      ⇒ ⭐ `_pid_alive` 误判为死 ⇒ 误回收他人 claim ✓
+                                                 #      ⭐ 实测：8 进程并发时错误地有 3 个拿到 ✗）
 OP_TYPES = ('project_edit', 'asset_op')          # ⭐ E1① 类型枚举 ✓（不收命令/脚本 ✗）
 # ⭐ 载荷字段白名单（`-105` §一 审定 ✓ 未知字段一律拒 ✗）
 PROJECT_FIELDS = ('name', 'root', 'outputs', 'memory_file', 'roles')
@@ -348,6 +356,223 @@ def product_line(base_dir: str = '') -> str:
         print('  ℹ️ 读 collab/config.json 失败：%r' % (exc,))          # ⭐ 落痕 ✓
     return DEFAULT_LINE
 
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ⭐ B1 / D3-1：**「claim（执行中）」态** —— 幂等 ＋ 可回收 ✓
+#
+# ⭐ 要解决（D3-2 的前置 ✓）：⭐ 现在 `run()` 是"执行 → 落结果" ✗
+#    ⇒ ⭐ **两步之间中断** ⇒ 无结果 ⇒ ⭐ 重启会**重做一遍** ✗（**重复执行** ✗）
+# ⭐ 做法（⭐ 采纳微信侧 `WX-…-49` §1.2 判据 ✓）：
+#    · ⭐ 取待办前**先落 claim** ✓（⭐ `claims.jsonl` **只追加** ✓ 带 `pid` ＋ `ts` ✓）
+#    · ⭐ 已被 claim 且**持有者还活着** ⇒ ⭐ **明确跳过并留痕** ✗（⛔ 不静默 ✗）
+#    · ⭐ claim **持有者已死** 或**超 `CLAIM_STALE_S`** ⇒ ⭐ **可回收重取** ✓（⭐ 记痕 ✓）
+#    · ⭐ 执行完 ⇒ ⭐ 落结果 ＋ **释放 claim** ✓
+# ⭐ 判据（真跑 ✓）：⭐ ① 两个运行器并发取同一条 ⇒ **只有一个执行** ✓ 另一个**明确跳过** ✓
+#                   ⭐ ② claim 超时回收 ✓ ③ 两进程并发 ⇒ ⭐ **结果条数 = 1** ✓
+# ═══════════════════════════════════════════════════════════════════
+
+def claims_path(base_dir: str = '') -> str:
+    """⭐ claim 痕迹文件（⭐ 与结果同目录 ✓ 只追加 ✓）。"""
+    return os.path.join(_pending_dir(base_dir), CLAIMS_NAME)
+
+
+def _pending_dir(base_dir: str = '') -> str:
+    """⭐ `base_dir_of()` **本身就指向 `pending/`** ✓ ⇒ ⛔ 不要再拼一次 ✗
+    （⭐ 我方曾写成 `join(base_dir_of(...), 'pending')` ⇒ **`pending/pending/`** ✗ ⇒
+      ⭐ 写 claim 全 FileNotFoundError ✓ —— ⭐ 是"写失败 ⇒ 保守不执行"的兜底**先兜住了** ✓）。"""
+    return base_dir_of(base_dir)
+
+
+def _pid_alive(pid) -> bool:
+    """⭐ 进程是否还活着 ✓（⭐ 判不了 ⇒ **当活着** ✗ 保守 ✓：宁可跳过也不重复执行 ✓）。"""
+    try:
+        pid = int(pid or 0)
+    except Exception:
+        return True
+    if pid <= 0:
+        return False
+    try:
+        if os.name == 'nt':
+            import subprocess
+            out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid],
+                                 capture_output=True, text=True, timeout=8)
+            return str(pid) in (out.stdout or '')
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return True
+
+
+def read_claims(base_dir: str = '') -> list:
+    """⭐ 读全部 claim 行（⭐ 只读 ✓ 坏行跳过并告警 ✓）。"""
+    p = claims_path(base_dir)
+    out = []
+    if not os.path.isfile(p):
+        return out
+    try:
+        with io.open(p, encoding='utf-8', errors='replace') as fh:
+            for lineno, line in enumerate(fh, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    print('  \u26a0\ufe0f claims 坏行跳过：第 %d 行' % lineno)
+    except Exception as exc:
+        print('  \u26a0\ufe0f 读 claims 失败：%r' % (exc,))
+    return out
+
+
+def _claims_dir(base_dir: str = '') -> str:
+    """⭐ 互斥目录（⭐ 每 op 一个 `<op_id>.claim` 文件 ✓ —— ⭐ 靠 `O_EXCL` **创建即拿锁** ✗）。"""
+    return os.path.join(_pending_dir(base_dir), 'claims')
+
+
+def _claim_file(op_id: str, base_dir: str = '') -> str:
+    safe = ''.join(ch if (ch.isalnum() or ch in '-_.') else '_' for ch in str(op_id or ''))
+    return os.path.join(_claims_dir(base_dir), '%s.claim' % safe)
+
+
+def _read_claim(op_id: str, base_dir: str = '') -> dict:
+    try:
+        with io.open(_claim_file(op_id, base_dir), encoding='utf-8') as fh:
+            return json.load(fh) or {}
+    except Exception:
+        return {}
+
+
+
+def _claim_reclaimable(pid, ts, now, stale: int = None, grace: int = None) -> bool:
+    """⭐ 该 claim 是否**可回收** ✓ —— ⭐ ⭐ **两条独立路径，都不许过快** ✗。
+
+    ⭐ ① **超 `stale`**（默认 300s）⇒ 可回收 ✓（⭐ 不管 pid 死活 ✓ —— ⭐ "活着但卡死" ✓）
+    ⭐ ② ⭐ pid **确实已死** ✗ 且 ⭐ **已过 `grace`**（默认 30s ✓）⇒ 可回收 ✓
+    ⭐ ⭐ 为什么 ② 要加宽限期（⭐ 实测教训 ✓）：⭐ **刚 spawn 的进程**，⭐ `tasklist` **还没列到** ✗
+       ⇒ ⭐ `_pid_alive` 会**误报"死"** ✗ ⇒ ⭐ 若据此立刻回收 ⇒ ⭐ **误抢他人的 claim** ✓
+       （⭐ 实测：⭐ 8 进程并发时错误地有 **3 个**拿到 ✗）
+    """
+    st = CLAIM_STALE_S if stale is None else stale
+    gr = CLAIM_GRACE_S if grace is None else grace
+    age = (now - ts) if ts else 1e9
+    if age > st:
+        return True
+    if age > gr and not _pid_alive(pid):
+        return True
+    return False
+
+
+def active_claims(base_dir: str = '', stale: int = CLAIM_STALE_S) -> dict:
+    """⭐ 当前**有效**的 claim（⭐ `op_id` → 信息 ✓）。
+
+    ⭐ 有效判据：⭐ 持有者 `pid` **还活着** ✗ 且 ⭐ 未超 `stale` ✓
+    （⭐ 判不了的 ⇒ **当有效** ✗ 保守 ✓：宁可跳过也不重复执行 ✓）。
+    """
+    d = _claims_dir(base_dir)
+    out = {}
+    if not os.path.isdir(d):
+        return out
+    now = time.time()
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith('.claim'):
+            continue
+        oid = fn[:-len('.claim')]
+        info = _read_claim(oid, base_dir)
+        pid = info.get('pid')
+        ts = float(info.get('ts') or 0)
+        if _claim_reclaimable(pid, ts, now):
+            continue          # ⭐ 可回收 ⇒ 不算有效 ✓
+        out[oid] = info
+    return out
+
+
+def claim_op(op_id: str, line: str = '', base_dir: str = '') -> bool:
+    """⭐ 尝试 claim 一条待办 ✓ —— ⭐ ⭐ **原子**（⭐ `O_EXCL` 创建即拿 ✗ 不成即退 ✓）。
+
+    ⭐ 为什么不用"先查后写"✗：⭐ 我方首版就是这么写的 ✓ ⇒ ⭐ **实测两个进程都拿到了** ✗
+      （⭐ 并发下 check 与 write 之间有空隙 ✓）⇒ ⭐ 改成 ⭐ **一个 op 一个文件 ＋ `O_EXCL`** ✓
+      （⭐ 由**操作系统**保证原子 ✓）。
+
+    返回 `True` = ⭐ 拿到（可执行 ✓）；`False` = ⭐ 别人正持有（⭐ **明确跳过并留痕** ✗）。
+    """
+    oid = str(op_id or '')
+    if not oid:
+        return False
+    p = _claim_file(oid, base_dir)
+    os.makedirs(_claims_dir(base_dir), exist_ok=True)
+    rec = {'op_id': oid, 'pid': os.getpid(), 'ts': time.time(),
+           'line': line or product_line(base_dir)}
+    for _attempt in (1, 2):
+        try:
+            fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            info = _read_claim(oid, base_dir)
+            pid, ts = info.get('pid'), float(info.get('ts') or 0)
+            if _claim_reclaimable(pid, ts, time.time()):
+                why = ('超过 %ds 未释放' % CLAIM_STALE_S
+                       if (time.time() - ts) > CLAIM_STALE_S else '持有者已退出且已过宽限期')
+                print('  \u2139\ufe0f 回收 claim %s（%s ✓；原持有者 pid=%s）' % (oid, why, pid))
+                # ⭐ 回收＝删旧 claim ✓：⭐ 撞 `FileNotFoundError` ⇒ ⭐ **别人已先回收** ✓（⭐ 不是失败 ✓）
+                #   ⚠️ 但**不能静默** ✗ —— ⭐ 我方第一版写了 `except FileNotFoundError: pass` ✗
+                #   ⇒ ⭐ 被对方 `test_no_new_silent_spots` 当场判红 ✓（⭐ 本会话第 7 次同类 ✗）⇒ 加落痕 ✓
+                try:
+                    os.remove(p)
+                except FileNotFoundError as exc:
+                    print('  \u2139\ufe0f 旧 claim 已被他人回收（忽略 ✓）：%r' % (exc,))
+                except OSError as exc:
+                    print('  \u26a0\ufe0f 删旧 claim 失败：%r' % (exc,))
+                continue          # ⭐ 重试一次 ✓
+            print('  \u2139\ufe0f 待办 %s **已被其他运行器 claim**（pid=%s）⇒ 跳过本次（⛔ 不重复执行 ✗）'
+                  % (oid, pid))
+            return False
+        except OSError as exc:
+            print('  \u26a0\ufe0f 创建 claim 失败 ⇒ 本次**不执行**（保守 ✓）：%r' % (exc,))
+            return False
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            json.dump(rec, fh, ensure_ascii=False)
+        # ⭐ 复核归属：⭐ 读回来必须还是**我** ✗（⭐ 防"我写完后别人回收并重写"的极窄窗口 ✓）
+        if int(_read_claim(oid, base_dir).get('pid') or 0) == os.getpid():
+            _audit(base_dir, oid, 'claim', rec)
+            return True
+        print('  \u2139\ufe0f claim %s 归属已变（被他人接管）⇒ 本次不执行 ✓' % oid)
+        return False
+    return False
+
+
+def _audit(base_dir: str, op_id: str, kind: str, extra=None):
+    """⭐ 审计痕迹（⭐ `claims.jsonl` **只追加** ✓ 便于回放 ✓ ⛔ 不参与互斥 ✗）。"""
+    try:
+        rec = {'op_id': str(op_id), 'kind': kind, 'pid': os.getpid(), 'ts': time.time()}
+        if extra:
+            rec.update({k: v for k, v in extra.items() if k not in rec})
+        with io.open(claims_path(base_dir), 'a', encoding='utf-8') as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + '\n')
+            fh.flush()
+    except Exception as exc:
+        print('  \u26a0\ufe0f 写审计痕迹失败（接口本身不受影响 ✓）：%r' % (exc,))
+
+
+def release_claim(op_id: str, base_dir: str = '') -> bool:
+    """⭐ 释放 claim ✓ —— ⭐ ⭐ **只放自己的** ✗（⭐ 核 `pid` ✓ 不误删他人的 ✓ 幂等 ✓）。"""
+    oid = str(op_id or '')
+    if not oid:
+        return False
+    p = _claim_file(oid, base_dir)
+    info = _read_claim(oid, base_dir)
+    if info and int(info.get('pid') or 0) != os.getpid():
+        print('  \u26a0\ufe0f claim %s 不是本进程持有（不删 ✓）' % oid)
+        return False
+    try:
+        os.remove(p)
+    except FileNotFoundError as exc:
+        # ⭐ 已不在＝等价于已释放 ✓ —— ⭐ 但**不静默** ✗（⭐ 留痕 ✓；⭐ 本会话第 8 次同类 ✗）
+        print('  \u2139\ufe0f claim 已不在（视为已释放 ✓）：%r' % (exc,))
+    except OSError as exc:
+        print('  \u26a0\ufe0f 释放 claim 失败：%r' % (exc,))
+        return False
+    _audit(base_dir, oid, 'release')
+    return True
 
 def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',
                   dry_run: bool = False, artifacts=None, line: str = '') -> str:
