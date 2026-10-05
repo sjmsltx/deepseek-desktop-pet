@@ -307,3 +307,26 @@ def test_b2_success_is_not_repeated(tmp_path):
     assert st['ok'] == 0 and st['failed'] == 0, '⭐ 不得再执行一次 ✗'
     assert _n_results(base) == n0, '⭐ 结果条数不得增加 ✗（%d → %d）' % (n0, _n_results(base))
 
+
+
+# ── ⭐ B2 race 修复护栏（2026-10-05，⭐ 采纳微信侧 `WX-…-58` §二 报的抖动 ✓）──
+#   ⭐ 根因：⭐ `claim_op` **创建即拿**✗ ⇒ "创建成功"与"写完内容"之间有窗口 ✗；
+#   ⭐ 窗口里别人读到**空文件** ⇒ `json.load` 抛错 ⇒ 旧 `except: return {}` ⇒ `ts=0`
+#   ⇒ `_claim_reclaimable` 算 `age=1e9` ⇒ ⭐ **判成陈旧 ⇒ 回收 ⇒ 双跑** ✗（实测结果 2 条 ✓）
+def test_b2_empty_claim_must_not_be_reclaimable(tmp_path):
+    """⭐ 空 claim（⭐ "刚建还没写完"✗）⭐ **绝不可回收** ✗ —— ⭐ 否则并发必双跑 ✓；
+    ⭐ 同时 ⭐ 真陈旧的仍必须可回收 ✓（⛔ 不许为了安全永久卡死 ✗）。"""
+    import time
+    import pending_ops
+    base = str(tmp_path)
+    p = pending_ops._claim_file('opR', base)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, 'w'):
+        pass                                        # ⭐ 空文件（⭐ 无 ts ✓）
+    info = pending_ops._read_claim('opR', base)
+    assert info.get('ts'), '⭐ 无 ts 时必须用 mtime 兜底 ✗（否则空 claim 会被误回收 ✓）'
+    assert pending_ops._claim_reclaimable(info.get('pid'), info.get('ts'), time.time()) is False, \
+        '⭐ 空 claim 在宽限期内**不得**可回收 ✗（⭐ 这是双跑根因 ✓）'
+    assert pending_ops._claim_reclaimable(info.get('pid'), float(info['ts']) - 400,
+                                          time.time()) is True, \
+        '⭐ 真陈旧的 claim 仍必须可回收 ✗（⛔ 不许永久卡死 ✓）'

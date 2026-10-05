@@ -436,11 +436,33 @@ def _claim_file(op_id: str, base_dir: str = '') -> str:
 
 
 def _read_claim(op_id: str, base_dir: str = '') -> dict:
+    """⭐ 读 claim ✓ —— ⚠️ ⭐ **`ts` 缺失时必须用文件 `mtime` 兜底** ✗（⭐ 见下 ✓）。
+
+    ⭐ ⭐ 为什么（⭐ 这是**真 race 的根因** ✗・微信侧 `WX-…-58` §二 报的抖动 ✓）：
+      ⭐ `claim_op` 是"⭐ `O_EXCL` **创建即拿**"✗ ⇒ ⭐ ⭐ **"创建成功"与"写完内容"之间有窗口** ✗；
+      ⭐ 窗口里别人 `O_EXCL` 撞 `FileExistsError` ⇒ ⭐ 读到**空文件** ⇒ ⭐ 旧写法给 `ts=0`
+      ⇒ ⭐ `_claim_reclaimable` 算 `age = 1e9` ⇒ ⭐ ⭐ **判成陈旧 ⇒ 立刻回收** ✗
+      ⇒ ⭐ 别人删掉持有者的 claim 后**重试** ⇒ ⭐ ⭐ **两个运行器都执行** ✗（实测结果条数 = 2 ✓）。
+    ⭐ 对策：⭐ **无 `ts` ⇒ 以文件 `mtime` 当 `ts`** ✗ ⇒ ⭐ 空 claim 落在**宽限期内不可回收** ✓，
+      ⭐ 又不会让"真损坏且持有者早死"的 claim **永久卡死** ✓（⭐ mtime 会变老 ✓）。
+    """
+    p = _claim_file(op_id, base_dir)
     try:
-        with io.open(_claim_file(op_id, base_dir), encoding='utf-8') as fh:
-            return json.load(fh) or {}
-    except Exception:
-        return {}
+        with io.open(p, encoding='utf-8') as fh:
+            rec = json.load(fh) or {}
+    except Exception as exc:
+        # ⚠️ ⭐ 关键：⭐ 空文件（⭐ "刚建还没写完" ✗）会让 `json.load` **抛错** ✗
+        #   ⇒ ⭐ 首版兜底只写在"读成功"那条路上 ⇒ ⭐ **永不执行** ✗（⭐ 编译绿、运行红 ✓）
+        #   ⇒ ⭐ 这里必须一并处理 ✓：⭐ 落成空 `rec` ＋ ⭐ 走**同一个** `ts` 兜底 ✓
+        print('  \u2139\ufe0f claim %s 内容不可读（⭐ 多为"刚建未写完" ✓）：%r' % (op_id, exc))
+        rec = {}
+    if not rec.get('ts'):
+        try:
+            rec['ts'] = os.path.getmtime(p)          # ⭐ mtime 兜底 ✗
+        except OSError as exc:
+            print('  \u26a0\ufe0f claim %s 取 mtime 失败（⭐ 当作"刚建"✓ 不回收）：%r' % (op_id, exc))
+            rec['ts'] = time.time()
+    return rec
 
 
 

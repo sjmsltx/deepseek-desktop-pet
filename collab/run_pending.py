@@ -129,6 +129,18 @@ def run(base: str, dry: bool = False) -> dict:
                 stats['rows'].append({'op_id': oid, 'type': item.get('type'),
                                       'ok': False, 'why': '已被其他运行器 claim（已跳过）'})
                 continue
+            # ⭐ ⭐ B2 第二个窗口（2026-10-05 实测 ✓）：⭐ "**读 `done`**"与"**尝试 claim**"之间
+            #   也有缝 ✗ —— ⭐ 若 A 在我读 `done` 之后才写完结果并释放 claim ✗，
+            #   ⭐ 我这次 claim 就会**成功** ⇒ ⭐ ⭐ **再执行一次** ✗（实测结果条数 = 2 ✓）。
+            #   ⇒ ⭐ ⭐ **拿到 claim 之后再复核一次 `done`** ✗（⭐ 并发标准做法 ✓：
+            #     ⭐ 真正的裁决点是"⭐ 拿到锁之后看到的事实"✗，⛔ 不是拿锁前读到的 ✓）。
+            #   ⭐ 顺序依据：⭐ `run` 里是**先写结果、后释放 claim** ✗ ⇒ ⭐ 我能拿到锁
+            #     ⇒ ⭐ 说明 A 已释放 ⇒ ⭐ **A 的结果必然已落盘** ✗ ⇒ ⭐ 这次复核一定看得见 ✓。
+            if oid in pending_ops.done_op_ids(_pd):
+                print('  \u2139\ufe0f 跳过 %s：拿到 claim 后复核**已成功**（幂等 ✓）' % oid)
+                pending_ops.release_claim(oid, base_dir=_pd)
+                stats['skipped_done'] += 1
+                continue
         t = item['type']
         fn = HANDLERS.get(t)
         # ⭐ ⭐ B11：⭐ **失败自动重放至多 `MAX_REPLAY` 次** ✗（⭐ 采纳微信侧 `WX-…-56` 草稿 6 ✓）
