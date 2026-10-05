@@ -950,27 +950,49 @@
       var ro0 = $('cfg-ro'); if (ro0) { ro0.textContent = ''; }
       return;
     }
-    var keys = c.keys || {}, conf = c.configured || {}, nr = c.needs_restart || [], wr = c.writable || [];
-    var names = Object.keys(keys);
-    cfgNote(names.length + ' 个键 ✓ ｜ ⭐ 敏感键只显“已配置” ✓ ｜ ' +
-            (nr.length ? nr.length + ' 个改后需重启 ✓' : '无需重启项 ✓'));
+    var nr = c.needs_restart || [], wr = c.writable || [];
+    // ⭐ 两种形状都兼容（⭐ 对方 `5d35e43` 实际发的是 `items[]` ✓ ＝ 我方 `-51` 草稿 3 ✓；
+    //    PC-165 §2.1 的 `keys{}` 作为兼容分支保留 ✓）⇒ ⭐ 免得“契约改了界面就不显示” ✗
+    var rows = [];
+    if (Array.isArray(c.items)) {
+      rows = c.items.map(function (it) {
+        return { k: it.key, v: it.value, scope: it.scope, src: it.source, rs: it.restart };
+      });
+    } else {
+      var keys = c.keys || {}, conf = c.configured || {};
+      rows = Object.keys(keys).map(function (k) {
+        var v = keys[k];
+        return { k: k, v: (v === null || v === undefined) ? (conf[k] ? '••••（已配置 ✓）' : '（未配置 ✓）') : v,
+                 scope: '', src: '', rs: (nr.indexOf(k) >= 0) };
+      });
+    }
+    var hid = c.hidden || [];
+    var total = (typeof c.count === 'number') ? c.count : rows.length;
+    var _v = String(c.version || '—');
+    cfgNote((/^v/i.test(_v) ? _v : ('v' + _v)) + ' ｜ ' + total + ' 个键 ✓ ｜ ⭐ 敏感键 ' + hid.length +
+            ' 个（**一个字符都不回** ✗ ✓）｜ ' + (nr.length ? nr.length + ' 个改后需重启 ✓' : '无需重启项 ✓'));
     // ⭐ 硬约束③：writable 为空 ⇒ **明示不可写**（⛔ 不静默置灰 ✗）
     var ro = $('cfg-ro');
     if (ro) { ro.textContent = (wr.length ? ('（可写 ' + wr.length + ' 项 ✓）') : '（⭐ 当前不可写 · 只读展示 ✓）'); }
-    box.innerHTML = '<div class="cfg">' + names.map(function (k) {
-      var v = keys[k];
-      var shown;
-      if (v === null || v === undefined) {
-        // ⭐ 敏感键：**永不回显值** ✗（只根据 `configured` 给布尔 ✓）
-        shown = conf[k] ? '••••（已配置 ✓）' : '（未配置 ✓）';
-      } else {
+    var html = '<div class="cfg">' + rows.map(function (r) {
+      var v = r.v, shown;
+      if (v === null || v === undefined) { shown = '••••（不回值 ✓）'; }
+      else {
         shown = (typeof v === 'object') ? JSON.stringify(v) : String(v);
         if (shown.length > 42) { shown = shown.slice(0, 42) + '…'; }
       }
-      var tag = (nr.indexOf(k) >= 0) ? ' <span class="cfgwarn">⭐ 改后需重启</span>' : '';
-      return '<div class="cfgrow"><span class="cfgk">' + esc(k) +
+      var tag = r.rs ? ' <span class="cfgwarn">⭐ 改后需重启</span>' : '';
+      var sc = (r.scope ? ('<span class="qmeta">[' + esc(String(r.scope)) + (r.src ? '·' + esc(String(r.src)) : '') + ']</span> ') : '');
+      return '<div class="cfgrow"><span class="cfgk">' + sc + esc(String(r.k)) +
              '</span><span class="cfgv">' + esc(shown) + tag + '</span></div>';
-    }).join('') + '</div>';
+    }).join('');
+    if (hid.length) {
+      html += hid.map(function (k) {
+        return '<div class="cfgrow"><span class="cfgk">' + esc(String(k)) +
+               '</span><span class="cfgv">••••（⭐ 敏感键 · 不回值 ✓）</span></div>';
+      }).join('');
+    }
+    box.innerHTML = html + '</div>';
   }
 
   function updateStarter(snap, projects, pend) {    var issue = (snap && snap.issue && snap.issue.title) || '';

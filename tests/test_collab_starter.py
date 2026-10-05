@@ -186,8 +186,8 @@ def check(html: str) -> list:
     if '/api/config' not in html:
         bad.append('⚙ 配置面未接只读端点 `/api/config` ✗（契约 §2.1 ✓）')
     else:
-        if not re.search(r"conf\[k\]\s*\?\s*'••••", html):
-            bad.append('⭐ 敏感键未走“只回配没配”✗（⛔ 契约硬约束②：敏感值恒 null ✗）')
+        if not re.search(r"v === null \|\| v === undefined\)\s*\{\s*shown = '••••", html):
+            bad.append('⭐ 敏感键未走“**不回值**”✗（⛔ 硬约束②：值一个字符都不回 ✗；⭐ 对方实发形状 `items[]` ✓）')
         if not re.search(r'wr\.length\s*\?', html):
             bad.append('⭐ `writable` 为空时未**明示不可写** ✗（⛔ 契约硬约束③：不静默置灰 ✗）')
 
@@ -213,7 +213,7 @@ def _mutations(html: str) -> list:
     out.append(('把两个动作并回单一发起键', html.replace('id="starter-queue"', 'id="starter-send"')))
     out.append(('不显式传 mode', html.replace('mode: mode', 'mode: undefined')))
     out.append(('拿掉“配置不可写”分支', html.replace("wr.length ? ('（可写 ' + wr.length + ' 项 ✓）')", "''", 1)))
-    out.append(('敏感键改成回显值', html.replace("conf[k] ? '••••（已配置 ✓）'", "'RAW-VALUE'", 1)))
+    out.append(('敏感键改成回显值', html.replace("shown = '••••（不回值 ✓）'", "shown = String(v)", 1)))
     out.append(('历史抽掉“派生”标注', html.replace('消息序列派生', '步骤'))) 
     out.append(('拿掉“窄写不受只读开关管”明示', html.replace('它<b>不受</b>', '它<b>受</b>', 1)))
     return out
