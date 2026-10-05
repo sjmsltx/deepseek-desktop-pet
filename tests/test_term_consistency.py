@@ -243,3 +243,22 @@ def test_e15_e16_e149_in_contract():
     assert '派生' in seg16, '⭐ E16 必须写明步骤是"派生（近似）" ✓'
     assert 'error()' in seg16, '⭐ E16 必须写明原始错误来自 error() ✓'
     assert 'pid' in c[c.index('E14.9 '):], '⭐ E14.9 必须要求锁写 pid ✓'
+
+
+# ── ⭐ 追加条款 XVI 钉（E17.1/E17.2/E17.3 ＋ E14.11 ＋ 编号规则 ✓）──
+def test_contract_xvi_pinned():
+    c = _read('docs/3.0-M1-API契约-冻结v1.md')
+    for k in ('E17.1', 'E17.2', 'E17.3', 'E14.11', '追加条款 XVI',
+              '宽限期', 'O_EXCL', '失败不算消费', '不半条'):
+        assert k in c, '⭐ 契约须含 %s ✗' % k
+    # ⚠️ 教训：⭐ `index('E17.2')` 会命中**开头的标题行** ✗（⭐ 与 health 护栏那次同族 ✓）
+    #   ⇒ ⭐ 锚点必须取**段落正文里的唯一形式** ✓
+    _a = c.index('**E17.1 · claim 态')
+    _b = c.index('**E17.2 · 原子不半条')
+    seg = c[_a:_b]
+    assert '宽限期' in seg, '⭐ E17.1 必须写死「回收要过宽限期」的关键口径 ✗'
+    assert 'O_EXCL' in seg, '⭐ E17.1 必须写明 O_EXCL 原子创建 ✓'
+    seg3 = c[c.index('**E17.3 ·'):c.index('### E14.11 ·')]
+    assert '不重复执行"只对成功项成立' in seg3 or '只对成功项' in seg3, \
+        '⭐ E17.3 必须写明"不重复只对成功项成立"这条分野 ✗'
+    assert 'D-编号' in c, '⭐ 必须写入编号规则（引用缺陷用 D-编号）✓'
