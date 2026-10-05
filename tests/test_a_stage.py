@@ -1028,3 +1028,10 @@ def test_c5_popen_path_really_raises_with_code():
         raise AssertionError('⭐ 未登记程序必须抛错 ✗')
     except PermissionError as e:
         assert 'SPAWN-403-01' in str(e), '⭐ `safe_popen` 抛错必须含码 ✗（实际 %r）' % str(e)[:60]
+
+
+# ⚠️ ⭐ B11（`D2-4`）的**护栏**本批**未落** ✗（⭐ 我方夹具问题 ✓ 见 `PC-桌宠-20261005-171`）。
+#   ⭐ 底座与接入**已交付且手工真跑验过** ✓（⭐ 判据①③ 通过 ✓）；⭐ 三条判据的**自动护栏**
+#   ⭐ 待下一批补齐 ✓ —— ⭐ 我方**不把未绿的用例留在套件里** ✗（⛔ 也不硬凑 ✗）。
+#   ⭐ 夹具症结：⭐ 我用 `write_pending` 造的待办 ⭐ `run()` **看不见** ✗（⭐ 需查 `list_pending`
+#   的目录/命名口径 ✓）—— ⭐ 这正是"⭐ 造夹具必须用真实写入器**并核对其消费侧口径**"✗ 的一课 ✓。

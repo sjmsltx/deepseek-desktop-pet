@@ -574,8 +574,79 @@ def release_claim(op_id: str, base_dir: str = '') -> bool:
     _audit(base_dir, oid, 'release')
     return True
 
+
+# ═══════════════════════════════════════════════════════════════════
+# ⭐ B11 / `D2-4`：⭐ **失败终态 ＋ 死信（DLQ）**（⭐ 采纳微信侧 `WX-…-56` 草稿 6 ✓）
+#
+# ⭐ 三终态（⛔ 不许"无终态" ✗）：
+#     · `ok`     —— ⭐ 成功 ✓（⭐ 承 `E17.3`：⭐ **不重复只对成功项成立** ✗）
+#     · `failed` —— ⭐ 已判失败 ✗（⭐ **可自动重放至多 2 次** ✓ —— 承"⭐ 失败不算消费" ✓）
+#     · `dead`   —— ⭐ ⭐ **重放次数用尽** ✗（⭐ 终止态 ⇒ ⭐ **不再自动重试** ✗）
+# ⭐ 死信落点：⭐ 追加进 ⭐ **同一个 `results.jsonl`** ✗（⭐ `kind='dead'` ✓ ⛔ 不另开目录 ✗
+#    —— ⭐ 免得"又多一处状态源" ✓ 承 `P5`：⭐ 真相源＝产品自带记录 ✓）。
+# ⭐ 计数：⭐ **从结果行数推** ✓（⭐ 不另存 ✓ 单一真相源 ✓）。
+# ⭐ 兼容：⭐ 旧字段 `ok` **保留不动** ✗ ＋ ⭐ **只追加 `kind`** ✓。
+# ═══════════════════════════════════════════════════════════════════
+
+MAX_REPLAY = 2          # ⭐ 自动重放上限（⭐ 超过 ⇒ `dead` ✓）
+
+
+def _kind_of(rec: dict) -> str:
+    """⭐ 一条结果行的终态 ✓ —— ⭐ 旧行**没有 `kind`** ✗ ⇒ ⭐ 由 `ok` 推 ✓（⭐ 兼容 ✓）。"""
+    k = str((rec or {}).get('kind') or '').strip()
+    if k in ('ok', 'failed', 'dead'):
+        return k
+    return 'ok' if (rec or {}).get('ok') else 'failed'
+
+
+def op_kind(op_id: str, base_dir: str = '') -> str:
+    """⭐ 该 `op_id` 的**最新终态** ✓（⭐ 无记录 ⇒ 空串 ✓）。"""
+    latest = ''
+    for r in read_results(base_dir):
+        if str(r.get('op_id') or '') == str(op_id or ''):
+            latest = _kind_of(r)
+    return latest
+
+
+def fail_count(op_id: str, base_dir: str = '') -> int:
+    """⭐ 该 `op_id` 已 `failed` 几次 ✓（⭐ 从结果行数推 ✓ 不另存 ✓）。"""
+    return sum(1 for r in read_results(base_dir)
+               if str(r.get('op_id') or '') == str(op_id or '')
+               and _kind_of(r) == 'failed')
+
+
+def dead_ids(base_dir: str = '') -> set:
+    """⭐ 已进死信的 `op_id` ✓（⭐ 终止态 ⇒ ⭐ **不再自动重试** ✗）。"""
+    return {str(r.get('op_id')) for r in read_results(base_dir)
+            if r.get('op_id') and _kind_of(r) == 'dead'}
+
+
+def replay_allowed(op_id: str, base_dir: str = '') -> tuple:
+    """⭐ 人工重放**准入** ✓ —— ⭐ ⭐ **只对 `dead`** ✗；⭐ `ok` **绝不重放** ✗（⭐ 幂等 ✓）。
+
+    ⭐ 返回 `(是否允许, 原因)` ✓ —— ⭐ 不允许时**原因非空** ✗（⛔ 不静默 ✗）。
+    """
+    k = op_kind(op_id, base_dir)
+    if k == 'ok':
+        return False, '该待办**已成功**（ok）⇒ ⭐ 绝不重放 ✗（幂等 ✓）'
+    if k == 'dead':
+        return True, ''
+    if k == 'failed':
+        return True, ''          # ⭐ 失败项本就允许重试 ✓（承 E17.3 ✓）
+    return False, '该待办**没有结果记录** ⇒ 无需重放（⭐ 直接跑运行器即可 ✓）'
+
+
+def next_kind(ok: bool, fails: int, base_dir: str = '', op_id: str = '',
+              max_replay: int = None) -> str:
+    """⭐ 由"这次成没成"＋"已失败几次"推出**终态** ✓（⭐ 重放口径唯一入口 ✗ 免得到处写 ✓）。"""
+    if ok:
+        return 'ok'
+    cap = MAX_REPLAY if max_replay is None else int(max_replay)
+    return 'dead' if int(fails) >= cap else 'failed'
+
+
 def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',
-                  dry_run: bool = False, artifacts=None, line: str = '') -> str:
+                  dry_run: bool = False, artifacts=None, line: str = '', extra: dict = None) -> str:
     """⭐ 追加一条结果（**只追加** ✗ 不改旧行 ✓；E1⑥ 失败也必须落 ✓）。
 
     ⭐ `dry_run=True`：预演结果也落盘 ✓（口径 ③ ✓）—— ⭐ 但它**不算已消费** ✗，
@@ -591,6 +662,9 @@ def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base
         rec['dry_run'] = True
     if artifacts:
         rec['artifacts'] = [str(x) for x in artifacts][:64]
+    if extra:                                   # ⭐ B11：⭐ 只**补** ✗（⛔ 不覆盖既有键 ✗）
+        for _k, _v in dict(extra).items():
+            rec.setdefault(_k, _v)
     p = results_path(base_dir)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'a', encoding='utf-8') as fh:

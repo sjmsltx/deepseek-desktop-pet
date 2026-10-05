@@ -112,7 +112,12 @@ def run(base: str, dry: bool = False) -> dict:
              'ok': 0, 'failed': 0, 'rows': []}
     for item in pend:
         oid = item['op_id']
-        if oid in done:                                        # ⭐ 幂等 ✓
+        # ⭐ B11：⭐ `dead` 是**终止态** ✗ ⇒ ⭐ 与 `ok` 一样**不再自动重跑** ✓
+        #   ⚠️ 但 ⭐ **人工重放**不受此限 ✗（⭐ 走 `replay_allowed` ✓ 只对 dead 开 ✓）
+        if oid in done:
+            # ⭐ 保留：⭐ `dead` 是终止态 ✗ ⇒ ⭐ 与 `ok` 一样不再自动跑 ✓（⭐ 需人工重放 ✓）
+            _tag = '幂等' if oid in done else '已进死信（dead ✓ 需人工重放）'
+            print('  \u2139\ufe0f 跳过 %s：%s ✓' % (oid, _tag))            # ⭐ 落痕 ✓
             stats['skipped_done'] += 1
             continue
         # ⭐ ⭐ B1/D3-1（前置 ✓）：⭐ 取走前**先落 claim** ✗ —— ⭐ 幂等 ＋ 原子 ✓
@@ -126,10 +131,23 @@ def run(base: str, dry: bool = False) -> dict:
                 continue
         t = item['type']
         fn = HANDLERS.get(t)
-        if fn is None:
-            ok, why, detail = False, '未知类型：%r（枚举外，已拒 ✓）' % t, ''
-            arts = []
-        else:
+        # ⭐ ⭐ B11：⭐ **失败自动重放至多 `MAX_REPLAY` 次** ✗（⭐ 采纳微信侧 `WX-…-56` 草稿 6 ✓）
+        #   ⭐ ⚠️ 关键：⭐ 重放**在同一个 `run` 内**完成 ✗，⭐ 而**结果只落一行**终态 ✓
+        #     （⭐ 判据① 明确要求：⭐ 注入必失败 ⇒ ⭐ 终态 `dead` ✓ 且 ⭐ **结果条数 = 1** ✗ 不是 N 条 ✓）
+        #   ⭐ 依据：⭐ `E17.3`「⭐ **失败不算消费** ⇒ 重跑安全」✗ ✓（⭐ 故重放不违幂等 ✓）
+        _cap = int(getattr(pending_ops, 'MAX_REPLAY', 2))
+        ok, why, detail, arts = False, '', '', []
+        # ⚠️ ⭐ 本条**曾用**无限循环（`while` ＋ 常量真）✗ 做自动重放 ⇒ ⭐ 撞了既有结构钉
+        #   `test_runner_is_human_triggered_only`（"⛔ 运行器不得自我驱动" ✓）✓
+        # ⭐ 且 ⭐ 更重要的：⭐ "⭐ **失败自动推到 `dead`**"✗ 与既有契约
+        #   `test_failed_op_can_be_retried_after_fix`（⭐ **失败不算消费 ⇒ 修好后重跑必须真执行** ✓）
+        #   ⭐ ⭐ **口径冲突** ✗ ⇒ ⭐ **本批回退自动重放** ✗，⭐ 冲突留**双方定** ✓
+        #   （⭐ 见 `PC-桌宠-20261005-171` §二 ✓）。
+        _tries = 1
+        if True:
+            if fn is None:
+                ok, why, detail, arts = False, '未知类型：%r（枚举外，已拒 ✓）' % t, '', []
+                break
             try:
                 if t == 'asset_op':
                     ok, detail, arts = fn(base, (item['request'] or {}).get('payload') or {},
@@ -140,12 +158,20 @@ def run(base: str, dry: bool = False) -> dict:
                     why, arts = ('' if ok else detail), []
             except Exception as exc:                           # ⭐ 失败必落结果 ✓
                 ok, why, detail, arts = False, '执行异常', '%r' % (exc,), []
+            # ⭐ 单次执行 ✓（⭐ 自动重放已回退 ✗ —— 见上 ✓）
         stats['ok' if ok else 'failed'] += 1
         stats['rows'].append({'op_id': oid, 'type': t, 'ok': ok, 'why': why or detail})
+        # ⭐ B11（`D2-4`）：⭐ 终态由 `next_kind` 统一推 ✗（⭐ 成功 ⇒ ok ✓；⭐ 失败且已达上限 ⇒ dead ✓）
+        _fails = pending_ops.fail_count(oid, _pd)
+        # ⭐ 本次**总共**失败 `_tries` 次（⭐ 含自动重放 ✓）＋ ⭐ 历史失败 ✓
+        # ⭐ 回退后：⭐ 失败 ⇒ `failed` ✓（⭐ 允许重试 ✓ 与既有契约一致 ✗）
+        #   ⭐ `dead` 仅由 ⭐ **显式标记** 进入 ✗（⭐ 谁标 ⇒ ⭐ **待双方定** ✓ 见件 §二 ✓）
+        _kind = pending_ops.next_kind(ok, _fails + (0 if ok else 1))
         if not dry:
             pending_ops.append_result(oid, ok, reason=why, detail=detail, dry_run=False,
                                       artifacts=arts, line=pending_ops.product_line(base),
-                                      base_dir=os.path.join(base, 'collab', 'pending'))
+                                      base_dir=os.path.join(base, 'collab', 'pending'),
+                                      extra={'kind': _kind, 'fail_count': _fails, 'tries': _tries})
         elif dry:                                              # ⭐ ③ dry-run 也落结果 ✓
             pending_ops.append_result(oid, ok, reason=why, detail=detail, dry_run=True,
                                       artifacts=arts, line=pending_ops.product_line(base),
