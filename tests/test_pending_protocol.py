@@ -7,6 +7,7 @@
   · `root` ⭐ 唯一可绝对路径（已存在目录 ✓ 只登记 ✗）；其余路径字段只允许相对 ✓
 """
 import json
+import io
 import os
 import sys
 
@@ -220,3 +221,89 @@ def test_op_id_and_name_shape():
     assert pending_ops.validate_request(_asset(op_id=oid) | {'op_id': oid})[0] is True or True
     assert pending_ops.parse_pending_name('20261003-231500-project_edit-%s.json' % oid) is not None
     assert pending_ops.parse_pending_name('badname.json') is None
+
+
+# ── ⭐⭐ B2/D3-2（2026-10-05）：claim 前置 ＋ 原子不半条 ＋ 不重复执行（成功项）──
+#    ⭐ 口径（微信侧 `WX-…-49` §1.2 ✓）：⭐ "标记消费"与"追加结果"**要么都成要么都不成** ✗
+#    ⚠️ 夹具教训：⭐ 我方首版造的待办**schema 不对** ✗（直接写 `name` ✗ 而真实 schema 是
+#       `{project_id, changes:{...}}` ✓）⇒ ⭐ 它**本来就该失败** ⇒ ⭐ 于是"重跑"被误判成
+#       "重复执行" ✗ ✓ —— ⭐ **造夹具必须先对照真实写入器/真实 schema** ✗（与既有判例同族 ✓）。
+def _mk_pending(base, op_id):
+    """⭐ 造一条**会成功**的 `project_edit` 待办（⭐ 用真实 schema ✓）。"""
+    import json as _json
+    import time as _time
+    pd = os.path.join(base, 'collab', 'pending')
+    os.makedirs(pd, exist_ok=True)
+    rec = {'op_id': op_id, 'type': 'project_edit',
+           'request': {'payload': {'project_id': op_id, 'changes': {'name': 'B2-' + op_id}}}}
+    fn = '%s-project_edit-%s.json' % (_time.strftime('%Y%m%d-%H%M%S'), op_id[:24].ljust(4, 'x'))
+    p = os.path.join(pd, fn)
+    with io.open(p, 'w', encoding='utf-8') as fh:
+        _json.dump(rec, fh, ensure_ascii=False)
+    return p
+
+
+def _n_results(base):
+    p = os.path.join(base, 'collab', 'pending', pending_ops.RESULTS_NAME)
+    if not os.path.isfile(p):
+        return 0
+    return len([l for l in io.open(p, encoding='utf-8').read().splitlines() if l.strip()])
+
+
+def test_b2_claim_prevents_concurrent_double_run(tmp_path):
+    """⭐ 判据①：⭐ **两个运行器并发**取同一条 ⇒ ⭐ **结果条数 = 1** ✓（⛔ 不重复执行 ✗）。"""
+    import subprocess
+    import sys
+    base = str(tmp_path)
+    _mk_pending(base, 'opB2a')
+    code = ('import sys;sys.path.insert(0,%r);import run_pending;'
+            'print(run_pending.run(%r)["ok"])' % (os.path.join(ROOT, 'collab'), base))
+    ps = [subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, encoding='utf-8')
+          for _ in range(2)]
+    [p.communicate() for p in ps]
+    assert _n_results(base) == 1, '⭐ 并发取同一条 ⇒ 结果必须只有 1 条 ✗（实际 %d）' % _n_results(base)
+
+
+def test_b2_interrupt_between_steps_leaves_no_half_result(tmp_path):
+    """⭐ 判据②：⭐ "claim 在、结果不在"（⭐ ＝中断在两步之间 ✓）⇒ ⭐ 重启**重做且只一条** ✓。"""
+    import json as _json
+    import time as _time
+    import run_pending
+    base = str(tmp_path)
+    _mk_pending(base, 'opB2b')
+    cd = pending_ops._claims_dir(base)
+    os.makedirs(cd, exist_ok=True)
+    # ⭐ 模拟中断残留：⭐ 一个**已死且过期**的 claim ✓（⭐ 可回收 ✓）
+    with io.open(os.path.join(cd, 'opB2b.claim'), 'w', encoding='utf-8') as fh:
+        _json.dump({'op_id': 'opB2b', 'pid': 999999, 'ts': _time.time() - 60}, fh)
+    assert _n_results(base) == 0
+    run_pending.run(base)
+    assert _n_results(base) == 1, '⭐ 中断后重做应**恰好一条** ✗（实际 %d）' % _n_results(base)
+
+
+def test_b2_success_is_not_repeated(tmp_path):
+    """⭐ 判据③：⭐ **成功项**再跑 ⇒ ⭐ **幂等跳过、结果不增** ✓
+    （⭐ 这条才是"不重复执行"的**正证** ✓）。
+
+    ⚠️ 夹具教训（⭐ 我方踩了两次 ✓）：⭐ 首版造的待办 schema 不对 ⇒ 本来就该失败 ✗；
+    ⭐ 二版仍没跑成 ⇒ ⭐ 现改为 ⭐ **直接用真实写入器 `append_result(ok=True)`**
+      造"已成功消费"的状态 ✓（⭐ 与既有判例"⭐ 夹具要用真实写入器产出过的字段集" ✗ 同族 ✓）
+      —— ⭐ 这样**只验被测行为本身** ✓，⛔ 不再被夹具的其它前置条件干扰 ✗。
+    """
+    import run_pending
+    base = str(tmp_path)
+    pd = os.path.join(base, 'collab', 'pending')
+    os.makedirs(pd, exist_ok=True)
+    # ⭐ ① 用真实写入器造一条"成功且已消费"的结果 ✓
+    pending_ops.append_result('opB2c', True, reason='', detail='ok', base_dir=pd)
+    n0 = _n_results(base)
+    assert n0 == 1, '⭐ 夹具应产出一条结果 ✗（实际 %d）' % n0
+    assert 'opB2c' in pending_ops.done_op_ids(pd), '⭐ 成功项必须进 done 集 ✓'
+    # ⭐ ② 造一条**同名**待办（⭐ 模拟"待办还在、结果也在"✓）⇒ 跑 run ⇒ ⭐ 必须幂等跳过 ✓
+    _mk_pending(base, 'opB2c')
+    st = run_pending.run(base)
+    assert st['skipped_done'] >= 1, '⭐ 应走幂等跳过分支 ✗（skipped_done=%s）' % st.get('skipped_done')
+    assert st['ok'] == 0 and st['failed'] == 0, '⭐ 不得再执行一次 ✗'
+    assert _n_results(base) == n0, '⭐ 结果条数不得增加 ✗（%d → %d）' % (n0, _n_results(base))
+
