@@ -234,8 +234,13 @@ def _mk_pending(base, op_id):
     import time as _time
     pd = os.path.join(base, 'collab', 'pending')
     os.makedirs(pd, exist_ok=True)
+    # ⚠️ ⭐ 夹具修正（2026-10-05 实测 ✓）：⭐ 原版写了**两层** `request.payload` ✗
+    #   ⇒ ⭐ `run()` 取的是 `item['request']['payload']`✗（⭐ `item['request']` ＝ **文件内容本身** ✓）
+    #   ⇒ ⭐ **取不到 ⇒ 那条待办必然失败**（`changes 不能为空` ✗）⇒ ⭐ 失败项按 `E17.3` 可重跑 ✓
+    #   ⇒ ⭐ 结果会出 **2 行**（`failed` ＋ `dead` ✗）⇒ ⭐ 断言 `== 1` **偶发红** ✗
+    #   ⇒ ⭐ ⭐ **本条"双跑"是夹具错，不是产品缺陷** ✓（⭐ 平层夹具下 20 次全 1 行 ✓ 佐证 ✓）
     rec = {'op_id': op_id, 'type': 'project_edit',
-           'request': {'payload': {'project_id': op_id, 'changes': {'name': 'B2-' + op_id}}}}
+           'payload': {'project_id': op_id, 'changes': {'name': 'B2-' + op_id}}}
     fn = '%s-project_edit-%s.json' % (_time.strftime('%Y%m%d-%H%M%S'), op_id[:24].ljust(4, 'x'))
     p = os.path.join(pd, fn)
     with io.open(p, 'w', encoding='utf-8') as fh:

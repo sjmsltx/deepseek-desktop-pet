@@ -676,11 +676,18 @@ def replay_allowed(op_id: str, base_dir: str = '') -> tuple:
 
 def next_kind(ok: bool, fails: int, base_dir: str = '', op_id: str = '',
               max_replay: int = None) -> str:
-    """⭐ 由"这次成没成"＋"已失败几次"推出**终态** ✓（⭐ 重放口径唯一入口 ✗ 免得到处写 ✓）。"""
-    if ok:
-        return 'ok'
-    cap = MAX_REPLAY if max_replay is None else int(max_replay)
-    return 'dead' if int(fails) >= cap else 'failed'
+    """⭐ 由"这次成没成"推**终态** ✓（⭐ 终态口径唯一入口 ✗ 免得到处写 ✓）。
+
+    ⭐ ⭐ 方案 **B**（2026-10-05 双方裁定 ✓）：⭐ **失败恒 `failed`** ✗ ——
+      ⛔ ⭐ **不自动推 `dead`** ✗（⭐ `dead` 只由**人显式标** ✓ 见 `mark_dead` ✓）。
+    ⚠️ ⭐ 为什么改（⭐ 实测抓到 ✓）：⭐ 原实现是"⭐ 失败次数累到 `MAX_REPLAY` ⇒ 自动 `dead`✗"✗ ⇒
+      ⭐ 那是**方案 A 的残留** ✗（⭐ 我方 `8d8104c` 只回退了"同一次 run 内的自动重放"✗，
+      ⭐ ⭐ **这条判据漏了** ✓）⇒ ⭐ 实测两行结果是 `failed` ＋ **`dead`** ✗ ⇒ ⭐ 与方案 B **冲突** ✓。
+      ⭐ 另：⭐ "⭐ 自动升级状态"✗ 本身撞项目内核（⭐ `test_runner_is_human_triggered_only` ✓
+      ＋ ⭐ 微信侧判例 `J34`「⭐ 自动类提案先过"人类触发"这道门」✗ ✓）。
+    ⭐ `fails` 参数**保留** ✓（⭐ 调用方仍在传 ✓ 且人工标记时可参考 ✓），⭐ 但**不再影响终态** ✗。
+    """
+    return 'ok' if ok else 'failed'
 
 
 def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',
