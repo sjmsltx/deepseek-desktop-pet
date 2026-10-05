@@ -48,6 +48,9 @@ ALLOWLIST = [
     # ⭐ 实测判定为**占位/合成**（非真实个人信息 ✓）—— ⭐ 登记而非放过 ✗
     r'plugins/pdf_tools/plugin\.py',      # `C:\Users\...\a.pdf` —— 省略号占位 ✓
     r'tests/test_command_gate\.py',        # 合成路径（用例夹具 ✓）
+    # ⭐ 对方 `PC-156` §3.2 报：⭐ 该检查在 `tests/` 里把**夹具假路径**当隐私 ✗（`E:\other`／`F:\env\dsh`／`Z:\不存在的目录-xyz` ✓）
+    #    ⇒ ⭐ 采纳建议：⭐ **泛化绝对路径项不扫 `tests/`** ✓（⭐ 但“本机个人路径（含用户目录）”仍扫 ✓ —— 那才是真风险 ✓）
+    r'^tests/',
 ]
 
 # ⭐ 行内白名单：出现这些字样当行不算泄露 ✓（已泛化的占位 ✓）
@@ -127,8 +130,10 @@ def main():
         hard.append('%s:%d %s' % (f, ln, lab))
 
     # ③ 隐私不泄露（⭐ 分两档：个人路径 ⇒ 硬缺陷 ✗ ｜ 泛化绝对路径 ⇒ 需人工确认 ⚠️）
+    #    ⚠️ 自纠（对方 `PC-156` §3.2 ✓）：⭐ 泛化项**不扫 tests/** ✗（⭐ 夹具假路径会满屏误报 ⇒ 容易养成"忽略警告" ✗ ✓）
     per = scan(base, files, PRIVACY_PATTERNS[:5])
-    generic = scan(base, files, [PRIVACY_PATTERNS[5]]) if len(PRIVACY_PATTERNS) > 5 else []
+    generic = scan(base, [f for f in files if not f.startswith('tests/')],
+                   [PRIVACY_PATTERNS[5]]) if len(PRIVACY_PATTERNS) > 5 else []
     ph = per + generic
     print('  %s ③ 无隐私泄露            %s' % ('✓' if not ph else '✗', '%d 处（硬 %d ＋ 待确认 %d）' % (len(ph), len(per), len(generic))))
     for f, ln, lab, s in ph[:8]:
