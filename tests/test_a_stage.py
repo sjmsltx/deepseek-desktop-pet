@@ -803,3 +803,41 @@ def test_p11_security_boundary_doc_has_no_personal_path():
     assert ('lby' + '13') not in d, '⭐ 文档不得含本机用户名 ✗'
     _up = chr(67) + ':' + chr(92) + 'Users' + chr(92)   # ⭐ 拼出来 ⇒ 避免原生串结尾反斜杠 ✗
     assert _up not in d, '⭐ 文档不得含本机绝对路径 ✗（案例里写 <Windows 用户名> ✓）'
+
+
+# ── ⭐ A4 改进（采纳微信侧 `WX-…-20261005-45` §二 建议 ✓）：双验加 pid 存活 ──
+def test_a4_stale_marker_with_dead_pid_is_cleared(tmp_path):
+    """⭐ 有牙：⭐ 标记里的 `pid` **已不存在** ⇒ ⭐ 判未就绪 ＋ ⭐ **自动清一次** ✗。"""
+    import json as _json
+    import time
+    import collab_panel
+    (tmp_path / 'collab').mkdir()
+    rp = tmp_path / 'collab' / '.ready'
+    rp.write_text(_json.dumps({'pid': 999999, 'port': 8899, 'ts': time.time()}), encoding='utf-8')
+    assert collab_panel.is_ready(8899, str(tmp_path)) is False, '⭐ 死 pid 必须判未就绪 ✗'
+    assert not rp.exists(), '⭐ 陈旧标记必须被清一次 ✓'
+
+
+def test_a4_live_pid_but_port_silent_keeps_marker(tmp_path):
+    """⭐ 反向：⭐ 进程**还活着**但端口暂不应答（⭐ 启动中 ✓）⇒ ⭐ 判未就绪但**保留标记** ✗
+    （⭐ 清了会打断慢启动 ✓）。"""
+    import json as _json
+    import time
+    import collab_panel
+    (tmp_path / 'collab').mkdir()
+    rp = tmp_path / 'collab' / '.ready'
+    rp.write_text(_json.dumps({'pid': os.getpid(), 'port': 8898, 'ts': time.time()}),
+                  encoding='utf-8')
+    assert collab_panel.is_ready(8898, str(tmp_path)) is False
+    assert rp.exists(), '⭐ 启动中不得清标记 ✓'
+
+
+def test_a4_port_mismatch_is_false(tmp_path):
+    """⭐ 端口不匹配 ⇒ 直接 False ✓。"""
+    import json as _json
+    import time
+    import collab_panel
+    (tmp_path / 'collab').mkdir()
+    (tmp_path / 'collab' / '.ready').write_text(
+        _json.dumps({'pid': os.getpid(), 'port': 8897, 'ts': time.time()}), encoding='utf-8')
+    assert collab_panel.is_ready(1234, str(tmp_path)) is False

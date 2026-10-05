@@ -34,6 +34,41 @@ def _probe(port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+
+def _pid_alive(pid) -> bool:
+    """⭐ `pid` 是否还活着 ✓（⭐ 判不了就**当活着** ✗ ⇒ 宁可保守也不误清 ✓）。"""
+    try:
+        pid = int(pid or 0)
+    except Exception:
+        return True
+    if pid <= 0:
+        return False
+    try:
+        if os.name == 'nt':
+            import subprocess
+            out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid],
+                                 capture_output=True, text=True, timeout=8)
+            return str(pid) in (out.stdout or '')
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return True
+
+
+def _clear_ready(base_dir: str = '') -> bool:
+    """⭐ 清掉陈旧就绪标记 ✓（⭐ 只在**判定陈旧**时调用 ✓；⛔ 不静默 ✗ 留痕 ✓）。"""
+    try:
+        d = base_dir or os.path.dirname(os.path.abspath(__file__))
+        p = os.path.join(d, 'collab', '.ready')
+        if os.path.isfile(p):
+            os.remove(p)
+            print('  ℹ️ 已清除陈旧就绪标记：%s' % p)     # ⭐ 落痕 ✓
+            return True
+    except Exception as exc:
+        print('  ℹ️ 清就绪标记失败：%r' % (exc,))          # ⭐ 落痕 ✓
+    return False
+
+
 def ready_info(base_dir: str = '') -> dict:
     """⭐ A4：读服务自写的就绪标记（`<base>/collab/.ready` ✓ 含 pid/port/ts ✓）。"""
     try:
@@ -55,7 +90,20 @@ def is_ready(port: int, base_dir: str = '') -> bool:
     info = ready_info(base_dir)
     if not info or int(info.get('port') or 0) != int(port):
         return False
-    return _probe(port)
+    # ⭐ ⭐ 采纳微信侧 `WX-…-20261005-45` §二 建议：
+    #   ⭐ 硬崩溃/断电后 `finally` **不执行** ✗ ⇒ 标记**必然残留** ✓
+    #   ⇒ ⭐ **必须把"写标记的那个进程还活着吗"也纳入判定** ✗（⛔ 只看端口应答 ✗ ——
+    #      ⭐ 若端口被**别的**进程占了，就会**误判为就绪** ✓）
+    if not _pid_alive(info.get('pid')):
+        print('  \u2139\ufe0f 就绪标记显示 pid=%s **已不存在** ⇒ 判定为陈旧 ✓（自动清一次 ✓）'
+              % (info.get('pid'),))
+        _clear_ready(base_dir)
+        return False
+    ok = _probe(port)
+    if not ok:
+        # ⭐ 进程还活着但端口不应答 ⇒ ⭐ 可能在**启动中** ✓ ⇒ ⛔ **不清标记** ✗（⭐ 清了会打断慢启动 ✓）
+        print('  \u2139\ufe0f 就绪标记在、进程在，但端口暂不应答 ⇒ 按"未就绪"处理（保留标记 ✓）')
+    return ok
 
 
 def _server_script(base_dir: str) -> str:
