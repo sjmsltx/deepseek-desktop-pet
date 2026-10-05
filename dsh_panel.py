@@ -173,8 +173,18 @@ def open_panel(url: str = None, start_budget: int = 40, poll: float = 0.3,
         if os.path.exists(LAUNCHER):
             _spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', LAUNCHER])
             deadline = time.time() + start_budget
+            _i = 0                                  # ⭐ B9：⭐ 探测计数（⭐ 必须在 while **外** ✗）
             while time.time() < deadline:
-                time.sleep(poll)                      # ⭐ 0.3s 粒度 ✓
+                # ⭐ B9（`D1-3`）：⭐ **退避 ＋ 抖动 ＋ 上限** ✗（⭐ 原为固定 `poll` ✓）
+                #   ⭐ 抖动还能**打散两线同步**（⭐ 否则两线探测节拍一致 ⇒ 撞在一起 ✗）
+                try:
+                    import backoff as _bo
+                    _d = _bo.next_delay(_i, base=poll)
+                except Exception as _e:
+                    _d = poll
+                    print('  \u2139\ufe0f backoff 不可用 ⇒ 退回固定 %ss ✓：%r' % (poll, _e))
+                time.sleep(_d)
+                _i += 1                             # ⭐ 与 sleep **同级** ✗（⭐ 曾在循环外 ✓）
                 if ad.is_serving():
                     break
             if not ad.is_serving():

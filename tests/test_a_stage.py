@@ -954,3 +954,53 @@ def test_c5_self_and_spawn_carry_codes():
         assert tag in self_src, '⭐ 自改码文案应含 %s ✓' % tag
     pl_src = io.open(os.path.join(REPO, 'platform_layer.py'), encoding='utf-8').read()
     assert 'SPAWN-403-01' in pl_src, '⭐ 子进程拒绝文案应含 SPAWN-403-01 ✓'
+
+
+# ── ⭐ B9／`D1-3`（2026-10-05）：⭐ 轮询**退避 ＋ 抖动 ＋ 上限** ──
+def test_b9_backoff_grows_then_caps_with_jitter():
+    """⭐ 退避：⭐ **单调增后封顶** ✗ ＋ ⭐ **有抖动**（⭐ 同参数两次不等 ✓）＋ ⭐ **不越界** ✗。"""
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location('backoff', os.path.join(REPO, 'tools', 'backoff.py'))
+    bo = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(bo)
+    seq = [bo.next_delay(i, jitter=0) for i in range(6)]
+    assert seq[0] == 0.3, '⭐ 起步应等于 base ✗'
+    assert all(seq[i] <= seq[i + 1] + 1e-9 for i in range(len(seq) - 1)), '⭐ 应单调不减 ✗'
+    assert seq[-1] == bo.CAP, '⭐ 应封顶到 cap ✗（实际 %r）' % seq[-1]
+    # ⭐ 抖动：⭐ 同参数两次**不相等** ✗
+    got = {round(bo.next_delay(3), 6) for _ in range(8)}
+    assert len(got) > 1, '⭐ 抖动必须生效（否则两线探测会同步 ✗）'
+    # ⭐ 上界：⭐ 抖动后最多 cap*(1+jitter) ✓
+    hi = bo.CAP * (1.0 + bo.JITTER) + 1e-9
+    assert all(bo.next_delay(i) <= hi for i in range(12)), '⭐ 不得超过 cap*(1+jitter) ✗'
+
+
+def test_b9_cap_is_sane_for_40s_budget():
+    """⭐ ⚠️ 上限**不能大** ✗：⭐ `start_budget` 只有 40s ✓ ⇒ ⭐ cap 太大 ⇒ 后面几次探测间隔过长
+    ⇒ ⭐ **服务起来了却探不到** ✗（⭐ 我方按此定 cap=2.0s ✓）。"""
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location('backoff', os.path.join(REPO, 'tools', 'backoff.py'))
+    bo = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(bo)
+    assert bo.CAP <= 5.0, '⭐ cap 应远小于 start_budget(40s) ✗（实际 %r）' % bo.CAP
+    # ⭐ 40s 内至少能探这么多次（⭐ 用 cap 保守估 ✓）
+    assert 40.0 / bo.CAP >= 15, '⭐ 40s 内探测次数太少 ✗'
+
+
+def test_b9_both_poll_sites_wired():
+    """⭐ 结构钉：⭐ 两处启动探测**都**走 backoff ✗（⛔ 不许留固定 `time.sleep(poll)` ✗）＋
+    ⭐ 计数 `_i` 必须在 **while 外** 清零 ✗（⭐ 我方曾插进循环里 ⇒ 每次重置 ✓）。"""
+    for f in ('collab_panel.py', 'dsh_panel.py'):
+        s = io.open(os.path.join(REPO, f), encoding='utf-8').read()
+        assert 'backoff' in s, '⭐ %s 未接 backoff ✗' % f
+        assert 'time.sleep(poll)' not in s, '⭐ %s 仍有固定 sleep(poll) ✗' % f
+        # ⭐ `_i = 0` 不得在 while 体里（⭐ 即不得比 while 多缩进 ✓）
+        lines = s.splitlines()
+        for i, l in enumerate(lines):
+            if l.strip() == '_i = 0':
+                j = i - 1
+                while j >= 0 and not lines[j].strip():
+                    j -= 1
+                prev = lines[j]
+                assert len(prev) - len(prev.lstrip()) < len(l) - len(l.lstrip()), \
+                    '⭐ %s 的 `_i = 0` 必须在 while **外** ✗（⭐ 否则每次重置 ✓）' % f

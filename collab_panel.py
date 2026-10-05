@@ -133,8 +133,17 @@ def open_collab(base_dir: str, port: int = DEFAULT_PORT, allow_start: bool = Fal
         if not ok_spawn:
             return False, '启动协作台失败（spawn 被拒）'
         deadline = time.time() + start_budget
+        _i = 0                                  # ⭐ B9：⭐ 探测计数（⭐ 在 while 外 ✗）
         while time.time() < deadline:
-            time.sleep(poll)                       # ⭐ 0.3s 粒度 ✓
+            # ⭐ B9（`D1-3`）：⭐ **退避 ＋ 抖动 ＋ 上限** ✗（⭐ 原为固定 `poll` ✓）
+            try:
+                import backoff as _bo
+                _d = _bo.next_delay(_i, base=poll)
+            except Exception as _e:
+                _d = poll
+                print('  \u2139\ufe0f backoff 不可用 ⇒ 退回固定 %ss ✓：%r' % (poll, _e))
+            time.sleep(_d)
+            _i += 1
             if _probe(port):
                 break
         if not _probe(port):
