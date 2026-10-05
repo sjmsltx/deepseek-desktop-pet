@@ -71,10 +71,21 @@ def _find_source(base: str, role: str, state: str, source: str, source_ref: str)
     """定位要用的源图 ✓（白底裸图 ✓）。"""
     if source_ref:
         rel = str(source_ref).replace('\\', '/')
-        if rel.startswith('assets_3.0/'):
-            return os.path.join(base, rel.replace('/', os.sep))
-        if rel.startswith('assets/'):               # 从生效目录取（也可能是"补三件套"场景 ✓）
-            return os.path.join(base, rel.replace('/', os.sep))
+        # ⭐ 安全修（2026-10-05）：⭐ **规范化后仍须落在允许根之下** ✗
+        #    ⚠️ 原实现只做**前缀字符串判断** ✗ ⇒ `assets_3.0/../../README.md`
+        #    **满足前缀** ✓ 但**规范化后就出了仓库** ✗（越界读 ＋ 拷进资产目录 ✗）
+        #    ⇒ ⭐ 改为 realpath 规范化 ＋ 断言在允许根下 ✓（不满足即**拒绝** ✓ 并落痕 ✓）
+        for _root_name in (POOL_NAME, EFF_NAME):
+            _root = os.path.realpath(os.path.join(base, _root_name))
+            _rel_ok = rel.startswith(_root_name + '/')
+            _full = os.path.realpath(os.path.join(base, rel.replace('/', os.sep)))
+            if _rel_ok and (_full == _root or _full.startswith(_root + os.sep)):
+                return _full
+        # ⭐ 落痕：拒绝一次越界的 source_ref（⛔ 不静默 ✗）
+        #    ⚠️ 不放 try/except ✗：⭐ 包 `print` 没有收益 ✓，反而会**新增一个静默点** ✗
+        #    （⭐ 我方本会话第 4 次在"落痕代码"里写静默 ✗，被对方 `test_silent_guard` 抓到 ✓）
+        print('  \u26a0\ufe0f 拒绝越界 source_ref：%r（不在允许根下 ✓）' % (source_ref,))
+        return ''
     root = os.path.join(base, POOL_NAME if source == 'pool' else EFF_NAME, role)
     cand = [p for p in sorted(glob.glob(os.path.join(root, '%s_%s.png' % (role, state))))
             if not p.endswith(('_chroma.png', '_alpha.png'))]

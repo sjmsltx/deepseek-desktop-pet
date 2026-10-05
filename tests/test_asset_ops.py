@@ -357,3 +357,35 @@ def test_project_edit_rejects_unknown_top_level_keys():
         {'type': 'project_edit', 'op_id': 'ok0002',
          'payload': {'project_id': 'default', 'changes': {'name': 'x'}}})
     assert ok2 is True, why2
+
+# ── ⭐ 安全（2026-10-05）：`_find_source` 的路径穿越必须被拒 ✗ ──
+#    起因：微信侧实测 `assets_3.0/../../README.md` **满足前缀但规范化后出仓库** ✗
+#    ⇒ ⭐ 越界读 ＋ 拷进资产目录（且**不需 `--enable-actions`** ✗）
+def test_find_source_rejects_traversal():
+    """⭐ 有牙：⭐ 4 条穿越写法**必须**被拒 ✗（真跑 ✓）。"""
+    bad = [
+        'assets_3.0/../../README.md',
+        'assets/../../README.md',
+        'assets_3.0/../../MEMORY.md',
+        'assets_3.0/../collab/asset_ops.py',
+    ]
+    for ref in bad:
+        got = asset_ops._find_source(ROOT, 'claude', 'idle', 'pool', ref)
+        assert not got, '⭐ 越界 source_ref 必须被拒 ✗：%r → %r' % (ref, got)
+
+
+def test_find_source_allows_legit_under_root():
+    """⭐ 反向：⭐ 合法路径**必须**放行 ✗（⭐ 防"一刀切全拒"把功能做死 ✓）。"""
+    root = os.path.realpath(os.path.join(ROOT, 'assets_3.0'))
+    got = asset_ops._find_source(ROOT, 'claude', 'idle', 'pool',
+                                 'assets_3.0/claude/claude_idle.png')
+    assert got, '⭐ 合法路径不得被拒 ✓（否则修复过头 ✗）'
+    assert os.path.realpath(got).startswith(root + os.sep), '⭐ 结果必须落在允许根下 ✓'
+
+
+def test_find_source_no_prefix_only_regression():
+    """⭐ 结构钉：⭐ 不得再出现"只前缀判断后直接 join"的写法 ✗（源码级 ✓）。"""
+    src = io.open(os.path.join(ROOT, 'collab', 'asset_ops.py'), encoding='utf-8').read()
+    i2 = src.index('def _find_source')
+    seg = src[i2:i2 + 2000]
+    assert 'realpath' in seg, '⭐ _find_source 必须做 realpath 规范化 ✗'
