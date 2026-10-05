@@ -12,10 +12,24 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pet_selfcode import edit_own_code  # noqa: E402
+from pet_selfcode import edit_own_code  # noqa: E402  # noqa: E402
 from pathlib import Path
 
+import pytest  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+@pytest.fixture(autouse=True)
+def _open_self_edit_gate(monkeypatch):
+    """⭐ P0-1（2026-10-05 · Owner 已批 ✓）：本文件专测自改码**成功路径** ✓
+    ⇒ ⭐ 前提是闸门**已开** ✓（⭐ 闸门默认关是有意为之：危险能力默认关 ✗）。
+
+    ⭐ 用 `monkeypatch`（⛔ 不裸赋值 ✗）⇒ ⭐ **本文件内**生效并**自动还原** ✓，
+    ⛔ 不污染其它用例 ✗（承 EXP.0104 ✓）。
+    """
+    monkeypatch.setenv('AC_PET_ALLOW_SELF_EDIT', '1')
+
 
 
 def _sandbox(name):

@@ -32,6 +32,7 @@ v6.56 修复（2026-09-15，自改代码"几乎没成功过"的根因）：
     edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None)
 """
 import ast
+import io
 import os
 import subprocess
 import shutil
@@ -171,6 +172,47 @@ def is_protected(fname: str) -> tuple:
     return False, ''
 
 
+# ⭐⭐ P0-1（2026-10-05 · Owner 已批 ✓）：⭐ **自改码批准闸门**
+#
+# ⭐ 口径（与动作端点同源 ✓ "危险能力默认关"）：⭐ **默认关** ✗
+#     · 环境变量 `AC_PET_ALLOW_SELF_EDIT`（`1`/`true`/`yes`/`on` 视为开 ✓）
+#     · 或项目 `config.json` 的 `"allow_self_edit": true` ✓
+# ⭐ ⚠️ 本条**反转** `tools_registry.py` v6.58 的「自改**默认必须可用**」✗ ——
+#    理由：⭐ 自改码是**最接近"沙箱逃逸"的能力** ✓（⭐ 它能改写自己的代码 ⇒ 也能改掉围栏 ✗），
+#    与"动作端点默认关"口径**不一致**才是问题 ✓ ⇒ ⭐ 现改为默认关 ✓。
+# ⭐ 关着时 ⭐ **必须明说怎么开** ✓（承 E14.7：⭐ 未配置要明示 ✗ 不静默 ✗）。
+SELF_EDIT_ENV = 'AC_PET_ALLOW_SELF_EDIT'
+_TRUTHY = ('1', 'true', 'yes', 'on', '是', '开')
+
+
+def self_edit_allowed(base_dir=None) -> bool:
+    """⭐ 自改码闸门（⭐ **默认 False** ✗）。⭐ 关着时 ⛔ 不得改任何文件 ✗。"""
+    v = (os.environ.get(SELF_EDIT_ENV) or '').strip().lower()
+    if v:
+        # ⭐ 显式设了环境变量就**以它为准** ✓（含显式关 `0`/`false` ⇒ 关 ✗）
+        return v in _TRUTHY
+    try:
+        import json as _json
+        cfg = os.path.join(base_dir or os.path.dirname(os.path.abspath(__file__)), 'config.json')
+        if os.path.isfile(cfg):
+            with io.open(cfg, encoding='utf-8') as fh:
+                d = _json.load(fh)
+            if isinstance(d, dict) and bool(d.get('allow_self_edit')):
+                return True
+    except Exception as exc:
+        # ⭐ 读配置失败**不得静默** ✗（读不到就按"关"处理 ✓ 且留痕 ✓）
+        print('  \u26a0\ufe0f 读 config.json 失败（按"闸门关"处理 ✓）：%r' % (exc,))
+    return False
+
+
+def self_edit_hint() -> str:
+    """⭐ 关着时告诉人**怎么开** ✓（⛔ 不静默 ✗）。"""
+    return ('⭐ 自改码当前**默认关闭** ✗（P0-1 安全闸门）。开启方式任选其一：'
+            '① 环境变量 `%s=1` ✓；② 项目 `config.json` 里写 `"allow_self_edit": true` ✓。'
+            '（⭐ 开启后仍受"禁改清单"约束 ✓：护栏/治理/测试等文件**永不可自改** ✗）'
+            % SELF_EDIT_ENV)
+
+
 
 def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None):
     """AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘。
@@ -182,6 +224,9 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
     """
     base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     fname = (file or 'desktop_pet.py').strip()
+    # ⭐⭐ P0-1：⭐ 闸门**默认关** ✗ —— 未开则**一律拒绝** ✓ 并**明说怎么开** ✓
+    if not self_edit_allowed(base_dir):
+        return ('（⛔ 自改码未开启，本次修改被拒 ✗）\n' + self_edit_hint())
     if not fname.endswith('.py') or fname.startswith('_') or '/' in fname or '\\' in fname:
         return f'（不允许修改的文件：{fname}，只能改项目内的 .py 模块）'
     # ⭐⭐ P0-2：⭐ 禁改清单**硬拒** ✗（⛔ 无豁免开关 ✗ —— 要改这些文件必须人来改 ✓）

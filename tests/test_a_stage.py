@@ -570,12 +570,64 @@ def test_p02_normal_files_still_allowed(tmp_path):
         assert not pet_selfcode.is_protected(f)[0], '⭐ %s 不应被禁 ✓' % f
 
 
-def test_p02_edit_own_code_refuses_protected_end_to_end():
-    """⭐ 端到端：⭐ 真调 `edit_own_code` 改自身 ⇒ ⭐ **必须被拒** ✗（真跑 ✓ 有牙 ✓）。"""
+def test_p02_edit_own_code_refuses_protected_end_to_end(monkeypatch):
+    """⭐ 端到端：⭐ 真调 `edit_own_code` 改自身 ⇒ ⭐ **必须被拒** ✗（真跑 ✓ 有牙 ✓）。
+
+    ⭐ P0-1 起需**先开闸门** ✓ —— ⭐ 两道闸是**组合**的：⭐ 闸门（默认关 ✓）先过，
+    ⭐ 再撞**禁改清单**（永不可改 ✗）✓ ⇒ ⭐ 本用例显式开闸，才验得到清单那道 ✓。
+    """
     import pet_selfcode
+    monkeypatch.setenv(pet_selfcode.SELF_EDIT_ENV, '1')   # ⭐ 开闸（越过 P0-1 ✓）
     r = pet_selfcode.edit_own_code(old_text='# no such text', new_text='# x',
                                    file='pet_selfcode.py', base_dir=REPO)
     assert '拒绝修改' in str(r), '⭐ 改自身必须被拒 ✗（实际返回：%r）' % (str(r)[:80],)
     # ⭐ 且**不得留下任何改动** ✓
     src = io.open(os.path.join(REPO, 'pet_selfcode.py'), encoding='utf-8').read()
     assert 'SELF_PROTECTED' in src, '⭐ 文件必须原样未变 ✓'
+
+
+# ── ⭐⭐ P0-1（2026-10-05 · Owner 已批 ✓）：自改码**批准闸门**（默认关 ✗）──
+def test_p01_default_closed(tmp_path, monkeypatch):
+    """⭐ 有牙：⭐ **无 env 无 config ⇒ 必须关** ✗ 且 ⭐ 调用**必须被拒** ✓ ＋ **明说怎么开** ✓。"""
+    import pet_selfcode
+    monkeypatch.delenv(pet_selfcode.SELF_EDIT_ENV, raising=False)
+    assert pet_selfcode.self_edit_allowed(str(tmp_path)) is False, '⭐ 默认必须是关 ✗'
+    tgt = tmp_path / 'm.py'
+    tgt.write_text('A = 1\n', encoding='utf-8')
+    r = pet_selfcode.edit_own_code(old_text='A = 1', new_text='A = 2',
+                                   file='m.py', base_dir=str(tmp_path))
+    assert '未开启' in str(r), '⭐ 默认态必须被拒 ✗：%r' % (str(r)[:60],)
+    assert pet_selfcode.SELF_EDIT_ENV in str(r), '⭐ 必须明说怎么开 ✓（承 E14.7 ✓）'
+    assert tgt.read_text(encoding='utf-8').strip() == 'A = 1', '⛔ 被拒时不得改文件 ✗'
+
+
+def test_p01_env_opens(tmp_path, monkeypatch):
+    """⭐ 开了 ⇒ 闸门放行 ✓（⭐ 但仍受禁改清单约束 ⇒ 见 P0-2 ✓）。"""
+    import pet_selfcode
+    monkeypatch.setenv(pet_selfcode.SELF_EDIT_ENV, '1')
+    assert pet_selfcode.self_edit_allowed(str(tmp_path)) is True
+
+
+def test_p01_explicit_env_wins(tmp_path, monkeypatch):
+    """⭐ ⭐ **显式 env 说了算** ✗：⭐ config 说开 ✓ 但 env 显式 `0` ⇒ ⭐ 必须**关** ✗。"""
+    import json as _json
+    import pet_selfcode
+    (tmp_path / 'config.json').write_text(
+        _json.dumps({'allow_self_edit': True}), encoding='utf-8')
+    monkeypatch.setenv(pet_selfcode.SELF_EDIT_ENV, '0')
+    assert pet_selfcode.self_edit_allowed(str(tmp_path)) is False, \
+        '⭐ 显式 env=0 必须覆盖 config ⇒ 关 ✗'
+
+
+def test_p01_config_can_open(tmp_path, monkeypatch):
+    """⭐ config 路由可用 ✓（⭐ 且 ⭐ 读失败**必须按关** ✗ 不静默放行 ✗）。"""
+    import json as _json
+    import pet_selfcode
+    monkeypatch.delenv(pet_selfcode.SELF_EDIT_ENV, raising=False)
+    (tmp_path / 'config.json').write_text(
+        _json.dumps({'allow_self_edit': True}), encoding='utf-8')
+    assert pet_selfcode.self_edit_allowed(str(tmp_path)) is True
+    # ⭐ 坏 config ⇒ 仍按关 ✓（⛔ 不得因为读不懂就放行 ✗）
+    (tmp_path / 'config.json').write_text('{ not json', encoding='utf-8')
+    assert pet_selfcode.self_edit_allowed(str(tmp_path)) is False, \
+        '⭐ 读配置失败必须按"关"处理 ✗（⛔ 不得静默放行 ✗）'
