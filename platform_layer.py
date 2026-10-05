@@ -407,7 +407,7 @@ def safe_spawn(argv, **kwargs):
     if not ok:
         # ⭐ 落痕 ＋ 抛错（⭐ 让调用方**看得见** ✗ 而不是悄悄不跑 ✓）
         print('  \u26a0\ufe0f P0-3 拒绝起进程：%s（白名单外 ✗）' % (name or '?',))
-        raise PermissionError('P0-3 子进程白名单：%s' % why)
+        raise PermissionError('[SPAWN-403-01] P0-3 子进程白名单：%s' % why)
     return subprocess.run(argv, **kwargs)
 
 

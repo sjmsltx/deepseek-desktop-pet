@@ -901,3 +901,56 @@ def test_c2_config_endpoint_declares_writable_and_restart(tmp_path):
     # ⭐ 反向：⭐ 数值上限类（`max_tokens`）⛔ **不得**被当密钥藏掉 ✗
     assert 'max_tokens' not in (pl.get('hidden') or []), \
         '⭐ max_tokens 是数值上限 ⇒ 不应被当密钥隐藏 ✗（我方第一版误判过 ✓）'
+
+
+# ── ⭐ 草稿 2／`C5`（2026-10-05）：⭐ 错误码表（⭐ 采纳微信侧 `-51` 草稿 2 ✓）──
+def test_c5_error_code_table_and_mapping():
+    """⭐ 码表存得下 ＋ ⭐ **推不出就空**（⛔ 不硬编假码 ✗）＋ ⭐ 码→人话 ✓。"""
+    import error_codes
+    assert error_codes.CODES, '⭐ 码表不得为空 ✗'
+    for code in ('ACT-403-01', 'SELF-403-01', 'SELF-403-02', 'SPAWN-403-01',
+                 'LOCK-409-01', 'TODO-409-01'):
+        assert code in error_codes.CODES, '⭐ 缺码 %s ✗' % code
+        assert error_codes.message_of(code), '⭐ 每个码都要有**人话** ✗（⛔ 只给码不给话 ✗）'
+    assert error_codes.code_for('动作端点未开启（需服务端 --enable-actions）') == 'ACT-403-01'
+    assert error_codes.code_for('不是 git 仓库') == 'SELF-400-01'
+    assert error_codes.code_for('这句话毫无对应') == '', '⭐ 推不出必须给**空** ✗（⛔ 不硬编 ✗）'
+
+
+def test_c5_err_appends_err_code_keeps_old_fields(tmp_path):
+    """⭐ ⭐ 兼容硬约束：⭐ 403 响应 ⭐ **新增 `err_code`** ✗ 而 ⭐ **旧 `code` 仍在** ✓
+    （⭐ 草稿 2 明写：⛔ 不改旧字段、不改旧文案 ✗）。"""
+    import threading
+    import time
+    import urllib.error
+    import urllib.request
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / 'c5.jsonl'))
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        req = urllib.request.Request('http://127.0.0.1:%d/api/step' % port, data=b'{}',
+                                     headers={'Content-Type': 'application/json'})
+        try:
+            urllib.request.urlopen(req, timeout=4).read()
+            raise AssertionError('⭐ 动作面默认关 ⇒ 应 403 ✗')
+        except urllib.error.HTTPError as he:
+            assert he.code == 403
+            j = __import__('json').loads(he.read().decode('utf-8'))
+        assert j.get('err_code') == 'ACT-403-01', '⭐ 应带业务码 ✗（实际 %r）' % j.get('err_code')
+        assert j.get('code') == 403, '⭐ 旧 code（HTTP 状态码）必须保留 ✗'
+        assert '动作端点未开启' in j.get('error', ''), '⭐ 旧文案不得改 ✗'
+        assert len(lg.replay()) == 0, '⛔ 只读校验不得写日志 ✗'
+    finally:
+        httpd.shutdown()
+
+
+def test_c5_self_and_spawn_carry_codes():
+    """⭐ 自改码与子进程两处 ⭐ 拒绝文案必须**带码** ✗（⭐ 直接传码 ✓ 不靠推断 ✓）。"""
+    self_src = io.open(os.path.join(REPO, 'pet_selfcode.py'), encoding='utf-8').read()
+    for tag in ('SELF-403-01', 'SELF-403-02', 'SELF-400-01'):
+        assert tag in self_src, '⭐ 自改码文案应含 %s ✓' % tag
+    pl_src = io.open(os.path.join(REPO, 'platform_layer.py'), encoding='utf-8').read()
+    assert 'SPAWN-403-01' in pl_src, '⭐ 子进程拒绝文案应含 SPAWN-403-01 ✓'

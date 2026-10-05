@@ -226,13 +226,13 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
     fname = (file or 'desktop_pet.py').strip()
     # ⭐⭐ P0-1：⭐ 闸门**默认关** ✗ —— 未开则**一律拒绝** ✓ 并**明说怎么开** ✓
     if not self_edit_allowed(base_dir):
-        return ('（⛔ 自改码未开启，本次修改被拒 ✗）\n' + self_edit_hint())
+        return ('（⛔ [SELF-403-01] 自改码未开启，本次修改被拒 ✗）\n' + self_edit_hint())
     if not fname.endswith('.py') or fname.startswith('_') or '/' in fname or '\\' in fname:
         return f'（不允许修改的文件：{fname}，只能改项目内的 .py 模块）'
     # ⭐⭐ P0-2：⭐ 禁改清单**硬拒** ✗（⛔ 无豁免开关 ✗ —— 要改这些文件必须人来改 ✓）
     _prot, _why = is_protected(fname)
     if _prot:
-        return (f'（⛔ 拒绝修改 {fname}：{_why}。'
+        return (f'（⛔ [SELF-403-02] 拒绝修改 {fname}：{_why}。'
                 f'⭐ 这些文件属于"围栏"本身，只能由人编辑，不允许走自改码 ✗）')
     path = os.path.join(base_dir, fname)
     if not os.path.isfile(path):
@@ -249,7 +249,7 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
             if getattr(sys, 'frozen', False):
                 return ('（打包版无法自改：打包后的代码在 _internal 内、且没有 .git，改了也不会生效。'
                         '请用源码目录运行 python desktop_pet.py 后再让我改）')
-            return '（不是 git 仓库，拒绝自改——需要版本保护）'
+            return '（⛔ [SELF-400-01] 不是 git 仓库，拒绝自改——需要版本保护）'
         base_hash = ''
         try:
             r0 = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=base_dir, capture_output=True, timeout=15)

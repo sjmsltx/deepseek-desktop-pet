@@ -495,8 +495,21 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode('utf-8'),
                    'application/json; charset=utf-8')
 
-    def _err(self, code: int, msg: str):
-        self._json({'error': msg, 'code': code}, code)
+    def _err(self, code: int, msg: str, err_code: str = ''):
+        """⭐ C5／`D2-5`：⭐ 除 HTTP 状态码外，⭐ **另加 `err_code`** ✗（⭐ 如 `ACT-403-01` ✓）。
+
+        ⚠️ 命名注意：⭐ 参数 `code` 是 **HTTP 状态码** ✗ ⇒ ⭐ 业务码只能用 `err_code` ✓
+          （⭐ 我方第一版写成 `code` ✗ ⇒ ⭐ **撞名** ✓ ⇒ 核状态时发现 ✓ —— ⭐ 先核后改的价值 ✓）。
+        ⭐ 相容：⭐ ⛔ **不改**旧字段/旧文案 ✗ ⇒ ⭐ 只**追加** `err_code` 字段 ✓。
+        """
+        if not err_code:
+            try:
+                import error_codes
+                err_code = error_codes.code_for(msg)
+            except Exception as _e:
+                print('  \u2139\ufe0f 推错误码失败（按空处理 ✓）：%r' % (_e,))
+        # ⭐ C5：⭐ 只**追加** `err_code` ✗ —— ⛔ 旧 `code`（HTTP 状态码）保持不动 ✗（⭐ 兼容 ✓）
+        self._json({'error': msg, 'code': code, 'err_code': err_code or ''}, code)
 
     def log_message(self, fmt, *args):      # 静音访问日志（避免污染 stdout）
         pass
