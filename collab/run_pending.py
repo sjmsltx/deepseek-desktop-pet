@@ -206,8 +206,26 @@ def run(base: str, dry: bool = False) -> dict:
 def main():
     ap = argparse.ArgumentParser(description='待办运行器(人触发 ✓ 条款 IV E17)')
     ap.add_argument('--base', default='.', help='仓库根(待办在其 collab/pending/ 下 ✓)')
+    # ⭐ B11 方案 B（2026-10-05）：⭐ `dead` **只由人显式标** ✗ ⇒ 必须有**人工入口** ✓
+    ap.add_argument('--mark-dead', default='', metavar='OP_ID',
+                    help='人工把某待办标为死信(⭐ 方案 B 的唯一 dead 入口 ✓ 需配 --reason ✓)')
+    ap.add_argument('--replay-dead', default='', metavar='OP_ID',
+                    help='人工放行一条死信重跑(⭐ 只对 dead／failed 开 ✗ 绝不重放 ok ✓)')
+    ap.add_argument('--reason', default='', help='配合 --mark-dead 的原因(⭐ 会落进结果 ✓)')
     ap.add_argument('--dry-run', action='store_true', help='只看会做什么,不落任何结果 ✓')
     args = ap.parse_args()
+
+    # ⭐ B11 方案 B：⭐ 人工入口（⭐ 先于自动跑 ✓ —— 允许多个动作依次给 ✓）
+    _pd = os.path.join(os.path.abspath(args.base), 'collab', 'pending')
+    _did = False
+    for _oid in [x for x in str(getattr(args, 'mark_dead', '') or '').split(',') if x.strip()]:
+        pending_ops.mark_dead(_oid.strip(), reason=args.reason, base_dir=_pd)
+        _did = True
+    for _oid in [x for x in str(getattr(args, 'replay_dead', '') or '').split(',') if x.strip()]:
+        pending_ops.unmark_dead(_oid.strip(), base_dir=_pd)
+        _did = True
+    if _did and not args.dry and not str(getattr(args, 'base', '') or '').strip() == '####':
+        pass
     st = run(args.base, dry=args.dry_run)
     print('[run_pending]%s 待办 %d | 幂等跳过 %d | 成功 %d | 失败 %d'
           % ('(dry-run)' if args.dry_run else '', st['seen'], st['skipped_done'], st['ok'], st['failed']))

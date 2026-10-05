@@ -1112,3 +1112,76 @@ def test_b11_ok_never_replays_and_dead_needs_manual(tmp_path):
 def _always_fail(base, payload):
     """⭐ 测试用：⭐ 恒失败处理器 ✓ —— ⛔ **不用非法载荷** ✗（⭐ 那会被 `write_pending` 校验期拒掉 ✓）。"""
     return False, '测试注入：恒失败'
+
+
+# ── ⭐ B11 方案 B 的人工入口护栏（2026-10-05，⭐ 采纳微信侧 `WX-…-61` 报的两处残留 ✓）──
+#   ⭐ 残留①：`:621`／`:629` 的注释与实现**相反** ✗（⭐ 说"可自动重放／超过⇒dead"✓ 而实现早回退了 ✓）
+#   ⭐ 残留②：⭐ **`mark_dead` 不存在** ✗ ⇒ ⭐ 方案 B「`dead` 只由人显式标」**没有入口** ✗
+#     ⇒ ⭐ ⭐ **没有任何路径能产生 `dead`** ✗（⭐ 死信机制形式完整但**功能不可达** ✓）。
+def _mk_ok_pending(base):
+    """⭐ 造一条**会成功**的待办 ✓（⭐ 平层 `payload` ✓ 与真实写入器同形 ✓）。"""
+    import pending_ops
+    pd = os.path.join(base, 'collab', 'pending')
+    os.makedirs(pd, exist_ok=True)
+    req = {'op_id': pending_ops.op_id_new(), 'type': 'project_edit',
+           'payload': {'project_id': 'x', 'changes': {'name': 'ok'}}}
+    fn = pending_ops.write_pending(req, base_dir=pd)
+    return pending_ops.parse_pending_name(os.path.basename(fn))[2]
+
+
+def test_mark_dead_is_the_only_human_entry(tmp_path):
+    """⭐ 方案 B：⭐ `mark_dead` 是 `dead` 的**唯一入口** ✗ ⇒ ⭐ 标了 ⇒ `run` 跳过 ✓；
+    ⭐ ⭐ **`unmark_dead` 放行后必须真执行** ✗（⭐ 这条**实测抓到真 bug** ✓：`dead_ids` 未归一时形同虚设 ✓）。"""
+    import pending_ops
+    import run_pending
+    base = str(tmp_path)
+    pd = os.path.join(base, 'collab', 'pending')
+    oid = _mk_ok_pending(base)
+    assert pending_ops.op_kind(oid, pd) == '', '⭐ 初始应无终态 ✗'
+    assert pending_ops.mark_dead(oid, reason='测试', base_dir=pd) is True, '⭐ 应标成功 ✗'
+    assert pending_ops.op_kind(oid, pd) == 'dead', '⭐ 应成 dead ✗'
+    st = run_pending.run(base)
+    assert st['skipped_done'] == 1 and st['ok'] == 0, '⭐ 死信必须被跳过 ✗（实测 %r）' % st
+    # ⭐ ⭐ 放行 ⇒ **必须真执行** ✗（⭐ 归一判据的核心 ✓）
+    assert pending_ops.unmark_dead(oid, base_dir=pd) is True, '⭐ 应放行成功 ✗'
+    assert oid not in pending_ops.dead_ids(pd), \
+        '⭐ 放行后 `dead_ids` **不得**再含它 ✗（⭐ 必须归一到最新行 ✓ —— 未归一 ⇒ 人工重放形同虚设 ✓）'
+    st2 = run_pending.run(base)
+    assert st2['ok'] == 1 and st2['skipped_done'] == 0, \
+        '⭐ 放行后必须真执行 ✗（实测 %r）' % st2
+
+
+def test_mark_dead_refuses_ok_and_is_idempotent(tmp_path):
+    """⭐ 成功项**不可**标死信 ✗（⭐ 且**给原因** ✗ ⛔ 不静默 ✓）＋ ⭐ 重复标**幂等** ✓。"""
+    import pending_ops
+    import run_pending
+    base = str(tmp_path)
+    pd = os.path.join(base, 'collab', 'pending')
+    oid = _mk_ok_pending(base)
+    run_pending.run(base)
+    assert pending_ops.op_kind(oid, pd) == 'ok'
+    assert pending_ops.mark_dead(oid, base_dir=pd) is False, '⭐ `ok` 项必须拒绝 ✗'
+    oid2 = _mk_ok_pending(base)
+    assert pending_ops.mark_dead(oid2, base_dir=pd) is True
+    assert pending_ops.mark_dead(oid2, base_dir=pd) is False, '⭐ 重复标必须幂等 ✗'
+
+
+def test_dead_ids_normalizes_to_latest_row(tmp_path):
+    """⭐ 结构钉：⭐ `dead_ids` 必须**按实体归一到最新行**再筛 ✗（⭐ 承 2026-09-26 判例 ✓）。"""
+    import pending_ops
+    pd = os.path.join(str(tmp_path), 'collab', 'pending')
+    os.makedirs(pd, exist_ok=True)
+    pending_ops.append_result('nZ', False, base_dir=pd, extra={'kind': 'dead'})
+    assert 'nZ' in pending_ops.dead_ids(pd)
+    pending_ops.append_result('nZ', False, base_dir=pd, extra={'kind': 'failed'})
+    assert 'nZ' not in pending_ops.dead_ids(pd), \
+        '⭐ 最新行不是 dead ⇒ 不得算死信 ✗（⭐ 否则"只追加的历史"会永久拉回 ✓）'
+    src = io.open(os.path.join(REPO, 'collab', 'pending_ops.py'), encoding='utf-8').read()
+    assert 'def mark_dead' in src and 'def unmark_dead' in src, '⭐ 方案 B 的人工入口必须在位 ✗'
+
+
+def test_comments_must_not_contradict_implementation():
+    """⭐ 残留①：⭐ `pending_ops.py` 里**不得**再留"可自动重放／超过 ⇒ dead"✗ 的相反注释 ✓。"""
+    src = io.open(os.path.join(REPO, 'collab', 'pending_ops.py'), encoding='utf-8').read()
+    for bad in ('**可自动重放至多 2 次**', '自动重放上限（'):
+        assert bad not in src, '⛔ 注释与实现相反 ✗：%s' % bad

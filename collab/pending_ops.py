@@ -618,7 +618,9 @@ def release_claim(op_id: str, base_dir: str = '') -> bool:
 #
 # ⭐ 三终态（⛔ 不许"无终态" ✗）：
 #     · `ok`     —— ⭐ 成功 ✓（⭐ 承 `E17.3`：⭐ **不重复只对成功项成立** ✗）
-#     · `failed` —— ⭐ 已判失败 ✗（⭐ **可自动重放至多 2 次** ✓ —— 承"⭐ 失败不算消费" ✓）
+#     · `failed` —— ⭐ 已判失败 ✗（⭐ **可重跑** ✓ —— 承"⭐ 失败不算消费" ✓；
+#       ⚠️ ⭐ **不自动升级** ✗ —— ⭐ 方案 B：⭐ `failed` **恒为 `failed`** ✓，⭐ 只有**人**能把它
+#       ⭐ 标成 `dead` ✗（⭐ 走 `mark_dead()` ✓）✓ —— ⭐ 撞项目内核"⛔ 运行器不得自我驱动" ✓）
 #     · `dead`   —— ⭐ ⭐ **重放次数用尽** ✗（⭐ 终止态 ⇒ ⭐ **不再自动重试** ✗）
 # ⭐ 死信落点：⭐ 追加进 ⭐ **同一个 `results.jsonl`** ✗（⭐ `kind='dead'` ✓ ⛔ 不另开目录 ✗
 #    —— ⭐ 免得"又多一处状态源" ✓ 承 `P5`：⭐ 真相源＝产品自带记录 ✓）。
@@ -626,7 +628,8 @@ def release_claim(op_id: str, base_dir: str = '') -> bool:
 # ⭐ 兼容：⭐ 旧字段 `ok` **保留不动** ✗ ＋ ⭐ **只追加 `kind`** ✓。
 # ═══════════════════════════════════════════════════════════════════
 
-MAX_REPLAY = 2          # ⭐ 自动重放上限（⭐ 超过 ⇒ `dead` ✓）
+MAX_REPLAY = 2          # ⚠️ ⭐ **仅供人参考** ✗（⭐ 方案 B 下**不再影响终态** ✓ ——
+#                         ⭐ 实现早就回退了自动重放 ✗；⭐ 此常量保留只为"⭐ 建议人何时考虑标死信"✓）
 
 
 def _kind_of(rec: dict) -> str:
@@ -654,9 +657,20 @@ def fail_count(op_id: str, base_dir: str = '') -> int:
 
 
 def dead_ids(base_dir: str = '') -> set:
-    """⭐ 已进死信的 `op_id` ✓（⭐ 终止态 ⇒ ⭐ **不再自动重试** ✗）。"""
-    return {str(r.get('op_id')) for r in read_results(base_dir)
-            if r.get('op_id') and _kind_of(r) == 'dead'}
+    """⭐ 已进死信的 `op_id` ✓（⭐ 终止态 ⇒ ⭐ **不再自动重试** ✗）。
+
+    ⚠️ ⭐ ⭐ **必须"先归一到最新行、再筛"** ✗ —— 这是**追加式历史 ＋ 视图**的经典坑：
+      ⭐ 首版直接筛 `kind=='dead'` 的**行** ✗ ⇒ ⭐ 只要历史上出现过 `dead` ⇒ ⭐ 永久算死信 ✗
+      ⇒ ⭐ ⭐ **人工重放（`unmark_dead`）形同虚设** ✗（⭐ 放行后 `run` 仍跳过 ✓ —— 实测抓到 ✓）。
+    ⭐ 同族判例：⭐ 2026-09-26 我方入库的 `rt_gate.pending()` ✗（⭐ "⭐ 必须先按 `draft_id` 取最新行 ✓"）✓
+      ⇒ ⭐ ⭐ **同一坑第二次出现** ✗ ⇒ ⭐ 本处按同一条修 ✓。
+    """
+    latest = {}
+    for r in read_results(base_dir):
+        oid = str(r.get('op_id') or '')
+        if oid:
+            latest[oid] = _kind_of(r)          # ⭐ 后写覆盖先写 ⇒ 最后一次即最新 ✓
+    return {oid for oid, k in latest.items() if k == 'dead'}
 
 
 def replay_allowed(op_id: str, base_dir: str = '') -> tuple:
@@ -688,6 +702,57 @@ def next_kind(ok: bool, fails: int, base_dir: str = '', op_id: str = '',
     ⭐ `fails` 参数**保留** ✓（⭐ 调用方仍在传 ✓ 且人工标记时可参考 ✓），⭐ 但**不再影响终态** ✗。
     """
     return 'ok' if ok else 'failed'
+
+def mark_dead(op_id: str, reason: str = '', base_dir: str = '', by: str = '') -> bool:
+    """⭐ 人工把一条待办标为**死信** ✗ —— ⭐ ⭐ **方案 B 下 `dead` 的**唯一入口** ✗**。
+
+    ⭐ 依据（⭐ 双方 2026-10-05 裁定 ✓）：
+      ⭐ `dead` 是**终止态** ✗ ⇒ ⭐ 只有"⭐ **人显式标**"✗ 才能进 ✓（⛔ 不许自动升级 ✗ ——
+      ⭐ 自动类行为撞项目内核 ⭐ `test_runner_is_human_triggered_only` ✓ 与微信侧判例 `J34` ✓）。
+    ⭐ 语义：
+      · ⭐ 已 `ok` ✗ ⇒ ⭐ **拒绝** ✓（⭐ 成功项不可标死信 ✓ 且**给原因** ✗ ⛔ 不静默 ✓）
+      · ⭐ 已在 `dead` ✗ ⇒ ⭐ **幂等** ✓（⭐ 不重复写行 ✓）
+      · ⭐ `failed` ／ 无记录 ✗ ⇒ ⭐ 追加一行 `kind='dead'` ✓（⭐ **只追加** ✗ ⛔ 不改旧行 ✓）
+    ⭐ 返回 `True` = ⭐ 本次真的标了 ✓；`False` = ⭐ 没标（⭐ 原因已打印 ✓）。
+    """
+    oid = str(op_id or '')
+    if not oid:
+        print('  \u26a0\ufe0f `mark_dead` 需要 `op_id` ✗')
+        return False
+    k = op_kind(oid, base_dir)
+    if k == 'ok':
+        print('  \u26a0\ufe0f 拒绝标记 %s：⭐ 该待办**已成功（ok）**✗ ⇒ ⛔ 不可标死信 ✓' % oid)
+        return False
+    if k == 'dead':
+        print('  \u2139\ufe0f %s **已在死信**（幂等 ✓ ⇒ 不重复写行 ✓）' % oid)
+        return False
+    append_result(oid, False, reason=reason or '人工标记死信',
+                  detail='mark_dead', base_dir=base_dir,
+                  extra={'kind': 'dead', 'by': by or product_line(base_dir)})
+    print('  \u2139\ufe0f 已标死信 ✓：%s（%s）' % (oid, reason or '人工标记死信'))
+    return True
+
+
+def unmark_dead(op_id: str, base_dir: str = '') -> bool:
+    """⭐ 人工**重放**一条死信 ✓ —— ⭐ 只落痕、不改旧行 ✗（⭐ 承 `replay_allowed` ✓）。
+
+    ⭐ 做法：⭐ 追加一行 `kind='failed'` ✗（⭐ 让"⭐ 最新终态"回到可重跑 ✓）——
+      ⚠️ ⭐ 旧 `dead` 行 ⭐ **保留** ✗（⭐ 只追加 ✓ 可回溯 ✓）。
+    ⭐ ⛔ **`ok` 项一律拒绝** ✗（⭐ 承 `replay_allowed` ✓ 幂等 ✓）。
+    """
+    oid = str(op_id or '')
+    if not oid:
+        print('  \u26a0\ufe0f `unmark_dead` 需要 `op_id` ✗')
+        return False
+    allow, why = replay_allowed(oid, base_dir)
+    if not allow:
+        print('  \u26a0\ufe0f 拒绝重放 %s：%s ✓' % (oid, why))
+        return False
+    append_result(oid, False, reason='人工重放死信', detail='unmark_dead', base_dir=base_dir,
+                  extra={'kind': 'failed', 'replayed': True})
+    print('  \u2139\ufe0f 已放行重放 ✓：%s（⭐ 下次 `run` 会重新执行 ✓）' % oid)
+    return True
+
 
 
 def append_result(op_id: str, ok: bool, reason: str = '', detail: str = '', base_dir: str = '',
