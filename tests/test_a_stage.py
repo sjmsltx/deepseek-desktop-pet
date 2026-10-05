@@ -774,3 +774,32 @@ def test_p03_allowed_list_covers_dsh():
     for prog in ('dsh.cmd', 'dsh.ps1'):
         assert platform_layer.program_allowed([prog, '--version'])[0] is True, \
             '⭐ %s 必须已登记 ✓' % prog
+
+
+# ── ⭐ P1-1（2026-10-05）：安全边界文档必须**在位且含关键要素** ✗ ──
+def test_p11_security_boundary_doc_exists_with_required_parts():
+    """⭐ 采纳微信侧 `WX-…-44` §四 的三条要求：⭐ 文档必须含
+    ⭐ ① **未接白名单清单** ✗ ② ⭐ **"程序名过滤 ≠ 能力限制"** 这条根本局限 ✗
+    ⭐ ③ ⭐ **真实案例** ✓（⛔ 不能只有抽象条款 ✗）。"""
+    p = os.path.join(REPO, 'docs', '安全边界.md')
+    assert os.path.isfile(p), '⭐ 安全边界文档必须在位 ✗（P1-1 ✓）'
+    d = io.open(p, encoding='utf-8').read()
+    for key, why in (('未接清单', '必须有未接白名单清单 ✓'),
+                     ('程序名过滤', '必须写"程序名过滤 ≠ 能力限制"这条根本局限 ✗'),
+                     ('真实案例', '必须含真实案例 ✓'),
+                     ('不可信输入', '必须有不可信输入清单 ✓'),
+                     ('事故响应', '必须有事故响应 ✓'),
+                     ('E14.10', '必须写明与可移植性的关系 ✓')):
+        assert key in d, '⭐ 文档缺「%s」：%s' % (key, why)
+
+
+def test_p11_security_boundary_doc_has_no_personal_path():
+    """⭐ 隐私钉：⭐ 安全边界文档本身就是讲隐私的 ⇒ ⛔ **不得自己含本机路径** ✗。
+
+    ⭐ 注：⭐ 用例把用户名拆开拼 ✓ —— ⭐ 否则护栏自己就成了"含隐私的文件" ✓（自指问题 ✓）。
+    """
+    p = os.path.join(REPO, 'docs', '安全边界.md')
+    d = io.open(p, encoding='utf-8').read()
+    assert ('lby' + '13') not in d, '⭐ 文档不得含本机用户名 ✗'
+    _up = chr(67) + ':' + chr(92) + 'Users' + chr(92)   # ⭐ 拼出来 ⇒ 避免原生串结尾反斜杠 ✗
+    assert _up not in d, '⭐ 文档不得含本机绝对路径 ✗（案例里写 <Windows 用户名> ✓）'
