@@ -108,14 +108,22 @@ def run(base: str, dry: bool = False) -> dict:
     # ⭐ dry-run 的结果也落盘 ✓ → 但**不得**让后续真跑被“幂等”误跳过 ✗
     #    （做法：dry-run 结果不加进 done 集 ✓ 见 done_op_ids 的 dry_run 过滤 ✓）
     _pd = os.path.join(base, 'collab', 'pending')       # ⭐ claim 与结果同目录 ✓
+    # ⭐ ⭐ 落痕（2026-10-05）：⭐ 待办目录不存在时 ⭐ `list_pending` 会**静默返回空** ✗
+    #   ⇒ ⭐ 现象是"⭐ 待办明明写了、`run()` 却说 `seen: 0`"✗ ⇒ ⭐ 极易误判成"夹具错" ✓
+    #   ⚠️ 本方实测踩过 ✓：⭐ `write_pending(req, base_dir=<base>)` 写进 `<base>/` ✗
+    #      ⭐ 而 `run(<base>)` 读 `<base>/collab/pending/` ✗ ⇒ ⭐ 两边口径不同 ⇒ **看不见** ✓
+    if not os.path.isdir(_pd):
+        print('  \u26a0\ufe0f 待办目录不存在（⭐ 因此本轮 `seen` 必然为 0 ✓）：%s' % _pd)
     stats = {'seen': len(pend), 'skipped_done': 0, 'skipped_claimed': 0,
              'ok': 0, 'failed': 0, 'rows': []}
     for item in pend:
         oid = item['op_id']
         # ⭐ B11：⭐ `dead` 是**终止态** ✗ ⇒ ⭐ 与 `ok` 一样**不再自动重跑** ✓
         #   ⚠️ 但 ⭐ **人工重放**不受此限 ✗（⭐ 走 `replay_allowed` ✓ 只对 dead 开 ✓）
-        if oid in done:
-            # ⭐ 保留：⭐ `dead` 是终止态 ✗ ⇒ ⭐ 与 `ok` 一样不再自动跑 ✓（⭐ 需人工重放 ✓）
+        #   ⚠️ 自纠（2026-10-05，⭐ 本方护栏抓到自己 ✗）：⭐ 本判据在 `8d8104c` 被写成
+        #     `if oid in done:`✗ ⇒ ⭐ `else` 分支**永不触发** ✗ ⇒ ⭐ **`dead` 根本不被跳过** ✗
+        #     ⇒ ⭐ 已改回"⭐ `done` **或** `dead_ids` ✗"（⭐ 两者都算已终结 ✓）。
+        if oid in done or oid in pending_ops.dead_ids(_pd):
             _tag = '幂等' if oid in done else '已进死信（dead ✓ 需人工重放）'
             print('  \u2139\ufe0f 跳过 %s：%s ✓' % (oid, _tag))            # ⭐ 落痕 ✓
             stats['skipped_done'] += 1

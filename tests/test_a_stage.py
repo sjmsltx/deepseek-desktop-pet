@@ -1035,3 +1035,80 @@ def test_c5_popen_path_really_raises_with_code():
 #   ⭐ 待下一批补齐 ✓ —— ⭐ 我方**不把未绿的用例留在套件里** ✗（⛔ 也不硬凑 ✗）。
 #   ⭐ 夹具症结：⭐ 我用 `write_pending` 造的待办 ⭐ `run()` **看不见** ✗（⭐ 需查 `list_pending`
 #   的目录/命名口径 ✓）—— ⭐ 这正是"⭐ 造夹具必须用真实写入器**并核对其消费侧口径**"✗ 的一课 ✓。
+
+
+# ── ⭐ B11／`D2-4` 三判据护栏（2026-10-05，⭐ 口径经双方定：⭐ 方案 B ✓ `dead` 只由人显式标 ✗）──
+#   ⭐ 夹具口径（⭐ 双方核对过 ✓）：⭐ 待办必须落在 ⭐ `<base>/collab/pending/` ✗ ——
+#   ⚠️ `base_dir_of()` 是**纯直通**✗（⛔ 不会替你拼 `collab/pending` ✗）⇒
+#      ⭐ 本方曾写 `write_pending(req, base_dir=<base>)` ⇒ ⭐ 写进 `<base>/` ✗
+#      ⭐ 而 `run(<base>)` 读 `<base>/collab/pending/` ✗ ⇒ ⭐ `seen: 0` ⇒ ⭐ 连错 4 次 ✓。
+def _pd_of(base):
+    """⭐ 夹具专用的**待办目录**（⭐ 与 `run()` 消费侧一致 ✗）。"""
+    return os.path.join(base, 'collab', 'pending')
+
+
+def _mk_real_pending(base, payload):
+    """⭐ 用**真实写入器**造待办 ✓ 返回真 `op_id`（⭐ 从文件名推 ✗）。"""
+    import pending_ops
+    req = {'op_id': pending_ops.op_id_new(), 'type': 'project_edit', 'payload': payload}
+    fn = pending_ops.write_pending(req, base_dir=_pd_of(base))
+    parsed = pending_ops.parse_pending_name(os.path.basename(fn))
+    assert parsed, '⭐ 写入器产出的名字必须可解析 ✗'
+    return parsed[2]
+
+
+def test_b11_failed_op_stops_at_failed_with_single_row(tmp_path, monkeypatch):
+    """⭐ 判据①（⭐ 方案 B ✓）：⭐ 执行必失败 ⇒ ⭐ 终态**停在 `failed`** ✗
+    （⛔ **不自动进 `dead`** ✗ —— 承 `E17.3`「⭐ 失败不算消费 ⇒ 修好后重跑必须真执行」✓）
+    ＋ ⭐ ⭐ **结果条数 = 1**（⛔ 不是 N 条 ✗）＋ ⭐ 旧 `ok` 字段保留 ✗（兼容 ✓）。"""
+    import pending_ops
+    import run_pending
+    base = str(tmp_path)
+    _mk_real_pending(base, {'project_id': 'x', 'changes': {'name': 'ok'}})
+    monkeypatch.setattr(run_pending, 'HANDLERS',
+                        dict(run_pending.HANDLERS, project_edit=_always_fail))
+    run_pending.run(base)
+    rows = pending_ops.read_results(_pd_of(base))
+    assert len(rows) == 1, '⭐ 结果必须**只有一行** ✗（实际 %d ✓）' % len(rows)
+    assert rows[0].get('kind') == 'failed', \
+        '⭐ 方案 B：⭐ 失败必须**停在 failed** ✗（⛔ 不自动 dead ✗）；实际 %r' % rows[0].get('kind')
+    assert rows[0].get('ok') is False, '⭐ 旧 `ok` 字段必须保留 ✗'
+
+
+def test_b11_failed_op_can_be_retried_after_fix(tmp_path, monkeypatch):
+    """⭐ 判据（⭐ 方案 B 的另一半 ✓，⭐ 与既有契约同源）：⭐ 失败项**修好后重跑必须真执行** ✗。"""
+    import pending_ops
+    import run_pending
+    base = str(tmp_path)
+    _mk_real_pending(base, {'project_id': 'x', 'changes': {'name': 'ok'}})
+    monkeypatch.setattr(run_pending, 'HANDLERS',
+                        dict(run_pending.HANDLERS, project_edit=_always_fail))
+    run_pending.run(base)
+    monkeypatch.undo()                                   # ⭐ 复原 ⇒ "修好了" ✓
+    st = run_pending.run(base)
+    assert st['ok'] == 1, '⭐ 失败不算消费 ⇒ 修好后重跑必须真执行 ✗（实测 %r）' % st
+
+
+def test_b11_ok_never_replays_and_dead_needs_manual(tmp_path):
+    """⭐ 判据②③：⭐ `ok` **绝不重放**（⭐ 拒绝时**原因非空** ✗）＋ ⭐ `dead` **不再自动重跑** ✗。"""
+    import pending_ops
+    import run_pending
+    base = str(tmp_path)
+    pd = _pd_of(base)
+    pending_ops.append_result('okX', True, base_dir=pd, extra={'kind': 'ok'})
+    allow, why = pending_ops.replay_allowed('okX', pd)
+    assert allow is False, '⭐ `ok` 必须**拒绝重放** ✗'
+    assert why, '⭐ 拒绝时必须给**原因** ✗（⛔ 不静默 ✗）'
+    # ⚠️ 断言教训：⭐ 必须用**清单里真有的**待办 ✗ —— ⭐ `run()` 只遍历待办清单 ✓
+    #   ⇒ ⭐ 凭空 `append_result('deadX',…)` 造的结果行**不在清单里** ✗ ⇒ ⭐ 不会被计数 ✓
+    oid_d = _mk_real_pending(base, {'project_id': 'y', 'changes': {'name': 'ok'}})
+    pending_ops.append_result(oid_d, False, base_dir=pd, extra={'kind': 'dead'})
+    assert oid_d in pending_ops.dead_ids(pd), '⭐ 应进 dead_ids ✓'
+    st = run_pending.run(base)
+    assert st['skipped_done'] == 1, '⭐ 已进死信的必须被跳过 ✗（实测 %r）' % st
+    assert st['ok'] == 0, '⭐ `dead` 不得被执行 ✗'
+
+
+def _always_fail(base, payload):
+    """⭐ 测试用：⭐ 恒失败处理器 ✓ —— ⛔ **不用非法载荷** ✗（⭐ 那会被 `write_pending` 校验期拒掉 ✓）。"""
+    return False, '测试注入：恒失败'

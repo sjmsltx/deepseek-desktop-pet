@@ -288,7 +288,12 @@ def list_pending(base_dir: str = '') -> list:
         try:
             with open(os.path.join(d, fn), encoding='utf-8') as fh:
                 req = json.load(fh)
-        except Exception:
+        except Exception as exc:
+            # ⭐ ⭐ 落痕（⭐ 采纳微信侧口径 ✓）：⭐ 此处原本是 `except: continue` **完全静默** ✗
+            #   ⇒ ⭐ 现象正好是"⭐ **文件在、`run()` 却看不见**"✗ ⇒ ⭐ 极难查 ✓
+            #   ⇒ ⭐ 与"⭐ 关键路径不得静默"同族 ⇒ 至少留痕 ✓（⛔ 不静默 ✓）
+            print('  \u26a0\ufe0f 待办 %s **内容不可解析 ⇒ 跳过**（⭐ 文件在但用不了 ✓）：%r'
+                  % (fn, exc))
             continue
         out.append({'file': fn, 'ts': meta[0], 'type': meta[1], 'op_id': meta[2], 'request': req})
     return out
@@ -480,8 +485,19 @@ def _claim_reclaimable(pid, ts, now, stale: int = None, grace: int = None) -> bo
     age = (now - ts) if ts else 1e9
     if age > st:
         return True
-    if age > gr and not _pid_alive(pid):
-        return True
+    # ⭐ ⭐ 保守化（2026-10-05，⭐ 采纳微信侧口径 ✓）：⭐ ⭐ **"pid 死"只能当参考条件** ✗
+    #   ⭐ 可回收 ⇔ ⭐ **年龄 > 宽限** ✗ 且 ⭐ ( pid 死 **或** 读不到 pid ) ✗
+    #   ⛔ **不许**「pid 死 ⇒ 立刻可回收」✗（⭐ 就缺了"年龄"这道门 ✓）
+    #   ⛔ **不许**「读不到 pid ⇒ 立刻可回收」✗
+    #   ⭐ 理由：⭐ `tasklist` 是**快照式**查询 ✗ ⇒ ⭐ **刚 spawn 的进程可能还没被列进去** ✗
+    #     ⇒ ⭐ `_pid_alive` 误报"死" ✗ ⇒ ⭐ **活人的 claim 被回收** ✗ ★
+    #     （⭐ 本文件上方 docstring 自记：⭐ "⭐ 8 进程并发时错误地有 **3 个**拿到"✗ ✓）
+    #   ⭐ 保守化后：⭐ tasklist 误报 ／ 空文件 ／ 刚起的子进程 ⭐ **三者都落进宽限期** ✓，
+    #     ⭐ 而真死的持有者**过了宽限照样能回收** ✓（⛔ 不会永久卡死 ✓）。
+    if age > gr:
+        if not _pid_alive(pid):
+            return True
+        return False
     return False
 
 
