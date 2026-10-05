@@ -262,3 +262,13 @@ def test_contract_xvi_pinned():
     assert '不重复执行"只对成功项成立' in seg3 or '只对成功项' in seg3, \
         '⭐ E17.3 必须写明"不重复只对成功项成立"这条分野 ✗'
     assert 'D-编号' in c, '⭐ 必须写入编号规则（引用缺陷用 D-编号）✓'
+
+
+# ── ⭐ 契约版本化 ＋ 能力开关总览（⭐ 采纳微信侧 `-51` 草稿 1／4 ✓）──
+def test_contract_versioning_and_gate_overview():
+    c = _read('docs/3.0-M1-API契约-冻结v1.md')
+    for k in ('契约版本化', 'v1.16', '变更历史', '兼容规则', '弃用流程', '追加性变更'):
+        assert k in c, '⭐ 契约版本化缺 %s ✗' % k
+    d = _read('docs/安全边界.md')
+    for k in ('能力开关总览', '互不遮蔽', '永关', '须人跑运行器'):
+        assert k in d, '⭐ 安全文档缺 %s ✗' % k
