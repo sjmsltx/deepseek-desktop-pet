@@ -537,3 +537,45 @@ def test_d1_backup_root_never_under_repo(tmp_path, monkeypatch):
     r = pet_selfcode.backup_root(REPO)
     assert not os.path.abspath(r).lower().startswith(os.path.abspath(REPO).lower()), \
         '⭐ backup_root 绝不能被 base_dir 带进仓库 ✗：%s' % r
+
+
+# ── ⭐⭐ P0-2（2026-10-05 · Owner 已批 ✓）：自改码**禁改清单** ──
+#    底线：⭐ **护栏不可被改** ✗ —— 否则"围栏"形同不存在（与 OpenAI 事故同型 ✓）
+def test_p02_protected_files_are_refused(tmp_path):
+    """⭐ 有牙：⭐ 清单里每个文件**都必须**被判禁改 ✗（真跑 ✓ 参数化 ✓）。"""
+    import pet_selfcode
+    for f in pet_selfcode.SELF_PROTECTED:
+        got, why = pet_selfcode.is_protected(f)
+        assert got, '⭐ %s 必须在禁改清单里 ✗' % f
+        assert why, '⭐ 必须给出原因 ✓'
+    # ⭐ 测试文件模式
+    for f in ('test_a_stage.py', 'test_x.py'):
+        assert pet_selfcode.is_protected(f)[0], '⭐ 测试文件不可自改 ✗'
+
+
+def test_p02_self_reference_protection():
+    """⭐ ⭐ **自指保护**：⭐ 清单写在 `pet_selfcode.py` 里，⭐ 而它**自己也在清单里** ✓
+    ⇒ ⭐ 想改清单必须先改清单里的文件 ⇒ ⭐ **被自己挡住** ✓（⛔ 无后门 ✗）。"""
+    import pet_selfcode
+    src = io.open(os.path.join(REPO, 'pet_selfcode.py'), encoding='utf-8').read()
+    assert 'SELF_PROTECTED' in src, '⭐ 清单必须定义在 pet_selfcode.py 内 ✓'
+    assert 'pet_selfcode.py' in pet_selfcode.SELF_PROTECTED, \
+        '⭐ 清单必须包含它自己 ✗（否则可先删清单再改一切 ✓）'
+
+
+def test_p02_normal_files_still_allowed(tmp_path):
+    """⭐ 反向：⭐ 普通产品码**必须**仍可改 ✗（⭐ 防"一刀切"把功能做死 ✓）。"""
+    import pet_selfcode
+    for f in ('desktop_pet.py', 'memory_engine.py', 'pet_anim.py'):
+        assert not pet_selfcode.is_protected(f)[0], '⭐ %s 不应被禁 ✓' % f
+
+
+def test_p02_edit_own_code_refuses_protected_end_to_end():
+    """⭐ 端到端：⭐ 真调 `edit_own_code` 改自身 ⇒ ⭐ **必须被拒** ✗（真跑 ✓ 有牙 ✓）。"""
+    import pet_selfcode
+    r = pet_selfcode.edit_own_code(old_text='# no such text', new_text='# x',
+                                   file='pet_selfcode.py', base_dir=REPO)
+    assert '拒绝修改' in str(r), '⭐ 改自身必须被拒 ✗（实际返回：%r）' % (str(r)[:80],)
+    # ⭐ 且**不得留下任何改动** ✓
+    src = io.open(os.path.join(REPO, 'pet_selfcode.py'), encoding='utf-8').read()
+    assert 'SELF_PROTECTED' in src, '⭐ 文件必须原样未变 ✓'

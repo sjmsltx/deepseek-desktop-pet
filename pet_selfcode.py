@@ -136,6 +136,42 @@ def write_file_tool(filename, content, base_dir=None):
         return f'（写入失败：{e}）'
 
 
+# ⭐⭐ P0-2（2026-10-05 · Owner 已批 ✓）：⭐ **禁改清单** —— 这些文件**永不允许**被自改码修改 ✗
+#
+# ⭐ 理由：⭐ **自改码本身就是在改"围栏"** ✓ ⇒ 若它能改掉**护栏/治理/测试**，
+#    ⭐ 那"围栏"就**形同不存在** ✗（⭐ 与 OpenAI 那次"能力超过围栏"同型 ✓）。
+# ⭐ ⭐ **自指保护**：⭐ 本清单写在 `pet_selfcode.py` 里，⭐ 而**它自己也在清单里** ✓
+#    ⇒ ⭐ 想改清单，必须先改清单里的文件 ⇒ ⭐ **被自己挡住** ✓（⛔ 无后门 ✗）。
+# ⭐ 归属：⭐ 由 `PC-桌宠-20261005-148` 起生效 ✓（⭐ 微信侧 `-40` §三.2 提请 ✓）。
+SELF_PROTECTED = (
+    'pet_selfcode.py',      # ⭐ 自身（含本清单）—— 改它 = 取消所有闸门 ✗
+    'governance.py',        # ⭐ 治理（成本上限/轮次等）✗
+    'platform_layer.py',    # ⭐ 平台层（子进程/自启等能力面）✗
+    'relay_log.py',         # ⭐ 状态机内核（可回放/门控）✗
+    'conftest.py',          # ⭐ 测试引导 ✗
+)
+
+
+def is_protected(fname: str) -> tuple:
+    """⭐ 判定某文件是否**禁改** ✗。返回 `(是否禁改, 原因)` ✓。"""
+    base = os.path.basename(str(fname or '').strip().replace('\\', '/'))
+    if base in SELF_PROTECTED:
+        # ⭐ 明细到具体文件 ✓（便于回消息时说清是哪一条 ✓）
+        if base == 'pet_selfcode.py':
+            return True, '这是"自改码"模块自身（含禁改清单）—— 改它等于取消所有安全闸门'
+        if base == 'governance.py':
+            return True, '这是治理模块（成本上限/轮次等）'
+        if base == 'platform_layer.py':
+            return True, '这是平台层（子进程/自启等能力面）'
+        if base == 'relay_log.py':
+            return True, '这是状态机内核（可回放/门控）'
+        return True, '这是测试引导文件（测试是护栏的一部分）'
+    if base.startswith('test_') and base.endswith('.py'):
+        return True, '这是测试文件 —— 测试是护栏的一部分，不可由自改码改写'
+    return False, ''
+
+
+
 def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None):
     """AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘。
 
@@ -148,6 +184,11 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
     fname = (file or 'desktop_pet.py').strip()
     if not fname.endswith('.py') or fname.startswith('_') or '/' in fname or '\\' in fname:
         return f'（不允许修改的文件：{fname}，只能改项目内的 .py 模块）'
+    # ⭐⭐ P0-2：⭐ 禁改清单**硬拒** ✗（⛔ 无豁免开关 ✗ —— 要改这些文件必须人来改 ✓）
+    _prot, _why = is_protected(fname)
+    if _prot:
+        return (f'（⛔ 拒绝修改 {fname}：{_why}。'
+                f'⭐ 这些文件属于"围栏"本身，只能由人编辑，不允许走自改码 ✗）')
     path = os.path.join(base_dir, fname)
     if not os.path.isfile(path):
         return f'（文件不存在：{fname}，可用 read_file 传目录查看项目文件列表）'
