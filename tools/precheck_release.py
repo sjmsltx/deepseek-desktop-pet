@@ -32,12 +32,26 @@ PRIVACY_PATTERNS = [
     (r'lby13', '本机用户名'),
     (r'[0-9]{5,}@qq\.com', 'QQ 邮箱（应用 GitHub noreply ✓）'),
     (r'[A-Za-z]:\\\\?Users\\\\?[A-Za-z0-9_.-]+', '本机绝对路径'),
+    # ⭐ 2026-10-05 补：⭐ **绝对 Windows 路径** ✓（仅当**看着像本机个人目录**时才算硬缺陷 ✓）
+    #    由来：对方全仓扫时又抳到 `tools/verify.py:28` 写死本机路径 ✗，而我方第一版只查 `…Users…` ⇒ **漏报** ✗
+    #    ⚠️ 自纠：⭐ 泛化过头会让**二进制文件随机字节**与**文档里的合法默认路径**（如 `D:\dsh\…` ✓）满屏误报 ✗
+    #    ⇒ ⭐ 只把“含用户目录/个人解释器痕迹”的当硬缺陷 ✓；⭐ 其余归“需人工确认”⚠️（⛔ 不当硬缺陷 ✗）
+    (r'[A-Za-z]:\\\\[^"\'\s<>|]*(?:Users|AppData|anaconda3|pythoncore)[^"\'\s<>|]*', '本机个人路径（含用户目录/个人解释器 ✓）'),
+    (r'[A-Za-z]:\\\\[^"\'\s<>|]{3,}', '绝对路径（需人工确认 ⚠️）'),
 ]
 ALLOWLIST = [
     # ⭐ 显式登记：这些出现在"应当出现"的地方（示例/说明 ✓），不算缺陷
     r'tools/precheck_release\.py',
     r'tests/test_precheck_release\.py',
+    # ⭐ 占位而非真泄露 ✓（对方 `PC-152` §一 指出 ✓：`C:\Users\someone` 是占位 ✓）
+    r'tests/test_foreground_privacy\.py',
+    # ⭐ 实测判定为**占位/合成**（非真实个人信息 ✓）—— ⭐ 登记而非放过 ✗
+    r'plugins/pdf_tools/plugin\.py',      # `C:\Users\...\a.pdf` —— 省略号占位 ✓
+    r'tests/test_command_gate\.py',        # 合成路径（用例夹具 ✓）
 ]
+
+# ⭐ 行内白名单：出现这些字样当行不算泄露 ✓（已泛化的占位 ✓）
+LINE_ALLOW = (r'<[^>]{2,}>', r'\.\.\.', r'某个用户', r'someone', r'示例', r'占位', r'your_?path', r'REPLACE')
 
 
 def sh(base, *args):
@@ -55,19 +69,33 @@ def tracked(base):
     return [f for f in out.splitlines() if f.strip()]
 
 
+BINARY_EXT = ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.bmp', '.ttf', '.otf', '.woff', '.woff2',
+              '.pdf', '.zip', '.7z', '.gz', '.pyc', '.so', '.dll', '.exe', '.mp3', '.mp4', '.wav')
+
+
 def scan(base, files, patterns, skip_allow=True):
     hits = []
     for rel in files:
         if skip_allow and any(re.search(a, rel) for a in ALLOWLIST):
             continue
+        # ⚠️ 自纠：⛔ **不扫二进制** ✗（实测：PNG 随机字节会被当成 `m:\6,G` 之类的"绝对路径"⇒ 满屏误报 ✗）
+        if rel.lower().endswith(BINARY_EXT):
+            continue
         p = os.path.join(base, rel)
         try:
-            txt = io.open(p, encoding='utf-8', errors='ignore').read()
+            with io.open(p, encoding='utf-8', errors='ignore') as fh:
+                txt = fh.read()
         except Exception:
+            continue
+        if '\x00' in txt[:4000]:            # ⭐ 含 NUL ⇒ 视为二进制 ✓ 跳过
             continue
         for pat, label in patterns:
             for m in re.finditer(pat, txt):
                 ln = txt[:m.start()].count('\n') + 1
+                lines = txt.splitlines()
+                line = lines[ln - 1] if 0 <= ln - 1 < len(lines) else ''
+                if any(re.search(al, line) for al in LINE_ALLOW):   # ⭐ 占位行 ✓ 放过
+                    continue
                 hits.append((rel, ln, label, m.group(0)[:60]))
     return hits
 
@@ -98,12 +126,17 @@ def main():
         print('       %s:%d  %s  %s' % (f, ln, lab, s))
         hard.append('%s:%d %s' % (f, ln, lab))
 
-    # ③ 隐私不泄露
-    ph = scan(base, files, PRIVACY_PATTERNS)
-    print('  %s ③ 无隐私泄露            %s' % ('✓' if not ph else '✗', '%d 处' % len(ph)))
+    # ③ 隐私不泄露（⭐ 分两档：个人路径 ⇒ 硬缺陷 ✗ ｜ 泛化绝对路径 ⇒ 需人工确认 ⚠️）
+    per = scan(base, files, PRIVACY_PATTERNS[:5])
+    generic = scan(base, files, [PRIVACY_PATTERNS[5]]) if len(PRIVACY_PATTERNS) > 5 else []
+    ph = per + generic
+    print('  %s ③ 无隐私泄露            %s' % ('✓' if not ph else '✗', '%d 处（硬 %d ＋ 待确认 %d）' % (len(ph), len(per), len(generic))))
     for f, ln, lab, s in ph[:8]:
         print('       %s:%d  %s  %s' % (f, ln, lab, s))
+    for f, ln, lab, s in per:
         hard.append('%s:%d %s' % (f, ln, lab))
+    for f, ln, lab, s in generic:
+        soft.append('绝对路径待确认：%s:%d %s' % (f, ln, s[:30]))
 
     # ④ 打包隔离（产物不进 git ✓）—— ⚠️ 自纠：`.spec` 是**构建配置** ✓ 应当入库 ✓（实测它并不含本机路径 ✓）
     #    ⇒ ⛔ 只报真产物 ✗（`dist/` `build/` `release_build/` `*.exe` `*.zip` ✓）
