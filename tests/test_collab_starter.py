@@ -170,6 +170,15 @@ def check(html: str) -> list:
     if '原始错误' not in html:
         bad.append('历史无“原始错误”展示位 ✗（E16.2 ✓）')
 
+    # ⑭ ⭐ 安全层评估（`WX-…-40` §一.2 B）：窄写不受只读开关管 —— 界面**必须明示** ✗
+    #    ⚠️ 自纠：首版只查“不受”二字 ✗ ⇒ 文件里**别处**也有“不受” ⇒ 篡改后仍绿 ✗（跛脚 ✗）
+    #    ⇒ 改为查**整句**（与界面文案一致 ✓）
+    if '窄写' not in html or '/api/pending' not in html or '不受' not in html:
+        bad.append('未明示“窄写（`/api/pending`）**不受**只读开关管”✗ —— '
+                   '⚠️ 用户会误判“服务只读所以点啥都安全”✗（安全层评估 §一.2-B ✓）')
+    if not re.search(r'它<b>不受</b>', html):
+        bad.append('“窄写**不受**只读开关管”的整句被改掉/弱化 ✗（安全层评估 §一.2-B ✓）')
+
     return bad
 
 
@@ -192,6 +201,7 @@ def _mutations(html: str) -> list:
     out.append(('把两个动作并回单一发起键', html.replace('id="starter-queue"', 'id="starter-send"')))
     out.append(('不显式传 mode', html.replace('mode: mode', 'mode: undefined')))
     out.append(('历史抽掉“派生”标注', html.replace('消息序列派生', '步骤'))) 
+    out.append(('拿掉“窄写不受只读开关管”明示', html.replace('它<b>不受</b>', '它<b>受</b>', 1)))
     return out
 
 

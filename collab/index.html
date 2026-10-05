@@ -398,6 +398,9 @@
   ② 或手动：<code>python collab\relay_server.py --port 8792</code> ✓；
   ③ 端口可在 <code>config.json</code> 的 <code>collab_port</code> 改 ✓。<br>
   ⚠️ 投递的待办<b>须人触发</b>才真执行：<code>python collab\run_pending.py --base .</code> ✓（终端里跑 ✓）<br>
+  ⭐ <b>窄写这条路的边界（务必看清）</b>：以上的提交走 <code>/api/pending</code>（契约特批的<b>窄写</b> ✓）——
+  ⭐ <b>它<b>不受</b>「只读模式」（<code>--enable-actions</code>）管</b> ✗ ⇒ ⭐ <b>“服务只读” ≠ “这条也安全”</b> ✗；
+  但它<b>只落待办</b> ✓ <b>不执行</b> ✓，⭐ 真改动<b>必须人跑运行器</b> ✓<br>
   ⭐ <b>第 0 步·初始化通道</b>：<code>python collab\init_channel.py --base . --check</code>（看缺什么 ✓）；
   未就绪则 <code>--apply</code> 建（建目录 ＋ 落 <code>COLLAB.md</code> 约定 ✓ 默认 dry-run ✗ 不加 <code>--apply</code> 不写盘 ✓）——
   ⭐ <b>未初始化时产出会散在同一个目录里、极易被另一条线静默覆盖</b> ✗
