@@ -101,3 +101,39 @@ def test_cli_runs_command_under_lock():
     assert r.returncode == 0, '⭐ 锁内命令应成功 ✗：%s' % (r.stdout or r.stderr or '')[-200:]
     assert 'under-lock' in (r.stdout or ''), '⭐ 命令输出应透传 ✓'
     assert not os.path.exists(ac_lock.lock_path('cli')), '⭐ 跑完必须放锁 ✓'
+
+
+# ── ⭐ 本轮独立验真跑抓到的两个真 bug（已修 ✓ 各留一条护栏 ✓）──
+def test_mutex_holds_within_same_process():
+    """⭐ ⭐ **同进程多线程也必须互斥** ✗ —— ⭐ 只用文件锁时，"回收陈旧锁"的窗口
+    会让**同进程的多个线程同时创建** ✗（⭐ 实测 4 线程**全部拿到锁** ✓ 真 bug ✓）
+    ⇒ ⭐ 必须再加一层**进程内**锁 ✓（⭐ 两层合起来才完整 ✓）。"""
+    import threading
+    import time as _t
+    held = []
+    peak = [0]
+    g = threading.Lock()
+
+    def worker():
+        try:
+            ac_lock.acquire('mtx', wait=5)
+            with g:
+                held.append(1)
+                peak[0] = max(peak[0], len(held))
+            _t.sleep(0.03)
+            with g:
+                held.pop()
+            ac_lock.release('mtx')
+        except Exception as exc:
+            print('  线程异常：%r' % (exc,))
+
+    ts = [threading.Thread(target=worker) for _ in range(8)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert peak[0] == 1, '⭐ 同一时刻只能有 1 个持有者 ✗（实测峰值 %d ✗）' % peak[0]
+
+
+def test_release_is_idempotent():
+    """⭐ `release` 幂等 ✓：⭐ 锁已不在（⭐ 别人先放／本就没拿 ✓）⇒ ⭐ 必须返回 **True** ✗
+    （⛔ 不得报错也不得 False ✓）。"""
+    assert ac_lock.release('never_existed_xyz') is True, '⭐ 已不在＝已释放 ⇒ True ✓'

@@ -33,6 +33,21 @@ import time
 
 DEFAULT_STALE = 300.0          # ⭐ 超过这么久未刷新 ⇒ 视为死锁、可抢占 ✓
 
+# ⭐ ⭐ 进程内互斥（⭐ 本轮并发测试抓到的真 bug ✗）：
+#   ⭐ 只用文件锁时，**同一进程的多个线程**会在"回收陈旧锁"的窗口里**同时创建** ✗
+#   ⇒ ⭐ 实测 4 线程**全部拿到锁** ✗ ⇒ ⭐ 必须再加一层**进程内**锁 ✓
+#   （⭐ 两层合起来才完整：⭐ 进程内串行 ✓ ＋ ⭐ 文件层管跨进程 ✓）
+_THREAD_LOCKS = {}
+_THREAD_GUARD = __import__('threading').Lock()
+
+
+def _thread_lock(name: str):
+    with _THREAD_GUARD:
+        lk = _THREAD_LOCKS.get(name)
+        if lk is None:
+            lk = _THREAD_LOCKS[name] = __import__('threading').Lock()
+        return lk
+
 
 def _lock_dir() -> str:
     """⭐ 锁文件目录：⭐ `AC_LOCK_DIR` → 系统临时目录 ✓（⛔ 不写进仓库 ✗）。"""
@@ -69,6 +84,17 @@ def acquire(name: str, wait: float = 0.0, stale: float = DEFAULT_STALE,
     p = lock_path(name)
     me = os.getpid()
     deadline = time.time() + max(0.0, float(wait))
+    lk = _thread_lock(str(name))
+    # ⭐ 进程内先排队 ✓（⭐ 拿不到就等 ⇒ 超时按 `wait` 算 ✓）
+    if not lk.acquire(timeout=max(0.05, float(wait) + 1.0)):
+        raise TimeoutError('锁 %r 在本进程内排队超时 ✗（⛔ 不静默继续 ✗）' % (name,))
+    try:
+        return _acquire_locked(p, me, name, wait, stale, poll, deadline, note)
+    finally:
+        lk.release()
+
+
+def _acquire_locked(p, me, name, wait, stale, poll, deadline, note):
     while True:
         try:
             fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -90,6 +116,12 @@ def acquire(name: str, wait: float = 0.0, stale: float = DEFAULT_STALE,
                 print('  \u2139\ufe0f 回收锁 %r（%s ✓；原持有者 pid=%s）' % (name, why, holder or '?'))
                 try:
                     os.remove(p)
+                except FileNotFoundError:
+                    # ⭐ 竞态：⭐ **别的进程已经先回收了** ✓ ⇒ ⭐ 这不是失败 ✓（⭐ 本轮真跑抓到 ✓）
+                    pass
+                except PermissionError as exc:
+                    # ⭐ 别人正在处理这个锁文件 ✓ ⇒ ⭐ 降噪（⛔ 不算失败 ✗）
+                    print('  \u2139\ufe0f 旧锁正被他人处理（忽略 ✓）：%r' % (exc,))
                 except OSError as exc:
                     print('  \u26a0\ufe0f 删旧锁失败：%r' % (exc,))
                 continue
@@ -111,15 +143,22 @@ def release(name: str, path: str = ''):
     try:
         with io.open(p, encoding='utf-8') as fh:
             info = json.load(fh) or {}
-        if int(info.get('pid') or 0) != os.getpid():
-            print('  \u26a0\ufe0f 锁 %r 不是本进程持有（不删 ✓）' % (name,))
-            return False
+    except FileNotFoundError:
+        return True       # ⭐ 锁已不在＝已释放 ✓（⭐ 幂等 ✓ 不报警 ✓）
     except Exception as exc:
         print('  \u26a0\ufe0f 读锁失败（不删 ✓）：%r' % (exc,))
+        return False
+    # ⭐ ⭐ **只放自己的** ✗ —— ⭐ 本判断必须在 `with` **成功读到锁信息之后** ✓
+    #   （⭐ 我方曾把它误插进 `except` 块 ⇒ 变成**不可达** ✗ ⇒ 被 `test_release_only_own_lock`
+    #    当场判红 ✓ —— ⭐ 护栏救了这次改动 ✓）
+    if int(info.get('pid') or 0) != os.getpid():
+        print('  \u26a0\ufe0f 锁 %r 不是本进程持有（不删 ✓）' % (name,))
         return False
     try:
         os.remove(p)
         return True
+    except FileNotFoundError:
+        return True       # ⭐ 已不在＝等价于已释放 ✓（⭐ 幂等 ✓ 不报警 ✓）
     except OSError as exc:
         print('  \u26a0\ufe0f 删锁失败：%r' % (exc,))
         return False
