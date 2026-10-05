@@ -740,3 +740,37 @@ def test_p03_send_backward_compatible():
     i = src.index('def _send(')
     seg = src[i:i + 300]
     assert 'extra_headers=None' in seg, '⭐ 必须是可选参数（默认 None ⇒ 向后兼容 ✓）✗'
+
+
+# ── ⭐ P0-3 接入（2026-10-05）：⭐ 结构钉 + 隐私钉 ──
+def test_p03_dsh_adapter_has_no_raw_subprocess():
+    """⭐ 结构钉：⭐ `dsh_adapter.py` **不得再有裸 `subprocess.run`** ✗（⭐ 必须走受控入口 ✓）。"""
+    src = io.open(os.path.join(REPO, 'dsh_adapter.py'), encoding='utf-8').read()
+    assert 'subprocess.run(' not in src, '⭐ 仍有裸 subprocess.run ✗（应改走 platform_layer.safe_spawn ✓）'
+    assert 'safe_spawn(' in src, '⭐ 应已接入受控入口 ✓'
+
+
+def test_p03_verify_tool_has_no_personal_path():
+    """⭐ 隐私钉（开源阻断项）：⭐ `tools/verify.py` 与 `ENTRY.md` 不得含本机用户名 ✗。
+
+    ⭐ 注：⭐ 本用例**把用户名拆开拼**（`'lby' + '13'`）✗ ——
+    ⭐ 否则护栏自己就成了"含隐私的文件" ✓（⭐ 自指问题 ✓）。
+    """
+    needle = 'lby' + '13'
+    for rel in ('tools/verify.py', 'ENTRY.md'):
+        p = os.path.join(REPO, rel)
+        if not os.path.isfile(p):
+            continue
+        src = io.open(p, encoding='utf-8', errors='ignore').read()
+        assert needle not in src, '⭐ %s 含本机用户名（开源阻断项 ✗）' % rel
+    # ⭐ 且必须**有**占位说明 ✓（⛔ 不是删了了事 ✗）
+    e = io.open(os.path.join(REPO, 'ENTRY.md'), encoding='utf-8').read()
+    assert '<你的 python 完整路径>' in e, '⭐ 应保留占位说明（⭐ 换掉路径但别丢知识 ✓）'
+
+
+def test_p03_allowed_list_covers_dsh():
+    """⭐ 接线后：⭐ `dsh.cmd`／`dsh.ps1` 必须已登记 ✗（⭐ 否则 dsh_adapter 一跑就被拒 ✓）。"""
+    import platform_layer
+    for prog in ('dsh.cmd', 'dsh.ps1'):
+        assert platform_layer.program_allowed([prog, '--version'])[0] is True, \
+            '⭐ %s 必须已登记 ✓' % prog

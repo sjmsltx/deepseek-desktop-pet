@@ -373,6 +373,7 @@ ALLOWED_PROGRAMS = (
     'tasklist', 'taskkill',                               # ⭐ 进程排查/回收 ✓
     'where', 'where.exe',                                 # ⭐ 定位程序 ✓
     'python', 'python.exe', 'pythonw', 'pythonw.exe',     # ⭐ 本项目自身的解释器 ✓
+    'dsh.cmd', 'dsh.ps1',                                 # ⭐ DSH 启动脚本（dsh_adapter 用 · 动态路径 ✓）
 )
 
 

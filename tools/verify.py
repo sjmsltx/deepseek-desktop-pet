@@ -25,7 +25,9 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # GUI 项目专用解释器（TOOLS.md：禁用 AutoClaw 捆绑 python，否则白框事故）
-PY = os.environ.get("PET_PY") or r"C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+# ⭐ 去掉写死的本机路径（开源阻断项 · 微信侧 WX-43 逮到）
+#   优先 PET_PY 环境变量 ⇒ 否则回退**当前解释器**（不再硬编码个人目录）
+PY = os.environ.get("PET_PY") or sys.executable
 if not os.path.exists(PY):
     PY = sys.executable
     print("⚠ 未找到独立 python，已回退当前解释器：", PY)

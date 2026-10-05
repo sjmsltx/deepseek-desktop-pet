@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import platform_layer  # P0-3：受控起进程（白名单）
 import socket
 import subprocess
 import sys
@@ -72,8 +73,8 @@ def _running_dsh_processes(timeout: int = 15) -> list:
           "$_.CommandLine -like '*web*' } | "
           "ForEach-Object { $_.ProcessId.ToString() + '|' + $_.CommandLine }")
     try:
-        out = subprocess.run(['powershell', '-NoProfile', '-Command', ps],
-                             capture_output=True, text=True, timeout=timeout)
+        out = platform_layer.safe_spawn(['powershell', '-NoProfile', '-Command', ps],
+                                     capture_output=True, text=True, timeout=timeout)
     except Exception as exc:
         _log('_running_dsh_processes 失败：%r' % exc)
         return found
@@ -253,8 +254,8 @@ def _http_status_ps(url: str, timeout: int = HTTP_TIMEOUT):
         "catch { Write-Output ('ERR ' + $_.Exception.Message) }" % (timeout, url.replace("'", "''"))
     )
     try:
-        out = subprocess.run(['powershell', '-NoProfile', '-Command', script],
-                             capture_output=True, text=True, timeout=timeout + 15)
+        out = platform_layer.safe_spawn(['powershell', '-NoProfile', '-Command', script],
+                                     capture_output=True, text=True, timeout=timeout + 15)
         text = (out.stdout or '').strip()
         if text.startswith('OK '):
             parts = text.split()
@@ -282,8 +283,8 @@ def read_version(timeout: int = 20):
         if not os.path.exists(exe):
             continue
         try:
-            out = subprocess.run([exe, '--version'], capture_output=True, text=True,
-                                 timeout=timeout, cwd=root, shell=False)
+            out = platform_layer.safe_spawn([exe, '--version'], capture_output=True, text=True,
+                                        timeout=timeout, cwd=root, shell=False)
             text = (out.stdout or '') + (out.stderr or '')
             m = re.search(r'(\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?)', text)
             if m:
@@ -379,8 +380,8 @@ def stop_local_dsh() -> int:
               'Where-Object { $_.CommandLine -and $_.CommandLine -like "*%s*" -and '
               '$_.CommandLine -like \'*bin.js*\' -and $_.CommandLine -like \'*web*\' } | '
               'ForEach-Object { Stop-Process -Id $_.ProcessId -Force; 1 }' % DSH_ROOT)
-        out = subprocess.run(['powershell', '-NoProfile', '-Command', ps],
-                             capture_output=True, text=True, timeout=25)
+        out = platform_layer.safe_spawn(['powershell', '-NoProfile', '-Command', ps],
+                                     capture_output=True, text=True, timeout=25)
         killed = len([l for l in (out.stdout or '').splitlines() if l.strip() == '1'])
     except Exception as exc:
         _log('stop_local_dsh 失败：%r' % exc)

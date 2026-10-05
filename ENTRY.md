@@ -1,4 +1,6 @@
 ﻿# ENTRY.md —— 从哪开始读 / 从哪开始跑（桌宠项目入口页）
+> ⭐ **示例里的 `<你的 python 完整路径>` 请换成你本机的完整路径** ✓ —— ⭐ **不要用裸 `python`** ✗：⭐ PATH 里的解释器可能是别家的（本机就踩过这个坑 ✓），⭐ 本项目必须用**项目专用**的解释器 ✓。
+
 
 > **状态截至：2026-09-23**（⚠️ 本文是入口指针，**功能状态一律以代码与测试为准** ✗ 不以文档为准）
 > 用途：新会话/新人接手时，**只读这一页**就能把"跑起来 / 测一遍 / 改哪里"接上 ✓
@@ -9,7 +11,7 @@
 
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
-& "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" desktop_pet.py
+& "<你的 python 完整路径>" desktop_pet.py
 ```
 - ★ **必须用上面这个独立 python** ✗ —— 用 AutoClaw 捆绑的 python 会出"白框事故"（Qt 定制环境）✓
 - 需要在界面里填 **自己的 DeepSeek API Key**（不进仓库 ✗）
@@ -18,7 +20,7 @@ cd 'E:\ai工作站\desktop-pet'
 
 ```powershell
 cd 'E:\ai工作站\desktop-pet'
-& "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m pytest tests -q
+& "<你的 python 完整路径>" -m pytest tests -q
 # 期望：929 passed / 9 skipped（注：全量偶现 1 warning = 既有潜在泄漏，见 B3 交付件 §三 ✓） / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
 # 929 = 919（B3 后）+ 10（B4 rt_relay/rt_gate：幂等/失败回执/闸门/额度审计/续号）
 # 919 = 907（B2 后）+ 12（B3 rt_assembler：五优先级/裁剪顺序/归属隔离/预算/近限/k降级/trace/纯函数）
@@ -47,9 +49,9 @@ cd 'E:\ai工作站\desktop-pet'
 > → 教训：**改了渲染/主题就要重采基线**；该检查已纳入发版前清单 ✓
 一键版（本 A 类新增 ✓）：
 ```powershell
-& "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" tools\verify.py            # 全量
-& "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" tools\verify.py --quick    # 快速
-& "C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe" tools\verify.py --with-ui  # 追加 UI 黄金基线
+& "<你的 python 完整路径>" tools\verify.py            # 全量
+& "<你的 python 完整路径>" tools\verify.py --quick    # 快速
+& "<你的 python 完整路径>" tools\verify.py --with-ui  # 追加 UI 黄金基线
 ```
 另有两件**不属 pytest**（手工 / 较慢 ✗）：
 - 手工回归器：`regression_test.py`（**故意不进 pytest 收集** ✓ 见 `conftest.py`）
