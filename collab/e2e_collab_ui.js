@@ -246,6 +246,19 @@ const sec = (t) => console.log('\n' + '='.repeat(70) + '\n' + t + '\n' + '='.rep
      s8.qnote.length > 2 && s8.qhtml.length > 0, s8);
   ok('⭐ 历史区给出说明（含“派生”字样 ✓ ⛔ 不冒充精确步骤 ✗）',
      /派生/.test(s8.hnote) || /未就绪|还没有/.test(s8.hnote), s8);
+
+  // ⭐ C2／D5-2：⚙ 配置面（只读 ✓ 契约 `PC-…-165` §2.1）
+  const s9 = await pg.evaluate(() => ({
+    cfgbox: !!document.getElementById('cfgbox'),
+    note: ((document.getElementById('cfg-note') || {}).textContent || '').trim(),
+    ro: ((document.getElementById('cfg-ro') || {}).textContent || '').trim(),
+    body: ((document.getElementById('cfg-list') || {}).textContent || '').trim()
+  }));
+  ok('⚙ 配置面存在', s9.cfgbox, s9);
+  ok('⭐ 配置面给出说明（数据 或 “端点未就绪” ✓ ⛔ 不空白 ✗）',
+     s9.note.length > 2 && s9.body.length > 0, s9);
+  ok('⭐ 未就绪时不显示“可写”（⛔ 不假装可写 ✗）',
+     !/可写 *[1-9]/.test(s9.ro) || /不可写/.test(s9.ro), s9);
   // ⚠️ 实测踩坑：`.banner{display:flex}` 会盖掉 `[hidden]` → 服务在跑、横条却一直显示 ✗
   const s7b = await pg.evaluate(() => {
     const b = document.getElementById('conn-banner');

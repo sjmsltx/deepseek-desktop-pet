@@ -31,8 +31,9 @@ HTML = os.path.join(REPO, 'collab', 'index.html')
 
 # ⭐ 端点白名单：起手区的"提交"只允许复用既有**写**端点（⛔ 不新增 ✗）
 #   ⭐ 2026-10-04 扩：直加契约 E15.3／E16 的两个**只读**端点（`/api/queue`／`/api/history` ✓）
+#   ⭐ 2026-10-05 扩：⭐ 直加契约 `PC-…-165`（C2 读路径）的**只读** `/api/config` ✓（⛔ 仍不新增写端点 ✗）
 #      —— ⭐ 它们**不是新端点** ✓（E15.3／E16 已定案 ✓）且**纯读** ✓（调用前后日志条数不变 ✓）
-ALLOWED = {'/api/interrupt', '/api/step', '/api/queue', '/api/history'}
+ALLOWED = {'/api/interrupt', '/api/step', '/api/queue', '/api/history', '/api/config'}
 
 
 def read_html(path: str = HTML) -> str:
@@ -179,6 +180,17 @@ def check(html: str) -> list:
     if not re.search(r'它<b>不受</b>', html):
         bad.append('“窄写**不受**只读开关管”的整句被改掉/弱化 ✗（安全层评估 §一.2-B ✓）')
 
+    # ⑮ ⭐ C2/D5-2（⚙ 配置面 · 读路径契约 `PC-…-165` ✓）：只读端点 ＋ 敏感恒不显 ＋ 不可写必须明示
+    #    ⚠️ 自纠：⭐ 首版只查字面词（“已配置”／“当前不可写”）✗ ⇒ 文件别处也有这两个词 ⇒ **无牙** ✗
+    #    ⇒ ⭐ 改为查**表达式本身**（⭐ 牙齿与判据同设计 ✓ 判例 J26 同族 ✓）
+    if '/api/config' not in html:
+        bad.append('⚙ 配置面未接只读端点 `/api/config` ✗（契约 §2.1 ✓）')
+    else:
+        if not re.search(r"conf\[k\]\s*\?\s*'••••", html):
+            bad.append('⭐ 敏感键未走“只回配没配”✗（⛔ 契约硬约束②：敏感值恒 null ✗）')
+        if not re.search(r'wr\.length\s*\?', html):
+            bad.append('⭐ `writable` 为空时未**明示不可写** ✗（⛔ 契约硬约束③：不静默置灰 ✗）')
+
     return bad
 
 
@@ -200,6 +212,8 @@ def _mutations(html: str) -> list:
     out.append(('拿掉 actions 事前置灰', html.replace('j.actions === false', 'j.actionsX === false')))
     out.append(('把两个动作并回单一发起键', html.replace('id="starter-queue"', 'id="starter-send"')))
     out.append(('不显式传 mode', html.replace('mode: mode', 'mode: undefined')))
+    out.append(('拿掉“配置不可写”分支', html.replace("wr.length ? ('（可写 ' + wr.length + ' 项 ✓）')", "''", 1)))
+    out.append(('敏感键改成回显值', html.replace("conf[k] ? '••••（已配置 ✓）'", "'RAW-VALUE'", 1)))
     out.append(('历史抽掉“派生”标注', html.replace('消息序列派生', '步骤'))) 
     out.append(('拿掉“窄写不受只读开关管”明示', html.replace('它<b>不受</b>', '它<b>受</b>', 1)))
     return out
