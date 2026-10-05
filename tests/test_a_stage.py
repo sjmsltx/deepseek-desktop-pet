@@ -841,3 +841,63 @@ def test_a4_port_mismatch_is_false(tmp_path):
     (tmp_path / 'collab' / '.ready').write_text(
         _json.dumps({'pid': os.getpid(), 'port': 8897, 'ts': time.time()}), encoding='utf-8')
     assert collab_panel.is_ready(1234, str(tmp_path)) is False
+
+
+# ── ⭐ C2／`D5-2`（2026-10-05）：⭐ `/api/config` 只读配置面（3 条硬约束 ✓）──
+def test_c2_config_endpoint_is_read_only(tmp_path):
+    """⭐ 硬约束①：⭐ **纯读** ✗ —— ⭐ 调用前后日志条数不变 ✓。"""
+    import threading
+    import time
+    import urllib.request
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / 'c.jsonl'))
+    n0 = len(lg.replay())
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/config' % port, timeout=4) as fh:
+            got = __import__('json').loads(fh.read().decode('utf-8'))
+        assert got.get('version'), '⭐ 应带契约版本 ✓'
+        assert isinstance(got.get('items'), list) and got['items'], '⭐ items 不得为空 ✓'
+        assert len(lg.replay()) == n0, '⛔ 只读端点不得写日志 ✗'
+    finally:
+        httpd.shutdown()
+
+
+def test_c2_config_endpoint_hides_secret_values(tmp_path):
+    """⭐ ⭐ 硬约束②：⭐ **敏感值一个字符都不回** ✗（⭐ 只把**键名**放进 `hidden` ✓）。"""
+    import threading
+    import time
+    import urllib.request
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / 'c2.jsonl'))
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/config' % port, timeout=4) as fh:
+            raw = fh.read().decode('utf-8')
+        assert 'sk-' not in raw and 'tvly-' not in raw, '⭐ 载荷里不得出现密钥 ✗'
+        got = __import__('json').loads(raw)
+        keys = [i['key'] for i in got['items']]
+        assert 'deepseek_api_key' not in keys, '⭐ 敏感键不得进 items（只进 hidden 名 ✓）✗'
+        assert any('key' in h for h in got.get('hidden', [])), '⭐ 应至少列出一个被隐藏的键名 ✓'
+    finally:
+        httpd.shutdown()
+
+
+def test_c2_config_endpoint_declares_writable_and_restart(tmp_path):
+    """⭐ 硬约束③：⭐ `writable` 为空时**界面必须明示"当前不可写"** ✗ ——
+    ⭐ 端点侧要**如实给出空集** ✗（⛔ 不假装可写 ✗），⭐ 且 `needs_restart` 要点出改后需重启的键 ✓。"""
+    import config_view
+    pl = config_view.config_payload(REPO)
+    assert pl.get('writable') == [], '⭐ 本批写面关闭 ⇒ writable 必须为空集 ✗'
+    assert pl.get('needs_restart'), '⭐ 应点出"改后需重启"的键 ✓'
+    for k in ('asr_backend', 'live2d_model'):
+        assert k in pl['needs_restart'], '⭐ %s 改后需重启 ⇒ 必须出现在 needs_restart ✓' % k
+    # ⭐ 反向：⭐ 数值上限类（`max_tokens`）⛔ **不得**被当密钥藏掉 ✗
+    assert 'max_tokens' not in (pl.get('hidden') or []), \
+        '⭐ max_tokens 是数值上限 ⇒ 不应被当密钥隐藏 ✗（我方第一版误判过 ✓）'

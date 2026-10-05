@@ -626,6 +626,14 @@ class Handler(BaseHTTPRequestHandler):
                                #    ⇒ 界面可据此**事先置灰** ✗ 不必"调了才发现" ✓
                                'actions': bool(ACTIONS_ALLOWED)})
 
+        # ⭐ C2／`D5-2`（2026-10-05 ✓）：⭐ **只读**配置面 ✓ —— ⭐ 守 C1：**只增只读** ✗
+        #   ⭐ 三条硬约束（`PC-…-165` §2.1 ✓）：⭐ 纯读 ✓ ／ ⭐ **敏感值不出现** ✗（只列键名 ✓）／
+        #   ⭐ `writable` 空 ⇒ ⭐ 界面必须明示「当前不可写」✓（⛔ 不静默置灰 ✗）
+        if path == '/api/config':
+            import config_view
+            return self._json(config_view.config_payload(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
         if path == '/api/snapshot':
             return self._json(self.log.snapshot())
 
