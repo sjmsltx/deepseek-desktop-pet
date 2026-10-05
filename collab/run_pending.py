@@ -107,12 +107,23 @@ def run(base: str, dry: bool = False) -> dict:
     done = pending_ops.done_op_ids(os.path.join(base, 'collab', 'pending'))
     # ⭐ dry-run 的结果也落盘 ✓ → 但**不得**让后续真跑被“幂等”误跳过 ✗
     #    （做法：dry-run 结果不加进 done 集 ✓ 见 done_op_ids 的 dry_run 过滤 ✓）
-    stats = {'seen': len(pend), 'skipped_done': 0, 'ok': 0, 'failed': 0, 'rows': []}
+    _pd = os.path.join(base, 'collab', 'pending')       # ⭐ claim 与结果同目录 ✓
+    stats = {'seen': len(pend), 'skipped_done': 0, 'skipped_claimed': 0,
+             'ok': 0, 'failed': 0, 'rows': []}
     for item in pend:
         oid = item['op_id']
         if oid in done:                                        # ⭐ 幂等 ✓
             stats['skipped_done'] += 1
             continue
+        # ⭐ ⭐ B1/D3-1（前置 ✓）：⭐ 取走前**先落 claim** ✗ —— ⭐ 幂等 ＋ 原子 ✓
+        #   ⭐ 拿不到 ⇒ ⭐ **明确跳过并留痕** ✗（⛔ 不重复执行 ✗）
+        #   ⭐ dry-run **不占** ✗（它不改东西 ✓ ⇒ 不该挡住真跑 ✓）
+        if not dry:
+            if not pending_ops.claim_op(oid, line=pending_ops.product_line(base), base_dir=_pd):
+                stats['skipped_claimed'] += 1
+                stats['rows'].append({'op_id': oid, 'type': item.get('type'),
+                                      'ok': False, 'why': '已被其他运行器 claim（已跳过）'})
+                continue
         t = item['type']
         fn = HANDLERS.get(t)
         if fn is None:
@@ -139,6 +150,10 @@ def run(base: str, dry: bool = False) -> dict:
             pending_ops.append_result(oid, ok, reason=why, detail=detail, dry_run=True,
                                       artifacts=arts, line=pending_ops.product_line(base),
                                       base_dir=os.path.join(base, 'collab', 'pending'))
+        # ⭐ ⭐ B2/D3-2：⭐ 结果**已落盘** ⇒ ⭐ 释放 claim ✓（⭐ 成功失败都释放 ✓ ——
+        #   ⭐ 因为结果已在 ⇒ 下次靠**幂等**跳过 ✓，⛔ 不靠「永不释放」来防重 ✗）
+        if not dry:
+            pending_ops.release_claim(oid, base_dir=_pd)
     return stats
 
 
