@@ -173,6 +173,35 @@ def _queue_view(log) -> list:
     return out
 
 
+
+def _tail_lines(path, n, chunk=65536, max_bytes=8 * 1024 * 1024):
+    """⭐ 只读文件**最后 n 行** ✓（⭐ 反向按块读 ✗ 不整文件入内存 ✓）。
+
+    返回 `(行列表, 是否截断)` ✓ —— ⭐ 行**不含**换行符 ✓（由调用方补 ✓）。
+    ⭐ `max_bytes` 是**硬顶** ✓：⭐ 即便全是超长行也不会把内存吃穿 ✓（到顶即停并报截断 ✓）。
+    """
+    if n <= 0:
+        return [], True
+    buf = b''
+    pos = 0
+    with open(path, 'rb') as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        total = 0
+        while pos > 0 and total < max_bytes:
+            step = min(chunk, pos)
+            pos -= step
+            fh.seek(pos)
+            buf = fh.read(step) + buf
+            total += step
+            if buf.count(b'\n') > n:
+                break
+    lines = [ln for ln in buf.split(b'\n') if ln.strip()]
+    # ⭐ 截断判据：⭐ 行数超 ✓ 或 ⭐ 还有更早的字节没读 ✓
+    trunc = (len(lines) > n) or (pos > 0)
+    return lines[-n:], trunc
+
+
 def queue_payload(log) -> dict:
     """⭐ **B5 队列**（只读 ✓）：运行中/第几轮/**待处理的人类发言** ＋ 归属会话 ✓。
 
@@ -438,10 +467,14 @@ class Handler(BaseHTTPRequestHandler):
     ui_path: str = ''                # 静态前端路径（可空）
 
     # ---- 工具 ----
-    def _send(self, code: int, body: bytes, ctype: str):
+    def _send(self, code: int, body: bytes, ctype: str, extra_headers=None):
+        """⭐ `extra_headers` 为 P0-3（log.jsonl 截断明示 ✓）新增的**可选**参数 ✓
+        —— ⭐ 不传时**行为与原来完全一致** ✗（⭐ 向后兼容 ✓）。"""
         self.send_response(code)
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
+        for _k, _v in dict(extra_headers or {}).items():
+            self.send_header(str(_k), str(_v))
         self.send_header('Cache-Control', 'no-store')     # 复核要实时，禁缓存
         self.end_headers()
         if self.command != 'HEAD':
@@ -597,11 +630,28 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.log.snapshot())
 
         if path == '/api/log.jsonl':
+            # ⭐ P0-3 后半（2026-10-05 · 我方认领自微信侧 `-40` §五.D ✓）：
+            #    ⭐ 原实现 **`fh.read()` 无任何限制** ✗ ⇒ ⭐ 日志越大响应越大（可被拿来耗资源 ✗）
+            #    ⇒ ⭐ 加 `limit`（默认 200 ✓ 上限 2000 ✓）＋ ⭐ **反向按块读** ✓
+            #    ⇒ ⭐ 只读"最后 N 行" ✓（⛔ 不整文件读进内存 ✗）＋ ⭐ 截断时**明说** ✓（`X-Truncated` ✓）
+            _MAX = 2000
             try:
-                with open(self.log.path, 'rb') as fh:
-                    return self._send(200, fh.read(), 'application/x-ndjson; charset=utf-8')
+                _lim = int((q.get('limit') or ['200'])[0])
+            except Exception as exc:
+                # ⭐ 参数坏 ⇒ 用默认值 ✓ 但**要留痕** ✗（⛔ 不静默 ✗）
+                print('  \u26a0\ufe0f log.jsonl 的 limit 参数非法（按默认 200 ✓）：%r' % (exc,))
+                _lim = 200
+            _lim = max(1, min(_lim, _MAX))
+            try:
+                _lines, _trunc = _tail_lines(self.log.path, _lim)
             except FileNotFoundError:
                 return self._send(200, b'', 'application/x-ndjson; charset=utf-8')
+            except Exception as exc:
+                return self._err(500, '读日志失败：%r' % exc)
+            _body = b''.join(ln + b'\n' for ln in _lines)   # ⭐ 行不含换行 ⇒ 补回 ✓
+            return self._send(200, _body, 'application/x-ndjson; charset=utf-8',
+                              extra_headers={'X-Limit': str(_lim),
+                                             'X-Truncated': '1' if _trunc else '0'})
 
         # ⭐ 批 4 前置：三个**只读**端点（契约 ④-1 已预留 ✓ 只读 ✓ 不新增写端点 ✗）
         if path == '/api/projects':

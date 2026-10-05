@@ -631,3 +631,112 @@ def test_p01_config_can_open(tmp_path, monkeypatch):
     (tmp_path / 'config.json').write_text('{ not json', encoding='utf-8')
     assert pet_selfcode.self_edit_allowed(str(tmp_path)) is False, \
         '⭐ 读配置失败必须按"关"处理 ✗（⛔ 不得静默放行 ✗）'
+
+
+# ── ⭐⭐ P0-3（2026-10-05 · Owner 已批 ✓）：子进程**命令白名单** ──
+def test_p03_allowed_programs_pass():
+    """⭐ 反向：⭐ 登记过的程序**必须**放行 ✗（⭐ 防"一刀切"把功能做死 ✓）。"""
+    import platform_layer
+    for argv in (['powershell', '-Command', 'echo hi'],
+                 ['git', 'rev-parse', 'HEAD'],
+                 ['where', 'python'],
+                 ['C:/Windows/System32/where.exe', 'python']):
+        ok, name, why = platform_layer.program_allowed(argv)
+        assert ok, '⭐ %s 应放行 ✓（%s）' % (argv, why)
+
+
+def test_p03_unlisted_programs_refused():
+    """⭐ 有牙：⭐ 未登记程序**必须**被拒 ✗（⭐ 尤其"能外连"的那些 ✓）。"""
+    import platform_layer
+    for argv in (['curl', 'http://x'], ['wget', 'http://x'], ['bash', '-c', 'x'],
+                 ['rm', '-rf', '/'], ['cmdkey', '/list']):
+        ok, name, why = platform_layer.program_allowed(argv)
+        assert not ok, '⭐ %s 必须被拒 ✗' % (argv,)
+        assert why, '⭐ 必须给出原因 ✓'
+
+
+def test_p03_empty_and_bad_input_refused():
+    """⭐ 空命令／无法解析**必须**拒绝 ✗（⛔ 不得因解析失败就放行 ✗）。"""
+    import platform_layer
+    assert platform_layer.program_allowed([])[0] is False
+    assert platform_layer.program_allowed('')[0] is False
+    assert platform_layer.program_allowed(None)[0] is False
+
+
+def test_p03_safe_spawn_raises_not_silent():
+    """⭐ ⭐ **未登记必须抛错** ✗ —— ⭐ 让人**看得见** ✗（⛔ 不静默不跑 ✗）。"""
+    import platform_layer
+    try:
+        platform_layer.safe_spawn(['curl', 'http://x'])
+    except PermissionError as e:
+        assert 'P0-3' in str(e), '⭐ 错误信息要能指向 P0-3 ✓'
+        return
+    raise AssertionError('⭐ 未登记程序必须抛 PermissionError ✗（⛔ 不得静默 ✗）')
+
+
+def test_p03_safe_spawn_runs_allowed():
+    """⭐ 登记程序**必须**真跑起来 ✓（行为与原 `subprocess.run` 一致 ✓）。"""
+    import platform_layer
+    r = platform_layer.safe_spawn(['where', 'python'], capture_output=True,
+                                  text=True, timeout=10)
+    assert r.returncode == 0, '⭐ 登记程序应正常执行 ✓'
+
+
+# ── ⭐ P0-3 后半（我方认领自微信侧 `-40` §五.D ✓）：`/api/log.jsonl` 限量 ──
+def test_p03_log_jsonl_is_limited(tmp_path):
+    """⭐ 有牙：⭐ 请求不传 limit ⇒ **默认 200** ✗（⭐ 原实现是**无限量** ✗ ⇒ 本用例即回归钉 ✓）。"""
+    import json as _json
+    import threading
+    import time
+    import urllib.request
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / 'll.jsonl'))
+    for k in range(1, 301):
+        lg.error('第 %d 条' % k, raw='x')
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/log.jsonl' % port, timeout=5) as fh:
+            body = fh.read().decode('utf-8')
+            hdr = dict(fh.headers)
+        lines = [l for l in body.splitlines() if l.strip()]
+        assert len(lines) <= 200, '⭐ 默认必须有上限（原实现无限量 ✗）：得到 %d 行' % len(lines)
+        assert hdr.get('X-Truncated') == '1', '⭐ 截断时必须明示 ✗（header X-Truncated ✓）'
+        # ⭐ 反向：limit 生效 ✓
+        with urllib.request.urlopen('http://127.0.0.1:%d/api/log.jsonl?limit=7' % port, timeout=5) as fh:
+            b2 = fh.read().decode('utf-8')
+        assert len([l for l in b2.splitlines() if l.strip()]) == 7, '⭐ limit 必须生效 ✓'
+    finally:
+        httpd.shutdown()
+
+
+def test_p03_log_jsonl_still_read_only(tmp_path):
+    """⛔ 加了 limit **仍然纯读** ✗（⭐ 调用前后日志条数不变 ✓）。"""
+    import threading
+    import time
+    import urllib.request
+    import relay_log
+    import relay_server
+    lg = relay_log.RelayLog(str(tmp_path / 'll2.jsonl'))
+    for k in range(1, 11):
+        lg.error('x%d' % k)
+    n0 = len(lg.replay())
+    httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    time.sleep(0.3)
+    try:
+        for u in ('/api/log.jsonl', '/api/log.jsonl?limit=3'):
+            urllib.request.urlopen('http://127.0.0.1:%d%s' % (port, u), timeout=5).read()
+        assert len(lg.replay()) == n0, '⛔ 只读端点不得写日志 ✗'
+    finally:
+        httpd.shutdown()
+
+
+def test_p03_send_backward_compatible():
+    """⭐ 结构钉：⭐ `_send` 的 `extra_headers` 必须是**可选参数** ✗（⭐ 不传时行为不变 ✓）。"""
+    src = io.open(os.path.join(REPO, 'collab', 'relay_server.py'), encoding='utf-8').read()
+    i = src.index('def _send(')
+    seg = src[i:i + 300]
+    assert 'extra_headers=None' in seg, '⭐ 必须是可选参数（默认 None ⇒ 向后兼容 ✓）✗'
