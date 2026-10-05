@@ -219,7 +219,13 @@ def test_a4_guard_has_teeth():
 
 
 # ── E13.3 ⭐ `/api/health` 只读 `actions`（界面据此**事先置灰** ✗ 不必调了才发现 ✓）──
-def test_health_exposes_actions_flag():
+def test_health_exposes_actions_flag(monkeypatch):
+    # ⚠️ ⭐ 本用例原写法**会把模块级全局留在 `True`** ✗（⭐ 循环最后一次是 `(True, True)` ✓）；
+    #   ⭐ 微信侧 `WX-…-62` §2.2 把它列为"⭐ 已知待修点"✗ ✓（与本次那条红**无因果** ✓，
+    #   ⭐ 但它正是"⭐ 模块级可变全局 ⇒ 跨用例污染"✗ 的实例 ✓）。
+    #   ⇒ ⭐ 用 `monkeypatch` 接管 ✓（⭐ 自动还原 ✓ 承 EXP.0104「⭐ mock 必须可自动恢复」✗）✓
+    import relay_server as _rs
+    monkeypatch.setattr(_rs, 'ACTIONS_ALLOWED', False, raising=False)
     import json
     import threading
     import time
