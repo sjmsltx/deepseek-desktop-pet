@@ -10,7 +10,7 @@
 ## 1. 三十秒跑起来
 
 ```powershell
-cd 'E:\ai工作站\desktop-pet'
+cd 'D:\ai工作站\desktop-pet'
 & "<你的 python 完整路径>" desktop_pet.py
 ```
 - ★ **必须用上面这个独立 python** ✗ —— 用 AutoClaw 捆绑的 python 会出"白框事故"（Qt 定制环境）✓
@@ -19,7 +19,7 @@ cd 'E:\ai工作站\desktop-pet'
 ## 2. 三十秒测一遍
 
 ```powershell
-cd 'E:\ai工作站\desktop-pet'
+cd 'D:\ai工作站\desktop-pet'
 & "<你的 python 完整路径>" -m pytest tests -q
 # 期望：929 passed / 9 skipped（注：全量偶现 1 warning = 既有潜在泄漏，见 B3 交付件 §三 ✓） / 退出码 0（★ 退出码必须是 0 ✗ 人眼看绿不算）
 # 929 = 919（B3 后）+ 10（B4 rt_relay/rt_gate：幂等/失败回执/闸门/额度审计/续号）
