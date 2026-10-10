@@ -57,10 +57,27 @@ ALLOWLIST = [
 LINE_ALLOW = (r'<[^>]{2,}>', r'\.\.\.', r'某个用户', r'someone', r'示例', r'占位', r'your_?path', r'REPLACE')
 
 
+def _resolve_git():
+    """⭐ 显式解析 git 的**绝对路径** ✗（⭐ 采纳 `WX-…-69` §3.1 ✓）。
+
+    ⭐ 为什么：⭐ 靠 PATH 短名 ⇒ ⭐ 正确性依赖运行环境 ✗；⭐ 且实测在 Python 3.14/Windows 上，
+    ⭐ 显式传 `env` 时 `['git', …]` **不按 PATH 找到 exe** ✗ ⇒ ⭐ 一律解析出绝对路径后用 ✓。
+    ⭐ 解析不到 ⇒ ⭐ 返回 `'git'`（⭐ 退回短名 ⇒ ⭐ 调用处按原样报错 ✓ ⛔ 不静默 ✗）。
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import platform_layer as _pl
+        return _pl.resolve_program('git') or 'git'
+    except Exception as e:                      # ⭐ 落痕不静默 ✓
+        print('  \u26a0\ufe0f 解析 git 失败，退回短名：%r' % (e,))
+        return 'git'
+
+
 def sh(base, *args):
     try:
         # ⭐ `core.quotepath=false` —— 否则中文路径会被 git 转义输出 ✗（实测：契约文件“找不到”✗）
-        p = subprocess.run(['git', '-c', 'core.quotepath=false'] + list(args), cwd=base,
+        p = subprocess.run([_resolve_git(), '-c', 'core.quotepath=false'] + list(args),
+                           cwd=base,
                            capture_output=True, text=True, timeout=40, encoding='utf-8', errors='replace')
         return p.stdout
     except Exception as e:

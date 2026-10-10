@@ -27,6 +27,7 @@
 import ctypes
 import os
 import sys
+import shutil
 import subprocess
 
 # ---- 热键修饰键(Win32 常量,纯数值,不依赖平台模块)----
@@ -366,6 +367,69 @@ AUTOSTART_RUN_VALUE = 'DeepSeekPet'
 #    ⇒ ⭐ 未登记的程序**一律拒绝** ✗ ＋ **落痕** ✓（⛔ 不静默 ✗）。
 # ⭐ ⚠️ 本批**只建机制 ＋ 接入最危险的一处** ✓（`dsh_adapter` 的"任意 PowerShell 脚本" ✗）
 #    —— ⭐ 其余站点**分批接入** ✓（⛔ 不一次性大改 ✗ 避免引入新缺陷 ✓）。
+
+# ═══════════════════════════════════════════════════════════════════
+# ⭐ 可执行路径解析（2026-10-10，⭐ 采纳微信侧 `WX-…-69` §3.1 ✓）
+#
+# ⭐ 为什么需要（⭐ 实测 ✓，⭐ 不是推测 ✗）：
+#   ⭐ 1) 用**短名**调 `subprocess.run(['git', …])` ⇒ ⭐ 正确性依赖**运行环境的 PATH** ✗；
+#      ⭐ PATH 被别的软件改动、git 搬家、换用户、换机器 ⇒ ⭐ **同一缺陷会同样复发** ✗
+#      （⭐ 2026-10-07 搬迁后已经真实发生过一次 ✓）。
+#   ⭐ 2) ⭐ ⭐ **Python 3.14 / Windows 上，显式传 `env` 时 `['git', …]` 并不按 PATH 找到 exe** ✗
+#      （⭐ 实测：`subprocess.run(['git','--version'], env=<含git的PATH>)` ⇒ `FileNotFoundError` ✓，
+#       ⭐ 而 `shell=True` 与**绝对路径**均成功 ✓）⇒ ⭐ **"靠短名 + PATH" 比想象中更脆弱** ✓。
+#
+# ⭐ 对策：⭐ **启动后显式解析出**绝对路径**并缓存** ✗ ⇒ ⭐ 此后所有调用都用绝对路径 ✓
+#   ⇒ ⭐ **PATH 怎么变都不影响** ✓（⭐ 且 `program_allowed()` 取 basename ⇒ ⭐ 白名单照样通过 ✓）。
+# ═══════════════════════════════════════════════════════════════════
+
+_PROGRAM_CACHE = {}
+
+# ⭐ 常见安装位置（⭐ 仅在 PATH 找不到时兜底 ✓ —— 键为小写程序名 ✓）
+_PROGRAM_HINTS = {
+    'git': (r'D:\Git\cmd\git.exe',
+            r'C:\Program Files\Git\cmd\git.exe',
+            r'C:\Program Files (x86)\Git\cmd\git.exe'),
+    'git.exe': (r'D:\Git\cmd\git.exe',
+                r'C:\Program Files\Git\cmd\git.exe',
+                r'C:\Program Files (x86)\Git\cmd\git.exe'),
+}
+
+
+def resolve_program(name: str):
+    """⭐ 把程序名解析成**绝对路径** ✓；⭐ 解析不到返回 `None` ✗（⛔ 不抛 · 不静默 ✓）。
+
+    ⭐ 顺序：⭐ ① 已是存在的绝对路径 ⇒ 直接用 ✓ ② 缓存 ✓ ③ `shutil.which`（⭐ 走 PATH ✓）
+    ④ ⭐ 常见安装位置兜底 ✓ ⑤ ⭐ 都没有 ⇒ `None` ✓。
+    """
+    if not name:
+        return None
+    key = str(name).strip()
+    if not key:
+        return None
+    if key in _PROGRAM_CACHE:
+        return _PROGRAM_CACHE[key]
+    found = None
+    # ⭐ ① 绝对/相对路径且真的存在
+    if os.path.isabs(key) or os.sep in key or '/' in key:
+        if os.path.isfile(key):
+            found = key
+    # ⭐ ③ PATH（⭐ which 是标准库 ✓ 不引第三方 ✓）
+    if not found:
+        try:
+            found = shutil.which(key)
+        except Exception as exc:                      # ⭐ 不静默 ✓
+            print('  \u26a0\ufe0f which(%r) 失败：%r' % (key, exc))
+    # ⭐ ④ 常见安装位置兜底
+    if not found:
+        for cand in _PROGRAM_HINTS.get(key.lower(), ()):
+            if os.path.isfile(cand):
+                found = cand
+                break
+    _PROGRAM_CACHE[key] = found
+    return found
+
+
 ALLOWED_PROGRAMS = (
     'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe',   # ⭐ 系统脚本宿主（多处在用 ✓）
     'cmd', 'cmd.exe',                                     # ⭐ 兼容

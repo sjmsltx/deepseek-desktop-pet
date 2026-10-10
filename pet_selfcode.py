@@ -246,8 +246,16 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
         # ⭐ 2026-10-10（采纳微信侧 `WX-…-69` §3.2）：⭐ **"工具缺失"与"业务否定"必须分开报** ✗
         #   ⭐ 目的：⛔ 不能把"git 没跑起来"（环境/部署问题）说成"你不是 git 仓库"（用户业务状态）——
         #   ⭐ 那会把排查方向**彻底带偏**（2026-10-07 搬迁后就真骗过一轮 ✗）。
+        # ⭐ 2026-10-10（采纳微信侧 `WX-…-69` §3.1）：⭐ **不再靠 PATH 短名** ✗ ——
+        #   ⭐ 实例化说明：⭐ 本项目要求**显式解析**可执行路径并缓存 ✓（⛔ PATH 怎么变都不影响 ✓）
         try:
-            r = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
+            import platform_layer as _pl
+            _git = _pl.resolve_program('git') or 'git'
+        except Exception as e:                        # ⭐ 解析层不可用 ⇒ 退回短名（⭐ 落痕不静默 ✓）
+            _log('git_resolve_fallback', e)
+            _git = 'git'
+        try:
+            r = subprocess.run([_git, 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
                                capture_output=True, timeout=15)
         except (FileNotFoundError, OSError) as e:
             _log('git_missing', e)
@@ -261,7 +269,7 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
             return '（⛔ [SELF-400-01] 不是 git 仓库，拒绝自改——需要版本保护）'
         base_hash = ''
         try:
-            r0 = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=base_dir, capture_output=True, timeout=15)
+            r0 = subprocess.run([_git, 'rev-parse', 'HEAD'], cwd=base_dir, capture_output=True, timeout=15)
             if r0.returncode == 0:
                 base_hash = (r0.stdout or b'').decode().strip()
         except Exception as e:

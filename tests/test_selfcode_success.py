@@ -19,6 +19,13 @@ import pytest  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+_GIT = "git"
+try:
+    import platform_layer as _pl
+    _GIT = _pl.resolve_program("git") or "git"
+except Exception as _e:                                   # ⭐ 落痕不静默 ✓
+    print("  \u26a0\ufe0f 测试夹具解析 git 失败，退回短名：%r" % (_e,))
+
 
 @pytest.fixture(autouse=True)
 def _open_self_edit_gate(monkeypatch):
@@ -47,7 +54,10 @@ def _sandbox(name):
                 shutil.rmtree(_p) if os.path.isdir(_p) else os.remove(_p)
             except Exception:
                 pass
-    subprocess.run(["git", "init", "-q"], cwd=d, capture_output=True)
+    # ⭐ 2026-10-10：⭐ 不再用**短名**起 git ✗ —— 与产品同源解析 ✓
+    #   ⭐ 原因：实测 Python 3.14/Windows 上，⭐ 显式传 `env` 时 `['git', …]` 不按 PATH 找 exe ✗；
+    #   ⭐ 且"靠 PATH"会让同一缺陷随环境复发（⭐ 2026-10-07 已发生一次 ✓）
+    subprocess.run([_GIT, "init", "-q"], cwd=d, capture_output=True)
     return d
 
 

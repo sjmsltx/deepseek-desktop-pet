@@ -56,9 +56,26 @@ def post(port, path, payload, timeout=15):
         return json.loads(r.read().decode('utf-8'))
 
 
+def _resolve_git():
+    """⭐ 显式解析 git 的**绝对路径** ✗（⭐ 采纳 `WX-…-69` §3.1 ✓）。
+
+    ⭐ 为什么：⭐ 靠 PATH 短名 ⇒ ⭐ 正确性依赖运行环境 ✗；⭐ 且实测在 Python 3.14/Windows 上，
+    ⭐ 显式传 `env` 时 `['git', …]` **不按 PATH 找到 exe** ✗ ⇒ ⭐ 一律解析出绝对路径后用 ✓。
+    ⭐ 解析不到 ⇒ ⭐ 返回 `'git'`（⭐ 退回短名 ⇒ ⭐ 调用处按原样报错 ✓ ⛔ 不静默 ✗）。
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import platform_layer as _pl
+        return _pl.resolve_program('git') or 'git'
+    except Exception as e:                      # ⭐ 落痕不静默 ✓
+        print('  \u26a0\ufe0f 解析 git 失败，退回短名：%r' % (e,))
+        return 'git'
+
+
 def git(base, *args):
     try:
-        p = subprocess.run(['git'] + list(args), cwd=base, capture_output=True, text=True, timeout=30)
+        p = subprocess.run([_resolve_git()] + list(args), cwd=base, capture_output=True,
+                           text=True, timeout=30)
         return p.stdout.strip()
     except Exception as e:
         return 'ERR %r' % e

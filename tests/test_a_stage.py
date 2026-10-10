@@ -1237,3 +1237,41 @@ def test_subpytest_inherits_nested_marker(tmp_path):
     assert '祖先已在锁内' in out or '跳过重复获取' in out, \
         '⛔ 带嵌套标记时，后代 pytest 必须**跳过拿锁** ✗（⭐ 实测输出片段：%r ✓）' % out[-300:]
     assert '等 120' not in out, '⛔ 不得再出现"等 120s 超时"✗（⭐ 那就是白等 120 秒的根因 ✓）'
+
+
+# ── ⭐ 可执行路径解析护栏（2026-10-10，⭐ 采纳微信侧 `WX-…-69` §3.1 ✓）──
+# ⭐ 事故：⭐ 用**短名** `subprocess.run(['git', …])` ⇒ ⭐ 正确性依赖运行环境的 PATH ✗
+#   ⭐ 实测两条：① 2026-10-07 搬迁后 git 从 E 移到 D ⇒ 会话 PATH 未刷新 ⇒ `git` 找不到 ✗
+#   ⭐ ② ⭐ ⭐ Python 3.14/Windows 上，**显式传 `env` 时 `['git', …]` 并不按 PATH 找到 exe** ✗
+#      （⭐ 而 `shell=True` 与**绝对路径**均成功 ✓）⇒ ⭐ "靠短名 + PATH" 比想象中更脆弱 ✓
+# ⭐ 对策：⭐ `platform_layer.resolve_program()` 显式解析出**绝对路径**并缓存 ✗（⭐ PATH 怎么变都不影响 ✓）。
+def test_resolve_program_returns_absolute_path_for_git():
+    """⭐ 行为：⭐ 解析 git 必须给出**存在的绝对路径** ✗（⛔ 不是短名 ✓）。"""
+    import platform_layer as pl
+    r = pl.resolve_program('git')
+    assert r, '⭐ 必须能解析出 git ✗（本项目要求不依赖 PATH 短名 ✓）'
+    assert os.path.isabs(r), '⭐ 必须是绝对路径 ✗（⭐ 短名会随环境失效 ✓）：%r' % r
+    assert os.path.isfile(r), '⭐ 解析结果必须真实存在 ✗：%r' % r
+    # ⭐ 缓存：⭐ 第二次调用同值（⭐ 且不重复探测 ✓）
+    assert pl.resolve_program('git') == r, '⭐ 解析结果必须缓存一致 ✗'
+    # ⭐ 解析不到 ⇒ 返回 None（⛔ 不抛 · 不静默编一个路径 ✗）
+    assert pl.resolve_program('definitely-not-a-program-xyz') is None, '⭐ 解析不到必须给 None ✗'
+
+
+def test_no_bare_git_shortname_in_product_code():
+    """⭐ 结构钉：⭐ **产品代码里不得再出现裸 `['git', …]` 调用** ✗（⭐ 测试夹具可以 ✓）。"""
+    import io as _io
+    import re as _re
+    bad = []
+    for rel in ('pet_selfcode.py', 'platform_layer.py', 'dsh_adapter.py'):
+        fp = os.path.join(REPO, rel)
+        if not os.path.isfile(fp):
+            continue
+        for i, l in enumerate(_io.open(fp, encoding='utf-8').read().splitlines(), 1):
+            if l.lstrip().startswith('#'):            # ⭐ 注释不算（⭐ 本项目既有教训 ✓）
+                continue
+            if _re.search(r"""subprocess\.\w+\(\s*\[\s*['"]git['"]\s*,""", l):
+                bad.append('%s:%d' % (rel, i))
+    assert not bad, '⛔ 产品代码仍在用 git 短名 ✗：%s ⇒ 请改走 resolve_program ✓' % bad
+    src = _io.open(os.path.join(REPO, 'platform_layer.py'), encoding='utf-8').read()
+    assert 'def resolve_program(' in src, '⛔ platform_layer 必须提供 resolve_program ✗'
