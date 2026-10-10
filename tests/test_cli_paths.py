@@ -25,8 +25,14 @@ def _clean_repo(tmp_path):
     base = str(tmp_path)
     os.makedirs(os.path.join(base, 'collab', 'pending'))
     os.makedirs(os.path.join(base, 'assets_3.0'))
-    shutil.copytree(os.path.join(ROOT, 'assets_3.0', 'tools'),
-                    os.path.join(base, 'assets_3.0', 'tools'))
+    # ⭐ 2026-10-10（外部评估指出）：`assets_3.0/` 被 .gitignore 排除 ⇒ 陌生人 clone 后
+    #   ⭐ 该目录不存在 ⇒ 这里原样 `copytree` 会抛 ⇒ 整组用例 **fail**
+    #   ⭐ 素材是本项目的"数据"而非"代码" ⇒ ⭐ **缺数据应 skip（并说明原因）** ✗，⛔ 不是失败 ✓
+    _a3 = os.path.join(ROOT, 'assets_3.0', 'tools')
+    if not os.path.isdir(_a3):
+        pytest.skip('⭐ 本仓缺少 assets_3.0/tools（⭐ 该目录被 .gitignore 排除 ✓）'
+                    '⇒ 素材相关用例跳过（⛔ 不是失败 ✗）')
+    shutil.copytree(_a3, os.path.join(base, 'assets_3.0', 'tools'))
     cfg = json.load(io.open(os.path.join(ROOT, 'models.json'), encoding='utf-8'))
     for p in cfg['profiles']:
         p.setdefault('appearance', {})['portrait'] = ''

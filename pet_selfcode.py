@@ -243,8 +243,17 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
         return '（需要提供 old_text 或 start_line）'
     try:
         # 0. 版本保护：必须在 git 工作区内（v6.56：冻结环境给出明确原因）
-        r = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
-                           capture_output=True, timeout=15)
+        # ⭐ 2026-10-10（采纳微信侧 `WX-…-69` §3.2）：⭐ **"工具缺失"与"业务否定"必须分开报** ✗
+        #   ⭐ 目的：⛔ 不能把"git 没跑起来"（环境/部署问题）说成"你不是 git 仓库"（用户业务状态）——
+        #   ⭐ 那会把排查方向**彻底带偏**（2026-10-07 搬迁后就真骗过一轮 ✗）。
+        try:
+            r = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
+                               capture_output=True, timeout=15)
+        except (FileNotFoundError, OSError) as e:
+            _log('git_missing', e)
+            return ('（⛔ [SELF-500-01] **环境缺 git 程序**，无法做版本保护 ⇒ 本次**没有**做任何版本检查。'
+                    '请先安装 git 或把它加入 PATH，再让我改代码。'
+                    '（⭐ 注意：这**不是**"当前目录不是 git 仓库"✗，两回事 ✓））')
         if r.returncode != 0:
             if getattr(sys, 'frozen', False):
                 return ('（打包版无法自改：打包后的代码在 _internal 内、且没有 .git，改了也不会生效。'

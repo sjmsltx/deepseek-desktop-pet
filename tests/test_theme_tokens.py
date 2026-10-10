@@ -34,6 +34,9 @@ RGBA = re.compile(r'\brgba?\s*\(')  # theme-exempt（本行是护栏自身的正
 ALLOW_FILES = {'pet_theme.py', 'prompt_builder.py', 'tools_registry.py', 'test_theme_tokens.py',
                'regression_test.py'}
 SKIP_DIRS = {'__pycache__', 'backup', 'build', 'dist', 'release_build', 'logs',
+             # ⭐ 2026-10-10 外部评估指出：用户按 README 在项目内建 .venv 时，
+             #   不排除它会把第三方库里的颜色算进来 ⇒ 误报上千处（测试鲁棒性 ✓）
+             'venv', '.venv', 'site-packages',
              '.git', '.pytest_cache', 'screenshots', '视频介绍', 'tests',
              # v2.74：素材目录与离线工具不算“产品代码”——
              # assets/ 与 assets_3.0/ 是立绘/素材管线（如 tools/normalize_bg.py 需要写“纯白底”字面量），
