@@ -62,8 +62,15 @@ class _FakePet:
         self.saved.append((k, v))
 
     def _notify_failure_card(self, diag, *, gen=None, source=''):
-        self.ai_reply_signal.emit(diag.cause)
-        return 'emitted'
+        """⭐ D11-2（2026-10-11）：**转发真出口** ✓
+
+        ⚠️ 原版直接 `emit(diag.cause)` 并返回 `'emitted'` ✗ ⇒ 真出口整个被架空 ✗
+          ⇒ 门搬到哪里都不会红 ✗（本轮实测正如：搬完后本文件仍红 ✗）
+        现在走真出口 ⇒ 「当天同因只一张」那道门**真的被执行** ✓
+        （`_card_gen()` 仍返回 None ⇒ 同代次门不参与 ✓ ⇒ 本用例专注测**日门** ✓）
+        """
+        from desktop_pet import PetWidget
+        return PetWidget._notify_failure_card(self, diag, gen=gen, source=source)
 
     def _card_gen(self):
         return None
