@@ -4608,19 +4608,12 @@ class PetWidget(QWidget):
             pass
 
     def _render_idle_offset(self, dx):
-        """渲染待机图带水平偏移（光标跟随用）"""
-        src = self.full_idle
-        if src is None or src.isNull():
-            return
-        size = self.pet_size
-        canvas = QPixmap(size, size)
-        canvas.fill(Qt.transparent)
-        p = QPainter(canvas)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        scaled = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        p.drawPixmap(int((size - scaled.width()) / 2) + dx, int((size - scaled.height()) / 2), scaled)
-        p.end()
-        self.pet_label.setPixmap(canvas)
+        """渲染待机图带水平偏移（光标跟随用）
+
+        ⭐ D11-5（2026-10-11）：改为复用 `_render_frame` ✓（原来自己重画一遍 ✗，
+        且**不用缓存** ⇒ 每帧重新 scaled ✗）。逻辑等价 ✓ 但少了重复代码与重复缩放 ✓
+        """
+        self._render_frame(self.full_idle, dx=dx)
 
     # ---------- 早安日报（v6.22） ----------
     def _start_morning_report(self):
@@ -4801,8 +4794,15 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_warn_asset_fallback', _exc)
 
-    def _render_frame(self, pixmap=None):
-        """渲染一帧到 pet_label（默认待机图，等比缩放居中；缩放结果缓存复用）"""
+    def _render_frame(self, pixmap=None, dx=0):
+        """渲染一帧到 pet_label（默认待机图，等比缩放居中；缩放结果缓存复用）
+
+        ⭐ D11-5（2026-10-11）：新增 ``dx`` —— **只让立绘水平偏移** ✓
+          背景：摆头/摇曳原先靠 ``animate`` 里 ``self.move(...)`` ✗ ⇒ 搬的是**整个窗口** ✗
+                ⇒ `chat_panel` 是它的子控件（`self.chat_panel = QFrame(self)`）
+                ⇒ **对话面板跟着人物一起左右晃** ✗（Owner 实测「看得我头都晕了」✓）
+          现改为**只偏移立绘像素** ✓ ⇒ 窗口不动 ⇒ 面板/状态栏/输入框全部稳定 ✓
+        """
         src = pixmap if pixmap is not None else self.full_idle
         if src is None or src.isNull():
             return
@@ -4815,7 +4815,8 @@ class PetWidget(QWidget):
         canvas.fill(Qt.transparent)
         p = QPainter(canvas)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        p.drawPixmap(int((size - scaled.width()) / 2), int((size - scaled.height()) / 2), scaled)
+        p.drawPixmap(int((size - scaled.width()) / 2) + int(dx),
+                     int((size - scaled.height()) / 2), scaled)
         p.end()
         self.pet_label.setPixmap(canvas)
 
@@ -7872,14 +7873,15 @@ class PetWidget(QWidget):
         # 待机/拖拽/睡眠：完全静止，不重绘不移动（杜绝闪烁）
         if self.state == 'idle' or self.sleeping or self.dragging:
             return
-        # 思考/开心：轻微左右摆头（只动位置，不重绘图片）
+        # 思考/开心/饥饿等：轻微左右摆头
+        # ⭐ D11-5（2026-10-11 修）：原来这里是 `self.move(base_x + dx, base_y)` ✗
+        #   —— 搬的是**整个窗口** ⇒ `chat_panel` 是其子控件 ⇒ **对话面板跟着一起晃** ✗
+        #      （Owner 实测：饥饿状态下面板左右晃，「看得我头都晕了」✓）
+        #   现改为**只偏移立绘像素** ✓ ⇒ 窗口位置不动 ⇒ 面板/状态栏/输入框全部稳定 ✓
+        #   附带：原先靠 move 实现还会让**窗口真实位置**漂移（base_x 记账 ✗），本改一并消除 ✓
         self.phase += 1
         dx = int(3 * math.sin(self.phase * 0.25))
-        if self.base_x is None:
-            self.base_x = self.x()
-        if self.base_y is None:
-            self.base_y = self.y()
-        self.move(self.base_x + dx, self.base_y)
+        self._render_frame(self._get_state_img(self.state), dx=dx)
 
     # ---------- 睡眠 ----------
     def toggle_sleep(self):
