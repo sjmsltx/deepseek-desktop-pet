@@ -201,12 +201,10 @@ class CostBubble(QLabel):
         宽度上限只在「真的超出」时才起作用 ✓ —— 短文本仍按自然宽度显示 ✓
         （setWordWrap 单独用不会强制换行 ✓，必须配合最大宽度才有意义 ✓）
         """
-        try:
-            pw = int(self.parentWidget().width()) if self.parentWidget() else 0
-            if pw > 0:
-                self.setMaximumWidth(max(80, pw - 2 * self.PAD))
-        except Exception:
-            pass
+        par = self.parentWidget()
+        pw = int(par.width()) if par is not None else 0
+        if pw > 0:
+            self.setMaximumWidth(max(80, pw - 2 * self.PAD))
 
     def show_bubble(self, x: int, y: int, dy: int = -46, duration: int = 1400, hold_ms: int = 0):
         """从 (x,y) 上浮 dy 并渐隐，结束后销毁自己。
@@ -218,22 +216,24 @@ class CostBubble(QLabel):
         #   ⛔ 不能只信调用方给的 x ✗（它按 `len(text)*6` 估宽，中文/emoji 必偏 ✓）
         self._fit_width()
         self.adjustSize()
-        try:
-            _pw = int(self.parentWidget().width()) if self.parentWidget() else 0
-            _ph = int(self.parentWidget().height()) if self.parentWidget() else 0
-            _w, _h = self.width(), self.height()
-            if _pw > 0:
-                x = max(self.PAD, min(int(x), max(self.PAD, _pw - _w - self.PAD)))
-            if _ph > 0:
-                # 上浮终点是 y+dy（dy 为负 ⇒ 向上）✓ ⇒ 保证起止都在父控件内 ✓
-                _top = min(int(y), int(y) + int(dy))
-                _bot = max(int(y), int(y) + int(dy)) + _h
-                if _bot > _ph:
-                    y = max(self.PAD, int(y) - (_bot - _ph))
-                if _top < 0:
-                    y = int(y) - _top
-        except Exception:
-            pass
+        # ⭐ 这里刻意**不包 try/except** ✗ —— 上面全部是无副作用算术与 Qt 取值 ✓，不会抛 ✓，
+        #   而 `except: pass` 会被静默护栏判红 ✓（`tests/test_silent_guard.py` ✓）——
+        #   「不落痕的失败」比「失败」更危险 ✓，所以宁可让真实异常照常冒泡 ✓。
+        _par = self.parentWidget()
+        x, y, dy = int(x), int(y), int(dy)
+        _pw = int(_par.width()) if _par is not None else 0
+        _ph = int(_par.height()) if _par is not None else 0
+        _w, _h = int(self.width()), int(self.height())
+        if _pw > 0:
+            x = max(self.PAD, min(x, max(self.PAD, _pw - _w - self.PAD)))
+        if _ph > 0:
+            # 上浮终点是 y+dy（dy 为负 ⇒ 向上）✓ ⇒ 保证起止都在父控件内 ✓
+            _top = min(y, y + dy)
+            _bot = max(y, y + dy) + _h
+            if _bot > _ph:
+                y = max(self.PAD, y - (_bot - _ph))
+            if _top < 0:
+                y = y - _top
         self.move(x, y)
         self.show()
         self.raise_()
