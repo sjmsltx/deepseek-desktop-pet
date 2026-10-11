@@ -105,6 +105,32 @@ CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 # D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态**（跨重启/多实例有效 ✓；
 # ⛔ 不写 config.json ✗ —— 守 09-25「挂起不落盘」口径 ✓）
 GATE_CARD_STATE_PATH = os.path.join(BASE_DIR, 'logs', 'gate_card_state.json')
+
+# ⭐ D11-2（2026-10-11）：受「当天同因只一张」**日门**保护的类别 ✓
+#   ⛔ 不是所有卡一刀切 ✗ —— 单次失败提示（工具失败/上游超时等）本就该即时出 ✓
+#   这两类都是**结论卡**：本地闸门=日成本上限；额度=账户余额不足（后者正是 _post_stream 那条路 ✓）
+#   key 按 kind 归类 ✓（与既有落盘形状 keys: ['balance','daily_cost'] 对齐 ✓）
+#   ⭐ 刻意放**模块级** ✓（非类属性 ✗）：出口 `_notify_failure_card` 会被非 PetWidget 替身调用，
+#      类属性会 AttributeError ✗（本次实测踩到 ✓）
+GATE_CARD_KINDS = ('本地闸门', '额度')
+GATE_CARD_KIND_KEY = {'本地闸门': 'daily_cost', '额度': 'balance'}
+
+
+def _gate_card_key_for(diag, kind=''):
+    """⭐ D11-2：出口内日门的**归类** ✓（模块级 ✓ 供非 PetWidget 替身调用 ✓）
+
+    优先级：**先按 Diag.cause 文本细分** ✓ > kind 兜底映射 ✓
+    ⛔ 只按 kind 太粗 ✗ —— `本地闸门` 这一个 kind **同时**装了两件事：
+      · 「达到日上限」→ 应归 `daily_cost`
+      · 「账户余额不足」→ 应归 `balance`
+    ⇒ 若只按 kind ⇒ 两类被压成一张 ✗（会误吞真的告警 ✓ 实测被用例抓到 ✓）
+    """
+    _w = str(getattr(diag, 'cause', '') or '')
+    if '余额' in _w:
+        return 'balance'
+    if '上限' in _w:
+        return 'daily_cost'
+    return GATE_CARD_KIND_KEY.get(kind, 'other')
 MODELS_PATH = os.path.join(BASE_DIR, 'models.json')   # 模型档案（模型身份的唯一来源）
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
 TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
@@ -1222,6 +1248,24 @@ class PetWidget(QWidget):
                 if not (kind == '本地闸门' and prev != '本地闸门'):
                     return 'deduped'          # 同代次：只出一张卡 ✓（闸门例外 ✓）
             self._fail_card_gen, self._fail_card_kind = g, kind
+            # ⭐ D11-2（2026-10-11 修）：**第二道门 = 当天同因只一张** ✓
+            #   与上面的同代次门**并存** ✓（两道粒度不同：同代次 / 同一天）⛔ 非替代 ✗
+            #   ⭐ 上提到本出口 ⇒ 结构上不会再漏第三处 ✓
+            #      （原判只在 _notify_cost_blocked 内部 ⇒ _post_stream(:3331) 那条路**绕过**了它 ✗
+            #       ⇒ 实测 logs/gate_card_state.json 从未生成 ✓ ⇒ 用户看到反复弹 ✗）
+            #   ⛔ 只对 GATE_CARD_KINDS 生效 ✗ —— 别的卡照旧即时出 ✓
+            if kind in GATE_CARD_KINDS:
+                _gk = _gate_card_key_for(diag, kind)
+                _today = time.strftime('%Y-%m-%d')
+                _gc = getattr(self, '_gate_card_day', None)
+                _disk = _gate_card_day_load()
+                _dk = ([str(x) for x in (_disk.get('keys') or [])]
+                       if str(_disk.get('day') or '') == _today else [])
+                if ((_gc and _gc.get('key') == _gk and _gc.get('day') == _today)
+                        or (_gk in _dk)):
+                    return 'deduped'
+                self._gate_card_day = {'key': _gk, 'day': _today}
+                _gate_card_day_mark(_gk, _today)   # ⭐ 先落盘 ✓ 防多实例抢 ✗
             # L3-1：仅上游类失败附「上游公告」行 ✓（取不到就不出这行 ✓ 护栏③）
             # 护栏②：公告获取**自身不脆** —— 任何问题均降级为无公告，绝不影响出卡 ✗
             try:
@@ -1286,24 +1330,17 @@ class PetWidget(QWidget):
                 self._notify('（成本闸门：%s）' % why, ms=self.COST_NOTIFY_MS)
             except Exception as _exc:
                 _silent_log('_notify_cost_blocked:status', _exc)
-        # ③ 卡片：**当天同因只出一张** ✓
-        # ⭐ D1（2026-09-26 缺陷：反复刷聊天列表 ✗）：原判**只看内存态** ✗ → 重启/多实例清零
-        #   → 同一天同类会再出卡 ✗ → 现改为**内存态 ＋ 落盘态合并判** ✓（跨重启/多实例亦只一张 ✓）
-        gc = getattr(self, '_gate_card_day', None)
-        disk = _gate_card_day_load()
-        _disk_keys = list(disk.get('keys') or []) if str(disk.get('day') or '') == today else []
-        _already = ((gc and gc.get('key') == key and gc.get('day') == today)
-                    or (str(key) in [str(x) for x in _disk_keys]))
-        if not _already:
-            self._gate_card_day = {'key': key, 'day': today}
-            _gate_card_day_mark(key, today)      # ⭐ 先落盘 ✓ 防多实例抢 ✗
-            try:
-                import pet_diagnosis as _diag
-                self._notify_failure_card(_diag.gate_diag(why), gen=None, source='cost_gate')
-            except Exception as _exc:
-                _silent_log('_notify_cost_blocked:card', _exc)
-                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 首次失败 → 兜底**一次** ✓
-            # ⭐ 已出卡（或已兜底）→ 当日同因不再进本块 ✓ → **兜底行也不会再发** ✗（D1 用例②）
+        # ③ 卡片：**当天同因只一张** ✓
+        # ⭐ D11-2（2026-10-11 修）：这道门已**上提到唯一出口** `_notify_failure_card` ✓
+        #   —— 原判在本函数内部 ⇒ `_post_stream`(:3331) 那条出口**绕过**了它 ✗ ⇒ 用户看到反复弹 ✗；
+        #   现由出口统一判（按 kind 归类 ✓）⇒ 两条路一致 ✓。本处只负责**触发** ✓
+        #   ⭐ 保留 D1（2026-09-26）的**落盘态**语义 ✓：出口内同样是「内存态 ＋ 落盘态合并判」✓
+        try:
+            import pet_diagnosis as _diag
+            self._notify_failure_card(_diag.gate_diag(why), gen=None, source='cost_gate')
+        except Exception as _exc:
+            _silent_log('_notify_cost_blocked:card', _exc)
+            self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 出口失败 → 兜底**一次** ✓
         # ④ 触顶即挂起主动关心（次日自动恢复 ✓）
         self._suspend_active_care(reason=why)
 
