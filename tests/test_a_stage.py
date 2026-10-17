@@ -1227,12 +1227,17 @@ def test_subpytest_inherits_nested_marker(tmp_path):
     ini = os.path.join(REPO, 'pytest.ini')
     code = ('import os, subprocess, sys;'
             'env = dict(os.environ); env["AC_LOCK_NESTED"] = "acquired";'
+            # 2026-10-17 修：内层子进程的输出编码必须**显式锁定**，否则依赖 locale
+            #   ⇒ 外层设 PYTHONIOENCODING=utf-8 时，内层 pytest 输出 utf-8
+            #     而内层脚本用 locale(GBK) 解码 ⇒ UnicodeDecodeError ⇒ 本用例假红
+            'env["PYTHONIOENCODING"] = "utf-8";'
             'r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",'
             ' "--collect-only", os.path.join(%r, "tests", "test_a_stage.py")],'
-            ' capture_output=True, text=True, env=env, cwd=%r);'
+            ' capture_output=True, text=True, env=env, cwd=%r,'
+            ' encoding="utf-8", errors="replace");'
             'print((r.stdout or "") + (r.stderr or ""))' % (REPO, REPO))
     r = _sp.run([_sys.executable, '-c', code], capture_output=True, text=True, encoding='utf-8',
-                cwd=REPO, timeout=180)
+                errors='replace', cwd=REPO, timeout=180)
     out = (r.stdout or '') + (r.stderr or '')
     assert '祖先已在锁内' in out or '跳过重复获取' in out, \
         '⛔ 带嵌套标记时，后代 pytest 必须**跳过拿锁** ✗（⭐ 实测输出片段：%r ✓）' % out[-300:]
