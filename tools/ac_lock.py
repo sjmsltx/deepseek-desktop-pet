@@ -41,6 +41,21 @@ _THREAD_LOCKS = {}
 _THREAD_GUARD = __import__('threading').Lock()
 
 
+def _safe_print(msg):
+    """安全打印：控制台编码不支持某字符时降级为 `?`，不抛异常。
+
+    起因（2026-10-17，PC-210）：中文 Windows 默认控制台是 GBK，打印 emoji / `ℹ️` / `⚠️`
+    会抛 `UnicodeEncodeError` ⇒ **CLI 直接崩**（本文件曾在启动首句就崩，测试根本没跑）。
+    同类问题在 `tools/aclock_plugin.py` 已一并修。
+    """
+    enc = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+    try:
+        msg.encode(enc)
+    except (UnicodeEncodeError, LookupError):
+        msg = msg.encode(enc, 'replace').decode(enc, 'replace')
+    print(msg)
+
+
 def _thread_lock(name: str):
     with _THREAD_GUARD:
         lk = _THREAD_LOCKS.get(name)
@@ -113,7 +128,7 @@ def _acquire_locked(p, me, name, wait, stale, poll, deadline, note):
             if dead or old:
                 # ⭐ 回收（⭐ 记痕 ✓ 明说为什么抢 ✓）
                 why = '持有者已退出' if dead else '超过 %ds 未刷新' % int(stale)
-                print('  \u2139\ufe0f 回收锁 %r（%s ✓；原持有者 pid=%s）' % (name, why, holder or '?'))
+                _safe_print('  \u2139\ufe0f 回收锁 %r（%s ✓；原持有者 pid=%s）' % (name, why, holder or '?'))
                 try:
                     os.remove(p)
                 except FileNotFoundError:
@@ -121,7 +136,7 @@ def _acquire_locked(p, me, name, wait, stale, poll, deadline, note):
                     pass
                 except PermissionError as exc:
                     # ⭐ 别人正在处理这个锁文件 ✓ ⇒ ⭐ 降噪（⛔ 不算失败 ✗）
-                    print('  \u2139\ufe0f 旧锁正被他人处理（忽略 ✓）：%r' % (exc,))
+                    _safe_print('  \u2139\ufe0f 旧锁正被他人处理（忽略 ✓）：%r' % (exc,))
                 except OSError as exc:
                     print('  \u26a0\ufe0f 删旧锁失败：%r' % (exc,))
                 continue
@@ -146,13 +161,13 @@ def release(name: str, path: str = ''):
     except FileNotFoundError:
         return True       # ⭐ 锁已不在＝已释放 ✓（⭐ 幂等 ✓ 不报警 ✓）
     except Exception as exc:
-        print('  \u26a0\ufe0f 读锁失败（不删 ✓）：%r' % (exc,))
+        _safe_print('  \u26a0\ufe0f 读锁失败（不删 ✓）：%r' % (exc,))
         return False
     # ⭐ ⭐ **只放自己的** ✗ —— ⭐ 本判断必须在 `with` **成功读到锁信息之后** ✓
     #   （⭐ 我方曾把它误插进 `except` 块 ⇒ 变成**不可达** ✗ ⇒ 被 `test_release_only_own_lock`
     #    当场判红 ✓ —— ⭐ 护栏救了这次改动 ✓）
     if int(info.get('pid') or 0) != os.getpid():
-        print('  \u26a0\ufe0f 锁 %r 不是本进程持有（不删 ✓）' % (name,))
+        _safe_print('  \u26a0\ufe0f 锁 %r 不是本进程持有（不删 ✓）' % (name,))
         return False
     try:
         os.remove(p)
@@ -191,16 +206,16 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     cmd = [c for c in a.cmd if c != '--']
     if not cmd:
-        print('⛔ 没给命令 ✗（用法：--name X -- <命令...>）')
+        _safe_print('⛔ 没给命令 ✗（用法：--name X -- <命令...>）')
         return 2
     try:
         with file_lock(a.name, wait=a.wait, stale=a.stale, note=a.note):
-            print('🔒 已拿锁 %r ✓ 开始执行：%s' % (a.name, ' '.join(cmd[:4])))
+            _safe_print('🔒 已拿锁 %r ✓ 开始执行：%s' % (a.name, ' '.join(cmd[:4])))
             r = subprocess.run(cmd)
-            print('🔓 释放锁 %r ✓（子进程 rc=%d）' % (a.name, r.returncode))
+            _safe_print('🔓 释放锁 %r ✓（子进程 rc=%d）' % (a.name, r.returncode))
             return r.returncode
     except TimeoutError as e:
-        print('⛔ %s' % e)
+        _safe_print('⛔ %s' % e)
         return 3
 
 

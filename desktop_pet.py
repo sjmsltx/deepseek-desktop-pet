@@ -2388,99 +2388,47 @@ class PetWidget(QWidget):
         return '未知操作（add/list/done/remove）'
 
     def _open_todo_manager(self):
-        """待办管理窗口：添加/勾选完成/删除/清空已完成"""
-        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-                                       QPushButton, QHeaderView, QLineEdit)
-        is_en = getattr(self, 'language', 'zh') == 'en'
+        """待办管理窗口（非模态，可长期开着）
+
+        2026-10-17 改造（Owner 批准，见 WX-89）：
+          1. exec() 模态 -> show() 非模态：大界面要把这个面板装进停靠区，模态会锁死主界面
+          2. 行号定位 -> id 定位：常驻面板存在「外部改动窗口」（AI 在别处改 todos
+             而面板没收到通知），用行号会静默勾错条目
+        面板控件在 todo_panel.TodoPanel，与本方法解耦，可直接装进大界面的停靠区。
+        """
         T = self._t
+        from shiboken6 import isValid
+
+        dlg = getattr(self, '_todo_dlg', None)
+        if dlg is not None and isValid(dlg):
+            if dlg.isVisible():
+                dlg.raise_()
+                dlg.activateWindow()
+                return
+            # 复用前先刷新：面板关着这段时间里，AI 可能改过 todos
+            self._todo_panel.refresh()
+            dlg.show()
+            return
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout
+        from todo_panel import TodoPanel
+
         dlg = QDialog(self)
         dlg.setWindowTitle(T('todo_menu'))
         dlg.resize(540, 420)
         lay = QVBoxLayout(dlg)
-
-        table = QTableWidget(0, 3)
-        table.setHorizontalHeaderLabels([T('todo_status'), T('mem_content'), T('todo_time')])
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.setColumnWidth(0, 70)
-        table.setColumnWidth(2, 110)
-        table.verticalHeader().setVisible(False)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        lay.addWidget(table, 1)
-
-        def refresh():
-            table.setRowCount(0)
-            for t in self.todos:
-                r = table.rowCount()
-                table.insertRow(r)
-                table.setItem(r, 0, QTableWidgetItem('✅' if t.get('done') else '⬜'))
-                table.setItem(r, 1, QTableWidgetItem(t.get('text', '')))
-                table.setItem(r, 2, QTableWidgetItem(t.get('created', '')))
-
-        def toggle_done(row, col):
-            if row < len(self.todos):
-                self.todos[row]['done'] = not self.todos[row].get('done', False)
-                self._save_todos()
-                refresh()
-
-        def add_todo():
-            txt = inp.text().strip()
-            if txt:
-                self._manage_todo('add', txt)
-                inp.clear()
-                refresh()
-
-        def done_selected():
-            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
-            for r in rows:
-                if 0 <= r < len(self.todos):
-                    self.todos[r]['done'] = True
-            self._save_todos()
-            refresh()
-
-        def del_selected():
-            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
-            for r in rows:
-                if 0 <= r < len(self.todos):
-                    self.todos.pop(r)
-            self._save_todos()
-            refresh()
-
-        def clear_done():
-            self.todos = [t for t in self.todos if not t.get('done')]
-            self._save_todos()
-            refresh()
-
-        # 输入行
-        top = QHBoxLayout()
-        inp = QLineEdit()
-        inp.setPlaceholderText(T('todo_placeholder'))
-        inp.returnPressed.connect(add_todo)
-        b_add = QPushButton(T('todo_add'))
-        b_add.clicked.connect(add_todo)
-        top.addWidget(inp, 1)
-        top.addWidget(b_add)
-        lay.addLayout(top)
-
-        # 操作行
-        bottom = QHBoxLayout()
-        b_done = QPushButton(T('todo_done'))
-        b_done.clicked.connect(done_selected)
-        b_del = QPushButton(T('todo_del'))
-        b_del.clicked.connect(del_selected)
-        b_clear = QPushButton(T('todo_clear_done'))
-        b_clear.clicked.connect(clear_done)
-        b_close = QPushButton('✕')
-        b_close.clicked.connect(dlg.close)
-        bottom.addWidget(b_done)
-        bottom.addWidget(b_del)
-        bottom.addWidget(b_clear)
-        bottom.addStretch(1)
-        bottom.addWidget(b_close)
-        lay.addLayout(bottom)
-
-        table.cellDoubleClicked.connect(toggle_done)
-        refresh()
-        dlg.exec()
+        self._todo_panel = TodoPanel(
+            self.todos, self._save_todos,
+            labels={
+                'status': T('todo_status'), 'content': T('mem_content'),
+                'time': T('todo_time'), 'placeholder': T('todo_placeholder'),
+                'add': T('todo_add'), 'done': T('todo_done'),
+                'del': T('todo_del'), 'clear': T('todo_clear_done'),
+            },
+            parent=dlg)
+        lay.addWidget(self._todo_panel)
+        self._todo_dlg = dlg
+        dlg.show()          # 非模态：不阻塞主界面
 
     # ============ AI 状态预判（v6.19） ============
     @staticmethod

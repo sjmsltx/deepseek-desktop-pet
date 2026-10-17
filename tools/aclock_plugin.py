@@ -43,6 +43,26 @@ NEST_ENV = 'AC_LOCK_NESTED'
 _state = {'ctx': None, 'why': ''}
 
 
+def _safe_print(msg):
+    """安全打印：控制台编码不支持某字符时降级为 `?`，不抛异常。
+
+    起因（2026-10-17，PC-210 实测）：中文 Windows 默认控制台是 GBK，打印 emoji
+    （🔒 / 🔓 / ✓）会抛 `UnicodeEncodeError`，而且发生在 `pytest_unconfigure` 阶段。
+    后果有两层：
+      1. **每次全量跑完都异常退出**（rc 不可信）；
+      2. 重定向到文件时更糟 —— 结果行随**未刷新的缓冲区**一起丢失
+         （实测在输出文件里搜不到 "passed"）⇒ **等于拿不到本次全量的结论**。
+
+    ⚠️ 不把 emoji 直接删掉：UTF-8 控制台下它们可读性更好；这里只做“编不了就降级”。
+    """
+    enc = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+    try:
+        msg.encode(enc)
+    except (UnicodeEncodeError, LookupError):
+        msg = msg.encode(enc, 'replace').decode(enc, 'replace')
+    print(msg)
+
+
 def _holder_pid():
     """⭐ 当前持锁者 pid ✓（读锁文件里的 pid ✓ **只看不抢** ✗）。"""
     p = lock_path(LOCK_NAME)
@@ -78,13 +98,13 @@ def pytest_configure(config):
     if os.environ.get(NEST_ENV):
         _state['why'] = ('祖先已在锁内（%s=%s ✓）⇒ 跳过重复获取 ✓（⭐ 零等待 ✗）'
                          % (NEST_ENV, os.environ.get(NEST_ENV)))
-        print('\n🔒 [aclock] %s' % _state['why'])
+        _safe_print('\n🔒 [aclock] %s' % _state['why'])
         return
     if _held_by_me_or_parent():
         _state['why'] = '锁已由本进程/父进程持有 ⇒ 跳过重复获取 ✓'
         # ⭐ 让**后代**也能跳过（⭐ 我虽未拿锁，但"已在锁内"这个事实成立 ✓）
         os.environ[NEST_ENV] = 'inherited'
-        print('\n🔒 [aclock] %s' % _state['why'])
+        _safe_print('\n🔒 [aclock] %s' % _state['why'])
         return
     wait = float(os.environ.get('AC_LOCK_WAIT', '120') or 120)
     ctx = file_lock(LOCK_NAME, wait=wait)      # ⭐ 拿不到会抛 TimeoutError ✓
@@ -94,19 +114,19 @@ def pytest_configure(config):
         # ⚠️ 自纠：⭐ 第一版用 `raise SystemExit` ✗ ⇒ pytest 把它当 **INTERNALERROR** 打出大段堆栈 ✗
         #    ⇒ ⭐ 改用 `pytest.exit(...)` ✓：**一行清话 ＋ 非零退出码** ✓（⛔ 不静默 ✗）
         import pytest
-        pytest.exit('⛔ [aclock] 拿不到「%s」锁 ⇒ 中止本次全量 ✗（%s）'
-                    '｜⭐ 另一边正在跑测试 ✓ 等它跑完（或改 AC_LOCK_WAIT ✓）' % (LOCK_NAME, e),
+        pytest.exit('[aclock] 拿不到「%s」锁 ⇒ 中止本次全量（%s）'
+                    '｜另一边正在跑测试，等它跑完（或改 AC_LOCK_WAIT）' % (LOCK_NAME, e),
                     returncode=3)
     _state['ctx'] = ctx
     # ⭐ 我拿到了锁 ⇒ ⭐ **后代 pytest 一律跳过** ✗（⭐ 关键的那一步 ✓）
     os.environ[NEST_ENV] = 'acquired'
-    print('\n🔒 [aclock] 已拿锁「%s」✓（等待上限 %ss ✓）' % (LOCK_NAME, wait))
+    _safe_print('\n🔒 [aclock] 已拿锁「%s」✓（等待上限 %ss ✓）' % (LOCK_NAME, wait))
 
 
 def pytest_unconfigure(config):
     ctx = _state.get('ctx')
     if ctx is not None:
         ctx.__exit__(None, None, None)
-        print('\n🔓 [aclock] 已放锁「%s」✓（只放自己那把 ✓）' % LOCK_NAME)
+        _safe_print('\n🔓 [aclock] 已放锁「%s」✓（只放自己那把 ✓）' % LOCK_NAME)
     elif _state.get('why'):
-        print('\n🔓 [aclock] 无需放锁：%s' % _state['why'])
+        _safe_print('\n🔓 [aclock] 无需放锁：%s' % _state['why'])
