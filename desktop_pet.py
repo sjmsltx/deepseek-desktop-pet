@@ -985,7 +985,7 @@ class PetWidget(QWidget):
                 if key:
                     self.ai_key = key
                     self.ai_enabled = True
-                self.search_api_key = cfg.get('search_api_key', '')  # Tavily 联网搜索 key（可选）
+                self.search_api_key = cfg.get('search_api_key', '')  # 旧 Tavily 搜索 key：2026-10-19 起搜索改用 DeepSeek 官方接口，本项仅作兼容保留
                 self.pet_city = cfg.get('city', '重庆')
                 self.personality = cfg.get('personality', '温柔')
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
@@ -2437,33 +2437,75 @@ class PetWidget(QWidget):
         return guess_status(text)
 
     def _web_search(self, query):
-        """Tavily 联网搜索：返回格式化结果给 LLM；未配置 key 时返回提示"""
-        if not getattr(self, 'search_api_key', ''):
-            return '（未配置搜索 API key：请在 设置 → 联网搜索 中填写 Tavily API key 后重试）'
+        """联网搜索：走 DeepSeek 官方 Search API
+
+        2026-10-19 从 Tavily 换成 DeepSeek 官方（Owner 批准，方案 A）：
+          · 复用已有的 DeepSeek Key —— 用户不用再单独注册 Tavily
+          · 与模型无关：搜索是本地发 HTTP，不是让模型调用内置工具
+            （对比：官方内置 web_search 只在 deepseek-v4-pro 生效，
+             走方案 B 就得强制用户换到贵 3.4~7.5 倍的模型）
+          · 官方 QPS 仅 5，函数内做节流；401/402/429 分别说清原因
+        """
+        import time as _time
+        import urllib.error as _ue
+        import urllib.request as _ur
+
+        key = (self._api_key_for_field('deepseek_api_key') or '').strip()
+        if not key:
+            return ('（联网搜索需要 DeepSeek API Key：请在 设置 里填写。'
+                    '搜索复用这把 Key，不需要另外注册其他搜索服务）')
+
+        # 官方限速 QPS 5 ⇒ 两次调用至少间隔 200ms，避免 429
+        now = _time.monotonic()
+        last = getattr(self, '_last_search_ts', 0.0)
+        if 0 <= now - last < 0.2:
+            _time.sleep(0.2 - (now - last))
+        self._last_search_ts = _time.monotonic()
+
+        payload = json.dumps({'query': query, 'count': 5}).encode()
+        req = _ur.Request(
+            'https://api.deepseek.com/v1/tools/search',
+            data=payload,
+            headers={'Authorization': 'Bearer ' + key,
+                     'Content-Type': 'application/json'})
         try:
-            import urllib.request as _ur
-            payload = json.dumps({
-                'api_key': self.search_api_key,
-                'query': query,
-                'max_results': 5,
-                'search_depth': 'basic',
-            }).encode()
-            req = _ur.Request('https://api.tavily.com/search', data=payload,
-                              headers={'Content-Type': 'application/json'})
             with _ur.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read().decode())
-            results = data.get('results', [])
-            if not results:
-                return '（搜索无结果）'
-            lines = []
-            for r in results[:5]:
-                title = r.get('title', '')
-                url = r.get('url', '')
-                content = (r.get('content') or '')[:200]
-                lines.append(f'- {title} | {url}\n  {content}')
-            return '\n'.join(lines)
-        except Exception as e:
-            return f'（搜索失败：{e}）'
+                raw = resp.read()
+        except _ue.HTTPError as e:
+            code = e.code
+            if code == 401:
+                return '（搜索失败：DeepSeek Key 无效或已过期，请到 设置 重新填写）'
+            if code == 402:
+                return '（搜索失败：DeepSeek 账户余额不足，充值后再试）'
+            if code == 429:
+                return '（搜索失败：搜索接口限流（每秒最多 5 次），稍等片刻再试）'
+            return '（搜索失败：HTTP %d）' % code
+        except (_ue.URLError, TimeoutError) as e:
+            _silent_log('_web_search.network', e)
+            return '（搜索失败：网络异常（%s），请检查网络后重试）' % type(e).__name__
+
+        try:
+            data = json.loads(raw.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            _silent_log('_web_search.parse', e)
+            return '（搜索失败：搜索服务返回格式异常）'
+
+        results = data.get('results') or []
+        if not results:
+            return '（搜索无结果）'
+
+        out = []
+        for r in results[:5]:
+            title = (r.get('title') or '').strip()
+            url = (r.get('url') or '').strip()
+            # summary（约 600-800 字）比 snippet（约 100 字）信息量大；截断控制 token
+            body = (r.get('summary') or r.get('snippet') or '').strip()
+            body = ' '.join(body.split())      # 压掉原网页里的换行，避免输出格式错乱
+            meta = ' · '.join(x for x in ((r.get('site_name') or '').strip(),
+                                          (r.get('date') or '')[:10]) if x)
+            head = '- %s' % title + ('（%s）' % meta if meta else '')
+            out.append('%s\n  %s\n  %s' % (head, url, body[:300]))
+        return '\n'.join(out)
 
     # ---------- AI 自我管理（阶段1+2：改配置/读自己代码） ----------
     CONFIG_WHITELIST = ('personality', 'reply_style', 'max_tokens', 'city', 'language',
@@ -6948,24 +6990,24 @@ class PetWidget(QWidget):
                 self._notify('✅ API Key 已更新，AI 立即生效' if not is_en else '✅ API key updated, AI takes effect immediately')
 
     def _set_search_key_dialog(self):
-        """弹窗设置 Tavily 联网搜索 API Key（可选，配置后 AI 可联网查最新信息）"""
-        from PySide6.QtWidgets import QInputDialog, QLineEdit
+        """联网搜索说明（2026-10-19 起改用 DeepSeek 官方 Search，不再需要单独 Key）"""
+        from PySide6.QtWidgets import QMessageBox
         is_en = getattr(self, 'language', 'zh') == 'en'
-        cur = getattr(self, 'search_api_key', '') or ''
-        if len(cur) > 12:
-            masked = cur[:6] + '…' + cur[-4:]
-        elif cur:
-            masked = cur
+        has_key = bool((self._api_key_for_field('deepseek_api_key') or '').strip())
+        if is_en:
+            title = 'Web Search'
+            body = ('Web search now uses the DeepSeek Search API and reuses your DeepSeek API key. '
+                    'No separate key is needed.\n\n'
+                    'Current DeepSeek key: %s\n\n'
+                    'Cost: CNY 5 per 1000 searches.') % ('configured' if has_key else 'NOT configured')
         else:
-            masked = '（未配置）' if not is_en else '(not set)'
-        text, ok = QInputDialog.getText(self, self._t('dlg_search'),
-            (f'输入 Tavily 联网搜索 API Key（留空取消；https://tavily.com 免费注册，每月 1000 次）：\n当前：{masked}'
-             if not is_en else f'Enter Tavily search API key (leave empty to cancel; free 1000/mo at tavily.com):\nCurrent: {masked}'),
-            QLineEdit.Password, cur)
-        if ok and text.strip():
-            if self._save_cfg_value('search_api_key', text.strip()):
-                self.search_api_key = text.strip()
-                self._notify('✅ 联网搜索已配置，AI 可查询最新信息' if not is_en else '✅ Search configured, AI can browse for latest info')
+            title = '联网搜索'
+            body = ('联网搜索已改为走 DeepSeek 官方 Search API，直接复用你的 DeepSeek API Key，'
+                    '不需要再单独申请搜索服务的 Key。\n\n'
+                    '当前 DeepSeek Key：%s\n\n'
+                    '费用：每 1000 次搜索 5 元（约 0.005 元/次）。') % (
+                        '已配置' if has_key else '尚未配置——请先到「API 设置」填写')
+        QMessageBox.information(self, title, body)
 
     def _save_profile_param(self, name, value):
         """写当前角色的档案参数并落盘（思考开关 / 采样温度等）"""

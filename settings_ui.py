@@ -411,7 +411,7 @@ class SettingsDialog(QDialog):
 
         self._buttons(f, '模型档案', [('🎯 模型管理…', self.host._open_model_manager)])
         self._buttons(f, '密钥', [('🔑 修改 API Key…', self.host._set_api_key_dialog),
-                                  ('🌐 修改联网搜索 Key…', self.host._set_search_key_dialog)])
+                                  ('🌐 联网搜索（已用 DeepSeek Key）', self.host._set_search_key_dialog)])
 
         # v6.64：接入自己的模型 / 声音的说明（其他使用者最容易卡在这里）
         self._buttons(f, '接入说明', [('❓ 怎么填自己的模型 / 自己的声音', self.host._show_model_help)])
