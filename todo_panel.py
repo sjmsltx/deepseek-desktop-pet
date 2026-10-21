@@ -174,8 +174,10 @@ class TodoPanel(QWidget):
         if not text:
             return False
         now = datetime.datetime.now()
+        # 2026-10-21：毫秒戳加自增序号，避免同毫秒连加两条撞号
+        self._id_seq = getattr(self, '_id_seq', 0) + 1
         self.todos.append({
-            'id': 't%d' % int(now.timestamp() * 1000),
+            'id': 't%d_%d' % (int(now.timestamp() * 1000), self._id_seq),
             'text': text,
             'done': False,
             'created': now.strftime('%m-%d %H:%M'),

@@ -2339,7 +2339,15 @@ class PetWidget(QWidget):
         except Exception:
             self.todos = []
 
-    def _save_todos(self):
+    def _save_todos(self, from_panel=False):
+        """存盘。from_panel=True 表示这次存盘是面板自己发起的（不再回刷面板）。
+
+        2026-10-21 补（P2，Owner 2026-10-21「你开始修吧」批准）：
+            原先只有面板自己的按钮会 refresh，AI 走 `_manage_todo` 改完只存盘、
+            不刷新 ⇒ 面板开着时用户看到的是旧列表（数据对、显示过期）。
+            刷新放在本方法这一个出口：add / done / remove 三条路最后都走它，
+            一处覆盖全部，以后新增分支也不用再补。
+        """
         try:
             self._atomic_write_json(TODO_PATH, self.todos)
         except Exception as exc:
@@ -2350,6 +2358,29 @@ class PetWidget(QWidget):
                 self._notify('⚠ 待办保存失败：%s' % type(exc).__name__)
             except Exception as _e2:
                 _silent_log('_save_todos.notify', _e2)
+        if not from_panel:
+            self._sync_todo_panel()
+
+    def _sync_todo_panel(self):
+        """把常驻待办面板拉到最新（外部改了 todos 之后调用）。
+
+        ⛔ 防重入必须有：面板 refresh() 给老数据补 id 时会回调 _save_todos，
+        回头又进本方法 ⇒ 没有闸门就会来回触发（实测能停，但多存一次盘、
+        多发一次信号，靠"数据恰好已补过 id"停下，属于偶然而非设计）。
+        """
+        if getattr(self, '_todo_syncing', False):
+            return
+        panel = getattr(self, '_todo_panel', None)
+        if panel is None:
+            return
+        self._todo_syncing = True
+        try:
+            panel.refresh()
+        except RuntimeError as exc:
+            # 面板已随对话框销毁（Qt 对象没了），不是数据问题，留痕即可
+            _silent_log('_sync_todo_panel', exc)
+        finally:
+            self._todo_syncing = False
 
     def _todo_block(self):
         """生成注入 prompt 的待办清单块（拆至 prompt_builder.build_todo_block）"""
@@ -2363,7 +2394,7 @@ class PetWidget(QWidget):
         if action == 'add':
             if not text.strip():
                 return '内容为空'
-            self.todos.append({'id': f't{int(datetime.datetime.now().timestamp() * 1000)}',
+            self.todos.append({'id': self._new_todo_id(),
                                'text': text.strip(), 'done': False, 'created': now})
             self._save_todos()
             return f'已加入待办：{text.strip()}（当前 {len(self.todos)} 项）'
@@ -2372,20 +2403,57 @@ class PetWidget(QWidget):
                 return '当前没有待办事项'
             return '\n'.join(f'{"✅" if t.get("done") else "⬜"} {t.get("text", "")}' for t in self.todos)
         if action == 'done':
-            for t in self.todos:
-                if t.get('id') == tid or (text and (text in t.get('text', ''))):
-                    t['done'] = True
-                    self._save_todos()
-                    return f'已完成：{t.get("text", "")}'
-            return '未找到对应待办'
+            t = self._find_todo(self.todos, tid, text)
+            if t is None:
+                return '未找到对应待办'
+            t['done'] = True
+            self._save_todos()
+            return f'已完成：{t.get("text", "")}'
         if action == 'remove':
-            for t in self.todos[:]:
-                if t.get('id') == tid or (text and (text in t.get('text', ''))):
-                    self.todos.remove(t)
-                    self._save_todos()
-                    return f'已删除待办：{t.get("text", "")}'
-            return '未找到对应待办'
+            t = self._find_todo(self.todos, tid, text)
+            if t is None:
+                return '未找到对应待办'
+            self.todos.remove(t)
+            self._save_todos()
+            return f'已删除待办：{t.get("text", "")}'
         return '未知操作（add/list/done/remove）'
+
+    @staticmethod
+    def _new_todo_id():
+        """生成待办 id。
+
+        2026-10-21 补：原来只用毫秒戳，同一毫秒连加两条会撞号 ⇒ 按 id 定位
+        会命中先出现的那条（静默改错条目）。加自增序号后同毫秒也不撞。
+        """
+        import datetime
+        import itertools
+        if not hasattr(PetWidget, '_todo_id_counter'):
+            PetWidget._todo_id_counter = itertools.count(1)
+        return 't%d_%d' % (int(datetime.datetime.now().timestamp() * 1000),
+                           next(PetWidget._todo_id_counter))
+
+    @staticmethod
+    def _find_todo(todos, tid, text=''):
+        """按 id 或文字定位一条待办，找不到返回 None。
+
+        定位顺序写死为 ① id 精确 ② 文字完整相等 ③ 文字子串（取第一条）。
+        ⛔ 顺序不能倒：子串放最前会「传『写』就命中第一条含『写』的」，
+        用户以为改的是 A、实际改的是 B，而且不报错。
+        """
+        if tid:
+            for t in todos:
+                if t.get('id') == tid:
+                    return t
+        text = (text or '').strip()
+        if not text:
+            return None
+        for t in todos:
+            if t.get('text', '') == text:
+                return t
+        for t in todos:
+            if text in t.get('text', ''):
+                return t
+        return None
 
     def _open_todo_manager(self):
         """待办管理窗口（非模态，可长期开着）
