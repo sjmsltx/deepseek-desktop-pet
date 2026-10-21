@@ -2497,12 +2497,18 @@ class PetWidget(QWidget):
             _pr.register_panel('todo', T('todo_menu'), _make_todo,
                                order=10, hint='待办清单（点条目可切换完成）', replace=True)
             n += 1
+        except Exception as _exc:
+            # ⚠ 两个面板**各自独立** try（WX-098 §五，2026-10-22）：
+            #   原先共用一个 try 且标签写死 ':todo' —— 状态面板失败会被记成待办面板失败，
+            #   排查时被引到错模块。拆开后谁失败谁留痕，互不牵连。
+            _silent_log('_register_builtin_panels:todo', _exc)
+        try:
             import status_panel as _sp
             _pr.register_panel('status', '状态', lambda host: _sp.StatusPanel(host._side_panel_data),
                                order=20, hint='今日用量、余额、模型与好感饱食度', replace=True)
             n += 1
         except Exception as _exc:
-            _silent_log('_register_builtin_panels:todo', _exc)
+            _silent_log('_register_builtin_panels:status', _exc)
         return n
 
     def _open_main_area(self):

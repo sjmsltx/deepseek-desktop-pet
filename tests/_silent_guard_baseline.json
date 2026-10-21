@@ -1,5 +1,5 @@
 {
- "note": "D2-1 静默护栏基线：基线内＝已知残留，只判新增✗（optional-import 惯用豁免不判红）；收敛目标是清零 ｜ 2026-10-21 补洞(WX-097 4.2)：原判据只看 except 恰好是 pass 与 try>=4句且不落痕，try体1~3句+except只做赋值兜底(如 used=0.0)两条都不占，护栏报干净实际在静默。新增 silent-default 后浮出历史遗留，全部计入基线；本次新写的 governance.cost_state / today_cost_ex / desktop_pet._balance_target 已逐处落痕，不进基线",
+ "note": "D2-1 静默护栏基线：基线内＝已知残留，只判新增✗（optional-import 惯用豁免不判红）；收敛目标是清零 ｜ 2026-10-21 补洞(WX-097 4.2)：原判据只看 except 恰好是 pass 与 try>=4句且不落痕，try体1~3句+except只做赋值兜底(如 used=0.0)两条都不占，护栏报干净实际在静默。新增 silent-default 后浮出历史遗留，全部计入基线；本次新写的 governance.cost_state / today_cost_ex / desktop_pet._balance_target 已逐处落痕，不进基线 ｜ ⚠ 本基线内全部条目**未修复，仅冻结**（不是「已处理」，不许当已解决引用） ｜ 数字口径（2026-10-22 复核）：仓库内 516 处（silent-default 241 / except-pass 191 / broad-swallow 84）＝ 486 个指纹；另有 1 处来自被 gitignore 的本地废弃文件 gen_actions.py，不在仓库、不在发布包，故仓库口径为 516",
  "kinds": [
   "except-pass",
   "broad-swallow",

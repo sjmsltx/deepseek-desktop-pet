@@ -169,3 +169,44 @@ def test_shell_shows_both_panels():
         assert shell.built_keys() == ['a', 'b']
     finally:
         shell.deleteLater()
+
+# ==================== WX-098 §五：两个面板各自独立 try ====================
+
+def test_two_panels_have_separate_try_blocks():
+    """状态面板的注册不得与待办面板共用 try（共用会把失败记到错的模块上）
+
+    做法：ast 找 _register_builtin_panels 里所有 Try 节点，看
+      · 含 TodoPanel 的那个 Try 里不许出现 status_panel
+      · 含 import status_panel 的那个 Try 里不许出现 TodoPanel
+      · 两个 handler 的日志标签必须各指各的（:todo / :status）
+    ⛔ 不用字符串 grep：注释里写 'status_panel' 会误命中。
+    """
+    import ast
+    src = io.open(os.path.join(REPO, 'desktop_pet.py'), encoding='utf-8').read()
+    tree = ast.parse(src)
+    fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == '_register_builtin_panels':
+            fn = node
+            break
+    assert fn is not None, '找不到 _register_builtin_panels'
+
+    seg = lambda n: ast.get_source_segment(src, n) or ''
+    todo_try = status_try = None
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Try):
+            continue
+        s = seg(node)
+        # 跳过注释行，只看真代码
+        code = '\n'.join(l for l in s.splitlines() if not l.strip().startswith('#'))
+        if 'TodoPanel' in code:
+            todo_try = code
+        if 'import status_panel' in code:
+            status_try = code
+
+    assert todo_try is not None, '找不到待办面板的 try'
+    assert status_try is not None, '找不到状态面板的 try'
+    assert 'status_panel' not in todo_try, '待办 try 里不该有状态面板（共用了同一个 try）'
+    assert 'TodoPanel' not in status_try, '状态 try 里不该有待办面板（共用会连坐）'
+    assert ':todo' in todo_try, '待办 try 的日志标签丢了'
+    assert ':status' in status_try, '状态 try 的日志标签必须指自己的模块，不能写死 :todo'

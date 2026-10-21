@@ -218,3 +218,43 @@ def test_query_balance_async_uses_target(monkeypatch):
         _t.sleep(0.02)
     assert captured.get('base') == 'https://api.deepseek.com', captured
     assert captured.get('key') == 'sk-deepseek-test', captured
+
+# ── 成本闸门：读不到当日花费时必须拦（WX-098 §三，2026-10-22）──────────────
+# ⚠ 这 3 条钉的是 `check_cost` 里 `if st.get('used_unknown')` 那一支。
+#   补之前实测：把该行改成 `if False:`，本文件 13 条**全绿** —— 最核心的修复
+#   反而没有测试钉住（提交主题正是"补护栏的洞"，新修复自己漏在护栏外面）。
+#   ⇒ 现在改成 `if False:` 必红。
+
+def test_check_cost_blocks_when_used_unreadable(monkeypatch):
+    """读不到当日花费 ⇒ 必须拦住并说清（不能当 0 放行，否则数据源坏掉时闸门隐身）"""
+    monkeypatch.setattr(gov, '_cfg',
+                        lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 20})
+    monkeypatch.setattr(gov, 'today_cost_ex',
+                        lambda path=None: (0.0, False, 'FileNotFoundError: api_stats.json'))
+    st = gov.cost_state()
+    assert st['used_unknown'] is True, '读不出必须标记 used_unknown，不能悄悄当 0'
+    ok, why, used = gov.check_cost()
+    assert ok is False, '读不出时放行 = 无上限花钱'
+    assert '读不到' in why, '文案要说清是读不到，不是花了多少：%r' % why
+    assert '用量与计费' in why, '要给去处，不能无声卡死：%r' % why
+
+
+def test_check_cost_passes_when_truly_zero(monkeypatch):
+    """真 0 与读不出必须分开：真没花钱要放行（否则读不到一次就永久卡住）"""
+    monkeypatch.setattr(gov, '_cfg',
+                        lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 20})
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (0.0, True, ''))
+    st = gov.cost_state()
+    assert st['used_unknown'] is False, '真 0 不许被当成读不出'
+    ok, why, _used = gov.check_cost()
+    assert ok is True and why == ''
+
+
+def test_check_cost_unlimited_wins_over_used_unknown(monkeypatch):
+    """上限关掉时，读不到花费也放行 —— 钉住判断顺序（不设限就没有要守的线）"""
+    monkeypatch.setattr(gov, '_cfg',
+                        lambda: {'cost_limit_enabled': False, 'cost_limit_daily': 20})
+    monkeypatch.setattr(gov, 'today_cost_ex',
+                        lambda path=None: (0.0, False, 'boom'))
+    assert gov.cost_state()['used_unknown'] is True
+    assert gov.check_cost()[0] is True, '不设上限时不该因为读不出而拦住'
