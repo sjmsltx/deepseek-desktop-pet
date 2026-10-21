@@ -229,6 +229,69 @@ def cost_limit_daily():
         return 20.0
 
 
+COST_LIMIT_DEFAULT = 20.0   # 与 cost_limit_daily() 的缺省保持同一个数（改这里要一起改）
+
+
+def cost_state(path=None):
+    """当日成本状态的**单一取数入口**（D11-3，2026-10-21）。
+
+    为什么要有它：闸门卡原来自己拼文案，写「达到**你设的**日上限 ¥20.00」，
+    而 config.json 里从来没这个键 —— 20 是代码默认值。同一句话在两处各算一遍，
+    再加上当日花费持续增长、卡上又不写截数时间，用户看到三个不同的数会判成 bug。
+
+    返回 dict：
+        enabled  : 上限是否生效
+        limit    : 上限金额（元）
+        is_default: limit 是否来自代码默认值（用户没设过）
+        used     : 当日已花（元）
+        calls    : 当日调用次数（读不到给 None，不编 0）
+        at       : 取数时刻 'HH:MM'（卡上必须带，否则两个数无法区分先后）
+        unlimited: enabled 为假或 limit<=0（等价于不设限）
+
+    ⛔ 只读，不写任何文件，不改任何默认值。
+    """
+    try:
+        enabled = bool(cost_limit_enabled())
+    except Exception:
+        enabled = True
+    try:
+        raw = _cfg().get('cost_limit_daily', None)
+        is_default = raw is None
+        limit = COST_LIMIT_DEFAULT if is_default else float(raw or 0)
+    except Exception:
+        is_default = True
+        limit = COST_LIMIT_DEFAULT
+    try:
+        used = today_cost(path)
+    except Exception:
+        used = 0.0
+    calls = None
+    p2 = path or os.path.join(BASE_DIR, 'api_stats.json')
+    try:
+        with open(p2, encoding='utf-8') as f:
+            _d = json.load(f)
+        if _d.get('date') == time.strftime('%Y-%m-%d'):
+            calls = int((_d.get('today') or {}).get('count') or 0)
+    except Exception:
+        calls = None
+    return {'enabled': enabled, 'limit': limit, 'is_default': is_default,
+            'used': used, 'calls': calls,
+            'at': time.strftime('%H:%M'), 'unlimited': (not enabled) or limit <= 0}
+
+
+def cost_limit_text(state=None, brief=False):
+    """上限一句话（区分「默认」与「你设的」）——给卡与设置页共用，避免两边各写一版
+
+    brief=True：不带「（可在设置里改）」——卡上后面本来就有引导语，避免重复两遍。
+    """
+    s = state or cost_state()
+    if s.get('unlimited'):
+        return '未设上限'
+    if s.get('is_default'):
+        return '默认上限 ¥%.2f%s' % (s['limit'], '' if brief else '（可在设置里改）')
+    return '你设的上限 ¥%.2f' % s['limit']
+
+
 def today_cost(path=None):
     """今日累计成本（元）——**直接读 API 统计的持久化文件**，不另立第二套计价
 
@@ -246,16 +309,24 @@ def today_cost(path=None):
 
 
 def check_cost(estimate=0.0):
-    """(ok, why, used) —— 日成本是否还在限额内（含本次预估）；关上限或上限为 0 时一律放行"""
-    if not cost_limit_enabled():
-        return True, '', 0.0
-    lim = cost_limit_daily()
-    if lim <= 0:
-        return True, '', 0.0
-    used = today_cost()
+    """(ok, why, used) —— 日成本是否还在限额内（含本次预估）；关上限或上限为 0 时一律放行
+
+    D11-3（2026-10-21）：数字与文案统一走 cost_state()。
+      ① 不再写「你设的日上限」——用户没设过时那是代码默认值，说清楚；
+      ② 文案带「截至 HH:MM · 今日 N 次」，两次提示的三个数才不至于看着像互相矛盾。
+    """
+    st = cost_state()
+    if st.get('unlimited'):
+        return True, '', st.get('used') or 0.0
+    used = float(st.get('used') or 0.0)
+    lim = float(st.get('limit') or 0.0)
     if used + max(0.0, float(estimate or 0.0)) > lim:
-        return False, ('今日模型调用已花 ¥%.2f，达到你设的日上限 ¥%.2f；'
-                       '可在「设置 → 用量与计费 → 日成本上限」调高或关掉') % (used, lim), used
+        tail = '可在「设置 → 用量与计费 → 日成本上限」调高或关掉'
+        calls = st.get('calls')
+        scope = ('（截至 %s%s）' % (st.get('at') or '--:--',
+                                   ('，今日 %d 次调用' % calls) if calls is not None else ''))
+        why = '今日模型调用已花 ¥%.2f%s，已达%s；%s' % (used, scope, cost_limit_text(st, brief=True), tail)
+        return False, why, used
     return True, '', used
 
 

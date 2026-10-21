@@ -8517,25 +8517,58 @@ class PetWidget(QWidget):
         self._notify('低余额提醒：%s' % ('已关闭' if val <= 0 else '低于 ¥%.2f 时提醒' % val))
         return True
 
+    BALANCE_BASE = 'https://api.deepseek.com'
+
+    def _balance_target(self):
+        """余额该查哪个账户（D11-4，2026-10-21）
+
+        不再跟随当前模型档案：余额是 DeepSeek 账户的属性，与当前用
+        flash / pro / kimi / 中转 无关。原先跟随档案会导致切到中转时
+        查到「中转站自己的余额」，数字与后台对不上（Owner 实测）。
+
+        返回 (key, base, note)：note 为空表示当前档案本来就是 DeepSeek。
+        config.balance_base_url 可覆盖 base（中转用户自己填官方地址）。
+        """
+        try:
+            key = self._api_key_for_field('deepseek_api_key')
+        except Exception:
+            key = getattr(self, 'ai_key', '') or ''
+        base = self.BALANCE_BASE
+        try:
+            override = str((getattr(self, '_cfg', None) or {}).get('balance_base_url') or '').strip()
+            if override:
+                base = override
+        except Exception as _exc:
+            # 配置读不出来就退回官方地址；这一条必须落痕（静默护栏的判据：不许 except-pass）
+            _silent_log('_balance_target:override', _exc)
+        note = ''
+        try:
+            cur_base = str(self._current_endpoint() or '')
+            if cur_base and 'api.deepseek.com' not in cur_base:
+                host = cur_base.split('//')[-1].split('/')[0]
+                note = '当前模型走的是 %s，余额查的是 DeepSeek 账户' % host
+        except Exception:
+            note = ''
+        return key, base, note
+
     def _query_balance_async(self, manual=True):
         """后台查询余额（不阻塞 UI）；结果经 balance_signal 回主线程
 
         manual=False（对话后自动）时全程静默：不弹状态条，失败也不打扰。
+        D11-4：改用 _balance_target()，固定查 DeepSeek 账户（见该函数注释）。
         """
         if getattr(self, '_balance_busy', False):
             return False
         try:
-            key = self._current_api_key()
-        except Exception:
-            key = getattr(self, 'ai_key', '')
+            key, base, note = self._balance_target()
+        except Exception as _exc:
+            _silent_log('_query_balance_async:target', _exc)
+            key, base, note = getattr(self, 'ai_key', ''), self.BALANCE_BASE, ''
         if not key:
             if manual:
                 self._notify('余额：未配置 API Key', ms=self.COST_NOTIFY_MS)
             return False
-        try:
-            base = self._current_endpoint()
-        except Exception:
-            base = ''
+        self._balance_target_note = note
         self._balance_busy = True
 
         def work():
@@ -8570,7 +8603,9 @@ class PetWidget(QWidget):
                 txt = ''
             log.info('余额查询成功：%s', txt)
             if manual:
-                self._notify('💰 余额 %s' % (txt or '—'), ms=self.BALANCE_NOTIFY_MS)
+                _note = str(getattr(self, '_balance_target_note', '') or '')
+                self._notify('💰 余额 %s%s' % (txt or '—', ('；' + _note) if _note else ''),
+                             ms=self.BALANCE_NOTIFY_MS)
             self._maybe_low_balance_alert(info)
         else:
             log.debug('余额查询失败：%s', info.get('error'))
