@@ -2497,6 +2497,10 @@ class PetWidget(QWidget):
             _pr.register_panel('todo', T('todo_menu'), _make_todo,
                                order=10, hint='待办清单（点条目可切换完成）', replace=True)
             n += 1
+            import status_panel as _sp
+            _pr.register_panel('status', '状态', lambda host: _sp.StatusPanel(host._side_panel_data),
+                               order=20, hint='今日用量、余额、模型与好感饱食度', replace=True)
+            n += 1
         except Exception as _exc:
             _silent_log('_register_builtin_panels:todo', _exc)
         return n
