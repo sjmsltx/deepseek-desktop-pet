@@ -53,14 +53,15 @@ def test_today_cost_ignores_stale_date(tmp_path):
 
 def test_check_cost_passes_under_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 20})
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 5.0)
+    # 取数接口已迁到 today_cost_ex（cost_state 用它才拿得到 ok 标志），换注入点
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (5.0, True, ''))
     ok, why, used = gov.check_cost()
     assert ok is True and why == '' and used == 5.0
 
 
 def test_check_cost_blocks_over_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 20})
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 20.5)
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (20.5, True, ''))
     ok, why, used = gov.check_cost()
     assert ok is False and used == 20.5
     assert '已花 ¥20.50' in why and '¥20.00' in why
@@ -69,13 +70,13 @@ def test_check_cost_blocks_over_limit(tmp_path, monkeypatch):
 
 def test_check_cost_counts_estimate(tmp_path, monkeypatch):
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 10})
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 9.5)
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (9.5, True, ''))
     assert gov.check_cost()[0] is True
     assert gov.check_cost(estimate=1.0)[0] is False
 
 
 def test_check_cost_disabled_or_zero_always_passes(monkeypatch):
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 999.0)
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (999.0, True, ''))
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': False, 'cost_limit_daily': 1})
     assert gov.check_cost()[0] is True
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 0})

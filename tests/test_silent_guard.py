@@ -123,6 +123,36 @@ def _is_pass_only(handler):
     return len(body) == 1 and isinstance(body[0], (ast.Pass, ast.Continue))
 
 
+def _is_broad_exc_type(h):
+    """捕获的异常类型是否宽泛（裸 except / Exception / BaseException）"""
+    t = h.type
+    if t is None:
+        return True
+    if isinstance(t, ast.Name):
+        return t.id in ('Exception', 'BaseException')
+    if isinstance(t, ast.Tuple):
+        for e in t.elts:
+            if isinstance(e, ast.Name) and e.id in ('Exception', 'BaseException'):
+                return True
+    return False
+
+
+def _is_narrow_idiom(node, h):
+    """惯用窄用法豁免：单语句 try ＋ 具体异常 ＋ 单语句 handler
+
+    例：`try: x = d['k']  except KeyError: return None`
+    这种吞掉的语义明确（键不存在 → 给默认），不是掩盖失败。
+    ⛔ 宽泛异常（except: / Exception）不豁免 —— 那正是要抓的。
+    """
+    if _is_broad_exc_type(h):
+        return False
+    if len(node.body) != 1:
+        return False
+    body = [n for n in h.body
+            if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
+    return len(body) == 1
+
+
 _TOLERATED_EXC = {'ImportError', 'ModuleNotFoundError'}
 
 
@@ -159,6 +189,15 @@ def scan_source(src, fname):
                             'snippet': _unparse(node)[:160], 'key': fp})
             elif len(node.body) >= BROAD_N and not _handler_logs_reason(h):
                 out.append({'file': fname, 'line': h.lineno, 'kind': 'broad-swallow',
+                            'snippet': _unparse(node)[:160], 'key': fp})
+            elif (not _handler_logs_reason(h)
+                  and not _is_narrow_idiom(node, h)
+                  and _is_broad_exc_type(h)):
+                # 补洞（2026-10-21，WX-097 §4.2 指出）：
+                # try 体 1~3 句 + handler 只做赋值兜底（如 `used = 0.0`）的，
+                # 原两条分支都不占 ⇒ 护栏报"很干净"，实际在静默给默认值。
+                # 判据：宽泛异常 + 不落痕 + 不是窄用法 ⇒ 静默。
+                out.append({'file': fname, 'line': h.lineno, 'kind': 'silent-default',
                             'snippet': _unparse(node)[:160], 'key': fp})
     return out
 
@@ -382,14 +421,19 @@ def _report(include_tests=False):
     return issues
 
 
-def _freeze():
+def _freeze(note_extra=''):
     issues = scan_repo()
     keys = sorted({_key(i) for i in issues})
+    note = 'D2-1 静默护栏基线：基线内＝已知残留，只判新增✗（optional-import 惯用豁免不判红）；收敛目标是清零'
+    if note_extra:
+        note = note + ' ｜ ' + note_extra
     with io.open(BASELINE, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump({'note': 'D2-1 静默护栏基线：基线内＝已知残留，只判新增✗（optional-import 惯用豁免不判红）；收敛目标是清零',
-                   'kinds': ['except-pass', 'broad-swallow', 'optional-import'],
+        json.dump({'note': note,
+                   'kinds': ['except-pass', 'broad-swallow', 'silent-default', 'optional-import'],
                    'count': len(keys), 'keys': keys}, f, ensure_ascii=False, indent=1)
     print('已冻结基线：%d 处（唯一指纹 %d）→ %s' % (len(issues), len(keys), BASELINE))
+    if note_extra:
+        print('  基线说明已写入：%s' % note_extra[:120])
 
 
 if __name__ == '__main__':
@@ -397,7 +441,11 @@ if __name__ == '__main__':
     if '--report' in sys.argv:
         _report(include_tests='--with-tests' in sys.argv)
     elif '--freeze' in sys.argv:
-        _freeze()
+        _note = ''
+        for _a in sys.argv:
+            if _a.startswith('--note='):
+                _note = _a[len('--note='):]
+        _freeze(_note)
     else:
         test_no_new_silent_spots()
         test_no_new_broad_swallow()

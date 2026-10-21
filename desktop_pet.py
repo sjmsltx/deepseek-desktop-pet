@@ -8626,7 +8626,8 @@ class PetWidget(QWidget):
         """
         try:
             key = self._api_key_for_field('deepseek_api_key')
-        except Exception:
+        except Exception as _exc:
+            _silent_log('_balance_target:key', _exc)
             key = getattr(self, 'ai_key', '') or ''
         base = self.BALANCE_BASE
         try:
@@ -8642,7 +8643,8 @@ class PetWidget(QWidget):
             if cur_base and 'api.deepseek.com' not in cur_base:
                 host = cur_base.split('//')[-1].split('/')[0]
                 note = '当前模型走的是 %s，余额查的是 DeepSeek 账户' % host
-        except Exception:
+        except Exception as _exc:
+            _silent_log('_balance_target:note', _exc)
             note = ''
         return key, base, note
 

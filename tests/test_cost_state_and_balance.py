@@ -112,11 +112,18 @@ def _make_pet(monkeypatch, endpoint, key='sk-deepseek-test', cfg=None):
     holder = {'endpoint': endpoint, 'cfg': cfg or {}}
 
     class Stub:
-        ai_key = key
+        # ⚠ 关键：ai_key 与 _current_api_key() 故意都是**别家**的 key。
+        #   原版把 ai_key 设成期望值，于是"代码误调 _current_api_key 并被 except 兜到
+        #   ai_key"这条路会静默通过 —— 正是 WX-097 §三 指出的没牙之处。
+        ai_key = 'sk-relay-wrong'
         _cfg = property(lambda self: holder['cfg'])
 
         def _current_endpoint(self):
             return holder['endpoint']
+
+        def _current_api_key(self):
+            # 真实宿主里这个方法按当前档案取 key；桩里模拟"当前档案是别家"
+            return 'sk-relay-wrong'
 
         def _api_key_for_field(self, field):
             if field == 'deepseek_api_key':
@@ -151,6 +158,19 @@ def test_balance_target_key_is_deepseek_field(monkeypatch):
                           cfg={'kimi_api_key': 'sk-kimi'})
     key, _, _ = s._balance_target()
     assert key == 'sk-deepseek-test', '取错 key 就会查到别家账户'
+
+
+def test_balance_target_key_never_follows_profile(monkeypatch):
+    """key 必须始终取 deepseek_api_key，即使宿主能提供别的 key
+
+    ⛔ 这条是为「没牙」专门补的（WX-097 §三）：
+       桩里 `ai_key` 与 `_current_api_key()` 都返回别家 key，
+       一旦代码误调它们、又被 except 兜底，拿到就是 'sk-relay-wrong' ⇒ 必红。
+    """
+    s, _ = _make_pet(monkeypatch, 'https://relay.example.com/v1/chat/completions')
+    key, _, _ = s._balance_target()
+    assert key == 'sk-deepseek-test', '取到了别家的 key：%r' % key
+    assert key != 'sk-relay-wrong'
 
 
 def test_balance_base_url_override(monkeypatch):
