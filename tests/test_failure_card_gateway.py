@@ -53,11 +53,25 @@ def _silent_log_calls():
 
 
 # ── 护栏④：显式标记的数量与覆盖面 ──────────────────────────────────
+#: 2026-10-21 批 2 新增第 13 处：`_open_main_area:build`
+#:   理由：用户点了「主区」按钮但容器建失败 ⇒ 什么都没发生，属用户可感知的失败，
+#:         不标就是静默失败（与 v1-B 那 12 处同性质）。
+#:   ⛔ 不是「随手加」：本条登记在此，增减都要走这里留痕。
+BATCH2_ADDED_USER_FACING = ('_open_main_area:build',)
+
+
 def test_user_facing_count_within_budget():
-    """v1-B 首批恰好 12 处；总数不得超过上限（防以后随手加标记刷屏 ✗）"""
+    """v1-B 首批 12 处 + 2026-10-21 批 2 新增 1 处 = 13；总数不得超过上限
+
+    （防以后随手加标记刷屏：要么在这个数里明着改，要么别加）
+    """
     marked = [t for t, uf, _ in _silent_log_calls() if uf]
-    assert len(marked) == 12, f'v1-B 首批应为 12 处，实际 {len(marked)}：{marked}'
+    expected = 12 + len(BATCH2_ADDED_USER_FACING)
+    assert len(marked) == expected, \
+        f'应为 {expected} 处（v1-B 12 + 批2 {len(BATCH2_ADDED_USER_FACING)}），实际 {len(marked)}：{marked}'
     assert len(marked) <= MAX_USER_FACING, f'user_facing 数量超过上限 {MAX_USER_FACING} ✗'
+    for t in BATCH2_ADDED_USER_FACING:
+        assert t in marked, f'批 2 登记的 {t} 没被标上 user_facing ✗'
 
 
 def test_user_facing_covers_expected_tags():

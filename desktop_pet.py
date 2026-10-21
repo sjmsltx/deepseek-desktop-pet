@@ -301,6 +301,8 @@ UI_ZH = {
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
     'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
     'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
+    'main_area': '🗂 主区', 'main_area_hint': '这是可选打开的主区；关掉不影响桌面宠物。',
+    'main_area_empty': '还没有注册任何面板',
     'todo_menu': '📋 待办管理', 'todo_status': '状态', 'todo_time': '时间', 'todo_add': '➕ 添加',
     'todo_done': '✅ 完成选中', 'todo_del': '🗑 删除选中', 'todo_clear_done': '🧹 清空已完成',
     'todo_placeholder': '输入待办事项，回车添加…', 'todo_empty': '暂无待办',
@@ -347,6 +349,8 @@ UI_EN = {
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
     'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
     'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
+    'main_area': '🗂 Main Area', 'main_area_hint': 'Optional main area; closing it does not affect the pet.',
+    'main_area_empty': 'No panels registered yet',
     'todo_menu': '📋 Todo Manager', 'todo_status': 'Status', 'todo_time': 'Time', 'todo_add': '➕ Add',
     'todo_done': '✅ Done', 'todo_del': '🗑 Delete', 'todo_clear_done': '🧹 Clear Done',
     'todo_placeholder': 'Enter todo, press Enter to add…', 'todo_empty': 'No todos',
@@ -812,6 +816,14 @@ class PetWidget(QWidget):
         chat_body.addWidget(self.chat_history_scroll, 1)
         chat_body.addWidget(self.chat_task_sidebar, 0)
         chat_layout.addLayout(chat_body, 1)
+
+        # 3.0 主区入口（可选，批 2）：不点就永远不出现；关掉不影响桌宠。
+        #    ⛔ 独立按钮，不塞进 SidePanel 内部布局，side_panel.py 一行不动。
+        self._main_area_row = QHBoxLayout()
+        self._main_area_row.setContentsMargins(0, 0, 0, 0)
+        self._main_area_row.addStretch(1)
+        self._main_area_row.addWidget(self._make_main_area_button(self.chat_panel), 0)
+        chat_layout.addLayout(self._main_area_row)
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
         self.chat_input = _DropChatEdit(self._insert_dropped_paths, self.chat_panel)
@@ -2455,6 +2467,83 @@ class PetWidget(QWidget):
                 return t
         return None
 
+    # ============ 3.0 主区（批 2）============
+    def _register_builtin_panels(self):
+        """把已实现的面板注册到 panel_registry（幂等：重复调用不报错）。
+
+        ⛔ 判据 3：这里只做**注册**。加新面板时在本函数后面加一句 register_panel
+           即可，_open_main_area 与 PanelShell 都不用动。
+        """
+        try:
+            import panel_registry as _pr
+        except Exception as _exc:
+            _silent_log('_register_builtin_panels:import', _exc)
+            return 0
+        n = 0
+        try:
+            from todo_panel import TodoPanel as _TP
+            T = self._t
+            labels = {
+                'status': T('todo_status'), 'content': T('mem_content'),
+                'time': T('todo_time'), 'placeholder': T('todo_placeholder'),
+                'add': T('todo_add'), 'done': T('todo_done'),
+                'del': T('todo_del'), 'clear': T('todo_clear_done'),
+            }
+
+            def _make_todo(host, _labels=labels, _TP=_TP):
+                return _TP(host.todos, lambda: host._save_todos(from_panel=True),
+                           labels=_labels)
+
+            _pr.register_panel('todo', T('todo_menu'), _make_todo,
+                               order=10, hint='待办清单（点条目可切换完成）', replace=True)
+            n += 1
+        except Exception as _exc:
+            _silent_log('_register_builtin_panels:todo', _exc)
+        return n
+
+    def _open_main_area(self):
+        """打开主区容器（可选入口，不点永远不会出现）。
+
+        判据 2 的落点：默认启动仍是现有桌宠；本窗口只有主动点进来才有。
+        关掉只是 hide，不销毁数据、不影响桌宠。
+        """
+        from shiboken6 import isValid
+        dlg = getattr(self, '_main_area', None)
+        if dlg is not None and isValid(dlg):
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+            return dlg
+        self._register_builtin_panels()
+        try:
+            from panel_shell import PanelShell
+            w = PanelShell(self, parent=None, labels={
+                'title': self._t('main_area'),
+                'hint': self._t('main_area_hint'),
+                'empty': self._t('main_area_empty'),
+            })
+        except Exception as _exc:
+            _silent_log('_open_main_area:build', _exc, user_facing=True)
+            return None
+        self._main_area = w
+        w.show()
+        return w
+
+    def _make_main_area_button(self, parent):
+        """造「主区」入口按钮（可选入口的可见落点）。
+
+        ⛔ 不塞进 SidePanel 内部布局：那要改它的表头行，牵动页签排布；
+           这里做成独立按钮，side_panel.py 一行不动。
+        """
+        from PySide6.QtWidgets import QPushButton
+        b = QPushButton(self._t('main_area'), parent)
+        b.setToolTip(self._t('main_area_hint'))
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFixedHeight(22)
+        b.clicked.connect(self._open_main_area)
+        self._main_area_btn = b
+        return b
+
     def _open_todo_manager(self):
         """待办管理窗口（非模态，可长期开着）
 
@@ -2485,8 +2574,14 @@ class PetWidget(QWidget):
         dlg.setWindowTitle(T('todo_menu'))
         dlg.resize(540, 420)
         lay = QVBoxLayout(dlg)
+        # P3（2026-10-21）：面板自己存盘 ⇒ 不再回刷面板。
+        #   原先传裸方法（默认 from_panel=False），导致用户点一下复选框
+        #   ⇒ todo_panel 先 refresh 一次、宿主又 refresh 一次（实测 2 次），
+        #   选中行与滚动位置被重建抹掉。
+        #   ⛔ 用 lambda 不用 functools.partial：_todo_panel 被替换时
+        #     partial 会抓住旧的 bound method，lambda 每次现取。
         self._todo_panel = TodoPanel(
-            self.todos, self._save_todos,
+            self.todos, lambda: self._save_todos(from_panel=True),
             labels={
                 'status': T('todo_status'), 'content': T('mem_content'),
                 'time': T('todo_time'), 'placeholder': T('todo_placeholder'),
