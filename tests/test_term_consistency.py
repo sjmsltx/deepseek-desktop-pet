@@ -11,7 +11,23 @@ import os
 import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GIT = r"E:\Git\cmd\git.exe"
+
+
+def _find_git():
+    """⭐ 解析 git 位置 —— ⛔ **不硬编码盘符** ✗（⭐ 同 `test_product_open_hygiene.py` ✓）。
+
+    2026-10-07 项目迁 D（⭐ E 是可移动盘 ✓）⇒ 原硬编码的**旧位置**（在 E 盘那份 Git）已不存在 ✗ ⇒
+    本文用例曾齐红（`FileNotFoundError` ✗）⇒ 改按候选顺序解析 ✓。
+    """
+    for c in (os.environ.get('AC_GIT'),
+              r'D:\Git\cmd\git.exe',
+              r'C:\Program Files\Git\cmd\git.exe'):
+        if c and os.path.isfile(c):
+            return c
+    return 'git'  # ⭐ 兑底：交给 PATH（找不到会抛错 ⇒ 可见 ✓）
+
+
+GIT = _find_git()
 
 
 def _read(rel):
