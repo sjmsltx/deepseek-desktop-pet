@@ -1,4 +1,4 @@
-# tts_helper.ps1 —— 离线语音合成（v6.63，语音 P0）
+﻿# tts_helper.ps1 —— 离线语音合成（v6.63，语音 P0）
 # 用法：powershell -File tts_helper.ps1 -Text "你好" -Out C:\path\out.wav [-Engine winrt|sapi] [-Voice 名字] [-Rate 0]
 #
 # 说明：

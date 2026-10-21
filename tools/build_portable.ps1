@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     桌面宠物 · 便携包一条命令出包（build → staging → zip → 自检）
 

@@ -1,4 +1,4 @@
-# asr_helper.ps1 —— 离线语音识别（v6.66，语音输入；v6.77 加 SAPI 备用路径）
+﻿# asr_helper.ps1 —— 离线语音识别（v6.66，语音输入；v6.77 加 SAPI 备用路径）
 # 用法：powershell -File asr_helper.ps1 -Check                       # 只检查本机能否识别
 #       powershell -File asr_helper.ps1 -Lang zh-CN              # 单句识别（WinRT）
 #       powershell -File asr_helper.ps1 -Lang zh-CN -Engine sapi # 单句识别（SAPI 备用路径）
