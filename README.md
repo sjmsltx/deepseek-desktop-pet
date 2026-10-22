@@ -40,7 +40,7 @@
 
 **[English](README.en.md) | [中文](README.md)**
 
-**目录：** [特性](#-特性) · [截图](#-截图) · [快速开始](#-快速开始) · [接入你自己的模型 / 自己的声音](#-接入你自己的模型--自己的声音) · [常见问题](#-常见问题) · [项目结构](#-项目结构) · [打包为 exe](#-打包为-exe) · [贡献](#-贡献--扩展方向)
+**目录：** [特性](#-特性) · [截图](#-截图) · [快速开始](#-快速开始) · [升级](#-升级到新版本不会丢数据) · [接入你自己的模型 / 自己的声音](#-接入你自己的模型--自己的声音) · [常见问题](#-常见问题) · [项目结构](#-项目结构) · [打包为 exe](#-打包为-exe) · [贡献](#-贡献--扩展方向)
 
 ## 🌍 English Summary（给国际访客 / for search & AI crawlers）
 
@@ -358,6 +358,25 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 
 到 **[Releases 最新版](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)** 下载 `DeepSeekPet-v*-win64.zip`（约 305 MB），解压后双击启动即可。
 首次运行在 GUI 里配置 API Key：右键桌宠 → ⚙️ 设置 → 🔑 API 设置。
+
+### 升级到新版本（不会丢数据）
+
+**不要删旧文件夹**，直接覆盖解压即可。
+
+1. 下载新版 zip 并解压；
+2. 把解压出的 `DeepSeekPet` 文件夹里的**所有内容**复制到你正在用的那个文件夹，提示覆盖时选**是**；
+3. 双击同一个 exe 继续用 —— 记忆、好感度、待办、设置、API Key 全在。
+
+为什么安全：发布包里**不含**任何个人数据（打包时 `logs/ config.json memory.json memories.json
+todos.json affection.json api_stats.json` 全部被排除），覆盖只会替换程序文件。
+
+> [!WARNING]
+> 三种会丢数据的做法：**① 先删旧文件夹再解压新包**（记忆与 API Key 全没，找不回）；
+> **② 解压到新文件夹**（数据还在旧的，但新程序读不到，看着像丢了——把这 7 项拷过去即可）；
+> **③ 合并时选「跳过已存在文件」**（新旧文件混杂，可能打不开）。
+>
+> 想更稳：升级前把这 7 项复制一份到别处 —— `config.json`、`memory.json`、`memories.json`、
+> `todos.json`、`affection.json`、`api_stats.json`、`logs/`。
 
 ### 方式二：从源码运行
 
