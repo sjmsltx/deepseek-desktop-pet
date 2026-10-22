@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     桌面宠物 · 便携包一条命令出包（build → staging → zip → 自检）
 
@@ -12,11 +12,12 @@
       4) 自检：必需资产 / Qt 运行时 / 禁止入包三类逐项核对，不通过就非零退出
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 2.9.1
+    powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 3.0.0
 
 .EXAMPLE
+    # ⚠ -Version 必须传**本次要发的版本号**（zip 名由它生成）；下面示例的数字会随版本更新
     # 已经构建过、只想重跑 staging+压包+自检
-    powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 2.9.1 -SkipBuild
+    powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 3.0.0 -SkipBuild
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,

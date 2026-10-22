@@ -256,7 +256,7 @@ class BaseGame(QDialog):
         if len(difficulties) >= 2:
             row.addWidget(QLabel('难度'))
             self._combo = QComboBox()
-            # v6.51：难度下拉别抢焦点——否则俄罗斯方块/贪吃蛇/2048 里点过它之后，
+            # v6.51：难度下拉别抢焦点——否则方块下落类/贪吃蛇/2048 里点过它之后，
             # 方向键会变成"切难度"，游戏操作直接失效
             self._combo.setFocusPolicy(Qt.NoFocus)
             for name in difficulties:
@@ -1190,7 +1190,7 @@ class TicTacToe(BaseGame):
         return False
 
 
-# ---------- Farkle 骰子（天国拯救同款） ----------
+# ---------- Farkle 骰子 ----------
 class Farkle(BaseGame):
     """Farkle：目标分自选，和桌宠轮流掷 6 骰；点击骰子选中保留，先到目标分获胜"""
 
@@ -1198,7 +1198,7 @@ class Farkle(BaseGame):
                ('3000', 3000), ('4000', 4000), ('8000', 8000), ('10000', 10000)]
 
 
-    RULES = 'KCD 版 Farkle 骰子：先到目标分（500~10000 自选）获胜。\\n计分：单 1=100，单 5=50；三个 1=1000，三个 2~6=点数×100；四个同=×2，五个同=×4，六个同=×8；顺子 123456=1500，12345=500，23456=750。\\n流程：掷骰→点击选中计分骰→保留（得分入回合）→继续掷剩余骰或锁定。全部保留后奖励 6 个新骰。掷出无分骰=Farkle，回合清零。策略：贪心有风险，见好就收！'
+    RULES = 'Farkle 骰子：先到目标分（500~10000 自选）获胜。\\n计分：单 1=100，单 5=50；三个 1=1000，三个 2~6=点数×100；四个同=×2，五个同=×4，六个同=×8；顺子 123456=1500，12345=500，23456=750。\\n流程：掷骰→点击选中计分骰→保留（得分入回合）→继续掷剩余骰或锁定。全部保留后奖励 6 个新骰。掷出无分骰=Farkle，回合清零。策略：贪心有风险，见好就收！'
     def __init__(self, on_result, parent=None):
         super().__init__('🎲 Farkle 骰子', on_result, parent)
         self.setMinimumWidth(400)
@@ -1262,7 +1262,7 @@ class Farkle(BaseGame):
     # ---------- 计分规则 ----------
     @staticmethod
     def score_dice(dice):
-        """KCD 官方计分：单1=100 单5=50；三同=值×100(三个1=1000)；四五六同=×2/×4/×8；
+        """官方计分：单1=100 单5=50；三同=值×100(三个1=1000)；四五六同=×2/×4/×8；
         顺子 123456=1500, 12345=500, 23456=750；无三个对子/双三同组合奖励"""
         from collections import Counter
         n = len(dice)
@@ -1742,9 +1742,9 @@ class Sudoku(BaseGame):
         self._finish(True, '数独完成！好感度 +3')
 
 
-# ---------- 俄罗斯方块 ----------
-class Tetris(BaseGame):
-    """俄罗斯方块：方向键移动/旋转，消行得分，速度三档"""
+# ---------- 方块下落（通用玩法） ----------
+class FallingBlocks(BaseGame):
+    """方块下落：方向键移动/旋转，消行得分，速度三档"""
 
     SHAPES = [
         [[1, 1, 1, 1]],
@@ -1755,19 +1755,19 @@ class Tetris(BaseGame):
         [[1, 0, 0], [1, 1, 1]],
         [[0, 0, 1], [1, 1, 1]],
     ]
-    # v6.58 主题化：存 token 名，绘制时解析（见 _TetrisWidget.paintEvent 的 _BLOCK_TOKENS）
+    # v6.58 主题化：存 token 名，绘制时解析（见 _FallingBlocksWidget.paintEvent 的 _BLOCK_TOKENS）
     COLORS = ['ui_cyan', 'ui_gold', 'ui_purple', 'ui_green', 'ui_red_soft', 'ui_orange', 'ui_blue']
     W, H = 10, 20
 
 
-    RULES = '俄罗斯方块：←→左右移动，↑旋转，↓加速下落，空格直接落底。方块堆满一行自动消除，一次消多行得分更高。堆到顶部游戏结束。'
+    RULES = '方块下落：←→左右移动，↑旋转，↓加速下落，空格直接落底。方块堆满一行自动消除，一次消多行得分更高。堆到顶部游戏结束。'
     def __init__(self, on_result, parent=None):
-        super().__init__('🧱 俄罗斯方块', on_result, parent)
+        super().__init__('🧱 方块下落', on_result, parent)
         self.setMinimumSize(320, 440)
         self.board = [[0] * self.W for _ in range(self.H)]
         self.score = 0
         self.lines = 0
-        self._widget = _TetrisWidget(self)
+        self._widget = _FallingBlocksWidget(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         lay = QVBoxLayout(self)
@@ -1849,7 +1849,7 @@ class Tetris(BaseGame):
         self._widget.update()
 
 
-class _TetrisWidget(QWidget):
+class _FallingBlocksWidget(QWidget):
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self.game = game
@@ -1969,18 +1969,18 @@ class SlidingPuzzle(BaseGame):
                 self._finish(True, f'完成！用了 {self.steps} 步，好感度 +3', self.steps)
 
 
-# ---------- 西蒙记忆 ----------
-class SimonSays(BaseGame):
-    """西蒙记忆：记颜色序列，逐步加长，4键/6键"""
+# ---------- 序列记忆（通用玩法） ----------
+class SequenceMemory(BaseGame):
+    """序列记忆：记颜色序列，逐步加长，4键/6键"""
 
     # v6.58 主题化：存 token 名，用色处用 T() 解析
     COLORS = [('ui_red', '红'), ('ui_green', '绿'), ('ui_blue', '蓝'), ('ui_gold', '黄'),
               ('ui_purple', '紫'), ('ui_cyan', '青')]
 
 
-    RULES = '西蒙记忆：桌宠会点亮一串颜色（红/绿/蓝/黄…），你要按顺序点击复述。每过一关序列加长一个，记住 8 个以上算记忆超神！'
+    RULES = '序列记忆：桌宠会点亮一串颜色（红/绿/蓝/黄…），你要按顺序点击复述。每过一关序列加长一个，记住 8 个以上算记忆超神！'
     def __init__(self, on_result, parent=None):
-        super().__init__('🎵 西蒙记忆', on_result, parent)
+        super().__init__('🎵 序列记忆', on_result, parent)
         self.setMinimumWidth(340)
         self.seq = []
         self.replay_idx = 0
@@ -2080,6 +2080,11 @@ class SimonSays(BaseGame):
 
 
 # ---------- 游戏注册表 ----------
+# v6.80（合规）：类名改**通用表述**（外部作品名不可用于产品），
+# ⭐ **保留旧名别名**（向后兼容 ✓ 不改玩法逻辑 ✗；老代码 `from pet_minigames import Tetris` 仍可用）
+Tetris = FallingBlocks            # legacy-alias-ok
+SimonSays = SequenceMemory        # legacy-alias-ok
+
 GAMES = {
     '✊ 石头剪刀布': RockPaperScissors,
     '🔍 猜数字': GuessNumber,
@@ -2093,9 +2098,9 @@ GAMES = {
     '🎯 打地鼠': WhackAMole,
     '🎴 21 点': Blackjack,
     '🧮 数独': Sudoku,
-    '🧱 俄罗斯方块': Tetris,
+    '🧱 方块下落': FallingBlocks,
     '🧩 华容道': SlidingPuzzle,
-    '🎵 西蒙记忆': SimonSays,
+    '🎵 序列记忆': SequenceMemory,
 }
 
 

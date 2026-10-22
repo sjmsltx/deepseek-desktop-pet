@@ -19,6 +19,7 @@ sys.path.insert(0, BASE)
 
 import cn_holidays as ch          # noqa: E402
 from api_stats import ApiStats    # noqa: E402
+from pathlib import Path
 
 ApiStats.HOLIDAYS_CACHE = os.path.join(BASE, 'holidays_cache.json')
 
@@ -98,12 +99,12 @@ def test_cache_roundtrip_extends_table(tmp_path):
 
 def test_no_search_api_used():
     """护栏：节假日表只走公共静态 JSON，绝不碰搜索 API（省额度）"""
-    src = open(os.path.join(BASE, 'cn_holidays.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'cn_holidays.py')).read_text(encoding='utf-8')
     # 看实际调用/导入，不看注释里对搜索 API 的说明
     for bad in ('api.tavily.com', 'import tavily', 'search_api_key', 'tavily.com/search'):
         assert bad not in src, '节假日模块不得使用搜索 API（会消耗额度）：%s' % bad
     assert 'holiday-cn' in src, '应来自公共静态数据源'
-    pet = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    pet = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert 'ApiStats.HOLIDAYS_CACHE' in pet, '宿主必须把缓存路径注入计价逻辑'
 
 

@@ -17,13 +17,14 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 import memory_search as ms      # noqa: E402
+from pathlib import Path
 
 FACTS = [
     {'id': 'f1', 'content': '用户喜欢在晚上写代码', 'importance': 4, 'status': 'active',
      'updated_at': '2026-09-10'},
     {'id': 'f2', 'content': '用户养了一只叫团子的猫', 'importance': 5, 'status': 'active',
      'updated_at': '2026-09-11'},
-    {'id': 'f3', 'content': '用户考研目标是西南大学', 'importance': 5, 'status': 'active',
+    {'id': 'f3', 'content': '用户考研目标是某大学', 'importance': 5, 'status': 'active',
      'updated_at': '2026-09-12'},
     {'id': 'f4', 'content': '已删除的旧事实：喜欢跑步', 'importance': 3, 'status': 'deleted',
      'updated_at': '2026-09-01'},
@@ -94,7 +95,7 @@ def test_format_english():
 
 def test_rerank_is_optional_and_no_network_by_default():
     """护栏：默认不传 rerank（不调 LLM、不花 API）"""
-    src = open(os.path.join(BASE, 'memory_search.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'memory_search.py')).read_text(encoding='utf-8')
     assert 'rerank=None' in src
     assert 'api.deepseek.com' not in src and 'chat_completions' not in src
     called = {'n': 0}
@@ -110,11 +111,11 @@ def test_rerank_is_optional_and_no_network_by_default():
 # ---------------------------------------------------------------- 接线护栏
 
 def test_pet_wiring_recall_command_and_album_search():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert '/回忆' in src, '聊天端要有 /回忆 命令'
     assert 'memory_search' in src, '要真的调用检索模块'
     assert 'searcher=' in src, '回忆相册要能把检索器传进去'
-    ui = open(os.path.join(BASE, 'affection_ui.py'), encoding='utf-8').read()
+    ui = Path(os.path.join(BASE, 'affection_ui.py')).read_text(encoding='utf-8')
     assert 'searcher' in ui and 'QLineEdit' in ui, '回忆相册要有搜索框'
 
 

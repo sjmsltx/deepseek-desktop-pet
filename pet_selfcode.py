@@ -32,10 +32,33 @@ v6.56 修复（2026-09-15，自改代码"几乎没成功过"的根因）：
     edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None)
 """
 import ast
+import io
 import os
 import subprocess
 import shutil
 import sys
+
+
+def backup_root(base_dir=None):
+    """⭐ D1：自改码备份的根目录 —— ⭐ **⛔ 绝不落在仓库内** ✗（可移植性 E14／P5 ✓）。
+
+    取值顺序（⭐ 未配也有默认 ✓ 承 E14.1 口径 ✓）：
+      ① 环境变量 `AC_PET_BACKUP_DIR` ✓
+      ② 用户数据目录 `<APPDATA>/DeepSeekPet/backup` ✓（复用 platform_layer 的约定 ✓）
+    ⚠️ 参数 `base_dir` 仅为**兼容旧调用**保留 ✓ —— ⭐ **不参与拼接** ✗（⭐ 那正是缺陷本身 ✓）。
+    """
+    env = (os.environ.get('AC_PET_BACKUP_DIR') or '').strip()
+    if env:
+        return env
+    try:
+        import platform_layer
+        d = platform_layer.data_dir()
+        if d:
+            return os.path.join(d, 'backup')
+    except Exception as exc:
+        _log('backup_root.platform_layer', exc)      # ⭐ 落痕 ✓（不静默 ✓）
+    appdata = os.environ.get('APPDATA') or os.path.expanduser(r'~\AppData\Roaming')
+    return os.path.join(appdata, 'DeepSeekPet', 'backup')
 
 
 def _log(where, exc):
@@ -114,6 +137,83 @@ def write_file_tool(filename, content, base_dir=None):
         return f'（写入失败：{e}）'
 
 
+# ⭐⭐ P0-2（2026-10-05 · Owner 已批 ✓）：⭐ **禁改清单** —— 这些文件**永不允许**被自改码修改 ✗
+#
+# ⭐ 理由：⭐ **自改码本身就是在改"围栏"** ✓ ⇒ 若它能改掉**护栏/治理/测试**，
+#    ⭐ 那"围栏"就**形同不存在** ✗（⭐ 与 OpenAI 那次"能力超过围栏"同型 ✓）。
+# ⭐ ⭐ **自指保护**：⭐ 本清单写在 `pet_selfcode.py` 里，⭐ 而**它自己也在清单里** ✓
+#    ⇒ ⭐ 想改清单，必须先改清单里的文件 ⇒ ⭐ **被自己挡住** ✓（⛔ 无后门 ✗）。
+# ⭐ 归属：⭐ 由 `PC-桌宠-20261005-148` 起生效 ✓（⭐ 微信侧 `-40` §三.2 提请 ✓）。
+SELF_PROTECTED = (
+    'pet_selfcode.py',      # ⭐ 自身（含本清单）—— 改它 = 取消所有闸门 ✗
+    'governance.py',        # ⭐ 治理（成本上限/轮次等）✗
+    'platform_layer.py',    # ⭐ 平台层（子进程/自启等能力面）✗
+    'relay_log.py',         # ⭐ 状态机内核（可回放/门控）✗
+    'conftest.py',          # ⭐ 测试引导 ✗
+)
+
+
+def is_protected(fname: str) -> tuple:
+    """⭐ 判定某文件是否**禁改** ✗。返回 `(是否禁改, 原因)` ✓。"""
+    base = os.path.basename(str(fname or '').strip().replace('\\', '/'))
+    if base in SELF_PROTECTED:
+        # ⭐ 明细到具体文件 ✓（便于回消息时说清是哪一条 ✓）
+        if base == 'pet_selfcode.py':
+            return True, '这是"自改码"模块自身（含禁改清单）—— 改它等于取消所有安全闸门'
+        if base == 'governance.py':
+            return True, '这是治理模块（成本上限/轮次等）'
+        if base == 'platform_layer.py':
+            return True, '这是平台层（子进程/自启等能力面）'
+        if base == 'relay_log.py':
+            return True, '这是状态机内核（可回放/门控）'
+        return True, '这是测试引导文件（测试是护栏的一部分）'
+    if base.startswith('test_') and base.endswith('.py'):
+        return True, '这是测试文件 —— 测试是护栏的一部分，不可由自改码改写'
+    return False, ''
+
+
+# ⭐⭐ P0-1（2026-10-05 · Owner 已批 ✓）：⭐ **自改码批准闸门**
+#
+# ⭐ 口径（与动作端点同源 ✓ "危险能力默认关"）：⭐ **默认关** ✗
+#     · 环境变量 `AC_PET_ALLOW_SELF_EDIT`（`1`/`true`/`yes`/`on` 视为开 ✓）
+#     · 或项目 `config.json` 的 `"allow_self_edit": true` ✓
+# ⭐ ⚠️ 本条**反转** `tools_registry.py` v6.58 的「自改**默认必须可用**」✗ ——
+#    理由：⭐ 自改码是**最接近"沙箱逃逸"的能力** ✓（⭐ 它能改写自己的代码 ⇒ 也能改掉围栏 ✗），
+#    与"动作端点默认关"口径**不一致**才是问题 ✓ ⇒ ⭐ 现改为默认关 ✓。
+# ⭐ 关着时 ⭐ **必须明说怎么开** ✓（承 E14.7：⭐ 未配置要明示 ✗ 不静默 ✗）。
+SELF_EDIT_ENV = 'AC_PET_ALLOW_SELF_EDIT'
+_TRUTHY = ('1', 'true', 'yes', 'on', '是', '开')
+
+
+def self_edit_allowed(base_dir=None) -> bool:
+    """⭐ 自改码闸门（⭐ **默认 False** ✗）。⭐ 关着时 ⛔ 不得改任何文件 ✗。"""
+    v = (os.environ.get(SELF_EDIT_ENV) or '').strip().lower()
+    if v:
+        # ⭐ 显式设了环境变量就**以它为准** ✓（含显式关 `0`/`false` ⇒ 关 ✗）
+        return v in _TRUTHY
+    try:
+        import json as _json
+        cfg = os.path.join(base_dir or os.path.dirname(os.path.abspath(__file__)), 'config.json')
+        if os.path.isfile(cfg):
+            with io.open(cfg, encoding='utf-8') as fh:
+                d = _json.load(fh)
+            if isinstance(d, dict) and bool(d.get('allow_self_edit')):
+                return True
+    except Exception as exc:
+        # ⭐ 读配置失败**不得静默** ✗（读不到就按"关"处理 ✓ 且留痕 ✓）
+        print('  \u26a0\ufe0f 读 config.json 失败（按"闸门关"处理 ✓）：%r' % (exc,))
+    return False
+
+
+def self_edit_hint() -> str:
+    """⭐ 关着时告诉人**怎么开** ✓（⛔ 不静默 ✗）。"""
+    return ('⭐ 自改码当前**默认关闭** ✗（P0-1 安全闸门）。开启方式任选其一：'
+            '① 环境变量 `%s=1` ✓；② 项目 `config.json` 里写 `"allow_self_edit": true` ✓。'
+            '（⭐ 开启后仍受"禁改清单"约束 ✓：护栏/治理/测试等文件**永不可自改** ✗）'
+            % SELF_EDIT_ENV)
+
+
+
 def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desktop_pet.py', base_dir=None):
     """AI 修改自己的代码——git 基线保护 + 语法验证 + 失败不落盘。
 
@@ -124,8 +224,16 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
     """
     base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
     fname = (file or 'desktop_pet.py').strip()
+    # ⭐⭐ P0-1：⭐ 闸门**默认关** ✗ —— 未开则**一律拒绝** ✓ 并**明说怎么开** ✓
+    if not self_edit_allowed(base_dir):
+        return ('（⛔ [SELF-403-01] 自改码未开启，本次修改被拒 ✗）\n' + self_edit_hint())
     if not fname.endswith('.py') or fname.startswith('_') or '/' in fname or '\\' in fname:
         return f'（不允许修改的文件：{fname}，只能改项目内的 .py 模块）'
+    # ⭐⭐ P0-2：⭐ 禁改清单**硬拒** ✗（⛔ 无豁免开关 ✗ —— 要改这些文件必须人来改 ✓）
+    _prot, _why = is_protected(fname)
+    if _prot:
+        return (f'（⛔ [SELF-403-02] 拒绝修改 {fname}：{_why}。'
+                f'⭐ 这些文件属于"围栏"本身，只能由人编辑，不允许走自改码 ✗）')
     path = os.path.join(base_dir, fname)
     if not os.path.isfile(path):
         return f'（文件不存在：{fname}，可用 read_file 传目录查看项目文件列表）'
@@ -135,16 +243,33 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
         return '（需要提供 old_text 或 start_line）'
     try:
         # 0. 版本保护：必须在 git 工作区内（v6.56：冻结环境给出明确原因）
-        r = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
-                           capture_output=True, timeout=15)
+        # ⭐ 2026-10-10（采纳微信侧 `WX-…-69` §3.2）：⭐ **"工具缺失"与"业务否定"必须分开报** ✗
+        #   ⭐ 目的：⛔ 不能把"git 没跑起来"（环境/部署问题）说成"你不是 git 仓库"（用户业务状态）——
+        #   ⭐ 那会把排查方向**彻底带偏**（2026-10-07 搬迁后就真骗过一轮 ✗）。
+        # ⭐ 2026-10-10（采纳微信侧 `WX-…-69` §3.1）：⭐ **不再靠 PATH 短名** ✗ ——
+        #   ⭐ 实例化说明：⭐ 本项目要求**显式解析**可执行路径并缓存 ✓（⛔ PATH 怎么变都不影响 ✓）
+        try:
+            import platform_layer as _pl
+            _git = _pl.resolve_program('git') or 'git'
+        except Exception as e:                        # ⭐ 解析层不可用 ⇒ 退回短名（⭐ 落痕不静默 ✓）
+            _log('git_resolve_fallback', e)
+            _git = 'git'
+        try:
+            r = subprocess.run([_git, 'rev-parse', '--is-inside-work-tree'], cwd=base_dir,
+                               capture_output=True, timeout=15)
+        except (FileNotFoundError, OSError) as e:
+            _log('git_missing', e)
+            return ('（⛔ [SELF-500-01] **环境缺 git 程序**，无法做版本保护 ⇒ 本次**没有**做任何版本检查。'
+                    '请先安装 git 或把它加入 PATH，再让我改代码。'
+                    '（⭐ 注意：这**不是**"当前目录不是 git 仓库"✗，两回事 ✓））')
         if r.returncode != 0:
             if getattr(sys, 'frozen', False):
                 return ('（打包版无法自改：打包后的代码在 _internal 内、且没有 .git，改了也不会生效。'
                         '请用源码目录运行 python desktop_pet.py 后再让我改）')
-            return '（不是 git 仓库，拒绝自改——需要版本保护）'
+            return '（⛔ [SELF-400-01] 不是 git 仓库，拒绝自改——需要版本保护）'
         base_hash = ''
         try:
-            r0 = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=base_dir, capture_output=True, timeout=15)
+            r0 = subprocess.run([_git, 'rev-parse', 'HEAD'], cwd=base_dir, capture_output=True, timeout=15)
             if r0.returncode == 0:
                 base_hash = (r0.stdout or b'').decode().strip()
         except Exception as e:
@@ -204,7 +329,7 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
         backup_name = ''
         try:
             import datetime as _dt
-            bdir = os.path.join(base_dir, 'backup')
+            bdir = backup_root(base_dir)          # ⭐ D1：仓库外 ✓（⛔ 不再写进仓库 ✗）
             os.makedirs(bdir, exist_ok=True)
             backup_name = f'{fname[:-3]}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}.py'
             shutil.copy2(path, os.path.join(bdir, backup_name))
@@ -222,8 +347,9 @@ def edit_own_code(old_text, new_text, start_line=None, end_line=None, file='desk
             f.write(new_src)
         os.replace(tmp, path)
         # 5. 返回（v6.56：只在备份真的成功时才提它；给出文件与行号）
-        rollback = f'git restore {fname}' if base_hash else 'backup/ 备份'
-        bk = f'（改前备份：backup/{backup_name}）' if backup_name else '（⚠️ 改前备份失败，已记日志）'
+        rollback = f'git restore {fname}' if base_hash else '备份目录里的改前副本'
+        bk = (f'（改前备份：{backup_name}，位于备份目录）' if backup_name
+              else '（⚠️ 改前备份失败，已记日志）')
         return (f'✅ 已修改 {fname} {where}。回滚：{rollback}。{bk}\n'
                 f'修改会在下次 git 提交时入库；**需重启桌宠生效**；若异常对我说"回滚桌宠修改"。')
     except Exception as e:

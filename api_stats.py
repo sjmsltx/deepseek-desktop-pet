@@ -307,7 +307,13 @@ class ApiStats:
             _log.debug('费用计算失败（按 0 计并标记未知价）：%s', e)
             return 0.0, True
 
-    def record(self, usage, model='?'):
+    def record(self, usage, model='?', purpose='chat'):
+        """记一次调用
+
+        批 C（Owner 2026-09-26 批）：新增可选 ``purpose`` —— 让"这笔花费是谁花的"能回答 ✓
+        ⭐ **缺省 = 'chat'** ✓ → **不改变任何既有调用行为** ✗（回归可证 ✓）
+        """
+        purpose = self._norm_purpose(purpose)
         prompt = usage.get('prompt_tokens') or 0
         completion = usage.get('completion_tokens') or 0
         cache_hit = usage.get('prompt_cache_hit_tokens') or 0
@@ -340,6 +346,19 @@ class ApiStats:
                 agg['cache_miss'] += cache_miss
                 if price_unknown:      # v6.62：未配置价格的调用单列计数（界面据此提示）
                     agg['unknown'] = agg.get('unknown', 0) + 1
+            # 批 C：今日**用途分项**（⭐ 新增字段 ✓ 不动既有字段 ✗ → 旧档兼容 ✓）
+            bp = self.today.setdefault('by_purpose', {})
+            if not isinstance(bp, dict):
+                bp = {}
+                self.today['by_purpose'] = bp
+            pb = bp.get(purpose)
+            if not isinstance(pb, dict):
+                pb = {'count': 0, 'cost': 0.0, 'prompt': 0, 'completion': 0}
+                bp[purpose] = pb
+            pb['count'] += 1
+            pb['cost'] += cost
+            pb['prompt'] += prompt
+            pb['completion'] += completion
             self.last = entry
             self.calls.append(entry)
             # 按模型累计（终身口径）：看哪个模型花了多少、有没有价格未知的
@@ -356,6 +375,44 @@ class ApiStats:
                 mb['unknown'] = mb.get('unknown', 0) + 1
         self._save()
         return cost  # v6.30 返回本次费用（余额气泡用）
+
+    # ---------- 批 C：用途分项（只读 ✓ 不动记账 ✗）----------
+    PURPOSES = ('chat', 'care', 'tools', 'games', 'other')
+    PURPOSE_LABELS = {'chat': '对话', 'care': '主动关心', 'tools': '工具',
+                      'games': '小游戏', 'other': '其它', 'legacy': '历史未分类'}
+
+    def _norm_purpose(self, p):
+        """用途白名单（未知 → 'other' ✓ 不报错 ✗）"""
+        p = str(p or 'chat').strip().lower()
+        return p if p in self.PURPOSES else 'other'
+
+    def purpose_breakdown(self):
+        """今日**各用途**花费（降序）：``[{purpose, label, cost, count, share}]``
+
+        - 旧档无 `today.by_purpose` 字段 → 返回 **[]** 且 `self.purpose_legacy = True` ✓
+          （⭐ **不丢账**：总账 `today.cost` 照旧可读 ✓ **不炸旧文件** ✗）
+        - `share` = 该项 / 今日总花费（总为 0 时记 0 ✓ 不除零 ✗）
+        """
+        out = []
+        try:
+            bp = (self.today or {}).get('by_purpose')
+            if not isinstance(bp, dict) or not bp:
+                self.purpose_legacy = True
+                return out
+            self.purpose_legacy = False
+            tot = float((self.today or {}).get('cost') or 0.0)
+            for k, v in bp.items():
+                if not isinstance(v, dict):
+                    continue
+                c = float(v.get('cost') or 0.0)
+                out.append({'purpose': k, 'label': self.PURPOSE_LABELS.get(k, k),
+                            'cost': c, 'count': int(v.get('count') or 0),
+                            'share': (c / tot) if tot > 0 else 0.0})
+            out.sort(key=lambda x: x['cost'], reverse=True)
+        except Exception:
+            self.purpose_legacy = True
+            return []
+        return out
 
     def model_breakdown(self):
         """按模型汇总（终身口径）：次数 / token / 费用 / 价格未知次数。费用从高到低。"""

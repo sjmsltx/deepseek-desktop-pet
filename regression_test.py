@@ -620,7 +620,8 @@ def t_h15():
     exp = os.path.join(d, 'exp.json')
     ok, msg = reg.export_to(exp)
     assert ok, msg
-    raw = io.open(exp, encoding='utf-8').read()
+    with io.open(exp, encoding='utf-8') as _fh:   # ⭐ S3：with 关句柄 ✓
+            raw = _fh.read()
     assert 'sk-' not in raw, '导出文件不得含密钥'
     assert '小蓝' in raw
     # 另一份档案：新增一份 + 覆盖同名

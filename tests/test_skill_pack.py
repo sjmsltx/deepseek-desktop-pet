@@ -17,6 +17,7 @@ if BASE not in sys.path:
 
 import skill_pack as sp                                          # noqa: E402
 import plugin_manager as pm                                      # noqa: E402
+from pathlib import Path
 
 
 ENTRY_OK = '''# -*- coding: utf-8 -*-
@@ -234,7 +235,7 @@ def test_install_from_github_with_fake_fetch(tmp_path):
     plugins = str(tmp_path / 'plugins')
     buf = str(tmp_path / 'tmp.zip')
     _mk_zip(buf, {'plugin.json': json.dumps(MANIFEST_OK, ensure_ascii=False), 'plugin.py': ENTRY_OK})
-    data = open(buf, 'rb').read()
+    data = Path(buf).read_bytes()
     ok, msg, name = sp.install_from_github('a/b', plugins, granted=['files.read'],
                                            fetch=lambda url: data)
     assert ok and name == 'demo_pack', msg

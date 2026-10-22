@@ -100,7 +100,37 @@ else:
 OCR_PS1 = os.path.join(BASE_DIR, 'ocr_helper.ps1')
 LIVE2D_MODEL = os.path.join(BASE_DIR, 'assets', 'live2d', 'mao', 'Mao.model3.json')
 ASSETS = os.path.join(BASE_DIR, 'assets')
+ASSETS_POOL = os.path.join(BASE_DIR, 'assets_3.0')   # ⭐ 素材池（Owner 2026-10-03 批「接入」✓ 未跟踪 ✓ 零拷贝）
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
+# D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态**（跨重启/多实例有效 ✓；
+# ⛔ 不写 config.json ✗ —— 守 09-25「挂起不落盘」口径 ✓）
+GATE_CARD_STATE_PATH = os.path.join(BASE_DIR, 'logs', 'gate_card_state.json')
+
+# ⭐ D11-2（2026-10-11）：受「当天同因只一张」**日门**保护的类别 ✓
+#   ⛔ 不是所有卡一刀切 ✗ —— 单次失败提示（工具失败/上游超时等）本就该即时出 ✓
+#   这两类都是**结论卡**：本地闸门=日成本上限；额度=账户余额不足（后者正是 _post_stream 那条路 ✓）
+#   key 按 kind 归类 ✓（与既有落盘形状 keys: ['balance','daily_cost'] 对齐 ✓）
+#   ⭐ 刻意放**模块级** ✓（非类属性 ✗）：出口 `_notify_failure_card` 会被非 PetWidget 替身调用，
+#      类属性会 AttributeError ✗（本次实测踩到 ✓）
+GATE_CARD_KINDS = ('本地闸门', '额度')
+GATE_CARD_KIND_KEY = {'本地闸门': 'daily_cost', '额度': 'balance'}
+
+
+def _gate_card_key_for(diag, kind=''):
+    """⭐ D11-2：出口内日门的**归类** ✓（模块级 ✓ 供非 PetWidget 替身调用 ✓）
+
+    优先级：**先按 Diag.cause 文本细分** ✓ > kind 兜底映射 ✓
+    ⛔ 只按 kind 太粗 ✗ —— `本地闸门` 这一个 kind **同时**装了两件事：
+      · 「达到日上限」→ 应归 `daily_cost`
+      · 「账户余额不足」→ 应归 `balance`
+    ⇒ 若只按 kind ⇒ 两类被压成一张 ✗（会误吞真的告警 ✓ 实测被用例抓到 ✓）
+    """
+    _w = str(getattr(diag, 'cause', '') or '')
+    if '余额' in _w:
+        return 'balance'
+    if '上限' in _w:
+        return 'daily_cost'
+    return GATE_CARD_KIND_KEY.get(kind, 'other')
 MODELS_PATH = os.path.join(BASE_DIR, 'models.json')   # 模型档案（模型身份的唯一来源）
 MEMORY_PATH = os.path.join(BASE_DIR, 'memory.json')
 TODO_PATH = os.path.join(BASE_DIR, 'todos.json')
@@ -111,26 +141,150 @@ MEMORIES_PATH = os.path.join(BASE_DIR, 'memories.json')     # v6.30 回忆日志
 # 背景：全面体检发现 122 处 `except ...: pass/continue`——出问题时“它怎么不记得了 / 怎么不动了”
 # 完全无痕。这里提供统一出口：**只记日志**（logs/pet.log，INFO 级），不改变任何行为。
 # 重点覆盖“用户可感知失败”的路径：AI 任务链 / 数据落盘 / 记忆提取 / 工具执行 / 用量统计 / 系统集成。
-def _silent_log(where, exc):
+def _silent_log(where, exc, *, user_facing=False):
+    """静默异常统一出口（v6.54）；v1-B 增加 ``user_facing``。
+
+    ``user_facing=True`` = **用户能看懂也能行动**的失败（用户直接触发 / 影响用户可感知资产）✓
+    → 除写日志外，再经**唯一出口** ``App._notify_failure_card`` 出一张四段卡片 ✓。
+    ⛔ 默认 ``False``：内部清理、降级、自身审计、逐条跳过等一律**不出卡** ✗（防刷屏）。
+    """
     try:
         get_logger('silent').info('%s | %s: %s', where, type(exc).__name__, exc)
     except Exception:
         pass          # 日志系统自己不能把主程序拖垮
+    if user_facing:
+        try:
+            _hook = _FAIL_CARD_HOOK
+            if _hook is not None:
+                _hook(where, exc)
+        except Exception:
+            pass      # v1-B：出卡失败绝不影响主流程 ✓
+
+
+_FAIL_CARD_HOOK = None      # v1-B：由 App 在 __init__ 注入（卡片唯一出口的桥）✓
+
+# 缺陷 1：饥饿气泡的**食物类表情池**（随机取 ✓ 不写死单一个 ✗；Owner 2026-09-25 22:58 裁定）
+HUNGRY_EMOJI_POOL = ('🍚', '🍜', '🍗', '🥢', '🍴', '😋', '🍖', '🥟', '🍞', '🍎')
+def _set_fail_card_hook(fn):
+    global _FAIL_CARD_HOOK
+    _FAIL_CARD_HOOK = fn
+
+
+def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', detail='', count=True):
+    """L5：把一次失败写进审计（kind=error），并返回归因结构（供卡片复用）。
+
+    为什么要两条路都走：``_silent_log`` 只给排查的人看 ✓ 而审计是“可解释”的根 ✗
+    —— 今天两个缺陷正是从 silent 日志里捞出来的 ✓ 所以关键失败要**同时**落审计（可被“最近错误”类入口读到 ✓）。
+    约束：不抛异常 ✓ 审计不可用不影响主流程 ✓ 归因不可用时仍写一条退化的审计 ✓
+
+    v1-B：``count=False`` 表示**弃权**（本轮已被用户 /stop 顶替）→ 只留 silent 日志，
+    **不计入判错统计**（微信侧 v1-B 定案 ②）✗。
+    """
+    diag = None
+    try:
+        import pet_diagnosis as _diag
+        diag = _diag.explain_error(exc, detail=detail, context=context)
+    except Exception as _exc:
+        _silent_log('_audit_failure:diag', _exc)
+    try:
+        import governance as _gov
+        if not count:
+            get_logger('silent').info('yielded（弃权不计判错） | %s: %s', type(exc).__name__, exc)
+            return diag
+        if diag is not None:
+            _detail = '%s ｜ 层=%s ｜ %s' % (diag.cause, diag.layer, diag.raw)
+        else:
+            _detail = '%s: %s' % (type(exc).__name__, exc)
+        _gov.log_event('error', actor, action, _detail, allowed=False)
+    except Exception as _exc:
+        _silent_log('_audit_failure:audit', _exc)
+    return diag
+
+
+def _asset_prefix(role):
+    """⭐ 立绘绑定（Owner 2026-10-03）：档案 `appearance.portrait` 有值 → 当作该角色的**资产目录前缀** ✓
+
+    · 留空 / 未配 / 目录不存在 → ⭐ **回落角色 key** ✓（**行为与从前完全一致** ✓）
+    · 查档案失败 → 回落 key ✓ **不崩** ✗
+    · ⭐ 允许在两个根下解析：`assets/<名前缀>/` ✓ 或 ⭐ **`assets_3.0/<名前缀>/`（素材池 ✓ 零拷贝 ✓）** ✓
+      —— ⛔ **不复制任何图片** ✗（池子故意不入库 ✓ 复制会把仓库撑爆 ✗）
+    · ⛔ 不缓存（免得界面改完不生效 ✗）；`registry.get()` 是内存字典查找 ✓ 开销可忽略 ✓
+    """
+    r = str(role)
+    try:
+        reg = globals().get('MODEL_REGISTRY')
+        p = reg.get(r) if reg is not None else None
+        v = str(getattr(p, 'portrait', '') or '').strip()
+        # ⛔ 只接受单段目录名 ✗（防路径穿越 ✓）
+        if v and ('/' not in v and '\\' not in v and '..' not in v):
+            for _root in (ASSETS, ASSETS_POOL):
+                if os.path.isdir(os.path.join(_root, v)):
+                    return v
+    except Exception as _exc:
+        _silent_log('_asset_prefix', _exc)
+    return r
+
+
+def _asset_dir_for(pfx, role):
+    """按前缀找**存在的**目录（先 `assets/` ✓ 后 `assets_3.0/` ✓）；都无 → `assets/<role>/` ✓。"""
+    for _root in (ASSETS, ASSETS_POOL):
+        d = os.path.join(_root, pfx)
+        if os.path.isdir(d):
+            return d
+    return os.path.join(ASSETS, role)
+
+
+# ⭐ 贴边系（peek*）**不得跨角色回落**（2026-10-22 Owner 报「待机与吸附不是同一个人」）：
+#   素材池里没有贴边图时，原逻辑会跳到 `assets/<role>/` 拿**老角色**的贴边图 ✗
+#   ⇒ 换角色后待机是新角色、贴边是老角色。现改为只在本角色前缀目录内回落（最终落到自己的 idle）。
+_PEEK_STATES = frozenset((
+    'peek', 'peek_top', 'peek_bottom',
+    'peek_sleep', 'peek_bottom_sleep',
+    'peek_hungry', 'peek_top_hungry', 'peek_bottom_hungry',
+))
+
+
+def _pick_asset(d, stem):
+    """在目录 d 里取 `<stem>.png`；**优先 `<stem>_alpha.png`**。
+
+    ⭐ 素材池（assets_3.0）约定：裸版是白底或绿幕，`_alpha` 才是抠好的透明版。
+      此前直接拼裸名 ⇒ 待机背景不透明（Owner 2026-10-22 报的第二个问题）。
+    ⭐ 没有 `_alpha` 变体时（flash/pro 等老素材）行为与从前完全一致 ✓
+    """
+    for name in ('%s_alpha.png' % stem, '%s.png' % stem):
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def asset(role, state):
-    p = os.path.join(ASSETS, role, f'{role}_{state}.png')
-    if os.path.exists(p):
+    pfx = _asset_prefix(role)          # ⭐ 立绘绑定：优先用档案指定的资产目录 ✓ 否则用 key ✓
+    _dir = _asset_dir_for(pfx, role)
+    p = _pick_asset(_dir, '%s_%s' % (pfx, state))
+    if p:
         return p
+    if pfx != role and state not in _PEEK_STATES:
+        # ⭐ 前缀目录里没这张 → 再试角色 key 目录（两个根都试 ✓）
+        #   ⛔ 贴边系除外 ✗ —— 见 _PEEK_STATES 上方注释
+        p0 = _pick_asset(_asset_dir_for(role, role), '%s_%s' % (role, state))
+        if p0:
+            return p0
     # v6.30 兜底：新状态素材缺失时降级到已有状态
     fallback = {'hungry': 'eating', 'victory': 'happy', 'defeat': 'sad',
                 'kiss': 'hug_whale', 'shy_hug': 'hug_whale'}
     fb = fallback.get(state)
     if fb:
-        p2 = os.path.join(ASSETS, role, f'{role}_{fb}.png')
-        if os.path.exists(p2):
+        p2 = _pick_asset(_dir, '%s_%s' % (pfx, fb))
+        if p2:
             return p2
-    return os.path.join(ASSETS, role, f'{role}_idle.png')
+    p3 = _pick_asset(_dir, '%s_idle' % pfx)
+    if p3:
+        return p3
+    p4 = _pick_asset(_asset_dir_for(role, role), '%s_idle' % role)   # 最终回落：原行为 ✓
+    if p4:
+        return p4
+    return os.path.join(_asset_dir_for(role, role), f'{role}_idle.png')
 
 # ============ 国际化（v6.20，右键菜单/提示/AI 回复语言） ============
 UI_ZH = {
@@ -145,6 +299,20 @@ UI_ZH = {
     'memory_menu': '🧠 记忆管理', 'view_memory': '📋 查看记忆', 'delete_memory': '🗑 删除一条…', 'clear_memory': '🧹 清空全部…',
     'export_chat': '📤 导出聊天记录', 'mem_time': '时间', 'mem_who': '谁', 'mem_select_all': '全选', 'mem_select_none': '全不选', 'mem_select_me': '只选我', 'mem_select_pet': '只选桌宠', 'mem_export': '导出', 'autostart': '🚀 开机自启', 'on': '（已开）', 'off': '（已关）',
     'hide_tray': '🏠 最小化到托盘', 'exit': '✕ 退出',
+    'dsh_panel': '🐳 打开 DSH 面板（3.0）', 'dsh_panel_fail': '🫧 DSH 面板打不开：',
+        'dsh_opening': '⏳ 正在打开 DSH…（后台进行，不卡界面）',
+        'dsh_starting': '⏳ DSH 服务没在运行，正在启动它（约 10~30 秒，界面不会卡）…',
+        'confirm_timeout_note': '⚠️ 等了你 %(s)d 秒没回应（可能窗口被挡住）→ 已按「不确认」处理，随时可以再点一次 ✓',
+        'dsh_starting_long': '⏳ DSH 正在启动中，请稍等（首次约 20~40 秒，界面不会卡）…',
+        'dsh_start_ask': 'DSH 服务没在运行。\n\n是否现在启动它？（约 10~30 秒，期间界面不会卡）',
+        'dsh_start_cancelled': '已取消：没有启动 DSH（服务未运行）。',
+        'dsh_panel_missing': '🐳 DSH 面板（⚠️ 未检测到 DSH，需先安装或设置 DSH_ROOT）',
+        'collab_panel': '🍵 打开协作台（本机 %(port)d）',
+        'collab_opening': '⏳ 正在打开协作台…（后台进行，不卡界面）',
+        'collab_starting': '⏳ 协作台没在运行，正在启动它（本机只读面，界面不会卡）…',
+        'collab_start_ask': '协作台没在运行。\n\n是否现在启动它？（只监听本机 127.0.0.1:%(port)d，界面不会卡）',
+        'collab_start_cancelled': '已取消：没有启动协作台（服务未运行）。',
+        'collab_fail': '🫧 协作台打不开：',
     'language_menu': '🌐 语言', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': '和桌宠聊天…（Enter 发送，Shift+Enter 换行，/clear 清空）',
     'person_gentle': '温柔', 'person_tsundere': '傲娇', 'person_sarcastic': '吐槽', 'person_energetic': '元气', 'person_cold': '高冷',
@@ -162,6 +330,8 @@ UI_ZH = {
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
     'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
     'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
+    'main_area': '🗂 主区', 'main_area_hint': '这是可选打开的主区；关掉不影响桌面宠物。',
+    'main_area_empty': '还没有注册任何面板',
     'todo_menu': '📋 待办管理', 'todo_status': '状态', 'todo_time': '时间', 'todo_add': '➕ 添加',
     'todo_done': '✅ 完成选中', 'todo_del': '🗑 删除选中', 'todo_clear_done': '🧹 清空已完成',
     'todo_placeholder': '输入待办事项，回车添加…', 'todo_empty': '暂无待办',
@@ -178,6 +348,19 @@ UI_EN = {
     'memory_menu': '🧠 Memory', 'view_memory': '📋 View memory', 'delete_memory': '🗑 Delete one…', 'clear_memory': '🧹 Clear all…',
     'export_chat': '📤 Export chat', 'mem_time': 'Time', 'mem_who': 'Who', 'mem_select_all': 'All', 'mem_select_none': 'None', 'mem_select_me': 'Me only', 'mem_select_pet': 'Pet only', 'mem_export': 'Export', 'autostart': '🚀 Auto-start', 'on': ' (ON)', 'off': ' (OFF)',
     'hide_tray': '🏠 Minimize to tray', 'exit': '✕ Exit',
+    'dsh_panel': '🐳 Open DSH panel (3.0)', 'dsh_panel_fail': '🫧 Cannot open DSH panel: ',
+        'dsh_opening': '⏳ Opening DSH… (background, UI stays responsive)',
+        'dsh_starting': '⏳ DSH service not running; starting it (10-30s, UI stays responsive)…',
+        'confirm_timeout_note': '⚠️ No answer in %(s)ds (window may be covered) → treated as "No"; you can click again anytime ✓',
+        'dsh_start_ask': 'DSH service is not running.\n\nStart it now? (about 10-30s, UI will not freeze)',
+        'dsh_start_cancelled': 'Cancelled: DSH was not started (service not running).',
+        'dsh_panel_missing': '🐳 DSH panel (⚠️ DSH not detected; install it or set DSH_ROOT)',
+        'collab_panel': '🍵 Open collab console (local %(port)d)',
+        'collab_opening': '⏳ Opening collab console… (background, UI stays responsive)',
+        'collab_starting': '⏳ Collab console not running; starting it (local read-only)…',
+        'collab_start_ask': 'Collab console is not running.\n\nStart it now? (local only 127.0.0.1:%(port)d, UI will not freeze)',
+        'collab_start_cancelled': 'Cancelled: collab console was not started (service not running).',
+        'collab_fail': '🫧 Cannot open collab console: ',
     'language_menu': '🌐 Language', 'language_zh': '中文', 'language_en': 'English',
     'chat_placeholder': 'Chat with pet… (Enter send, Shift+Enter newline, /clear reset)',
     'person_gentle': 'Gentle', 'person_tsundere': 'Tsundere', 'person_sarcastic': 'Sarcastic', 'person_energetic': 'Energetic', 'person_cold': 'Cold',
@@ -195,6 +378,8 @@ UI_EN = {
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
     'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
     'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
+    'main_area': '🗂 Main Area', 'main_area_hint': 'Optional main area; closing it does not affect the pet.',
+    'main_area_empty': 'No panels registered yet',
     'todo_menu': '📋 Todo Manager', 'todo_status': 'Status', 'todo_time': 'Time', 'todo_add': '➕ Add',
     'todo_done': '✅ Done', 'todo_del': '🗑 Delete', 'todo_clear_done': '🧹 Clear Done',
     'todo_placeholder': 'Enter todo, press Enter to add…', 'todo_empty': 'No todos',
@@ -270,6 +455,43 @@ class _DropChatEdit(QTextEdit):
                 e.accept()
                 return True
         return super().viewportEvent(e)
+
+
+# ⭐ D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态读写**（**模块级 ✓ 零新增实例依赖 ✓**
+# —— 批 A 既有护欄的替身无需感知本改动 ✓）
+def _gate_card_day_load():
+    """读**落盘**的当日闸门卡状态 ✓（缺失/损坏 → 空 dict ✓ 不报错 ✗）
+
+    形状：``{'day': 'YYYY-MM-DD', 'keys': ['balance', 'daily_cost']}`` ✓
+    （**按天存多个 key** ✗ —— 单槽会被第二个 category 覆盖 ✗ → 第一个又能再出 ✗）
+    """
+    try:
+        with open(GATE_CARD_STATE_PATH, encoding='utf-8') as _f:
+            _d = json.load(_f)
+        if not isinstance(_d, dict):
+            return {}
+        _d['keys'] = [str(x) for x in (_d.get('keys') or [])]
+        return _d
+    except Exception:
+        return {}
+
+
+def _gate_card_day_mark(key, day):
+    """把“当日同因已出卡”**落盘** ✓（按天多 key ✓ 原子写 ✓ 失败不拖垮主程序 ✗）"""
+    try:
+        cur = _gate_card_day_load()
+        keys = list(cur.get('keys') or []) if str(cur.get('day') or '') == str(day) else []
+        if str(key) not in keys:
+            keys.append(str(key))
+        _d = os.path.dirname(GATE_CARD_STATE_PATH)
+        if _d:
+            os.makedirs(_d, exist_ok=True)
+        _tmp = GATE_CARD_STATE_PATH + '.tmp'
+        with open(_tmp, 'w', encoding='utf-8') as _f:
+            json.dump({'day': str(day), 'keys': keys}, _f)
+        os.replace(_tmp, GATE_CARD_STATE_PATH)
+    except Exception as _exc:
+        _silent_log('_gate_card_day_mark', _exc)
 
 
 class PetWidget(QWidget):
@@ -374,6 +596,25 @@ class PetWidget(QWidget):
         self.wakeup_signal.connect(self._display_wakeup)
         self.confirm_signal.connect(lambda fn: fn())  # 确认回调在主线程执行
         self.ui_call_signal.connect(lambda fn: fn())  # v6.58 通用回主线程通道（跨线程安全）
+        # ── v3.0 B-乙：遥控消费器（⭐ 配置项开关 `remote_control`，**默认关** ✓）──
+        # ⛔ 关着时：不读通道、不建对象、不起定时器 → **与接线前行为完全一致** ✗（用例钉住 ✓）
+        self.remote_consumer = None
+        self.remote_timer = None
+        try:
+            _rc_cfg = {}
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, 'r', encoding='utf-8') as _rcf:
+                    _rc_cfg = json.load(_rcf) or {}
+            if bool(_rc_cfg.get('remote_control', False)):
+                import rt_remote
+                self.remote_consumer = rt_remote.build_consumer_from_config(
+                    _rc_cfg, base_dir=BASE_DIR, emit=self._remote_emit)
+                if self.remote_consumer is not None:
+                    self.remote_timer = QTimer(self)
+                    self.remote_timer.timeout.connect(self._remote_poll_tick)
+                    self.remote_timer.start(int(self.remote_consumer.interval_ms))
+        except Exception as _rc_exc:              # ⭐ 不静默 ✗ 也不拖垮主程序 ✓
+            _silent_log('remote_wiring', _rc_exc)
         # 全局快捷键 Ctrl+Alt+P 呼出 / Ctrl+Alt+S 截图 OCR
         self._hotkey_installed = False
         try:
@@ -389,6 +630,13 @@ class PetWidget(QWidget):
                     _silent_log('__init__:386', _exc)   # v6.54
         except Exception:
             self._hotkey_installed = False
+        # v1-B：注入失败卡片**唯一出口**（user_facing 的 silent 失败 → 四段卡片）✓
+        self._fail_card_gen = None
+        self._fail_card_kind = ''
+        try:
+            _set_fail_card_hook(self._on_user_facing_failure)
+        except Exception as _exc:
+            _silent_log('__init__:fail_card_hook', _exc)
 
     def _init_services_and_data(self):
         """对话记忆/用量统计/MCP/插件/主题 + 记忆·待办·提醒加载 + 贴边与主动说话"""
@@ -451,6 +699,9 @@ class PetWidget(QWidget):
         self._load_memory()
         self.todos = []             # 待办清单
         self._load_todos()
+        self._task_queue = []       # v6.79 缺陷 76：FCFS 任务队列
+                                    # （原先在 __init__ 链路里**从未初始化** ✗ → _enqueue_task 抛 AttributeError、
+                                    #   _next_task / _refresh_task_sidebar 全部静默失败 → 队列功能整体失效 ✗）
         self._load_chat_memory()
         self._display_offset = 0   # 显示历史已加载起点（显示更多用）
         self.reminders = []
@@ -594,6 +845,14 @@ class PetWidget(QWidget):
         chat_body.addWidget(self.chat_history_scroll, 1)
         chat_body.addWidget(self.chat_task_sidebar, 0)
         chat_layout.addLayout(chat_body, 1)
+
+        # 3.0 主区入口（可选，批 2）：不点就永远不出现；关掉不影响桌宠。
+        #    ⛔ 独立按钮，不塞进 SidePanel 内部布局，side_panel.py 一行不动。
+        self._main_area_row = QHBoxLayout()
+        self._main_area_row.setContentsMargins(0, 0, 0, 0)
+        self._main_area_row.addStretch(1)
+        self._main_area_row.addWidget(self._make_main_area_button(self.chat_panel), 0)
+        chat_layout.addLayout(self._main_area_row)
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
         self.chat_input = _DropChatEdit(self._insert_dropped_paths, self.chat_panel)
@@ -744,7 +1003,7 @@ class PetWidget(QWidget):
             cfg['y'] = self.y()
             self._atomic_write_json(CONFIG_PATH, cfg)
         except Exception as _exc:
-            _silent_log('_save_position:679', _exc)   # v6.54
+            _silent_log('_save_position:679', _exc, user_facing=True)   # v1-B：位置存不下→“又跑到别处了”
 
     def _schedule_greet(self):
         self.greet_timer.start(random.randint(*GREET_INTERVAL))
@@ -767,7 +1026,7 @@ class PetWidget(QWidget):
                 if key:
                     self.ai_key = key
                     self.ai_enabled = True
-                self.search_api_key = cfg.get('search_api_key', '')  # Tavily 联网搜索 key（可选）
+                self.search_api_key = cfg.get('search_api_key', '')  # 旧 Tavily 搜索 key：2026-10-19 起搜索改用 DeepSeek 官方接口，本项仅作兼容保留
                 self.pet_city = cfg.get('city', '重庆')
                 self.personality = cfg.get('personality', '温柔')
                 self.reply_style = cfg.get('reply_style', 'normal')  # short/normal/detailed
@@ -842,9 +1101,9 @@ class PetWidget(QWidget):
                                               local_ref=self.voice_local_ref,
                                               local_prompt=self.voice_local_prompt)
                 except Exception as _exc:
-                    _silent_log('_load_ai_config:voice', _exc)
+                    _silent_log('_load_ai_config:voice', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
         except Exception as _exc:
-            _silent_log('_load_ai_config:734', _exc)   # v6.54
+            _silent_log('_load_ai_config:734', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
 
     def _current_profile(self):
         """当前角色对应的模型档案（档案缺失时回退第一份 / None）"""
@@ -885,6 +1144,282 @@ class PetWidget(QWidget):
             return getattr(self, 'model_pro', 'deepseek-v4-pro')
         return getattr(self, 'model_flash', 'deepseek-flash')
 
+    # ---------- v1-B：失败卡片**唯一出口**（护栏：源码里只此处能渲染 to_card ✓）----------
+    UPSTREAM_LAYERS = ('上游超时', '上游故障', '上游限流')   # L3-1：这些层才附「上游公告」✓
+    # user_facing 标签 → 归因类别（层名字面与 13 类表逐字对齐 ✓）
+    FAIL_CARD_TAG_KINDS = (
+        ('_smart_open', '工具失败'),
+        ('_vision_content:files_api', '工具失败'),
+        ('_load_chat_memory', '本地异常'),
+        ('_save_chat_memory', '本地异常'),
+        ('_load_ai_config', '本地异常'),
+        ('_record_api_usage', '本地异常'),
+        ('_save_position', '本地异常'),
+    )
+
+    def _classify_fail_tag(self, where):
+        """标签 → 归因类别（未命中按“本地异常”兜底 ✓）"""
+        w = str(where or '')
+        for pre, kind in self.FAIL_CARD_TAG_KINDS:
+            if w.startswith(pre):
+                return kind
+        return '本地异常'
+
+    def _card_gen(self):
+        """当前任务代次（用于“同一轮只出一张卡”✓）"""
+        return getattr(self, '_cur_gen', None)
+
+    def _task_is_stale(self):
+        """本轮是否已被 /stop 顶替（= 弃权 ✓）"""
+        return getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1)
+
+    # ---------- L4-2：最近错误入口（**复用 L4-1 数据层** ✓ 不新造第二套 ✗）----------
+    RECENT_ERRORS_LIMIT = 20
+
+    def recent_errors_text(self, limit=None):
+        """最近错误文本（★ **空态有文案** ✓ 不出现空白 ✗；只读审计 ✓ 不写不删）"""
+        lim = int(limit or self.RECENT_ERRORS_LIMIT)
+        rows = []
+        try:
+            import governance as _gov
+            import pet_diagnosis as _diag
+            rows = _diag.recent_errors(_gov.recent_failure_records(days=2, limit=400), limit=lim)
+        except Exception as _exc:
+            _silent_log('recent_errors_text', _exc)
+        if not rows:
+            return ('最近没有失败记录 ✓\n\n'
+                    '这里会显示最近的失败类型、所在层（与 13 类归因一致）与一句话摘要；\n'
+                    '出现失败时再来看即可。')
+        out = ['最近失败 %d 条（新 → 旧）：' % len(rows), '']
+        for i, r in enumerate(rows, 1):
+            out.append('%2d. %s ｜ %s ｜ %s' % (i, str(r.get('time', '')).replace('T', ' '),
+                                               r.get('layer', ''), r.get('summary', '')))
+            out.append('      （类型 %s ｜ 对象 %s ｜ 动作 %s）'
+                       % (r.get('kind', ''), r.get('actor', ''), r.get('action', '')))
+        out += ['', '提示：点「📋 复制摘要」把这页内容复制出来反馈 ✓']
+        return '\n'.join(out)
+
+    def show_recent_errors(self):
+        """L4-2 入口：最近错误窗口（含**一键复制摘要** ✓）"""
+        text = self.recent_errors_text()
+        try:
+            from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton)
+            from PySide6.QtGui import QGuiApplication
+            dlg = QDialog(self)
+            dlg.setWindowTitle('最近错误')
+            dlg.resize(760, 480)
+            lay = QVBoxLayout(dlg)
+            te = QTextEdit()
+            te.setReadOnly(True)
+            te.setPlainText(text)
+            lay.addWidget(te)
+            row = QHBoxLayout()
+            btn = QPushButton('📋 复制摘要')
+
+            def _copy():
+                try:
+                    QGuiApplication.clipboard().setText(text)
+                    btn.setText('已复制 ✓')
+                except Exception as _exc:
+                    _silent_log('show_recent_errors:copy', _exc)
+            btn.clicked.connect(_copy)
+            row.addWidget(btn)
+            close = QPushButton('关闭')
+            close.clicked.connect(dlg.accept)
+            row.addWidget(close)
+            lay.addLayout(row)
+            dlg.exec()
+        except Exception as _exc:
+            _silent_log('show_recent_errors', _exc)
+            try:
+                self._notify(text[:200])          # 兜底：窗口开不了也要有反馈 ✓
+            except Exception as _e2:
+                _silent_log('show_recent_errors:fallback', _e2)
+
+    def _upstream_notice(self):
+        """L3-1：取上游公告（仅上游类失败用；带 5 分钟缓存 ✓）。
+
+        任何失败都返回 '' ✓（护栏②：绝不影响出卡与主流程 ✗）
+        """
+        try:
+            now = time.time()
+            c = getattr(self, '_upstream_notice_cache', None)
+            if c and now - float(c.get('t', 0)) < 300:
+                return str(c.get('text', ''))
+            import pet_net
+            r = pet_net.probe_status(self._upstream_status_url())
+            text = str(r.get('text', '')) if r.get('state') == 'notice' else ''
+            self._upstream_notice_cache = {'t': now, 'text': text}
+            return text
+        except Exception as _exc:
+            _silent_log('_upstream_notice', _exc)
+            return ''
+
+    def _upstream_status_url(self):
+        """上游状态/公告地址（config 可配 ✓ 未配置则空 → probe_status 返回 unknown ✓ 不显示行）"""
+        try:
+            cfg = getattr(self, 'config', None)
+            if isinstance(cfg, dict):
+                v = str(cfg.get('upstream_status_url') or '').strip()
+                if v:
+                    return v
+        except Exception:
+            pass
+        try:
+            import json as _json
+            with open(CONFIG_PATH, encoding='utf-8') as f:
+                return str((_json.load(f) or {}).get('upstream_status_url') or '').strip()
+        except Exception:
+            return ''
+
+    def _notify_failure_card(self, diag, *, gen=None, source=''):
+        """⭐ 失败卡片**唯一出口**。
+
+        去重口径（微信侧 v1-B 定案 ③）：**同一任务代次只出一张卡**；同代次内**闸门卡优先** ✓。
+        返回：``'emitted'``（真出了卡）/ ``'deduped'``（同代次已出过）/ ``'error'``（出口自身出错）
+        """
+        try:
+            import pet_diagnosis as _diag
+            if diag is None:
+                return 'error'
+            g = self._card_gen() if gen is None else gen
+            kind = getattr(diag, 'layer', '') or ''
+            if g is not None and getattr(self, '_fail_card_gen', None) == g:
+                prev = getattr(self, '_fail_card_kind', '')
+                if not (kind == '本地闸门' and prev != '本地闸门'):
+                    return 'deduped'          # 同代次：只出一张卡 ✓（闸门例外 ✓）
+            self._fail_card_gen, self._fail_card_kind = g, kind
+            # ⭐ D11-2（2026-10-11 修）：**第二道门 = 当天同因只一张** ✓
+            #   与上面的同代次门**并存** ✓（两道粒度不同：同代次 / 同一天）⛔ 非替代 ✗
+            #   ⭐ 上提到本出口 ⇒ 结构上不会再漏第三处 ✓
+            #      （原判只在 _notify_cost_blocked 内部 ⇒ _post_stream(:3331) 那条路**绕过**了它 ✗
+            #       ⇒ 实测 logs/gate_card_state.json 从未生成 ✓ ⇒ 用户看到反复弹 ✗）
+            #   ⛔ 只对 GATE_CARD_KINDS 生效 ✗ —— 别的卡照旧即时出 ✓
+            if kind in GATE_CARD_KINDS:
+                _gk = _gate_card_key_for(diag, kind)
+                _today = time.strftime('%Y-%m-%d')
+                _gc = getattr(self, '_gate_card_day', None)
+                _disk = _gate_card_day_load()
+                _dk = ([str(x) for x in (_disk.get('keys') or [])]
+                       if str(_disk.get('day') or '') == _today else [])
+                if ((_gc and _gc.get('key') == _gk and _gc.get('day') == _today)
+                        or (_gk in _dk)):
+                    return 'deduped'
+                self._gate_card_day = {'key': _gk, 'day': _today}
+                _gate_card_day_mark(_gk, _today)   # ⭐ 先落盘 ✓ 防多实例抢 ✗
+            # L3-1：仅上游类失败附「上游公告」行 ✓（取不到就不出这行 ✓ 护栏③）
+            # 护栏②：公告获取**自身不脆** —— 任何问题均降级为无公告，绝不影响出卡 ✗
+            try:
+                notice = self._upstream_notice() if kind in self.UPSTREAM_LAYERS else ''
+            except Exception as _exc:
+                _silent_log('_notify_failure_card:notice', _exc)
+                notice = ''
+            self.ai_reply_signal.emit(_diag.to_card(diag, notice=notice))
+            return 'emitted'
+        except Exception as _exc:
+            _silent_log('_notify_failure_card', _exc)
+            return 'error'
+
+    def _on_user_facing_failure(self, where, exc):
+        """hook 入口（`_silent_log(user_facing=True)` → 这里）：归因 → 单点出卡 ✓"""
+        try:
+            import pet_diagnosis as _diag
+            if self._classify_fail_tag(where) == '工具失败':
+                d = _diag.tool_diag(str(where), exc)
+            else:
+                d = _diag.local_diag(exc, context=str(where))
+            return self._notify_failure_card(d, source=str(where))
+        except Exception as _exc:
+            _silent_log('_on_user_facing_failure', _exc)
+            return 'error'
+
+    COST_BLOCKED_NOTIFY_COOLDOWN = 3600   # 同原因的拦截**状态条**提示，对话栏 60 分钟内只写一次
+
+    def _cost_gate_key(self, why):
+        """闸门原因**归类**（按类算 key ✓ 不按原文 ✗）
+
+        缺陷 2（2026-09-25）：原按 reason 原文算 key ✗ → 金额/措辞一变就成"新原因" ✓
+        → 同一天不同来源各出一张卡 ✗。改为归类后同日同类只出一次 ✓
+        """
+        w = str(why or '')
+        if '余额' in w:
+            return 'balance'          # 账户余额不足（含其它项目消费）✗
+        if '上限' in w:
+            return 'daily_cost'       # 当日花费达上限 ✓
+        return 'other'
+
+    def _notify_cost_blocked(self, why):
+        """成本闸门拦截提示（v6.79 → **2026-09-25 缺陷 2 加固**）。
+
+        四件：
+        ① 审计不限频（调用方每次都记 deny ✓ 不动 ✗）
+        ② **状态条**：同因 60 分钟一次 —— ⭐ 原实现把 ``self._notify(...)`` 写在**冷却判断之前** ✗
+           → 每次被拦都写一条 ✗（缺陷 2 主因 ✓）→ 现改为**先判冷却再写** ✓
+        ③ **卡片**：改为**当天同因只出一张** ✓（原 60 分钟 + 按原文算 key → 反复出 ✗）
+        ④ **触顶即挂起主动关心，次日自动恢复** ✓（触发源 = 主动关心定时唤醒 ✓ Owner 口径 ✓）
+        """
+        why = str(why)
+        key = self._cost_gate_key(why)
+        now = time.time()
+        today = time.strftime('%Y-%m-%d')
+        # ② 状态条：同因 60 分钟一次（**先判冷却再写** ✓）
+        last = getattr(self, '_cost_blocked_notify', None)
+        if not (last and last.get('key') == key
+                and now - float(last.get('t', 0)) < self.COST_BLOCKED_NOTIFY_COOLDOWN):
+            self._cost_blocked_notify = {'key': key, 't': now}
+            try:
+                self._notify('（成本闸门：%s）' % why, ms=self.COST_NOTIFY_MS)
+            except Exception as _exc:
+                _silent_log('_notify_cost_blocked:status', _exc)
+        # ③ 卡片：**当天同因只一张** ✓
+        # ⭐ D11-2（2026-10-11 修）：这道门已**上提到唯一出口** `_notify_failure_card` ✓
+        #   —— 原判在本函数内部 ⇒ `_post_stream`(:3331) 那条出口**绕过**了它 ✗ ⇒ 用户看到反复弹 ✗；
+        #   现由出口统一判（按 kind 归类 ✓）⇒ 两条路一致 ✓。本处只负责**触发** ✓
+        #   ⭐ 保留 D1（2026-09-26）的**落盘态**语义 ✓：出口内同样是「内存态 ＋ 落盘态合并判」✓
+        try:
+            import pet_diagnosis as _diag
+            self._notify_failure_card(_diag.gate_diag(why), gen=None, source='cost_gate')
+        except Exception as _exc:
+            _silent_log('_notify_cost_blocked:card', _exc)
+            self.ai_reply_signal.emit('（已暂停本次调用：%s）' % why)   # 出口失败 → 兜底**一次** ✓
+        # ④ 触顶即挂起主动关心（次日自动恢复 ✓）
+        self._suspend_active_care(reason=why)
+
+    def _suspend_active_care(self, reason=''):
+        """缺陷 2：触顶 → **先掐掉触发源**（主动关心）✓；只挂起，不永久关闭 ✓"""
+        try:
+            if getattr(self, 'active_chat_enabled', False):
+                self.active_chat_enabled = False
+            self._care_suspended_date = time.strftime('%Y-%m-%d')
+            self._care_suspended_reason = str(reason or '')
+            log.info('主动关心已挂起（成本触顶，仅本次运行内，不写 config）：%s', reason)
+        except Exception as _exc:
+            _silent_log('_suspend_active_care', _exc)
+
+    def _resume_active_care_if_new_day(self):
+        """缺陷 2：**次日自动恢复**——只恢复"被我们挂起的"主动关心 ✓（用户自己关的不动 ✗）
+
+        返回 True 表示本次真的恢复了 ✓
+        """
+        try:
+            d = getattr(self, '_care_suspended_date', '')
+            if not d:
+                return False
+            if d == time.strftime('%Y-%m-%d'):
+                return False
+            self._care_suspended_date = ''
+            self._care_suspended_reason = ''
+            self.active_chat_enabled = True
+            try:
+                self._notify('（新的一天：因触顶暂停的主动关心已自动恢复）')
+            except Exception as _exc:
+                _silent_log('_resume_active_care_if_new_day:notify', _exc)
+            log.info('主动关心已自动恢复（跨天 ✓）')
+            return True
+        except Exception as _exc:
+            _silent_log('_resume_active_care_if_new_day', _exc)
+            return False
+
     def _run_task(self, text, images=None):
         """v6.43b：立即执行任务（分配代次 + 置 busy + 起线程）
 
@@ -897,12 +1432,17 @@ class PetWidget(QWidget):
             import governance as _gov_c
             _ok_c, _why_c, _used_c = _gov_c.check_cost()
             if not _ok_c:
+                # v6.79：审计不限频（每次都记 deny）；对话栏提示改走 _notify_cost_blocked 做同原因冷却
                 _gov_c.log_event('deny', 'ai.calls', '模型调用', _why_c, allowed=False)
-                self.ai_reply_signal.emit('（已暂停本次调用：%s）' % _why_c)
+                self._notify_cost_blocked(_why_c)
                 return
         except Exception as _exc:
             _silent_log('_run_task:cost', _exc)   # 成本门出问题不影响正常对话
         self._ai_generation = getattr(self, '_ai_generation', 0) + 1
+        # 批 C：消费**一次性用途标记**（主动关心路径会先置 `_pending_purpose='care'` ✓）
+        # ⭐ 缺省 'chat' → **不影响既有行为** ✗；一次性消费避免跨任务串味 ✗
+        self._cur_task_purpose = getattr(self, '_pending_purpose', '') or 'chat'
+        self._pending_purpose = ''
         self._cur_task_text = text
         self._ai_busy = True
         try:
@@ -1055,6 +1595,15 @@ class PetWidget(QWidget):
         except Exception:
             d['affection'] = '—'
         try:
+            # v6.79：饱食度写进「状态」页 —— 原先只能在喂食气泡里闪一句
+            # （使用者反馈「饱食度没有明显显示，不确定什么时候降到 30 以下」）
+            _sat = float(self.affection.satiety(self.current))
+            d['satiety'] = '%.0f%%' % max(0.0, min(100.0, _sat))
+            d['satiety_low'] = _sat < 30        # 与 affection_engine.SATIETY_LOW 同口径
+        except Exception:
+            d['satiety'] = '—'
+            d['satiety_low'] = False
+        try:
             d['todos'] = [dict(t) for t in (self.todos or [])]
         except Exception:
             d['todos'] = []
@@ -1206,7 +1755,7 @@ class PetWidget(QWidget):
                 if used:
                     return content, used, errs
             except Exception as _exc:
-                _silent_log('_vision_content:files_api', _exc)
+                _silent_log('_vision_content:files_api', _exc, user_facing=True)   # v1-B：用户发图要看→看图失败
         return build_vision_content(text, paths)
 
     # ---------- 智能本地应用检索（v6.36） ----------
@@ -1473,7 +2022,7 @@ class PetWidget(QWidget):
                 subprocess.Popen([target])
                 return f'已打开 {app}'
             except Exception as _exc:
-                _silent_log('_smart_open:1182', _exc)   # v6.54
+                _silent_log('_smart_open:1182', _exc, user_facing=True)   # v1-B：用户说“打开 XX”失败必须告知
 
         # 2. 常见中文名映射（非精确匹配）
         fuzzy = {
@@ -1514,7 +2063,7 @@ class PetWidget(QWidget):
                 subprocess.Popen([path])
                 return f'已打开 {app}'
         except Exception as _exc:
-            _silent_log('_smart_open:1223', _exc)   # v6.54
+            _silent_log('_smart_open:1223', _exc, user_facing=True)   # v1-B
 
         # 5. 尝试文件路径（存在则用默认程序打开）
         if os.path.exists(app):
@@ -1527,7 +2076,7 @@ class PetWidget(QWidget):
             if result == 0:
                 return f'已尝试打开 {app}'
         except Exception as _exc:
-            _silent_log('_smart_open:1236', _exc)   # v6.54
+            _silent_log('_smart_open:1236', _exc, user_facing=True)   # v1-B
 
         return f'找不到 {app}，请确认名称'
 
@@ -1709,8 +2258,10 @@ class PetWidget(QWidget):
                     self.memory_summaries = self.memory_summaries[-6:]
                 self._save_memory()
             self.chat_history_msgs = self.chat_history_msgs[10:]
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续：这里含**模型调用 ＋ 记忆落盘** ✗ —— 失败至少要在**日志**留痕 ✓
+            #    （不做弹窗：自动摘要失败频度可能高 ✓ 且用户无可操作性 ✓）
+            _silent_log('_summarize_old', exc)
 
     def _request_confirm(self, message):
         """跨线程请求用户确认（主线程弹窗），返回 True/False"""
@@ -1734,7 +2285,26 @@ class PetWidget(QWidget):
                 result['ok'] = False
             evt.set()
         self.confirm_signal.emit(ask)
-        evt.wait(timeout=120)
+        # ⭐ A9（D2-2）：⭐ **不得长挂** ✗ —— 界面被遮挡/无可窗口/主线程忙时，
+        #    旧实现要卡满 120 秒 ✗（用户视角＝程序死了 ✗）。
+        #    现：budget 可配（默认 30s ✓）；⭐ 超时**明说**并按「不确认」处理 ✗ 不静默挂住 ✓。
+        budget = 30.0
+        try:
+            budget = float((getattr(self, 'config', {}) or {}).get('confirm_timeout_s') or 30)
+        except Exception as _e:
+            _silent_log('_request_confirm.budget', _e)
+        got = evt.wait(timeout=budget)
+        if not got:
+            # ⭐ 超时**必须留痕**（日志 ✓）＋ **对用户可见**（状态条 ✓）✗ 不静默 ✓
+            # ⭐ 直接落痕 ✗ 不再套 try（我上一版这里是 `except: pass` ✗
+            #    —— 在"给失败留痕"的代码里写静默 pass ✓ 被对方护栏当场抓出 ✓）
+            _silent_log('_request_confirm.timeout', RuntimeError(
+                '确认框 %.0fs 未回应 → 按「不确认」处理' % budget))
+            try:
+                self._notify(self._t('confirm_timeout_note') % {'s': int(budget)}, ms=8000)
+            except Exception as _e:
+                _silent_log('_request_confirm.notify', _e)
+            return False
         return result['ok']
 
     # ============ 记忆管理 UI（v6.12） ============
@@ -1810,11 +2380,48 @@ class PetWidget(QWidget):
         except Exception:
             self.todos = []
 
-    def _save_todos(self):
+    def _save_todos(self, from_panel=False):
+        """存盘。from_panel=True 表示这次存盘是面板自己发起的（不再回刷面板）。
+
+        2026-10-21 补（P2，Owner 2026-10-21「你开始修吧」批准）：
+            原先只有面板自己的按钮会 refresh，AI 走 `_manage_todo` 改完只存盘、
+            不刷新 ⇒ 面板开着时用户看到的是旧列表（数据对、显示过期）。
+            刷新放在本方法这一个出口：add / done / remove 三条路最后都走它，
+            一处覆盖全部，以后新增分支也不用再补。
+        """
         try:
             self._atomic_write_json(TODO_PATH, self.todos)
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续：待办是**用户数据** ✗ —— 写盘失败**不得静默** ✗
+            #    （静默吞掉 = 用户以为存上了、其实丢了 ✗）
+            _silent_log('_save_todos', exc)
+            try:
+                self._notify('⚠ 待办保存失败：%s' % type(exc).__name__)
+            except Exception as _e2:
+                _silent_log('_save_todos.notify', _e2)
+        if not from_panel:
+            self._sync_todo_panel()
+
+    def _sync_todo_panel(self):
+        """把常驻待办面板拉到最新（外部改了 todos 之后调用）。
+
+        ⛔ 防重入必须有：面板 refresh() 给老数据补 id 时会回调 _save_todos，
+        回头又进本方法 ⇒ 没有闸门就会来回触发（实测能停，但多存一次盘、
+        多发一次信号，靠"数据恰好已补过 id"停下，属于偶然而非设计）。
+        """
+        if getattr(self, '_todo_syncing', False):
+            return
+        panel = getattr(self, '_todo_panel', None)
+        if panel is None:
+            return
+        self._todo_syncing = True
+        try:
+            panel.refresh()
+        except RuntimeError as exc:
+            # 面板已随对话框销毁（Qt 对象没了），不是数据问题，留痕即可
+            _silent_log('_sync_todo_panel', exc)
+        finally:
+            self._todo_syncing = False
 
     def _todo_block(self):
         """生成注入 prompt 的待办清单块（拆至 prompt_builder.build_todo_block）"""
@@ -1828,7 +2435,7 @@ class PetWidget(QWidget):
         if action == 'add':
             if not text.strip():
                 return '内容为空'
-            self.todos.append({'id': f't{int(datetime.datetime.now().timestamp() * 1000)}',
+            self.todos.append({'id': self._new_todo_id(),
                                'text': text.strip(), 'done': False, 'created': now})
             self._save_todos()
             return f'已加入待办：{text.strip()}（当前 {len(self.todos)} 项）'
@@ -1837,115 +2444,193 @@ class PetWidget(QWidget):
                 return '当前没有待办事项'
             return '\n'.join(f'{"✅" if t.get("done") else "⬜"} {t.get("text", "")}' for t in self.todos)
         if action == 'done':
-            for t in self.todos:
-                if t.get('id') == tid or (text and (text in t.get('text', ''))):
-                    t['done'] = True
-                    self._save_todos()
-                    return f'已完成：{t.get("text", "")}'
-            return '未找到对应待办'
+            t = self._find_todo(self.todos, tid, text)
+            if t is None:
+                return '未找到对应待办'
+            t['done'] = True
+            self._save_todos()
+            return f'已完成：{t.get("text", "")}'
         if action == 'remove':
-            for t in self.todos[:]:
-                if t.get('id') == tid or (text and (text in t.get('text', ''))):
-                    self.todos.remove(t)
-                    self._save_todos()
-                    return f'已删除待办：{t.get("text", "")}'
-            return '未找到对应待办'
+            t = self._find_todo(self.todos, tid, text)
+            if t is None:
+                return '未找到对应待办'
+            self.todos.remove(t)
+            self._save_todos()
+            return f'已删除待办：{t.get("text", "")}'
         return '未知操作（add/list/done/remove）'
 
+    @staticmethod
+    def _new_todo_id():
+        """生成待办 id。
+
+        2026-10-21 补：原来只用毫秒戳，同一毫秒连加两条会撞号 ⇒ 按 id 定位
+        会命中先出现的那条（静默改错条目）。加自增序号后同毫秒也不撞。
+        """
+        import datetime
+        import itertools
+        if not hasattr(PetWidget, '_todo_id_counter'):
+            PetWidget._todo_id_counter = itertools.count(1)
+        return 't%d_%d' % (int(datetime.datetime.now().timestamp() * 1000),
+                           next(PetWidget._todo_id_counter))
+
+    @staticmethod
+    def _find_todo(todos, tid, text=''):
+        """按 id 或文字定位一条待办，找不到返回 None。
+
+        定位顺序写死为 ① id 精确 ② 文字完整相等 ③ 文字子串（取第一条）。
+        ⛔ 顺序不能倒：子串放最前会「传『写』就命中第一条含『写』的」，
+        用户以为改的是 A、实际改的是 B，而且不报错。
+        """
+        if tid:
+            for t in todos:
+                if t.get('id') == tid:
+                    return t
+        text = (text or '').strip()
+        if not text:
+            return None
+        for t in todos:
+            if t.get('text', '') == text:
+                return t
+        for t in todos:
+            if text in t.get('text', ''):
+                return t
+        return None
+
+    # ============ 3.0 主区（批 2）============
+    def _register_builtin_panels(self):
+        """把已实现的面板注册到 panel_registry（幂等：重复调用不报错）。
+
+        ⛔ 判据 3：这里只做**注册**。加新面板时在本函数后面加一句 register_panel
+           即可，_open_main_area 与 PanelShell 都不用动。
+        """
+        try:
+            import panel_registry as _pr
+        except Exception as _exc:
+            _silent_log('_register_builtin_panels:import', _exc)
+            return 0
+        n = 0
+        try:
+            from todo_panel import TodoPanel as _TP
+            T = self._t
+            labels = {
+                'status': T('todo_status'), 'content': T('mem_content'),
+                'time': T('todo_time'), 'placeholder': T('todo_placeholder'),
+                'add': T('todo_add'), 'done': T('todo_done'),
+                'del': T('todo_del'), 'clear': T('todo_clear_done'),
+            }
+
+            def _make_todo(host, _labels=labels, _TP=_TP):
+                return _TP(host.todos, lambda: host._save_todos(from_panel=True),
+                           labels=_labels)
+
+            _pr.register_panel('todo', T('todo_menu'), _make_todo,
+                               order=10, hint='待办清单（点条目可切换完成）', replace=True)
+            n += 1
+        except Exception as _exc:
+            # ⚠ 两个面板**各自独立** try（WX-098 §五，2026-10-22）：
+            #   原先共用一个 try 且标签写死 ':todo' —— 状态面板失败会被记成待办面板失败，
+            #   排查时被引到错模块。拆开后谁失败谁留痕，互不牵连。
+            _silent_log('_register_builtin_panels:todo', _exc)
+        try:
+            import status_panel as _sp
+            _pr.register_panel('status', '状态', lambda host: _sp.StatusPanel(host._side_panel_data),
+                               order=20, hint='今日用量、余额、模型与好感饱食度', replace=True)
+            n += 1
+        except Exception as _exc:
+            _silent_log('_register_builtin_panels:status', _exc)
+        return n
+
+    def _open_main_area(self):
+        """打开主区容器（可选入口，不点永远不会出现）。
+
+        判据 2 的落点：默认启动仍是现有桌宠；本窗口只有主动点进来才有。
+        关掉只是 hide，不销毁数据、不影响桌宠。
+        """
+        from shiboken6 import isValid
+        dlg = getattr(self, '_main_area', None)
+        if dlg is not None and isValid(dlg):
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+            return dlg
+        self._register_builtin_panels()
+        try:
+            from panel_shell import PanelShell
+            w = PanelShell(self, parent=None, labels={
+                'title': self._t('main_area'),
+                'hint': self._t('main_area_hint'),
+                'empty': self._t('main_area_empty'),
+            })
+        except Exception as _exc:
+            _silent_log('_open_main_area:build', _exc, user_facing=True)
+            return None
+        self._main_area = w
+        w.show()
+        return w
+
+    def _make_main_area_button(self, parent):
+        """造「主区」入口按钮（可选入口的可见落点）。
+
+        ⛔ 不塞进 SidePanel 内部布局：那要改它的表头行，牵动页签排布；
+           这里做成独立按钮，side_panel.py 一行不动。
+        """
+        from PySide6.QtWidgets import QPushButton
+        b = QPushButton(self._t('main_area'), parent)
+        b.setToolTip(self._t('main_area_hint'))
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFixedHeight(22)
+        b.clicked.connect(self._open_main_area)
+        self._main_area_btn = b
+        return b
+
     def _open_todo_manager(self):
-        """待办管理窗口：添加/勾选完成/删除/清空已完成"""
-        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-                                       QPushButton, QHeaderView, QLineEdit)
-        is_en = getattr(self, 'language', 'zh') == 'en'
+        """待办管理窗口（非模态，可长期开着）
+
+        2026-10-17 改造（Owner 批准，见 WX-89）：
+          1. exec() 模态 -> show() 非模态：大界面要把这个面板装进停靠区，模态会锁死主界面
+          2. 行号定位 -> id 定位：常驻面板存在「外部改动窗口」（AI 在别处改 todos
+             而面板没收到通知），用行号会静默勾错条目
+        面板控件在 todo_panel.TodoPanel，与本方法解耦，可直接装进大界面的停靠区。
+        """
         T = self._t
+        from shiboken6 import isValid
+
+        dlg = getattr(self, '_todo_dlg', None)
+        if dlg is not None and isValid(dlg):
+            if dlg.isVisible():
+                dlg.raise_()
+                dlg.activateWindow()
+                return
+            # 复用前先刷新：面板关着这段时间里，AI 可能改过 todos
+            self._todo_panel.refresh()
+            dlg.show()
+            return
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout
+        from todo_panel import TodoPanel
+
         dlg = QDialog(self)
         dlg.setWindowTitle(T('todo_menu'))
         dlg.resize(540, 420)
         lay = QVBoxLayout(dlg)
-
-        table = QTableWidget(0, 3)
-        table.setHorizontalHeaderLabels([T('todo_status'), T('mem_content'), T('todo_time')])
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.setColumnWidth(0, 70)
-        table.setColumnWidth(2, 110)
-        table.verticalHeader().setVisible(False)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        lay.addWidget(table, 1)
-
-        def refresh():
-            table.setRowCount(0)
-            for t in self.todos:
-                r = table.rowCount()
-                table.insertRow(r)
-                table.setItem(r, 0, QTableWidgetItem('✅' if t.get('done') else '⬜'))
-                table.setItem(r, 1, QTableWidgetItem(t.get('text', '')))
-                table.setItem(r, 2, QTableWidgetItem(t.get('created', '')))
-
-        def toggle_done(row, col):
-            if row < len(self.todos):
-                self.todos[row]['done'] = not self.todos[row].get('done', False)
-                self._save_todos()
-                refresh()
-
-        def add_todo():
-            txt = inp.text().strip()
-            if txt:
-                self._manage_todo('add', txt)
-                inp.clear()
-                refresh()
-
-        def done_selected():
-            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
-            for r in rows:
-                if 0 <= r < len(self.todos):
-                    self.todos[r]['done'] = True
-            self._save_todos()
-            refresh()
-
-        def del_selected():
-            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
-            for r in rows:
-                if 0 <= r < len(self.todos):
-                    self.todos.pop(r)
-            self._save_todos()
-            refresh()
-
-        def clear_done():
-            self.todos = [t for t in self.todos if not t.get('done')]
-            self._save_todos()
-            refresh()
-
-        # 输入行
-        top = QHBoxLayout()
-        inp = QLineEdit()
-        inp.setPlaceholderText(T('todo_placeholder'))
-        inp.returnPressed.connect(add_todo)
-        b_add = QPushButton(T('todo_add'))
-        b_add.clicked.connect(add_todo)
-        top.addWidget(inp, 1)
-        top.addWidget(b_add)
-        lay.addLayout(top)
-
-        # 操作行
-        bottom = QHBoxLayout()
-        b_done = QPushButton(T('todo_done'))
-        b_done.clicked.connect(done_selected)
-        b_del = QPushButton(T('todo_del'))
-        b_del.clicked.connect(del_selected)
-        b_clear = QPushButton(T('todo_clear_done'))
-        b_clear.clicked.connect(clear_done)
-        b_close = QPushButton('✕')
-        b_close.clicked.connect(dlg.close)
-        bottom.addWidget(b_done)
-        bottom.addWidget(b_del)
-        bottom.addWidget(b_clear)
-        bottom.addStretch(1)
-        bottom.addWidget(b_close)
-        lay.addLayout(bottom)
-
-        table.cellDoubleClicked.connect(toggle_done)
-        refresh()
-        dlg.exec()
+        # P3（2026-10-21）：面板自己存盘 ⇒ 不再回刷面板。
+        #   原先传裸方法（默认 from_panel=False），导致用户点一下复选框
+        #   ⇒ todo_panel 先 refresh 一次、宿主又 refresh 一次（实测 2 次），
+        #   选中行与滚动位置被重建抹掉。
+        #   ⛔ 用 lambda 不用 functools.partial：_todo_panel 被替换时
+        #     partial 会抓住旧的 bound method，lambda 每次现取。
+        self._todo_panel = TodoPanel(
+            self.todos, lambda: self._save_todos(from_panel=True),
+            labels={
+                'status': T('todo_status'), 'content': T('mem_content'),
+                'time': T('todo_time'), 'placeholder': T('todo_placeholder'),
+                'add': T('todo_add'), 'done': T('todo_done'),
+                'del': T('todo_del'), 'clear': T('todo_clear_done'),
+            },
+            parent=dlg)
+        lay.addWidget(self._todo_panel)
+        self._todo_dlg = dlg
+        dlg.show()          # 非模态：不阻塞主界面
 
     # ============ AI 状态预判（v6.19） ============
     @staticmethod
@@ -1954,33 +2639,75 @@ class PetWidget(QWidget):
         return guess_status(text)
 
     def _web_search(self, query):
-        """Tavily 联网搜索：返回格式化结果给 LLM；未配置 key 时返回提示"""
-        if not getattr(self, 'search_api_key', ''):
-            return '（未配置搜索 API key：请在 设置 → 联网搜索 中填写 Tavily API key 后重试）'
+        """联网搜索：走 DeepSeek 官方 Search API
+
+        2026-10-19 从 Tavily 换成 DeepSeek 官方（Owner 批准，方案 A）：
+          · 复用已有的 DeepSeek Key —— 用户不用再单独注册 Tavily
+          · 与模型无关：搜索是本地发 HTTP，不是让模型调用内置工具
+            （对比：官方内置 web_search 只在 deepseek-v4-pro 生效，
+             走方案 B 就得强制用户换到贵 3.4~7.5 倍的模型）
+          · 官方 QPS 仅 5，函数内做节流；401/402/429 分别说清原因
+        """
+        import time as _time
+        import urllib.error as _ue
+        import urllib.request as _ur
+
+        key = (self._api_key_for_field('deepseek_api_key') or '').strip()
+        if not key:
+            return ('（联网搜索需要 DeepSeek API Key：请在 设置 里填写。'
+                    '搜索复用这把 Key，不需要另外注册其他搜索服务）')
+
+        # 官方限速 QPS 5 ⇒ 两次调用至少间隔 200ms，避免 429
+        now = _time.monotonic()
+        last = getattr(self, '_last_search_ts', 0.0)
+        if 0 <= now - last < 0.2:
+            _time.sleep(0.2 - (now - last))
+        self._last_search_ts = _time.monotonic()
+
+        payload = json.dumps({'query': query, 'count': 5}).encode()
+        req = _ur.Request(
+            'https://api.deepseek.com/v1/tools/search',
+            data=payload,
+            headers={'Authorization': 'Bearer ' + key,
+                     'Content-Type': 'application/json'})
         try:
-            import urllib.request as _ur
-            payload = json.dumps({
-                'api_key': self.search_api_key,
-                'query': query,
-                'max_results': 5,
-                'search_depth': 'basic',
-            }).encode()
-            req = _ur.Request('https://api.tavily.com/search', data=payload,
-                              headers={'Content-Type': 'application/json'})
             with _ur.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read().decode())
-            results = data.get('results', [])
-            if not results:
-                return '（搜索无结果）'
-            lines = []
-            for r in results[:5]:
-                title = r.get('title', '')
-                url = r.get('url', '')
-                content = (r.get('content') or '')[:200]
-                lines.append(f'- {title} | {url}\n  {content}')
-            return '\n'.join(lines)
-        except Exception as e:
-            return f'（搜索失败：{e}）'
+                raw = resp.read()
+        except _ue.HTTPError as e:
+            code = e.code
+            if code == 401:
+                return '（搜索失败：DeepSeek Key 无效或已过期，请到 设置 重新填写）'
+            if code == 402:
+                return '（搜索失败：DeepSeek 账户余额不足，充值后再试）'
+            if code == 429:
+                return '（搜索失败：搜索接口限流（每秒最多 5 次），稍等片刻再试）'
+            return '（搜索失败：HTTP %d）' % code
+        except (_ue.URLError, TimeoutError) as e:
+            _silent_log('_web_search.network', e)
+            return '（搜索失败：网络异常（%s），请检查网络后重试）' % type(e).__name__
+
+        try:
+            data = json.loads(raw.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            _silent_log('_web_search.parse', e)
+            return '（搜索失败：搜索服务返回格式异常）'
+
+        results = data.get('results') or []
+        if not results:
+            return '（搜索无结果）'
+
+        out = []
+        for r in results[:5]:
+            title = (r.get('title') or '').strip()
+            url = (r.get('url') or '').strip()
+            # summary（约 600-800 字）比 snippet（约 100 字）信息量大；截断控制 token
+            body = (r.get('summary') or r.get('snippet') or '').strip()
+            body = ' '.join(body.split())      # 压掉原网页里的换行，避免输出格式错乱
+            meta = ' · '.join(x for x in ((r.get('site_name') or '').strip(),
+                                          (r.get('date') or '')[:10]) if x)
+            head = '- %s' % title + ('（%s）' % meta if meta else '')
+            out.append('%s\n  %s\n  %s' % (head, url, body[:300]))
+        return '\n'.join(out)
 
     # ---------- AI 自我管理（阶段1+2：改配置/读自己代码） ----------
     CONFIG_WHITELIST = ('personality', 'reply_style', 'max_tokens', 'city', 'language',
@@ -2060,8 +2787,10 @@ class PetWidget(QWidget):
                     self._set_live2d_model(value)
                 elif key == 'sedentary_minutes':
                     self.sedentary_minutes = int(value)
-            except Exception:
-                pass
+            except Exception as _exc:
+                # ⭐ 风险 1 第一批（夜检报告）：热加载失败**不能静默** ✗ ——
+                #   否则界面回“✅ 已修改”，而运行态其实没更新 ✗（静默不一致）
+                _silent_log('_save_cfg_value:hot_reload', _exc)
             return f'✅ 已修改 {key}={value}'
         return '（写入失败）'
 
@@ -2808,7 +3537,8 @@ class PetWidget(QWidget):
             except Exception as _exc:
                 _silent_log('_post_stream:2256', _exc)   # v6.54
         except Exception as e:
-            # 400 等 HTTP 错误：显示响应体中的具体原因（DeepSeek error.message）
+            # 400 等 HTTP 错误：把响应体里的具体原因提出来，交 pet_diagnosis 做四段归因（L2 v0）
+            detail = ''
             try:
                 import urllib.error as _ue
                 if isinstance(e, _ue.HTTPError):
@@ -2818,11 +3548,19 @@ class PetWidget(QWidget):
                         detail = jsonlib.loads(body).get('error', {}).get('message') or body[:200]
                     except Exception as _exc:
                         _silent_log('_post_stream:2267', _exc)   # v6.54
-                    self.ai_reply_signal.emit(f'（AI 出错了：HTTP {e.code} — {detail}）')
-                else:
+            except Exception as _exc:
+                _silent_log('_post_stream:diag', _exc)   # 归因取数失败不影响原报错路径
+            # L2 + L5 + v1-B：一次归因 → 既写审计（L5）又经**唯一出口**渲染四段卡片（L2）
+            # v1-B 弃权处置：本轮若已被 /stop 顶替 → 不计入判错统计、不弹卡 ✗
+            _stale = self._task_is_stale()
+            _d = _audit_failure(e, detail=detail, context='对话', count=not _stale)
+            if _stale:
+                _silent_log('_post_stream:yielded', e)     # 弃权：只留痕，不出卡
+            else:
+                _st = self._notify_failure_card(_d, gen=self._card_gen(), source='_post_stream')
+                if _st == 'error':
+                    # 兜底：归因/出口不可用时，仍按旧文案报错（不静默失败）
                     self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
-            except Exception:
-                self.ai_reply_signal.emit(f'（AI 出错了：{e}）')
         finally:
             # v6.43b：仅当代任务清 busy，然后自动执行队列下一任务（FCFS）
             # v6.53：被 /stop 顶替的旧线程，退出后再接续队列（_stop_ai 只置 _pending_resume）
@@ -2860,6 +3598,10 @@ class PetWidget(QWidget):
         target_state = self.EMOTION_STATE_MAP.get(emotion)
         if not target_state:
             return
+        # v6.79 缺陷 74④：补 state —— 原先只渲染不设 state，5 秒表情期内 state 仍是 'idle'，
+        # blink_tick/_blend_end 会按 idle 提前把情绪图刷回待机（与 _special_reaction 同类竞态）
+        self.state = target_state
+        self.phase = 0
         self._show_state_image(target_state)
         self.show_emotion(self.EMOTION_EMOJI_MAP.get(emotion, '✨'), 2000)
         if self._emotion_restore_timer is None:
@@ -3220,7 +3962,7 @@ class PetWidget(QWidget):
                     if isinstance(_m, dict) and _m.get('text'):
                         _m['text'] = _re.sub(r'\[emotion:[^\]]*\]', '', str(_m['text']))
         except Exception as _exc:
-            _silent_log('_load_chat_memory:2593', _exc)   # v6.54
+            _silent_log('_load_chat_memory:2593', _exc, user_facing=True)   # v1-B：记忆读失败→“它怎么不记得了”
 
     def _echo_display_history(self):
         """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）"""
@@ -3241,7 +3983,7 @@ class PetWidget(QWidget):
             msgs = self.chat_history_msgs[-50:]
             self._atomic_write_json(mem_path, {'messages': msgs, 'display': self.display_msgs[-300:]})
         except Exception as _exc:
-            _silent_log('_save_chat_memory:2614', _exc)   # v6.54
+            _silent_log('_save_chat_memory:2614', _exc, user_facing=True)   # v1-B：记忆写失败→“它忘了”
 
     def _clear_chat_memory(self):
         self.chat_history_msgs = []
@@ -3849,8 +4591,13 @@ class PetWidget(QWidget):
     def _save_reminders(self):
         try:
             self._atomic_write_json(self._reminders_path(), self.reminders)
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续：提醒也是**用户数据** ✗ —— 静默 = 关机后丢了都不知道 ✗
+            _silent_log('_save_reminders', exc)
+            try:
+                self._notify('⚠ 提醒保存失败：%s' % type(exc).__name__)
+            except Exception as _e2:
+                _silent_log('_save_reminders.notify', _e2)
 
     def _load_reminders(self):
         """加载持久化提醒：关机期间已到期的 → 补发到聊天面板（用户能看到）；未到期 → 继续计时"""
@@ -3865,8 +4612,14 @@ class PetWidget(QWidget):
                 self._save_reminders()   # 关键：补发过的从文件移除，防重启/重开重复补发
                 for r in missed:
                     self._deliver_missed_reminder(r)
-        except Exception:
-            pass
+        except Exception as exc:
+            # ⭐ 风险 1 后续（护栏抓出 ✓）：这里**连读带存**都吞 ✗
+            #    —— 提醒读不出来 = 用户数据**静默丢** ✗（且补发过的存不回去 → 重启会重复补 ✗）
+            _silent_log('_load_reminders', exc)
+            try:
+                self._notify('⚠ 提醒读取异常：%s' % type(exc).__name__)
+            except Exception as _e2:
+                _silent_log('_load_reminders.notify', _e2)
 
     def _deliver_missed_reminder(self, r):
         """补发关机期间错过的提醒到聊天面板"""
@@ -4047,19 +4800,12 @@ class PetWidget(QWidget):
             pass
 
     def _render_idle_offset(self, dx):
-        """渲染待机图带水平偏移（光标跟随用）"""
-        src = self.full_idle
-        if src is None or src.isNull():
-            return
-        size = self.pet_size
-        canvas = QPixmap(size, size)
-        canvas.fill(Qt.transparent)
-        p = QPainter(canvas)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        scaled = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        p.drawPixmap(int((size - scaled.width()) / 2) + dx, int((size - scaled.height()) / 2), scaled)
-        p.end()
-        self.pet_label.setPixmap(canvas)
+        """渲染待机图带水平偏移（光标跟随用）
+
+        ⭐ D11-5（2026-10-11）：改为复用 `_render_frame` ✓（原来自己重画一遍 ✗，
+        且**不用缓存** ⇒ 每帧重新 scaled ✗）。逻辑等价 ✓ 但少了重复代码与重复缩放 ✓
+        """
+        self._render_frame(self.full_idle, dx=dx)
 
     # ---------- 早安日报（v6.22） ----------
     def _start_morning_report(self):
@@ -4185,6 +4931,15 @@ class PetWidget(QWidget):
         self.peek_sleep_pixmap = QPixmap(ps) if os.path.exists(ps) else None
         pbs = asset(key, 'peek_bottom_sleep')
         self.peek_bottom_sleep_pixmap = QPixmap(pbs) if os.path.exists(pbs) else None
+        # 缺陷 1（Owner 2026-09-25 22:58 裁定）：**饥饿贴边立绘** ✓ 资产由微信侧产
+        # 命名对齐现有：flash_peek_hungry.png / flash_peek_top_hungry.png / flash_peek_bottom_hungry.png
+        ph = asset(key, 'peek_hungry')
+        self.peek_hungry_pixmap = QPixmap(ph) if os.path.exists(ph) else None
+        pth = asset(key, 'peek_top_hungry')
+        self.peek_top_hungry_pixmap = QPixmap(pth) if os.path.exists(pth) else None
+        pbh = asset(key, 'peek_bottom_hungry')
+        self.peek_bottom_hungry_pixmap = QPixmap(pbh) if os.path.exists(pbh) else None
+        self._peek_hungry_warned = False
         # 状态/场景立绘：懒加载（首次用到才读盘，加速启动）
         self.state_imgs = {}
         self.scene_imgs = {}
@@ -4205,10 +4960,41 @@ class PetWidget(QWidget):
             pth = asset(self.current, key)
             if os.path.exists(pth):
                 self.scene_imgs[key] = QPixmap(pth)
+            # v6.79（采纳微信侧 89 号加固建议）：**资源漏配不再静默** ——
+            # `asset()` 对任何键都会兜底到 fallback / {role}_idle.png ✗ → “漏配”永远不被发现，
+            # 而它正是今天缺陷 75 的共同土壤 ✓ → 无专属素材时记一条审计 warning（每键只一次 ✓）
+            try:
+                exact = os.path.join(ASSETS, self.current, f'{self.current}_{key}.png')
+                if not os.path.exists(exact):
+                    self._warn_asset_fallback(key)
+            except Exception:
+                pass
         return self.scene_imgs.get(key)
 
-    def _render_frame(self, pixmap=None):
-        """渲染一帧到 pet_label（默认待机图，等比缩放居中；缩放结果缓存复用）"""
+    def _warn_asset_fallback(self, key):
+        """场景键无专属素材（已回退）：写审计 warning，每键只记一次（防噪声）"""
+        seen = getattr(self, '_asset_fallback_warned', None)
+        if seen is None:
+            seen = self._asset_fallback_warned = set()
+        if key in seen:
+            return
+        seen.add(key)
+        try:
+            import governance as _gov
+            _gov.log_event('warn', 'ui.asset', '资源漏配',
+                           '场景键 %s 无专属素材，已回退（fallback/idle）' % key, allowed=True)
+        except Exception as _exc:
+            _silent_log('_warn_asset_fallback', _exc)
+
+    def _render_frame(self, pixmap=None, dx=0):
+        """渲染一帧到 pet_label（默认待机图，等比缩放居中；缩放结果缓存复用）
+
+        ⭐ D11-5（2026-10-11）：新增 ``dx`` —— **只让立绘水平偏移** ✓
+          背景：摆头/摇曳原先靠 ``animate`` 里 ``self.move(...)`` ✗ ⇒ 搬的是**整个窗口** ✗
+                ⇒ `chat_panel` 是它的子控件（`self.chat_panel = QFrame(self)`）
+                ⇒ **对话面板跟着人物一起左右晃** ✗（Owner 实测「看得我头都晕了」✓）
+          现改为**只偏移立绘像素** ✓ ⇒ 窗口不动 ⇒ 面板/状态栏/输入框全部稳定 ✓
+        """
         src = pixmap if pixmap is not None else self.full_idle
         if src is None or src.isNull():
             return
@@ -4221,7 +5007,8 @@ class PetWidget(QWidget):
         canvas.fill(Qt.transparent)
         p = QPainter(canvas)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        p.drawPixmap(int((size - scaled.width()) / 2), int((size - scaled.height()) / 2), scaled)
+        p.drawPixmap(int((size - scaled.width()) / 2) + int(dx),
+                     int((size - scaled.height()) / 2), scaled)
         p.end()
         self.pet_label.setPixmap(canvas)
 
@@ -4247,6 +5034,31 @@ class PetWidget(QWidget):
         """恢复显示状态：睡眠→睡眠立绘，否则→待机（贴边拖出/弹出后用）
         （实现已搬至 pet_anim.restore_display_state）"""
         return anim.restore_display_state(self)
+    def _peek_hungry_variant(self, side):
+        """缺陷 1：饥饿贴边图（**有则用 ✓ 缺则回落普通贴边图 ✓ 但不静默失败** ✗）
+
+        回落时写审计 warning（沿用 `_warn_asset_fallback` 口径 ✓；每角色只记一次 ✓）
+        """
+        if side in ('left', 'right'):
+            pm = getattr(self, 'peek_hungry_pixmap', None)
+            suffix = ''
+        elif side == 'top':
+            pm = getattr(self, 'peek_top_hungry_pixmap', None)
+            suffix = '_top'
+        else:
+            pm = getattr(self, 'peek_bottom_hungry_pixmap', None)
+            suffix = '_bottom'
+        if pm is not None and not pm.isNull():
+            return pm
+        if not getattr(self, '_peek_hungry_warned', False):
+            self._peek_hungry_warned = True
+            try:
+                self._warn_asset_fallback('%s_peek%s_hungry（饥饿贴边图缺失，已回落普通贴边图）'
+                                          % (self.current, suffix))
+            except Exception as _exc:
+                _silent_log('_peek_hungry_variant', _exc)
+        return None
+
     def _show_peek(self):
         """扒边立绘（四方向：左右竖条镜像对齐，上下横条；Live2D 模式由模型代替）"""
         if getattr(self, 'display_mode', 'static') == 'live2d':
@@ -4286,9 +5098,13 @@ class PetWidget(QWidget):
                 p.end()
                 self.pet_label.setPixmap(canvas)
                 return
-            if self.peek_pixmap is None or self.peek_pixmap.isNull():
+            src = None
+            if getattr(self, 'state', '') == 'hungry':
+                src = self._peek_hungry_variant(side)   # 饥饿贴边图（缺则回落 ✓）
+            if src is None:
+                src = self.peek_pixmap
+            if src is None or src.isNull():
                 return
-            src = self.peek_pixmap
             if side == 'right':
                 src = src.transformed(QTransform().scale(-1, 1))
             canvas = QPixmap(size, size)
@@ -4308,6 +5124,10 @@ class PetWidget(QWidget):
                     img = self.peek_bottom_sleep_pixmap
                 else:
                     img = self._get_state_img('sleep')
+            elif getattr(self, 'state', '') == 'hungry':
+                img = self._peek_hungry_variant(side)   # 饥饿贴边图（缺则回落 ✓）
+                if img is None:
+                    img = self.peek_top_pixmap if side == 'top' else self.peek_bottom_pixmap
             elif side == 'top':
                 img = self.peek_top_pixmap
             else:
@@ -4581,6 +5401,8 @@ class PetWidget(QWidget):
         self._bubble_mode = 'care'
         self._care_click_text = text
         self._care_kind = kind if kind in self._CARE_LABEL else 'care'
+        # 批 C：标记本轮用途为**主动关心** ✓（供记账分项；一次性 ✓ 由 `_run_task` 消费 ✗）
+        self._pending_purpose = 'care'
         try:
             pb.apply_say_bubble_theme(self.bubble, self.theme, 'care')
             self.bubble.setCursor(Qt.PointingHandCursor)
@@ -4681,16 +5503,27 @@ class PetWidget(QWidget):
             self._show_idle()
 
     def _restore_state_after_emotion(self):
-        """情绪立绘结束后恢复待机（实现已搬至 pet_anim.restore_after_emotion）"""
-        return anim.restore_after_emotion(self)
+        """情绪立绘结束后恢复（v6.79）：仍低饱食 → 回饥饿态；否则交回 pet_anim 原语回待机
+        （Owner 2026-09-23 14:53：饥饿期间被情绪接管，情绪收尾后仍回饥饿状态）"""
+        return self._rest_idle_or_hungry(lambda: anim.restore_after_emotion(self))
     # ---------- 场景动作 ----------
     def play_scene(self, key):
         """播放场景动作立绘（6 秒后恢复待机）
         （实现已搬至 pet_anim.play_scene）"""
         return anim.play_scene(self, key)
     def _end_scene(self):
-        """场景动作结束：恢复待机（实现已搬至 pet_anim.end_scene）"""
-        return anim.end_scene(self)
+        """场景动作结束（v6.79）：仍低饱食 → 回饥饿态；否则交回 pet_anim 原语回待机"""
+        return self._rest_idle_or_hungry(lambda: anim.end_scene(self))
+
+    def _warn_unknown_scene(self, key):
+        """未登记的场景动作键（v6.79 缺陷 75）：降级保可用，同时**写审计 warning 保可诊** ——
+        未知键是「代码与数据不同步」的信号 ✗，完全静默会把它丢掉（定稿依据：微信侧 88 号 ✓）。"""
+        try:
+            import governance as _gov
+            _gov.log_event('warn', 'ui.scene', '场景动作',
+                           '未登记的 key：%s（已降级为「还没准备好」）' % key, allowed=True)
+        except Exception as _exc:
+            _silent_log('_warn_unknown_scene', _exc)
     # ---------- 眨眼 ----------
     def _do_blink(self):
         """眨眼定时器回调（实现已搬至 pet_anim.blink_tick）"""
@@ -4711,7 +5544,7 @@ class PetWidget(QWidget):
                          f"type={type(resp).__name__} keys={list(resp.keys())[:6] if isinstance(resp, dict) else '-'} "
                          f"usage={'有' if isinstance(resp, dict) and resp.get('usage') else '无'}\n")
         except Exception as _exc:
-            _silent_log('_record_api_usage:3839', _exc)   # v6.54
+            _silent_log('_record_api_usage:3839', _exc, user_facing=True)   # v1-B：记账失败→账不准（闸门依赖它）
         try:
             if not isinstance(resp, dict):
                 return
@@ -4719,7 +5552,8 @@ class PetWidget(QWidget):
             if not usage:
                 return
             model = resp.get('model') or fallback_model or ''
-            cost = self.api_stats.record(usage, model)
+            cost = self.api_stats.record(usage, model,
+                                         purpose=getattr(self, '_cur_task_purpose', 'chat'))
             # v6.62：模型没配价格时提醒一次（不再拿别人价目编数字，但要让用户知道钱没算上）
             try:
                 _last = self.api_stats.last or {}
@@ -4729,17 +5563,19 @@ class PetWidget(QWidget):
                         self._notify('⚠ 模型 %s 未配置价格，费用未计入「设置 → 模型管理」可填' % model,
                                      ms=self.COST_NOTIFY_MS)
             except Exception as _exc:
-                _silent_log('_record_api_usage:price_unknown', _exc)
+                _silent_log('_record_api_usage:price_unknown', _exc, user_facing=True)   # v1-B：记账失败
             if cost:
                 self.cost_bubble_signal.emit(cost)  # v6.30 费用气泡
             # v6.61：余额缓存过期（默认 10 分钟）→ 后台静默刷一次（不弹提示、不阻塞）
             try:
                 if self.api_stats.balance_stale(getattr(self, 'balance_auto_minutes', 10)):
                     self._query_balance_async(manual=False)
-            except Exception:
-                pass
+            except Exception as _exc:
+                # ⭐ 风险 1 第一批（夜检报告）：网络路径失败至少留日志 ✓
+                #   （仍**不弹提示** ✓ 保持原有“不打扰”语义 ✗）
+                _silent_log('_record_api_usage:balance_auto', _exc)
         except Exception as _exc:
-            _silent_log('_record_api_usage:3851', _exc)   # v6.54
+            _silent_log('_record_api_usage:3851', _exc, user_facing=True)   # v1-B：记账失败
 
     def _show_api_stats_history(self):
         """显示最近 API 调用历史（消息框）"""
@@ -5376,7 +6212,8 @@ class PetWidget(QWidget):
                 if not os.path.isfile(p):
                     return m.group(0)
                 try:
-                    raw = open(p, 'rb').read()
+                    with open(p, 'rb') as _fh:      # ⭐ S3：with 关句柄（长驻 GUI 里漏句柄是真隐患 ✗）
+                        raw = _fh.read()
                 except Exception:
                     return m.group(0)
                 if img_bytes + len(raw) > MAX_IMG_BYTES:
@@ -5420,6 +6257,11 @@ class PetWidget(QWidget):
         return pb.to_table_html(m)
     def _remove_status_line(self):
         """删除状态行 widget（⏳/思考中）"""
+        try:
+            if getattr(self, '_ai_status_timer', None) is not None:
+                self._ai_status_timer.stop()     # v6.79 L1：状态行没了，秒表必须停（否则空转）
+        except Exception:
+            pass
         if self._status_widget is not None:
             try:
                 self.chat_history_layout.removeWidget(self._status_widget)
@@ -5430,14 +6272,47 @@ class PetWidget(QWidget):
             return True
         return False
 
+    AI_STATUS_TICK_MS = 1000      # v6.79 L1：在途状态每秒刷一帧（秒表）
+
     def _update_ai_status(self, text):
-        """更新 AI 处理状态（删旧状态行 + 追加新状态行，不残留）"""
-        self._remove_status_line()
-        self._status_widget = QLabel(f'⏳ {text}')
-        self._status_widget.setWordWrap(True)
-        self._status_widget.setStyleSheet(
-            f'color:{self._tk("ui_text_dim")}; font-size:11px; background:transparent; padding:2px 0;')
-        self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1, self._status_widget)
+        """更新 AI 处理状态（v6.79 L1：**在途状态带秒表**）
+
+        原先每次状态变更都“删旧建新”11px 灰字 ✗ → ① 看不清 ② 重试文案一闪即过 ✗
+        ③ **看不出“已经等了多久”** ✗ —— 使用者遇到上游中断时无法区分“在正常等”与“已经死了”。
+        现在：状态行**原地刷新**，文本附上已等秒数（每秒更新）✓
+        """
+        if self._status_widget is None:      # 新一轮状态（任务开始）→ 重置秒表
+            self._ai_status_t0 = time.time()
+        self._ai_status_text = str(text or '')
+        self._render_ai_status(create=True)
+        if getattr(self, '_ai_status_timer', None) is None:
+            self._ai_status_timer = QTimer(self)
+            self._ai_status_timer.setInterval(self.AI_STATUS_TICK_MS)
+            self._ai_status_timer.timeout.connect(lambda: self._render_ai_status())
+        self._ai_status_timer.start()
+
+    def _render_ai_status(self, create=False):
+        """渲染在途状态行：`⏳ 正在思考… · 已等 12s`（v6.79 L1）"""
+        txt = getattr(self, '_ai_status_text', '') or ''
+        try:
+            waited = int(max(0.0, time.time() - float(getattr(self, '_ai_status_t0', 0) or 0)))
+        except Exception:
+            waited = 0
+        label = '⏳ %s · 已等 %ds' % (txt, waited)
+        if self._status_widget is None:
+            if not create:
+                return
+            self._status_widget = QLabel(label)
+            self._status_widget.setWordWrap(True)
+            self._status_widget.setStyleSheet(
+                f'color:{self._tk("ui_text_dim")}; font-size:11px; background:transparent; padding:2px 0;')
+            self.chat_history_layout.insertWidget(self.chat_history_layout.count() - 1,
+                                                  self._status_widget)
+        else:
+            try:
+                self._status_widget.setText(label)
+            except Exception:
+                return
         self._chat_scroll_bottom()
 
     def _panel_qss(self):
@@ -6317,24 +7192,24 @@ class PetWidget(QWidget):
                 self._notify('✅ API Key 已更新，AI 立即生效' if not is_en else '✅ API key updated, AI takes effect immediately')
 
     def _set_search_key_dialog(self):
-        """弹窗设置 Tavily 联网搜索 API Key（可选，配置后 AI 可联网查最新信息）"""
-        from PySide6.QtWidgets import QInputDialog, QLineEdit
+        """联网搜索说明（2026-10-19 起改用 DeepSeek 官方 Search，不再需要单独 Key）"""
+        from PySide6.QtWidgets import QMessageBox
         is_en = getattr(self, 'language', 'zh') == 'en'
-        cur = getattr(self, 'search_api_key', '') or ''
-        if len(cur) > 12:
-            masked = cur[:6] + '…' + cur[-4:]
-        elif cur:
-            masked = cur
+        has_key = bool((self._api_key_for_field('deepseek_api_key') or '').strip())
+        if is_en:
+            title = 'Web Search'
+            body = ('Web search now uses the DeepSeek Search API and reuses your DeepSeek API key. '
+                    'No separate key is needed.\n\n'
+                    'Current DeepSeek key: %s\n\n'
+                    'Cost: CNY 5 per 1000 searches.') % ('configured' if has_key else 'NOT configured')
         else:
-            masked = '（未配置）' if not is_en else '(not set)'
-        text, ok = QInputDialog.getText(self, self._t('dlg_search'),
-            (f'输入 Tavily 联网搜索 API Key（留空取消；https://tavily.com 免费注册，每月 1000 次）：\n当前：{masked}'
-             if not is_en else f'Enter Tavily search API key (leave empty to cancel; free 1000/mo at tavily.com):\nCurrent: {masked}'),
-            QLineEdit.Password, cur)
-        if ok and text.strip():
-            if self._save_cfg_value('search_api_key', text.strip()):
-                self.search_api_key = text.strip()
-                self._notify('✅ 联网搜索已配置，AI 可查询最新信息' if not is_en else '✅ Search configured, AI can browse for latest info')
+            title = '联网搜索'
+            body = ('联网搜索已改为走 DeepSeek 官方 Search API，直接复用你的 DeepSeek API Key，'
+                    '不需要再单独申请搜索服务的 Key。\n\n'
+                    '当前 DeepSeek Key：%s\n\n'
+                    '费用：每 1000 次搜索 5 元（约 0.005 元/次）。') % (
+                        '已配置' if has_key else '尚未配置——请先到「API 设置」填写')
+        QMessageBox.information(self, title, body)
 
     def _save_profile_param(self, name, value):
         """写当前角色的档案参数并落盘（思考开关 / 采样温度等）"""
@@ -7190,14 +8065,15 @@ class PetWidget(QWidget):
         # 待机/拖拽/睡眠：完全静止，不重绘不移动（杜绝闪烁）
         if self.state == 'idle' or self.sleeping or self.dragging:
             return
-        # 思考/开心：轻微左右摆头（只动位置，不重绘图片）
+        # 思考/开心/饥饿等：轻微左右摆头
+        # ⭐ D11-5（2026-10-11 修）：原来这里是 `self.move(base_x + dx, base_y)` ✗
+        #   —— 搬的是**整个窗口** ⇒ `chat_panel` 是其子控件 ⇒ **对话面板跟着一起晃** ✗
+        #      （Owner 实测：饥饿状态下面板左右晃，「看得我头都晕了」✓）
+        #   现改为**只偏移立绘像素** ✓ ⇒ 窗口位置不动 ⇒ 面板/状态栏/输入框全部稳定 ✓
+        #   附带：原先靠 move 实现还会让**窗口真实位置**漂移（base_x 记账 ✗），本改一并消除 ✓
         self.phase += 1
         dx = int(3 * math.sin(self.phase * 0.25))
-        if self.base_x is None:
-            self.base_x = self.x()
-        if self.base_y is None:
-            self.base_y = self.y()
-        self.move(self.base_x + dx, self.base_y)
+        self._render_frame(self._get_state_img(self.state), dx=dx)
 
     # ---------- 睡眠 ----------
     def toggle_sleep(self):
@@ -7232,8 +8108,33 @@ class PetWidget(QWidget):
             QTimer.singleShot(2500, lambda: self._end_state('happy'))
 
     def _end_state(self, st):
-        """临时状态收尾（实现已搬至 pet_anim.end_state）"""
-        return anim.end_state(self, st)
+        """临时状态收尾（v6.79）：仅当仍处该状态时收尾（否则空转 —— 不打断已接管的状态）；
+        落点：仍低饱食 → 饥饿态；否则交回 pet_anim 原语回待机"""
+        if self.sleeping or self.state != st:
+            return
+        self._rest_idle_or_hungry(lambda: anim.end_state(self, st))
+
+    def _still_hungry(self):
+        """是否仍处低饱食（<30）—— 收尾落点的判据（v6.79）"""
+        try:
+            return float(self.affection.satiety(self.current)) < 30
+        except Exception:
+            return False
+
+    def _rest_idle_or_hungry(self, fallback):
+        """临时状态收尾的统一落点（v6.79）：仍低饱食 → 回饥饿态（持续状态）；
+        否则交回 pet_anim 的收尾原语回待机（fallback = anim.end_state / end_scene /
+        restore_after_emotion 之一 —— 原语仍被复用，不留 0 调用点的死代码）。
+
+        Owner 2026-09-23 追加裁定：饥饿期间被情绪/小游戏/惊吓接管时，收尾后仍回饥饿状态
+        （优先级：睡眠 > scared > 情绪 > 小游戏 > hungry > 待机）。
+        """
+        if self.sleeping:
+            return
+        if self._still_hungry():
+            self._enter_hungry()
+            return
+        fallback()
     # ---------- 鼠标 ----------
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -7750,25 +8651,60 @@ class PetWidget(QWidget):
         self._notify('低余额提醒：%s' % ('已关闭' if val <= 0 else '低于 ¥%.2f 时提醒' % val))
         return True
 
+    BALANCE_BASE = 'https://api.deepseek.com'
+
+    def _balance_target(self):
+        """余额该查哪个账户（D11-4，2026-10-21）
+
+        不再跟随当前模型档案：余额是 DeepSeek 账户的属性，与当前用
+        flash / pro / kimi / 中转 无关。原先跟随档案会导致切到中转时
+        查到「中转站自己的余额」，数字与后台对不上（Owner 实测）。
+
+        返回 (key, base, note)：note 为空表示当前档案本来就是 DeepSeek。
+        config.balance_base_url 可覆盖 base（中转用户自己填官方地址）。
+        """
+        try:
+            key = self._api_key_for_field('deepseek_api_key')
+        except Exception as _exc:
+            _silent_log('_balance_target:key', _exc)
+            key = getattr(self, 'ai_key', '') or ''
+        base = self.BALANCE_BASE
+        try:
+            override = str((getattr(self, '_cfg', None) or {}).get('balance_base_url') or '').strip()
+            if override:
+                base = override
+        except Exception as _exc:
+            # 配置读不出来就退回官方地址；这一条必须落痕（静默护栏的判据：不许 except-pass）
+            _silent_log('_balance_target:override', _exc)
+        note = ''
+        try:
+            cur_base = str(self._current_endpoint() or '')
+            if cur_base and 'api.deepseek.com' not in cur_base:
+                host = cur_base.split('//')[-1].split('/')[0]
+                note = '当前模型走的是 %s，余额查的是 DeepSeek 账户' % host
+        except Exception as _exc:
+            _silent_log('_balance_target:note', _exc)
+            note = ''
+        return key, base, note
+
     def _query_balance_async(self, manual=True):
         """后台查询余额（不阻塞 UI）；结果经 balance_signal 回主线程
 
         manual=False（对话后自动）时全程静默：不弹状态条，失败也不打扰。
+        D11-4：改用 _balance_target()，固定查 DeepSeek 账户（见该函数注释）。
         """
         if getattr(self, '_balance_busy', False):
             return False
         try:
-            key = self._current_api_key()
-        except Exception:
-            key = getattr(self, 'ai_key', '')
+            key, base, note = self._balance_target()
+        except Exception as _exc:
+            _silent_log('_query_balance_async:target', _exc)
+            key, base, note = getattr(self, 'ai_key', ''), self.BALANCE_BASE, ''
         if not key:
             if manual:
                 self._notify('余额：未配置 API Key', ms=self.COST_NOTIFY_MS)
             return False
-        try:
-            base = self._current_endpoint()
-        except Exception:
-            base = ''
+        self._balance_target_note = note
         self._balance_busy = True
 
         def work():
@@ -7803,7 +8739,9 @@ class PetWidget(QWidget):
                 txt = ''
             log.info('余额查询成功：%s', txt)
             if manual:
-                self._notify('💰 余额 %s' % (txt or '—'), ms=self.BALANCE_NOTIFY_MS)
+                _note = str(getattr(self, '_balance_target_note', '') or '')
+                self._notify('💰 余额 %s%s' % (txt or '—', ('；' + _note) if _note else ''),
+                             ms=self.BALANCE_NOTIFY_MS)
             self._maybe_low_balance_alert(info)
         else:
             log.debug('余额查询失败：%s', info.get('error'))
@@ -7834,11 +8772,56 @@ class PetWidget(QWidget):
             self._show_pet_bubble('刚喂过啦，过会儿再喂～')
             return
         self._handle_affection(r)
+        _sat = float(r.get('satiety', 100) or 0)
         try:
+            # v6.79 缺陷 74①：补「设 state → 渲染 → 排收尾」三件套。
+            # 原先只渲染不设 state → end_state 的 state==st 门槛永远进不去 → 亲亲图回不到待机。
+            self.state = 'kiss'
+            self.phase = 0
             self._show_state_image('kiss')  # v6.30 喂食成功：撒娇亲亲
+            QTimer.singleShot(2500, lambda s=_sat: self._end_feed_reaction(s))
         except Exception:
             pass
-        self._show_pet_bubble(f'好吃！饱食度 {r.get("satiety", 100):.0f}%，好感 +2')
+        self._show_pet_bubble(f'好吃！饱食度 {_sat:.0f}%，好感 +2')
+
+    def _end_feed_reaction(self, satiety):
+        """喂食撒娇收尾（v6.79 缺陷 74①）：重判饱食度 ——
+        ≥30 → 回待机；仍 <30 → 回饥饿态（Owner 2026-09-23 79 号裁定：饿了常显）"""
+        if self.sleeping or self.state != 'kiss':
+            return                      # 期间被更高优先级状态接管 → 不抢
+        if float(satiety) < 30:
+            try:
+                self._enter_hungry()
+            except Exception:
+                self._end_state('kiss')
+        else:
+            self._end_state('kiss')
+
+    def _enter_hungry(self):
+        """进入饥饿态（v6.79 缺陷 74③）：持续状态 —— 只设 state + 渲染，
+        不排时间收尾；退出条件是「饱食度回升到 ≥30」（由巡检或喂食收尾判定）"""
+        self.state = 'hungry'
+        self.phase = 0
+        self._show_state_image('hungry')
+
+    HUNGRY_BLOCKING_STATES = ('sleep', 'scared')   # 优先级高于 hungry 的**硬**状态 ✓
+
+    def _hungry_entry_allowed(self):
+        """缺陷 1（Owner 2026-09-25 22:58 裁定）：进入条件从「仅 idle」→**优先级允许即进入** ✓
+
+        - ⛔ 硬阻挡（优先级高于 hungry ✓）：睡觉 / 惊吓
+        - ✅ 原本就允许：`idle`
+        - ⭐ **贴边不算抢占** ✓：贴边时即使 state 被临时表现（气泡/思考）占用，**也允许进入饥饿态** ✓
+          （贴边只是窗口形态，不是优先级状态 ✗）
+        - 退出仍靠「饱食度 ≥30」✓（不排时间收尾 ✓）
+        """
+        if getattr(self, 'sleeping', False) or getattr(self, 'state', '') in self.HUNGRY_BLOCKING_STATES:
+            return False
+        if getattr(self, 'state', '') == 'idle':
+            return True
+        docked = (getattr(self, '_edge_side', None) is not None
+                  and getattr(self, '_edge_mode', '') == 'peek')
+        return bool(docked)
 
     def _open_games(self):
         """打开小游戏窗口"""
@@ -7869,28 +8852,79 @@ class PetWidget(QWidget):
                         self.affection.trigger(self.current, 'chat')  # 破纪录额外好感
                 except Exception as _exc:
                     _silent_log('_on_game_result:5867', _exc)   # v6.54
+            _st = 'victory' if win else 'defeat'
             try:
-                self._show_state_image('victory' if win else 'defeat')
+                # v6.79 缺陷 74②：补「设 state → 渲染 → 排收尾」。原先只渲染 ——
+                # "赢"分支被 play_scene('happy') 接过 state，但"输"分支无后续 → 永久卡在 defeat。
+                self.state = _st
+                self.phase = 0
+                self._show_state_image(_st)
+                QTimer.singleShot(2000, lambda s=_st: self._end_state(s))
             except Exception as _exc:
                 _silent_log('_on_game_result:5871', _exc)   # v6.54
             if win:
+                # 保持原样：play_scene 会把 state 改成 'scene' → 2s 后的 _end_state('victory')
+                # 因 state 不匹配而空转，不打断庆祝动作。
                 self.play_scene('happy')
         except Exception as _exc:
             _silent_log('_on_game_result:5875', _exc)   # v6.54
 
-    def _check_satiety(self):
-        """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）"""
+    def _remote_emit(self, ev):
+        """⭐ B-乙 约定（2026-09-26 修复 `emit` 真错 ✗）：消费器 `emit` 传的是 **dict** ✓
+
+        原实现直接接 `ui_call_signal.emit` ✗ —— 而 host 端 `connect(lambda fn: fn())`
+        把参数当**可调用** ✗ → `TypeError: 'dict' object is not callable` ✗（微信侧真机联测实测 ✓）
+        → 此处桥接：先包成可调用，再经 `ui_call_signal` 回主线程 ✓（约定**两侧对齐** ✓）
+        """
         try:
+            self.ui_call_signal.emit(lambda: self._remote_on_result(ev))
+        except Exception as exc:
+            _silent_log('remote_emit', exc)
+
+    def _remote_on_result(self, ev):
+        """消费结果落地（⭐ v1：**只留一行日志** ✓ 不改既有 UI 行为 ✗）"""
+        try:
+            import pet_log
+            pet_log.get_logger('remote').info('消费结果：%r', ev)
+        except Exception:
+            pass
+
+    def _remote_poll_tick(self):
+        """B-乙 遥控消费（⭐ **仅在开关开启时**才有定时器 ✓；异常不拖垮主程序 ✗）
+
+        ⚠️ 盘内小文件读取（inbox 自带 mtime/size 重载 ✓）；结果经 `ui_call_signal` 回主线程 ✓
+        """
+        try:
+            if self.remote_consumer is not None:
+                self.remote_consumer.poll_once()
+        except Exception as exc:
+            _silent_log('remote_poll', exc)
+
+    def _check_satiety(self):
+        """饱食度巡检：低饱食切饥饿状态图 + 提示（零惩罚，不扣好感；每小时最多提示一次）
+
+        v6.79 缺陷 74③（Owner 2026-09-23 79 号裁定「饿了常显」）：
+        饥饿是**持续状态**而非一次性动作 —— 进入后不排时间收尾，靠「饱食度回升 ≥30」退出；
+        且只在 idle 时进入，不与更高优先级状态相撞
+        （优先级：睡眠 > scared > 情绪 > 小游戏 > hungry > 待机）。
+        """
+        try:
+            self._resume_active_care_if_new_day()   # 缺陷 2：跨天自动恢复被挂起的主动关心 ✓
             s = self.affection.satiety(self.current)
             if s < 30:
-                # v6.30 饥饿状态图（素材已应用后生效）
-                try:
-                    self._show_state_image('hungry')
-                except Exception:
-                    pass
+                if self._hungry_entry_allowed():   # 缺陷 1：优先级允许即进入 ✓（贴边不算抢占 ✓）
+                    # v6.30 饥饿状态图（素材已应用后生效）
+                    try:
+                        self._enter_hungry()
+                    except Exception:
+                        pass
                 if time.time() - getattr(self, '_last_satiety_warn', 0) > 3600:
                     self._last_satiety_warn = time.time()
-                    self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡)')
+                    # 缺陷 1：文案后追加**食物类表情包**（池内随机 ✓ 不写死单个 ✗）
+                    self._show_pet_bubble('肚子好饿…喂我吃点东西嘛 (｡•́︿•̀｡) '
+                                          + random.choice(HUNGRY_EMOJI_POOL))
+            elif self.state == 'hungry':
+                self._end_state('hungry')   # 饱食度已回到阈值以上 → 退出饥饿态回待机
         except Exception:
             pass
 
@@ -8100,6 +9134,8 @@ class PetWidget(QWidget):
         stmenu.addAction('❤️ 与 %s 的关系' % CHARACTERS[self.current]['name']).triggered.connect(
             self._open_relation)
         stmenu.addAction('📖 回忆相册').triggered.connect(self._open_memories)
+        # L4-2：最近错误入口（设置「系统」页也有同款入口 ✓）
+        stmenu.addAction('🧯 最近错误').triggered.connect(self.show_recent_errors)
         stmenu.addSeparator()
         umenu = stmenu.addMenu('📈 API 用量')
         umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())
@@ -8119,11 +9155,161 @@ class PetWidget(QWidget):
                 plmenu.addAction('%s' % label).triggered.connect(
                     lambda checked, c=cmd: self._run_plugin_menu(c))
 
+        # 8. DSH 面板（3.0 · 载体）：只做宿主窗口，不解析它的前端；
+        #    模块不可用/服务未起时安静地不显示或提示，绝不抛异常影响桌宠本体。
+        try:
+            from dsh_panel import open_panel as _dsh_open_panel
+        except Exception:
+            _dsh_open_panel = None
+        if _dsh_open_panel is not None:
+            # ⭐ 检测不到 DSH 时**标注出来**（微信侧 `WX-…-13` §4.2 ✓ 对下载的人友好 ✓）
+            _dsh_label = T('dsh_panel')
+            try:
+                import dsh_adapter as _ad2
+                if not os.path.exists(_ad2.DSH_ROOT):      # ⚠️ 原写 `_os` ✗ 从未定义 → 被 except 吞掉 ✗ 静默失效 ✓
+                    _dsh_label = T('dsh_panel_missing')
+            except Exception as _e:
+                _silent_log('tray.dsh_label', _e)
+            acts['dsh_panel'] = menu.addAction(_dsh_label)
+            acts['dsh_panel'].triggered.connect(self._open_dsh_panel)
+
+        # 8b. ⭐ 协作台（3.0）：Owner 2026-10-04 01:48「菜单/设置里没有入口」✓
+        #     ⭐ 本机服务（127.0.0.1 ✓）⛔ 绝不上网 ✗；与 DSH 同款宿主窗口 ✓
+        try:
+            from collab_panel import open_collab as _collab_open
+        except Exception as _e:
+            _collab_open = None
+            _silent_log('tray.collab_import', _e)
+        if _collab_open is not None:
+            _cport = 8792
+            try:
+                _cport = int((getattr(self, 'config', {}) or {}).get('collab_port') or 8792)
+            except Exception as _e:
+                _silent_log('tray.collab_port', _e)
+            acts['collab_panel'] = menu.addAction(T('collab_panel') % {'port': _cport})
+            acts['collab_panel'].triggered.connect(self._open_collab)
+
         menu.addSeparator()
         acts['hide'] = menu.addAction(T('hide_tray'))
         menu.addSeparator()
         acts['exit'] = menu.addAction(T('exit'))
         return menu, acts
+    def _open_dsh_panel(self):
+        """3.0（P0 **修**）：把 DSH 面板作为独立窗口打开 —— ⭐ **绝不在主线程等** ✗
+
+        Owner 2026-10-04 01:53 实测"点 DSH → 程序未响应"✗；微信侧 `WX-…-14` 确诊：
+        旧实现**同步**调用 `open_panel()`（内部 `sleep(2)` 轮询最长 45s ＋ 起 PowerShell
+        冷启动 ＋ 必要时**重启 DSH 服务** ✓）→ 最坏 ≈60s ✗ → Windows 判"未响应" ✗。
+
+        铁律不变：只做宿主 —— 不解析它的前端、不读凭据、不写它的文件 ✓。
+        本函数**立刻返回** ✓，干活在后台线程 ✓，结果经 `ui_call_signal` 回主线程 ✓。
+        """
+        if getattr(self, '_dsh_busy', False):
+            return False                                   # ⭐ 防连点堆叠 ✓
+        self._dsh_busy = True
+        try:
+            self._notify(self._t('dsh_opening'))                 # ⭐ 先给非阻塞提示 ✓
+        except Exception as _e:
+            _silent_log('_open_dsh_panel.notify', _e)
+        import threading as _th
+        _th.Thread(target=self._dsh_open_worker, daemon=True).start()
+        return True
+
+    def _open_collab(self):
+        """3.0：打开**协作台**（本机 http://127.0.0.1:<port>/）—— ⭐ 同样**不占主线程** ✗
+
+        铁律：⛔ 只监听本机 ✗（绝不上网 ✗）；⛔ 不带 --enable-actions 起服务 ✗（只读面 ✓）；
+        服务没跑 → ⭐ **先问用户**（⛔ 不擅自后台起进程 ✗）。
+        """
+        if getattr(self, '_collab_busy', False):
+            return False
+        self._collab_busy = True
+        try:
+            self._notify(self._t('collab_opening'))
+        except Exception as _e:
+            _silent_log('_open_collab.notify', _e)
+        import threading as _th
+        _th.Thread(target=self._collab_worker, daemon=True).start()
+        return True
+
+    def _collab_worker(self):
+        """后台线程：探测 →（必要时**问用户**）→ 启动 → 开窗口 ✓（⛔ 不碰 UI ✗）"""
+        ok, msg = False, ''
+        try:
+            base = os.path.dirname(os.path.abspath(__file__))
+            port = 8792
+            try:
+                port = int((getattr(self, 'config', {}) or {}).get('collab_port') or 8792)
+            except Exception as _e:
+                _silent_log('_collab_worker.port', _e)
+            from collab_panel import open_collab, _probe as _cp
+            running = _cp(port)
+            if not running:
+                # ⭐ 同 DSH：**没跑就直接启动** ✓（本机只读面 ✓ 界面不冻 ✓）
+                try:
+                    self._notify(self._t('collab_starting'), ms=8000)
+                except Exception as _e:
+                    _silent_log('_collab_worker.notify', _e)
+            ok, msg = open_collab(base, port=port, allow_start=(not running),
+                                  start_budget=40, poll=0.3)
+        except Exception as exc:
+            _silent_log('_collab_worker.exc', exc)      # ⭐ 显式落痕（护栏要求 ✓）
+            ok, msg = False, repr(exc)
+        finally:
+            try:
+                self.ui_call_signal.emit(lambda: self._collab_done(ok, msg))
+            except Exception as _e:
+                _silent_log('_collab_worker.emit', _e)
+
+    def _collab_done(self, ok, msg):
+        """主线程收尾（解除 busy ＋ 明报 ✓ 不静默 ✗）"""
+        self._collab_busy = False
+        if not ok and msg:
+            try:
+                self._notify('%s%s' % (self._t('collab_fail'), msg), ms=10000)
+            except Exception as _e:
+                _silent_log('_collab_done.say', _e)
+        return ok
+
+    def _dsh_open_worker(self):
+        """后台线程：探测 → （必要时**问用户**）→ 打开 ✓（⛔ 全程不碰 UI ✗）"""
+        ok, msg = False, ''
+        try:
+            import dsh_adapter as _ad
+            running = _ad.is_serving()
+            if not running:
+                # ⭐ Owner 02:29「DSH 还是启动不了」→ 根因：旧版"先问用户"的确认框
+                #    在后台线程里**没弹出来** ✗ → 服务从未被拉起 ✗ → 窗口开在死地址上 ✗
+                #    ⭐ 现改为：服务**没跑就直接启动** ✓（界面已不冻 ✓ 故无需先问 ✓）
+                try:
+                    self._notify(self._t('dsh_starting'), ms=8000)
+                except Exception as _e:
+                    _silent_log('_dsh_open_worker.notify', _e)
+            from dsh_panel import open_panel
+            # ⭐⭐ 实测（2026-10-04 03:2x ✓）：DSH 服务从冷启动到监听 3080 **需要约 19 秒** ✗ ——
+            #    而我此前把超时压到 10 秒 ✗ → **不等它起完就放弃** ✗ → 用户看到"拉了没用" ✗。
+            #    ⭐ 现改为**最多等 40 秒** ✓（0.3s 轮询 ✓ 一旦就绪立刻返回 ✓ 不会白等 ✓）
+            ok, msg = open_panel(allow_start=(not running), start_budget=40, poll=0.3)
+        except Exception as exc:
+            _silent_log('_dsh_open_worker.exc', exc)    # ⭐ 显式落痕（护栏要求 ✓）
+            ok, msg = False, repr(exc)
+        finally:
+            try:
+                self.ui_call_signal.emit(lambda: self._dsh_open_done(ok, msg))
+            except Exception as _e:
+                _silent_log('_dsh_open_worker.emit', _e)
+
+    def _dsh_open_done(self, ok, msg):
+        """主线程：收尾（解除 busy ＋ 明报结果 ✓ 失败不静默 ✗）"""
+        self._dsh_busy = False
+        if not ok and msg:
+            # ⭐ Owner 口径（02:29）：不弹气泡 ✗ → 走状态条（可回看＋不挡脸 ✓）；⭐ 失败仍**可见** ✗ 不静默 ✓
+            try:
+                self._notify('%s%s' % (self._t('dsh_panel_fail'), msg), ms=10000)
+            except Exception as _e:
+                _silent_log('_dsh_open_done.say', _e)
+        return ok
+
     def contextMenuEvent(self, event):
         # 扒边贴边状态：右键 = 弹出（锁定其他功能）
         if self._edge_side is not None and self._edge_mode == 'peek' and not self._edge_popped:

@@ -9,6 +9,7 @@
 import os
 import re
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,11 +42,18 @@ def test_notify_does_not_pollute_chat_list():
 
 
 def test_append_chat_still_records_conversation():
-    """对照：对话内容仍要进聊天列表"""
+    """对照：对话内容仍要进聊天列表
+
+    ⚠️ 2026-09-26（D1 批次附带发现 ✓）：原断言 `len == n0 + 1` 在 `display_msgs` **已满 300** 时必红 ✗
+    —— `_append_chat` 追加后**裁到 300** ✓（`:5733-5734` ✓ 设计如此 ✓），故满表时 len 不变 ✗。
+    ⭐ 且当 Owner 真实聊天档已被**闸门刷屏**写满 300 条 ✗（本次缺陷的数据后果 ✓）时必红 ✗。
+    → 改断言**内容落入** ✓（不放松 ✓：反而更直接证明“进聊天列表”✓，且不受满表影响 ✓）
+    """
     p = _pet()
     n0 = len(p.display_msgs)
     p._append_chat('桌宠', '这是一条真正的对话内容')
-    assert len(p.display_msgs) == n0 + 1, '对话内容必须仍进聊天列表'
+    assert p.display_msgs[-1]['text'] == '这是一条真正的对话内容', '对话内容必须仍进聊天列表'
+    assert len(p.display_msgs) in (n0 + 1, 300), '满表时列表长度保持 300 ✓'
 
 
 def test_status_bar_auto_hide_timer():
@@ -73,7 +81,7 @@ def test_status_bar_uses_theme_tokens():
 
 def test_source_guard_system_notices_moved_out():
     """ratchet：系统类话术不得再出现在 _append_chat('桌宠', …) 里"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     calls = re.findall(r"_append_chat\('桌宠',[^\n]*", src)
     bad_words = ['已备份', '已导出', '已导入', '存档并清空', '已切换 Live2D', '开机自启',
                  '配置保存失败', '回复风格', '默认城市', '采样温度', '贴边模式切换',
@@ -85,6 +93,6 @@ def test_source_guard_system_notices_moved_out():
 
 def test_source_guard_notify_widely_used():
     """迁移不能被悄悄回退：_notify 调用点应保持在一个下限之上"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     n = src.count('self._notify(')
     assert n >= 55, '_notify 调用点从 64 掉到 %d，疑似被回退' % n

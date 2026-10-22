@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tools_registry as tr  # noqa: E402
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -85,8 +86,8 @@ def test_voice_summary_tool_in_core():
 
 
 def test_source_guards():
-    pet = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
-    ui = open(os.path.join(ROOT, 'settings_ui.py'), encoding='utf-8-sig').read()
+    pet = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
+    ui = Path(os.path.join(ROOT, 'settings_ui.py')).read_text(encoding='utf-8-sig')
     assert 'tools_for_mode(getattr(self, \'advanced_tools\', False))' in pet, '请求未按模式取工具'
     assert 'self.mcp.tool_schemas() + self.plugin_mgr.tool_schemas()' in pet, '动态工具被误过滤'
     assert 'advanced_tools' in pet and 'def _set_advanced_tools' in pet, '缺少开关落盘方法'

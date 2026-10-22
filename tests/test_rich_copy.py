@@ -31,7 +31,22 @@ def env():
     p = dp.PetWidget()
     p._save_cfg_value = lambda *a, **k: True
     p.say_plain = lambda *a, **k: None          # 静音提示
-    return p, QGuiApplication.clipboard()
+    cb = QGuiApplication.clipboard()
+    yield p, cb
+    # ★ 收尾必须清剪贴板（2026-09-21 修 ACCESS_VIOLATION 退出码）
+    #   本文件往系统剪贴板放了带图富文本（HTML + data URI）；若不清就走，
+    #   进程退出时 OLE 剪贴板所有者已销毁 → 收尾阶段 0xC0000005，
+    #   表现为“全部用例通过但退出码是崩溃码”，会毒死任何按退出码判成败的流水线。
+    try:
+        cb.clear()
+        app.processEvents()
+    except Exception:
+        pass
+    try:
+        p.deleteLater()
+        app.processEvents()
+    except Exception:
+        pass
 
 
 def test_md_image_syntax_becomes_img_tag():

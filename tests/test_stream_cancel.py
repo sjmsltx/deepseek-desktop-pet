@@ -11,6 +11,7 @@ import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import deepseek_client as dc  # noqa: E402
+from pathlib import Path
 
 
 def _sse(lines):
@@ -88,7 +89,7 @@ def test_without_cancel_completes(monkeypatch):
 def test_no_source_regression():
     """源码级护栏：token 上限只走模型档案（不再写 config.json）"""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    src = open(os.path.join(root, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    src = Path(os.path.join(root, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     assert "_save_cfg_value('max_tokens'" not in src, '仍有写 config.json 的 token 路径'
     assert "should_cancel=lambda" in src, '流式未接入取消回调'
     assert "min(4096, int(getattr(self, 'max_tokens'" in src, '兜底上限仍被写死'

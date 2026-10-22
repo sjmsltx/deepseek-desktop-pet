@@ -1,4 +1,4 @@
-# office_probe.ps1 — 在**独立进程**里探测本机可用的办公接口
+﻿# office_probe.ps1 — 在**独立进程**里探测本机可用的办公接口
 #
 # 为什么必须独立进程：COM 在 RPC 服务器异常时会抛 **Windows 致命异常**
 # （0x8007006ba / 0x8007006be），Python 的 try/except **抓不住**，会直接把宿主进程打崩

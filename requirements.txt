@@ -10,7 +10,20 @@ PySide6>=6.5
 # 可选依赖（MCP 扩展）：
 #   mcp     —— Model Context Protocol 客户端（外部工具接入）
 
-mcp>=2.0
+# ⚠️ 代码按 mcp 1.x 的 API 写（`mcp.server.fastmcp` 在 2.x 已更名/移除）
+#   ⇒ 全新环境按 `>=2.0` 装会装到 2.x 并使 MCP 相关测试失败（2026-10-10 外部评估实测）
+#   ⇒ 先钉 <2 保证可复现；2.x 迁移另立一批 ✓
+mcp>=1.2,<2
+
+# 必需依赖（进 3.0 后新增；缺它们会让对应功能与测试失败 —— 2026-10-11 补登 ✓）：
+#   numpy   —— 协作台素材池 `collab/asset_ops.py`（连通域/探针）
+#   scipy   —— 同上（`from scipy import ndimage`）
+#   python-docx  —— `office_skill.py` 生成 .docx
+#   python-pptx  —— `office_skill.py` 生成 .pptx
+numpy>=1.24
+scipy>=1.10
+python-docx>=1.0
+python-pptx>=0.6
 
 # 可选依赖（图片 / 文档解析）：代码里是懒加载，没装时只降级对应功能并提示，不影响启动
 #   Pillow —— 拖入/粘贴图片转 PNG 后走 Windows OCR

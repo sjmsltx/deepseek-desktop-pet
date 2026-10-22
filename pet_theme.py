@@ -58,9 +58,9 @@ DEFAULT_THEME = {
     'ui_bg': '#1e2430',            # 游戏窗口底
     'ui_input_bg': '#141b2c',      # 输入框 / 棋盘底
     'ui_board_bg': '#182136',      # 井字棋 / 打地鼠 棋盘、卡片底
-    'ui_board_deep': '#0d1320',    # 俄罗斯方块底
+    'ui_board_deep': '#0d1320',    # 方块下落底
     'ui_stone_dark': '#111111',    # 五子棋黑子
-    'ui_flash': '#ffffff',         # 西蒙记忆点亮闪烁
+    'ui_flash': '#ffffff',         # 序列记忆点亮闪烁
     'ui_text': '#dce3f0',          # 正文
     'ui_text_strong': '#fff',      # 2048 高位数方块上的文字
     'ui_text_soft': '#9ec',        # 保存按钮文字

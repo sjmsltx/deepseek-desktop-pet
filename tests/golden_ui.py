@@ -29,6 +29,7 @@ import io
 import json
 import os
 import sys
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -230,7 +231,7 @@ def main():
     if not os.path.exists(out):
         print('基线不存在：%s（先跑 capture）' % out)
         return 2
-    base = json.load(io.open(out, encoding='utf-8'))
+    base = json.loads(Path(out).read_text(encoding='utf-8'))
     diffs = diff_sections(base, cur)
     if not diffs:
         print('黄金对照：完全一致 ✅（%d 个分区）' % len(base))

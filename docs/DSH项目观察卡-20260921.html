@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 项目观察卡</title>
+<style>
+  :root{
+    --ink:#15181c;--ink-2:#3d444c;--ink-3:#6b747d;--rule:#d8dcdf;--rule-2:#eceff1;
+    --paper:#fbfbf9;--card:#f4f5f3;--accent:#0b5d63;--accent-soft:#e6f1f1;--warn:#8a4b12;--warn-soft:#fbf1e6;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.78}
+  .wrap{max-width:960px;margin:0 auto;padding:52px 38px 88px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}
+  h1{font-family:var(--serif);font-size:34px;margin:0 0 10px;font-weight:600;line-height:1.24}
+  .sub{color:var(--ink-2);margin:0}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:14px;line-height:1.9}
+  h2{font-family:var(--serif);font-size:23px;margin:46px 0 8px;padding-top:20px;border-top:1px solid var(--rule);font-weight:600}
+  h2 .num{font-family:var(--mono);font-size:13.5px;color:var(--accent);margin-right:9px;vertical-align:2px}
+  p{margin:10px 0}
+  ul{margin:10px 0 10px 22px;padding:0}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.9em;background:var(--card);padding:1px 5px;border-radius:3px;border:1px solid var(--rule-2)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;color:var(--ink-3);padding-bottom:8px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+  thead th{border-bottom:1.5px solid var(--ink);font-size:13px;font-weight:600;color:var(--ink-2);white-space:nowrap}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  td.k{font-weight:600;white-space:nowrap}
+  td.n{text-align:right;font-family:var(--mono);font-size:13.5px}
+  .ok{color:var(--accent);font-weight:600}
+  .no{color:var(--warn);font-weight:600}
+  .muted{color:var(--ink-3)}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border:1px solid var(--rule);background:#fff;margin:20px 0}
+  .metric{padding:15px 17px;border-right:1px solid var(--rule-2)}
+  .metric:last-child{border-right:0}
+  .metric .v{font-family:var(--serif);font-size:24px;font-weight:600;line-height:1.2}
+  .metric .v small{font-size:13px;font-family:var(--sans);font-weight:400;color:var(--ink-2)}
+  .metric .k2{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:4px}
+  .note{border-left:2px solid var(--accent);padding:12px 0 12px 16px;margin:20px 0;
+        background:linear-gradient(90deg,var(--accent-soft) 0%,rgba(230,241,241,0) 78%)}
+  .note.warn{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft) 0%,rgba(251,241,230,0) 78%)}
+  .note .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px;color:var(--accent)}
+  .note.warn .lbl{color:var(--warn)}
+  blockquote{margin:16px 0;padding:12px 18px;border-left:3px solid var(--ink-3);background:var(--card);
+             font-family:var(--serif);font-size:15px;color:var(--ink-2)}
+  footer.doc{margin-top:56px;padding-top:16px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  @media (max-width:700px){.wrap{padding:32px 18px 60px}h1{font-size:26px}.metric{border-right:0;border-bottom:1px solid var(--rule-2)}table{font-size:13.5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">观察卡 · DeepSeek Harness（dsh）</div>
+  <h1>它是"官方主导"，不是"人人可提 PR 的社区项目"</h1>
+  <p class="sub">你问的两件事——研发到底谁在推、以及更新是不是很谨慎——都能用仓库事实回答。数据取自 GitHub 已授权接口，2026-09-21 当次查询。</p>
+  <div class="meta">仓库 deepseek-ai/deepseek-harness ｜ 组织 deepseek-ai（39 个公开仓库，建于 2023-10-18）</div>
+</header>
+
+<h2><span class="num">01</span>项目画像</h2>
+<div class="metrics">
+  <div class="metric"><div class="v">231,710</div><div class="k2">STARS</div></div>
+  <div class="metric"><div class="v">27,783</div><div class="k2">FORKS</div></div>
+  <div class="metric"><div class="v">47</div><div class="k2">贡献者（含匿名）</div></div>
+  <div class="metric"><div class="v">2026-08-13</div><div class="k2">仓库创建 · 至今约 5 周半</div></div>
+</div>
+<table>
+  <thead><tr><th>项</th><th>事实</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td class="k">License / 语言</td><td>MIT / TypeScript</td><td>可自由做外部集成</td></tr>
+    <tr><td class="k">公开 issues</td><td class="n">0</td><td>不走 issue 流程，反馈走 Discussions</td></tr>
+    <tr><td class="k">里程碑</td><td class="no">无公开里程碑</td><td><b>没有公开的版本时间表 / GA 计划</b></td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">02</span>研发模式：官方主导 + 社区做生态</h2>
+<p>决定性的证据在仓库自己的 <code>CONTRIBUTING.md</code> 里，原文两句：</p>
+<blockquote>DeepSeek Harness is still at an early stage and under active development. We are sorry that <b>we cannot accept external pull requests at the moment</b>.</blockquote>
+<blockquote>We do not believe that packages in the official repository are inherently more important than packages created by the community. You may consider this repository an idea, an official showcase, and a source of inspiration, but not a mandate from us.</blockquote>
+<table>
+  <thead><tr><th>所以</th><th>结论</th></tr></thead>
+  <tbody>
+    <tr><td class="k">代码推进</td><td><b>官方团队自己写</b>，目前不接受外部 PR</td></tr>
+    <tr><td class="k">社区参与方式</td><td>写插件包（<code>dsh-plugin</code> topic）、写文章与指南、提反馈</td></tr>
+    <tr><td class="k">贡献者 47 人怎么解释</td><td>公示的是<b>受邀协作/官方团队</b>——头部 12 人提交量 300~6,218 次，明显是核心团队而非零散路人</td></tr>
+  </tbody>
+</table>
+<table>
+  <caption>提交量前 12 名（GitHub contributors 统计）</caption>
+  <thead><tr><th>贡献者</th><th>提交</th><th>贡献者</th><th>提交</th></tr></thead>
+  <tbody>
+    <tr><td class="k">tianyicui</td><td class="n">6,218</td><td class="k">turtle1999</td><td class="n">876</td></tr>
+    <tr><td class="k">LegGasai</td><td class="n">2,257</td><td class="k">pku-xht</td><td class="n">659</td></tr>
+    <tr><td class="k">imccyu</td><td class="n">1,836</td><td class="k">hypatiamay</td><td class="n">495</td></tr>
+    <tr><td class="k">Chinesezjc</td><td class="n">1,032</td><td class="k">Dudu-0223</td><td class="n">431</td></tr>
+    <tr><td class="k">kermanx</td><td class="n">948</td><td class="k">ZiyaZhang</td><td class="n">393</td></tr>
+    <tr><td class="k">CreatixChu</td><td class="n">912</td><td class="k">Kingwl</td><td class="n">305</td></tr>
+  </tbody>
+</table>
+<p class="muted">release notes 里被点名的 @LegGasai / @imccyu / @turtle1999 / @yixiangihsiang / @tianyicui 等，就是这批核心成员。</p>
+
+<h2><span class="num">03</span>更新节奏：其实很密，是"感知落差"</h2>
+<table>
+  <thead><tr><th>指标</th><th>实测</th></tr></thead>
+  <tbody>
+    <tr><td class="k">发布版本数</td><td>2026-08：<b>7 个</b>；2026-09：<b>11 个</b> → 合计 18 个</td></tr>
+    <tr><td class="k">每周提交</td><td>最近 8 周：1,655 / 1,641 / 936 / 1,189 / 792 / 1,581 / 733（当周统计未结算，显示 0）</td></tr>
+    <tr><td class="k">你装的位置</td><td><code>0.1.5-rc.2</code>（<code>latest</code> 标签）—— 而插件管理页、侧边栏 Subagent 会话等在你<b>还没装</b>的 <code>0.1.6-alpha</code> 里</td></tr>
+  </tbody>
+</table>
+<p>所以"UI 感觉没大变化"有三个原因：① 你用的是 RC，不是最新 alpha；② 近期大量变更落在基建/治理层（CI、类型聚合、反馈流程、文件卡片），界面上看不出来；③ 官方自己把它定位成 <b>developer preview</b>，明说"会有破坏性变更"——功能先铺后收。</p>
+
+<h2><span class="num">04</span>正式版什么时候</h2>
+<div class="note warn">
+  <span class="lbl">查不到就写未查到</span>
+  仓库<b>没有公开里程碑、也没有公开的 GA/正式版时间表</b>；官方只表态"仍处早期、活跃开发中"。
+  因此<b>任何"还要几个月"的具体数字都是猜测</b>，我不编。可观测的替代信号：继续跟 <code>alpha → rc → 稳定</code> 的 tag 演进，以及它是否开始接受外部 PR（一旦开放 PR，通常意味着进入收口阶段）。
+</div>
+
+<h2><span class="num">05</span>对我们 3.0 的意义</h2>
+<ul>
+  <li><b>官方欢迎外部"载体/插件"</b>——它把仓库定位成"想法与展示"，明确不认为官方包天然更重要 → 我们做桌面载体、做社区式集成，正落在它鼓励的方向上。</li>
+  <li><b>但不要押注它的内部接口</b>：不接受外部 PR + 明说破坏性变更 → 我们的弱耦合（HTTP + 本地配置只读镜像）才是抗变化的那一侧。</li>
+  <li><b>版本选择建议</b>：想看到明显新东西就切 <code>alpha</code> 标签的 <code>0.1.6-alpha.2</code>（插件管理页 + 侧边栏 Subagent 会话）；想稳就留在 <code>0.1.5-rc.2</code>。</li>
+</ul>
+
+<footer class="doc">
+  DSH 项目观察卡 · 2026-09-21 · 数据源：GitHub REST API（经 gh 已授权查询）、仓库 CONTRIBUTING.md
+</footer>
+
+</div>
+</body>
+</html>

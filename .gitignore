@@ -49,8 +49,6 @@ holidays_cache.json
 
 affection.json
 memories.json
-api_stats.json
-_apistats_debug.log
 gen_actions.py
 cut_actions.py
 assets/new_actions/
@@ -73,5 +71,28 @@ plugins/_uninstalled/
 plugins/_tmp/
 
 # 治理：审计日志（本地运行数据，不进仓库）
-logs/
 
+
+# 第三方 agent 驱动仓库（禁止入库 ✗ 见 COORD.md 禁止清单）
+**/third_party/**
+**/claude.md
+**/.agents/
+
+# 3.0 素材库（体量大、仍在迭代中；Owner 2026-09-23 14:06 指示：不追踪）
+assets_3.0/
+
+# 3.0 协作台运行期状态（项目层投影，由端点兜底创建；本地数据，不进仓库）
+rt/
+collab/pending/
+
+# 素材/档案备份目录（运行器产物：先备份后写入 ✓ 本地数据，不进仓库）
+_raw_backup/
+
+# 原子写的临时兄弟文件（`_atomic_write_json` 崩在中途会残留 ✓ 属运行态 ✗）
+*.json.tmp
+
+# A4 就绪标记（运行态：服务自写自清 ✓）
+collab/.ready
+
+# ⭐ 电脑侧改文件的备份（.bak-<日期>[-<线名>]）—— ⛔ 不进仓库 ✗（⭐ 2026-10-10 ✓）
+*.bak-*

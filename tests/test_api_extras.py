@@ -13,6 +13,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 import pytest  # noqa: E402
+from pathlib import Path
 
 
 def _pet():
@@ -189,7 +190,7 @@ def test_reasoning_flag_off_means_no_attach():
     p = _pet()
     p._remember_reasoning('391', '思考内容')
     p.pass_reasoning_history = False
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert "if getattr(self, 'pass_reasoning_history', True):" in src, '开关必须真的能关掉回传'
 
 

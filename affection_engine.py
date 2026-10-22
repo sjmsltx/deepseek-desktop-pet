@@ -232,8 +232,15 @@ class AffectionEngine:
             }
 
     # ---------- 高分里程碑（v6.30 PhaseD 收尾） ----------
+    # v6.80：小游戏类名改通用表述后的**旧名兼容**（老存档里的最高分继续可用 ✓）
+    _BEST_KEY_ALIASES = {'Tetris': 'FallingBlocks', 'SimonSays': 'SequenceMemory'}   # legacy-alias-ok
+
     def record_best(self, role: str, game: str, score: int) -> dict:
-        """记录游戏最高分（存 stats.best）。破纪录返回 {'is_record': True, 'best', 'prev'}。"""
+        """记录游戏最高分（存 stats.best）。破纪录返回 {'is_record': True, 'best', 'prev'}。
+
+        v6.80：旧类名（Tetris / SimonSays）自动归一到新键 ✓ 老存档兼容 ✓
+        """
+        game = self._BEST_KEY_ALIASES.get(game, game)
         with self._lock:
             st = self._state(role)
             best = st['stats'].setdefault('best', {})

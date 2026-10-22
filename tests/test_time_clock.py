@@ -19,6 +19,7 @@ sys.path.insert(0, BASE)
 
 import server_clock as sc          # noqa: E402
 from api_stats import ApiStats     # noqa: E402
+from pathlib import Path
 
 ApiStats.HOLIDAYS_CACHE = os.path.join(BASE, 'holidays_cache.json')
 
@@ -76,7 +77,7 @@ def test_api_stats_uses_beijing_clock(monkeypatch):
     fixed = datetime.datetime(2026, 9, 18, 10, 0, tzinfo=sc.CN_TZ)   # 周五 10:00 北京
     monkeypatch.setattr(sc, 'beijing_now', lambda *a, **k: fixed)
     assert ApiStats.is_peak_now() is True
-    src = open(os.path.join(BASE, 'api_stats.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'api_stats.py')).read_text(encoding='utf-8')
     assert 'server_clock' in src and 'beijing_now' in src, '计价判定必须用北京时间的来源'
 
 
@@ -107,7 +108,7 @@ def test_skew_text():
 def test_no_dst_assumption_needed():
     """中国无夏令时 → 固定 UTC+8；且不依赖 Windows 缺失的 tzdata"""
     assert sc.CN_TZ.utcoffset(None) == datetime.timedelta(hours=8)
-    src = open(os.path.join(BASE, 'server_clock.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'server_clock.py')).read_text(encoding='utf-8')
     assert 'from zoneinfo' not in src and 'import zoneinfo' not in src, \
         '不要依赖 ZoneInfo（Windows 无 tzdata 会抛错）'
 

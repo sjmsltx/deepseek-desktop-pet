@@ -12,6 +12,7 @@
 import os
 import sys
 import time
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -154,7 +155,7 @@ def test_bubble_fits_dock_window():
 
 def test_source_guard_order_and_wiring():
     """源码护栏：探头必须排在节流判定之后，且开关/看门狗均已接线"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     for token in ('PROBE_WATCHDOG_MS', 'self._probe_from_dock()', '_rehide_after_probe',
                   '_probe_watchdog', "cfg.get('dock_probe'", "'dock_probe'"):
         assert token in src, '扒边探头未接线：%s' % token

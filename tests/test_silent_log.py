@@ -7,6 +7,7 @@
 """
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -21,23 +22,33 @@ def test_silent_log_callable():
     assert callable(dp._silent_log)
 
 
-def test_silent_log_writes_through_pet_log(tmp_path=None):
-    """日志必须真的落到 logs/pet.log（走 pet_log，INFO 级）"""
+def test_silent_log_writes_through_pet_log(tmp_path):
+    """日志必须真的落到文件（走 pet_log，INFO 级）
+
+    ⭐ S2 根治（Owner 2026-09-26 16:21 批「根治」）：**把日志注入到临时目录** ✓
+    → 与仓库 `logs/pet.log` **解耦** ✓（该文件可能被在跑的桌宠持有句柄 ✓ → 一写就触发轮转 ✗ →
+    而 Windows 下被持有不可改名 ✗ → rename 失败 → 记录被丢弃 → **旧写法必红** ✗）
+    """
     import time
+    import pet_log
     import desktop_pet as dp
-    log = os.path.join(ROOT, 'logs', 'pet.log')
-    marker = 'SILENT-UNIT-%d' % int(time.time() * 1000 % 1e9)
-    dp._silent_log(marker, RuntimeError('单测写入'))
-    time.sleep(0.2)
-    txt = open(log, encoding='utf-8').read() if os.path.exists(log) else ''
-    assert marker in txt, '未写入 logs/pet.log'
-    assert 'RuntimeError' in txt.split(marker)[1][:200], '缺少异常类型'
+    log = pet_log.set_log_file(tmp_path / 'pet.log')          # ⭐ 注入（默认行为不变 ✗）
+    try:
+        marker = 'SILENT-UNIT-%d' % int(time.time() * 1000 % 1e9)
+        dp._silent_log(marker, RuntimeError('单测写入'))
+        time.sleep(0.2)
+        txt = Path(log).read_text(encoding='utf-8') if os.path.exists(log) else ''
+        assert marker in txt, '未写入日志（注入路径：%s）' % log
+        assert 'RuntimeError' in txt.split(marker)[1][:200], '缺少异常类型'
+    finally:
+        pet_log.reset()                                       # 还原默认路径 ✓
 
 
 def test_high_value_paths_are_instrumented():
     """源码护栏：高价值路径不得再静默吞异常"""
-    src = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
-    assert 'def _silent_log(where, exc):' in src, '缺少统一出口'
+    src = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
+    assert 'def _silent_log(where, exc, *, user_facing=False):' in src, '缺少统一出口（v1-B 起带 user_facing）'
+    assert '_FAIL_CARD_HOOK' in src, 'v1-B：缺少失败卡片单点出口的桥（hook）'
     assert src.count("_silent_log('") >= 45, '接入点不足 45 处（实际 %d）' % src.count("_silent_log('")
     for fn in ('_post_stream', '_extract_worker', '_smart_open', '_next_task'):
         seg = src.split('def %s' % fn, 1)
@@ -48,13 +59,15 @@ def test_high_value_paths_are_instrumented():
 
 def test_pyproject_has_no_bom():
     """护栏：pyproject.toml 不得带 BOM（PowerShell 写入会带入，TOML 解析会失败）"""
-    raw = open(os.path.join(ROOT, 'pyproject.toml'), 'rb').read()
+    raw = Path(os.path.join(ROOT, 'pyproject.toml')).read_bytes()
     assert not raw.startswith(b'\xef\xbb\xbf'), 'pyproject.toml 带 BOM，TOML 会解析失败'
 
 
 if __name__ == '__main__':
+    import tempfile
     test_silent_log_callable()
-    test_silent_log_writes_through_pet_log()
+    with tempfile.TemporaryDirectory() as _td:
+        test_silent_log_writes_through_pet_log(Path(_td))
     test_high_value_paths_are_instrumented()
     test_pyproject_has_no_bom()
     print('✅ 静默异常接入 4 项断言通过')

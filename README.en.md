@@ -1,5 +1,7 @@
 # DeepSeek Desktop Pet 🐋⚡
 
+> 📜 Registered software copyright name: **Cenzhi Desktop Intelligent Companion Software V1.0** (the open-source project name above is a customary name)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-6.x-green)
@@ -197,6 +199,22 @@ Want to learn from or contribute to this project? Start with [CONTRIBUTING.md](C
 - [x] Plugin-based tool system — shipped: `plugins/` with install / uninstall / list tools
 - [ ] Voice interaction (TTS/ASR) — planned
 - [ ] More characters / Live2D skeletal animation — deferred (asset-heavy, low marginal value)
+
+## 💬 Custom Development & Teaching
+
+This project is **free and open source**. If you need:
+
+- **Custom development** on top of it (feature extension / UI changes / packaging & deployment / integration)
+- **One-on-one teaching or Q&A** (PySide6 desktop apps, desktop-companion interaction, related tech)
+- **Technical consulting** (evaluation, architecture choices, troubleshooting)
+
+Please get in touch:
+
+- ⭐ **Preferred**: open an **Issue** in this repo with a title starting with `[Custom]`, describing your need, expected deliverable and budget range
+- Or check my GitHub profile for contact info
+
+> ⚠️ **Not accepted**: ghost-writing assignments/theses, data fabrication, or any "pay first" arrangement.
+> The scope is limited to this project and related technologies.
 
 ## 📄 License
 

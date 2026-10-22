@@ -13,6 +13,7 @@
 import os
 import re
 import sys
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,7 +66,7 @@ def test_dialog_qss_from_tokens():
 
 
 def test_host_publishes_theme():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     assert 'pet_theme.set_active(self.theme)' in src, '宿主没有发布生效主题'
     j = src.index('def _apply_theme(')
     assert '_publish_theme()' in src[j:j + 900], '_apply_theme 里没有发布主题'

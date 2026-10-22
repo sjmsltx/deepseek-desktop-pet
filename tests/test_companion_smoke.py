@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """v6.53 新增：陪伴核心最小回归 —— 好感度 / 回忆日志 / 气泡渲染 / 主动关心
 
 背景：全面体检发现 13/31 模块零测试，且盲区恰好集中在"陪伴体验"核心。
@@ -7,6 +7,7 @@
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -70,9 +71,9 @@ def test_affection_satiety_and_best():
     s_after = e.satiety('flash')
     assert s_after >= s_before, '喂食后饱食度不应下降'
     assert s_after <= SATIETY_MAX + 0.001, '饱食度超上限'
-    e.record_best('flash', 'tetris', 100)
-    r2 = e.record_best('flash', 'tetris', 50)
-    best = ((e.snapshot('flash').get('stats') or {}).get('best') or {}).get('tetris')
+    e.record_best('flash', 'FallingBlocks', 100)
+    r2 = e.record_best('flash', 'FallingBlocks', 50)
+    best = ((e.snapshot('flash').get('stats') or {}).get('best') or {}).get('FallingBlocks')
     assert best == 100, '最高分应保留较大值，实际 %s' % best
     assert r2.get('is_record') is False, '低分不应判为新纪录'
 
@@ -154,7 +155,7 @@ def test_care_engine_interface():
 
 def test_source_guard_memory_rule():
     """护栏：记忆"只作背景"的约束句 + 闸门入口必须在源码里"""
-    pet = open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    pet = Path(os.path.join(ROOT, 'desktop_pet.py')).read_text(encoding='utf-8-sig')
     assert '记忆的使用方式' in pet and 'search_memory_for_injection(' in pet
 
 

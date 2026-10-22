@@ -25,6 +25,7 @@ if BASE not in sys.path:
 import skill_pack as spk                                          # noqa: E402
 import plugin_manager as pm                                       # noqa: E402
 import governance as gov                                          # noqa: E402
+from pathlib import Path   # ⭐ S3：读文件自动关句柄 ✓
 
 OFFICIAL_BUILTIN = {'office_report', 'pdf_tools', 'image_batch', 'file_organize', 'vision'}
 
@@ -116,7 +117,7 @@ def test_counts_match_docs():
 def test_settings_dialog_does_not_write_config(monkeypatch):
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     cfg = os.path.join(BASE, 'config.json')
-    before = hashlib.md5(open(cfg, 'rb').read()).hexdigest() if os.path.isfile(cfg) else 'NA'
+    before = hashlib.md5(Path(cfg).read_bytes()).hexdigest() if os.path.isfile(cfg) else 'NA'
     import desktop_pet as dp
     import settings_ui as su
     from PySide6.QtWidgets import QApplication
@@ -128,7 +129,7 @@ def test_settings_dialog_does_not_write_config(monkeypatch):
         d.nav.setCurrentRow(i)
         app.processEvents()
     d.close()
-    after = hashlib.md5(open(cfg, 'rb').read()).hexdigest() if os.path.isfile(cfg) else 'NA'
+    after = hashlib.md5(Path(cfg).read_bytes()).hexdigest() if os.path.isfile(cfg) else 'NA'
     assert before == after, '打开设置就把 config.json 改了：%s → %s' % (before, after)
 
 

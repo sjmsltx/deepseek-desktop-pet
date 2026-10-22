@@ -17,6 +17,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 import pytest  # noqa: E402
+from pathlib import Path
 
 
 # ---------------------------------------------------------------- 通用
@@ -99,7 +100,7 @@ def test_request_payload_carries_thinking(monkeypatch):
 
 def test_empty_retry_payload_disables_thinking():
     """空回复重试属于「该直接说话」，源码里必须显式关思考"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     seg = src.split('data2 = jsonlib.dumps(')[1][:900]
     assert "'thinking': {'type': 'disabled'}" in seg
 
@@ -170,7 +171,7 @@ def test_pet_vision_ready_and_content(tmp_path):
 
 def test_vision_call_sites_wired():
     """调用点护栏：拖图 / 附件发送 / 全屏截图三条路都要走视觉判定"""
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert src.count('if self._vision_ready():') >= 2
     assert 'images=vision_imgs' in src
     assert 'def ask_ai(self, text, images=None)' in src

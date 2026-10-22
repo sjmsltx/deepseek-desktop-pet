@@ -88,6 +88,21 @@ class ModelManagerDialog(QDialog):
         f1.addRow('接口地址', self.ed_endpoint)
         f1.addRow('副标题', self.ed_sub)
         f1.addRow('主题色', self.ed_color)
+        # ⭐ 立绘绑定（Owner 2026-10-03「立绘要想自定义」）：只记**目录名**，⛔ 不复制不覆盖任何图 ✓
+        self.ed_portrait = QLineEdit()
+        self.ed_portrait.setPlaceholderText(
+            '留空 = 用角色 id（默认）；填目录名 = 换用那套立绘（assets/ 或素材池 assets_3.0/ 均可）')
+        self.ed_portrait.setToolTip('⭐ 立绘绑定：填**目录名**（如 deepseek）→ 该角色改用那套图 ✓\n'
+                                    '· 两个根下都能解析：assets/（生效目录 ✓）或 assets_3.0/（素材池 ✓）\n'
+                                    '留空 ＝ 保持默认（用角色 id ✓，行为与从前一致 ✓）\n'
+                                    '⛔ 本项只记录绑定，**不复制、不覆盖**任何图片 ✗\n'
+                                    '⚠️ 保存后需**重启桌宠**才生效（启动读一次 ✓ 不热加载 ✓）')
+        f1.addRow('立绘目录', self.ed_portrait)
+        self.btn_portrait = QPushButton('选择…')
+        self.btn_portrait.setToolTip(
+            '从 assets/ 或素材池 assets_3.0/ 的子目录里挑一个（只记绑定，不搬文件 ✓）')
+        self.btn_portrait.clicked.connect(self._on_pick_portrait)
+        f1.addRow('', self.btn_portrait)
         right.addWidget(gb1)
 
         gb2 = QGroupBox('参数')
@@ -206,6 +221,7 @@ class ModelManagerDialog(QDialog):
         self.ed_endpoint.setText(p.endpoint)
         self.ed_sub.setText(p.sub)
         self.ed_color.setText(p.color)
+        self.ed_portrait.setText(getattr(p, 'portrait', '') or '')      # ⭐ 立绘绑定回显 ✓
         self.sp_temp.setValue(p.temperature)
         self.sp_tokens.setValue(p.max_tokens)
         self.ck_reason.setChecked(p.reasoning)
@@ -215,6 +231,20 @@ class ModelManagerDialog(QDialog):
         self.sp_pin.setValue(float(p.price.get('input', 0)))
         self.sp_pcache.setValue(float(p.price.get('cache', 0)))
         self.sp_pout.setValue(float(p.price.get('output', 0)))
+
+    def _on_pick_portrait(self):
+        """⭐ 选一个目录作为该角色的立绘（**两个根都行** ✓ 只记绑定 ✓ 不搬文件 ✗）。"""
+        from PySide6.QtWidgets import QFileDialog
+        import os as _os
+        base = _os.path.dirname(_os.path.abspath(__file__))      # ⭐ 仓库根（两个根都可见 ✓）
+        d = QFileDialog.getExistingDirectory(
+            self, '选择立绘目录（assets 或 assets_3.0 下）', base)
+        if not d:
+            return
+        name = _os.path.basename(d.rstrip('\\/'))
+        # ⭐ 起始目录是仓库根 → 选中"根目录本身"会得到假前缀 ✗ → 一律不写 ✓
+        if name and name not in ('assets', 'assets_3.0'):
+            self.ed_portrait.setText(name)
 
     def _endpoint(self):
         """探测/拉列表用哪个地址：优先编辑器里的，回退当前档案"""
@@ -247,6 +277,8 @@ class ModelManagerDialog(QDialog):
         self.registry.set_field(self._cur, 'endpoint', self.ed_endpoint.text().strip() or p.endpoint)
         self.registry.set_field(self._cur, 'sub', self.ed_sub.text().strip())
         self.registry.set_field(self._cur, 'color', self.ed_color.text().strip() or p.color)
+        # ⭐ 立绘绑定（Owner 2026-10-03）：写档案 `appearance.portrait` ✓ 空串 = 用角色 id ✓
+        self.registry.set_field(self._cur, 'portrait', self.ed_portrait.text().strip())
         self.registry.set_param(self._cur, 'temperature', self.sp_temp.value())
         self.registry.set_param(self._cur, 'max_tokens', self.sp_tokens.value())
         self.registry.set_param(self._cur, 'reasoning', self.ck_reason.isChecked())

@@ -234,6 +234,15 @@ def _safe_float(value, default=0.0):
     return v
 
 
+#: 能力默认值（2026-10-19 能力表引入）—— capabilities 没写、旧字段也推不出来时用。
+#: 刻意保守：不声明就按"不支持"处理，避免"界面显示了但调用失败"。
+#: web_search 例外：它是本地实现（走 DeepSeek 官方 Search API），与模型无关，
+#: 所以默认给 'tool'（'tool'=本地实现 / 'builtin'=模型内置 / False=不支持）。
+CAPABILITY_DEFAULTS = {
+    'web_search': 'tool',
+}
+
+
 class ModelProfile:
     """一个模型的全部身份(对应 models.json 里的一条档案)"""
 
@@ -272,6 +281,8 @@ class ModelProfile:
         self.portrait = str(app.get('portrait') or '')
         self.sub = str(app.get('sub') or '')
         self.persona = dict(d.get('persona') or {})
+        # 能力表（2026-10-19）：档案显式声明的能力；没写就走 get_capability() 的旧字段兜底
+        self.capabilities = dict(d.get('capabilities') or {})
 
     @property
     def price_known(self):
@@ -284,6 +295,24 @@ class ModelProfile:
         if self.vision is not None:
             return self.vision
         return self.model_id in VISION_MODEL_IDS
+
+    def get_capability(self, name, default=None):
+        """读一项能力：capabilities 显式声明优先 → 旧字段兜底 → 默认值
+
+        2026-10-19 引入（多 AI 接入准备）。目的：界面与工具注册不再各自猜
+        "这个模型行不行"，只有一个入口。老档案（没有 capabilities 块）不用改。
+
+        为什么默认保守：没声明就当"不支持"更安全 —— 显示了按钮却调用失败，
+        比不显示按钮更难排查（用户会以为软件坏了）。
+        """
+        caps = self.capabilities or {}
+        if name in caps:
+            return caps[name]
+        if name == 'vision':
+            return self.supports_vision          # 复用已有兜底（含官方能力表）
+        if name in ('reasoning', 'effort'):
+            return bool(self.reasoning)          # 不开思考就没有强度可调
+        return CAPABILITY_DEFAULTS.get(name, default)
 
     @property
     def uses_peak_pricing(self):
@@ -299,7 +328,7 @@ class ModelProfile:
         return is_official_endpoint(self.endpoint)
 
     def to_dict(self):
-        return {
+        d = {
             'key': self.key,
             'display_name': self.display_name,
             'model_id': self.model_id,
@@ -314,6 +343,11 @@ class ModelProfile:
             'appearance': {'color': self.color, 'portrait': self.portrait, 'sub': self.sub},
             'persona': dict(self.persona),
         }
+        # 能力表（2026-10-19）：**只在非空时写**，避免给老档案凭空多出一个空块。
+        # 不写进 to_dict 的话，save() 之后能力就丢了 —— 能读不能存是最难排查的一类坑。
+        if self.capabilities:
+            d['capabilities'] = dict(self.capabilities)
+        return d
 
     def __repr__(self):
         return f'<ModelProfile {self.key} {self.model_id} "{self.display_name}">'

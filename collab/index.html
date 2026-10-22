@@ -1,0 +1,2334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>协作台 · M2（后端同源渲染）</title>
+<style>
+  :root{
+    --ink:#14181c;--ink2:#3c444c;--ink3:#6d767f;--rule:#d9dde0;--rule2:#eceff1;
+    --paper:#fafaf8;--card:#f3f5f3;--acc:#0b5d63;--acc-soft:#e4f0f0;
+    --warn:#8a4b12;--warn-soft:#fbf1e6;--ok:#136b3a;--ok-soft:#e8f4ec;
+    --serif:"Source Han Serif SC","Songti SC",Georgia,"SimSun",serif;
+    --sans:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.72}
+  .wrap{max-width:1460px;margin:0 auto;padding:20px 22px 48px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:flex-end}
+  h1{font-family:var(--serif);font-size:24px;margin:0;font-weight:600}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin-bottom:6px}
+  .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:6px}
+  .gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);margin-bottom:12px}
+  .g{background:#fff;padding:9px 12px}
+  .g .k{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .g .v{font-size:16px;font-weight:600;margin-top:2px}
+  .status{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:3px;border:1px solid var(--rule);display:inline-block}
+  .status.running{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
+  .status.interrupted{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
+  .status.stopped{background:var(--card);color:var(--ink2)}
+  /* ⭐ D6-5：常驻「服务连接」小灯（🟢 在跑 / 🔴 未连上（含原因）/ ⚪ 未探测）*/
+  .conn{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:3px;border:1px solid var(--rule);display:inline-block}
+  .conn.ok{background:var(--ok-soft);border-color:#b9dbc6;color:var(--ok)}
+  .conn.down{background:var(--warn-soft);border-color:#e6ccae;color:var(--warn)}
+  .conn.probing{background:var(--card);color:var(--ink2)}
+  /* ⭐ A2/D6-2：首屏起手区 / 首次向导 / 起手卡 / 参与分段 / 空面板指引 */
+  .starter{border:2px solid var(--acc);background:#fff;padding:13px 15px;margin:12px 0 14px;border-radius:4px}
+  .starter.dim{opacity:.55}
+  .starter h2{font-family:var(--serif);font-size:17px;margin:0 0 4px}
+  .starter .hint{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-bottom:9px}
+  .srow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .srow + .srow{margin-top:9px}
+  #starter-input{flex:1 1 auto;min-width:340px;font-family:var(--sans);font-size:15px;padding:10px 12px;border:1px solid var(--ink);border-radius:3px;background:#fff}
+  #starter-input:disabled{background:var(--card);color:var(--ink3)}
+  .primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600;font-size:14px;padding:10px 18px}
+  .primary:disabled{opacity:.5;cursor:not-allowed}
+  .seg{display:inline-flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+  .seg span{font-family:var(--mono);font-size:11.5px;padding:4px 10px;background:#fff;color:var(--ink2);cursor:pointer}
+  .seg span.on{background:var(--acc);color:#fff}
+  .seg span.off{opacity:.5;cursor:not-allowed}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:0 0 14px}
+  .card{border:1px solid var(--rule);background:#fff;padding:10px 12px;border-radius:3px;cursor:pointer}
+  .card:hover{background:var(--card)}
+  .card b{font-size:13.5px}
+  .card p{margin:3px 0 0;color:var(--ink2);font-size:12.5px}
+  .guide{border:1px solid var(--rule);background:#fff;padding:12px 14px;margin:12px 0 14px;border-radius:4px}
+  .guide h3{font-family:var(--serif);font-size:16px;margin:0 0 2px}
+  .guide .hint{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-bottom:8px}
+  .steps{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:8px 0 10px}
+  .step{border:1px solid var(--rule);border-radius:3px;padding:8px 9px;background:#fff}
+  .step.on{border-color:var(--acc);background:var(--acc-soft)}
+  .step .n{font-family:var(--mono);font-size:10.5px;color:var(--acc)}
+  .step .t{font-size:12.5px;font-weight:600}
+  .step .d{font-size:11.5px;color:var(--ink3);line-height:1.5}
+  .banner{border:1px solid #e6ccae;background:var(--warn-soft);color:var(--warn);padding:9px 11px;border-radius:3px;font-size:13px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+  /* ⚠️ 实测踩坑（2026-10-04）：`.banner{display:flex}` 的优先级高于 UA 的 `[hidden]{display:none}`
+     ⇒ 服务明明在跑，顶部“服务没在跑”横条却**一直显示** ✗（截图当场逮住 ✓）
+     ⇒ 必须显式把 hidden 拉回来 ✓（其它带 display 的自定义类同理 ✓） */
+  .banner[hidden]{display:none}
+  .guide[hidden]{display:none}
+  .starter[hidden]{display:none}
+  .howempty{text-align:center;color:var(--ink3);padding:16px 8px}
+  .howempty .t{font-family:var(--serif);font-size:14.5px;color:var(--ink2);margin:4px 0 3px}
+  .howempty .h{font-family:var(--mono);font-size:11.5px}
+  /* ⭐ B5/B7：队列区（E15）＋ 运行历史（E16）*/
+  .qbox{border:1px solid var(--rule);background:#fff;padding:10px 12px;margin:0 0 12px;border-radius:3px}
+  .qhead{font-family:var(--mono);font-size:12px;color:var(--ink2);margin-bottom:6px}
+  .qitem{border-top:1px solid var(--rule2);padding:6px 0;font-size:13px}
+  .qitem:first-child{border-top:none}
+  .qmeta{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .hrow{border-top:1px solid var(--rule2);padding:6px 0}
+  .hrow:first-child{border-top:none}
+  .hstep{font-family:var(--mono);font-size:11.5px;color:var(--ink2);padding:2px 0 2px 14px}
+  .hderiv{font-family:var(--mono);font-size:11px;color:var(--warn)}
+  .herr{border-left:3px solid #e6ccae;background:var(--warn-soft);color:var(--warn);padding:6px 8px;margin-top:5px;font-family:var(--mono);font-size:11.5px;white-space:pre-wrap}
+  /* ⭐ C2/D5-2：⚙ 配置面（只读 v1 ✓）*/
+  .cfg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px 14px}
+  .cfgrow{border-top:1px solid var(--rule2);padding:5px 0;font-size:12.5px;display:flex;gap:8px;justify-content:space-between}
+  .cfgrow:first-child{border-top:none}
+  .cfgk{font-family:var(--mono);color:var(--ink2)}
+  .cfgv{font-family:var(--mono);color:var(--ink);word-break:break-all;text-align:right}
+  .cfgwarn{font-family:var(--mono);font-size:11px;color:var(--warn)}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+  button{font-family:var(--sans);font-size:13px;padding:7px 12px;border:1px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;border-radius:3px}
+  button:hover{background:var(--card)}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  button.primary:hover{background:#094c51}
+  button.danger{border-color:var(--warn);color:var(--warn)}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+
+  /* ★ 布局：默认“阅读模式”—— L1 占满宽；行宽**跟窗格走**（可切档）
+        “看板模式”—— 三层并排 + **可拖动竖向分隔条**（像 ArcGIS Pro） */
+  .cols{display:grid;gap:0;align-items:start}
+  .cols.reading{grid-template-columns:minmax(0,1fr)}
+  .cols.board{grid-template-columns:var(--colA,54%) 8px calc(100% - var(--colA,54%) - 8px)}
+  .cols.reading .stream{max-height:none}
+  .cols.reading .lane-scroll{max-height:38vh}
+  .cols.board .stream{max-height:60vh}
+  /* 可拖动分隔条 */
+  .split-v{cursor:col-resize;background:var(--rule2);border-left:1px solid var(--rule);border-right:1px solid var(--rule)}
+  .split-v:hover,.split-v.drag{background:var(--acc)}
+  .split-h{height:8px;cursor:row-resize;background:var(--rule2);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:12px 0}
+  .split-h:hover,.split-h.drag{background:var(--acc)}
+  .cols.reading .split-v{display:none}
+  .cols.board .split-h{display:none}
+
+  /* ★ 阶段① 页签：单页显示。**只切可见性、不重渲染**（DOM 行元素不动 → 同一 data-seq 仍只出现一次） */
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+  .tab{font-family:var(--mono);font-size:12px;padding:6px 11px;border:1px solid var(--rule);background:#fff;color:var(--ink2);cursor:pointer;border-radius:3px}
+  .tab:hover{background:var(--card)}
+  .tab[aria-selected="true"]{border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+  .tab:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+  .cols.single{grid-template-columns:minmax(0,1fr)}
+  .cols.single .split-v,.cols.single .split-h{display:none}
+  body.view-L1 #panel-l2,body.view-L1 #panel-l3,
+  body.view-L2 #panel-l1,body.view-L2 #panel-l3,
+  body.view-L3 #panel-l1,body.view-L3 #panel-l2{display:none}
+  body.view-L1 #side,body.view-L1 .split-v{display:none}
+  .m-b{max-width:var(--readw, none)}   /* 行宽：默认满宽（跟窗格），可切档 */
+
+  .panel{border:1px solid var(--rule);background:#fff}
+  .panel-h{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:8px 11px;border-bottom:1px solid var(--rule2);background:var(--card);display:flex;justify-content:space-between;align-items:center}
+  .stream{padding:12px 14px;overflow-y:auto}
+  .row{display:grid;grid-template-columns:36px minmax(0,1fr);gap:10px;margin-bottom:14px}
+  .av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;background:#8b949c;font-family:var(--serif)}
+  .m-h{font-size:12px;color:var(--ink3);display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+  .m-h b{color:var(--ink);font-size:13.5px}
+  .m-b{background:var(--card);border:1px solid var(--rule2);border-radius:3px;padding:9px 12px;margin-top:4px;
+       white-space:pre-wrap;word-break:break-word}
+  .row.me .m-b{background:var(--acc-soft);border-color:#bfe0e0}
+  .row.sys .m-b{background:#f4f4f2}
+  /* 长回复折叠：默认只露 16 行，点“展开全文” */
+  .m-b.clip{max-height:17em;overflow:hidden;position:relative}
+  .m-b.clip::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2.4em;
+    background:linear-gradient(rgba(243,245,243,0),var(--card))}
+  .more{font-family:var(--mono);font-size:11.5px;color:var(--acc);cursor:pointer;user-select:none;
+        border:1px solid var(--rule);background:#fff;border-radius:3px;padding:2px 8px;margin-top:5px;display:inline-block}
+  .more:hover{background:var(--card)}
+  /* 代码：围栏块不换行、横向滚动（排版不丢 ✓）；行内代码等宽 */
+  .m-b pre{background:#fff;border:1px solid var(--rule);border-radius:3px;padding:8px 10px;overflow-x:auto;
+           white-space:pre;font-family:var(--mono);font-size:12.5px;margin:7px 0;max-width:100%}
+  .m-b code{font-family:var(--mono);font-size:.92em;background:#fff;border:1px solid var(--rule2);border-radius:3px;padding:0 4px}
+  .lane-scroll{max-height:44vh;overflow-y:auto}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--rule2)}
+  thead th{font-family:var(--mono);font-size:10.5px;color:var(--ink3);background:var(--card);position:sticky;top:0}
+  td.num{font-family:var(--mono);text-align:right}
+  .kind{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;border:1px solid var(--rule);background:var(--card)}
+  .empty{color:var(--ink3);padding:14px 12px;font-size:13px}
+  .err{border-left:3px solid var(--warn);background:var(--warn-soft);padding:8px 12px;margin:10px 0;font-size:13px}
+  footer{margin-top:22px;border-top:1px solid var(--rule);padding-top:12px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+
+  /* ===== 阶段②③ 面板停靠系统（浮动窗 / 停靠槽位 / 拖拽高亮） =====
+     规格：docs/3.0-M2-面板停靠系统规格-20260921.md
+     约束：仍**不进第三方库** ✗、仍**不改 data-* 契约** ✓ */
+  .slot{min-width:0;min-height:0}
+  #slot-bottom{margin-top:12px}
+  #slot-bottom:empty{display:none}
+  #float-layer{position:fixed;inset:0;pointer-events:none;z-index:9000}
+  .panel.floating{position:fixed;pointer-events:auto;z-index:9001;display:flex;flex-direction:column;
+                  box-shadow:0 10px 34px rgba(20,24,28,.22);border-color:var(--ink3)}
+  .panel.floating .stream,.panel.floating .lane-scroll{flex:1 1 auto;max-height:none;overflow:auto}
+  .panel.floating>.panel-h{cursor:move}
+  /* 浮动态不受"页签单页"可见性影响（浮窗=独立窗口） */
+  #float-layer>.panel{display:flex !important}
+  .ph-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ph-ctl{display:flex;gap:6px;align-items:center;flex:none}
+  .ph-btn{font-family:var(--mono);font-size:11px;line-height:1;padding:3px 6px;border:1px solid var(--rule);
+          background:#fff;color:var(--ink2);cursor:pointer;border-radius:3px}
+  .ph-btn:hover{background:var(--acc-soft);border-color:var(--acc);color:var(--acc)}
+  .ph-btn[disabled]{opacity:.4;cursor:default}
+  .ph-rs{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;
+         background:linear-gradient(135deg,transparent 46%,var(--ink3) 47%,var(--ink3) 54%,transparent 55%)}
+  #dock-hint{position:fixed;pointer-events:none;z-index:9500;display:none;background:var(--acc-soft);
+             border:2px dashed var(--acc);border-radius:4px}
+  body.m2-dragging{cursor:move;user-select:none}
+
+  /* ===== 批 4 第一刀·项目层：项目切换器 + 角色条（⭐ .cols 内部零改动 → 浮窗/停靠/自动隐藏不受影响）===== */
+  .projbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .projbar .lbl{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .projsel{display:flex;align-items:center;gap:8px;border:1px solid var(--acc);background:var(--acc-soft);
+           border-radius:3px;padding:5px 10px;font-size:13px;color:var(--acc);font-weight:600}
+  .pchips{display:flex;gap:6px;flex-wrap:wrap}
+  .pchip{font-family:var(--mono);font-size:11.5px;border:1px solid var(--rule);background:#fff;color:var(--ink2);
+         border-radius:3px;padding:3px 8px}
+  .pchip.on{border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+  .shell{display:grid;grid-template-columns:126px minmax(0,1fr);gap:12px;align-items:start}
+  .rail{border:1px solid var(--rule);background:#fff;border-radius:3px;padding:8px 6px}
+  .rail-h{font-family:var(--mono);font-size:10.5px;color:var(--ink3);text-align:center;margin-bottom:6px;
+          letter-spacing:.1em;text-transform:uppercase}
+  .rail-list{display:flex;flex-direction:column}
+  .role{position:relative;text-align:center;padding:5px 2px 7px;border-radius:4px;cursor:pointer}
+  .role:hover{background:var(--card)}
+  .role.on{background:var(--acc-soft);border:1px solid #bfe0e0}
+  .role .face{width:66px;height:66px;object-fit:contain;display:block;margin:0 auto;
+              filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
+  .role .face.ph{border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;
+                 font-size:18px;font-family:var(--serif)}
+  .role .rn{font-size:11px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .role.on .rn{color:var(--acc);font-weight:600}
+  .rail-empty,.rail-proj{font-family:var(--mono);font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.6;padding:2px}
+  .rail-proj b{color:var(--ink2);font-weight:600}
+  /* ===== 批 4b-1：项目层五字段编辑入口（✎）+ 提交三态（照条款 IV / 载荷 schema）===== */
+  .editpanel{border:1px solid var(--acc);background:#fff;border-radius:3px;padding:12px 14px;margin-bottom:12px;display:none}
+  .editpanel.on{display:block}
+  .editpanel h3{font-family:var(--serif);font-size:15px;margin:0 0 4px}
+  .editpanel .hint{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:10px}
+  .frow{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:start;margin-bottom:8px}
+  .frow label{font-family:var(--mono);font-size:11.5px;color:var(--ink2);padding-top:5px}
+  .frow input[type=text]{font-family:var(--sans);font-size:13px;padding:5px 8px;border:1px solid var(--rule);border-radius:3px;width:100%}
+  .frow .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:3px}
+  .frow .sub.bad{color:var(--mark)}
+  .rchips{display:flex;gap:6px;flex-wrap:wrap}
+  .rchip{font-family:var(--mono);font-size:11.5px;border:1px solid var(--rule);background:#fff;color:var(--ink2);
+         border-radius:3px;padding:3px 9px;cursor:pointer;user-select:none}
+  .rchip.on{border-color:var(--acc);background:var(--acc-soft);color:var(--acc);font-weight:600}
+  .estate{font-family:var(--mono);font-size:12px;border-radius:3px;padding:5px 10px;margin-top:4px;display:none}
+  .estate.on{display:block}
+  .estate.wait{background:var(--warn-soft);border:1px solid #e6ccae;color:var(--warn)}
+  .estate.ok{background:var(--ok-soft);border:1px solid #b9dbc6;color:var(--ok)}
+  .estate.bad{background:var(--mark-soft);border:1px solid #ecc9bb;color:var(--mark)}
+  .editacts{display:flex;gap:8px;align-items:center;margin-top:6px}
+
+  /* ===== 批 4b-3：真三态（接只读 GET /api/pending）===== */
+  .opsbox{border:1px solid var(--rule);background:#fff;border-radius:3px;padding:7px 10px;margin-bottom:10px;display:none}
+  .opsbox .lbl{font-family:var(--mono);font-size:10.5px;color:var(--ink3);letter-spacing:.1em;text-transform:uppercase}
+  .oprow{display:flex;gap:9px;align-items:baseline;margin-top:4px;flex-wrap:wrap}
+  .opstate{font-family:var(--mono);font-size:11px;border-radius:3px;padding:1px 7px;border:1px solid var(--rule);white-space:nowrap}
+  .opstate.wait{border-color:#e6ccae;background:var(--warn-soft);color:var(--warn)}
+  .opstate.ok{border-color:#b9dbc6;background:var(--ok-soft);color:var(--ok)}
+  .opstate.bad{border-color:#ecc9bb;background:var(--mark-soft);color:var(--mark)}
+  .opstate.unknown{background:var(--card);color:var(--ink3)}
+  .opmeta{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+
+  /* ===== 批 4b-2：状态图矩阵（数据源 GET /api/assets —— 只有三布尔 ✓ 无图片/路径 ✓）===== */
+  .mxpanel{border:1px solid var(--acc);background:#fff;border-radius:3px;padding:12px 14px;margin-bottom:12px;display:none}
+  .mxpanel.on{display:block}
+  .mxpanel h3{font-family:var(--serif);font-size:15px;margin:0 0 4px}
+  .mxwrap{overflow:auto;max-height:60vh;border:1px solid var(--rule);border-radius:3px}
+  table.mx2{border-collapse:separate;border-spacing:0;font-size:12px}
+  table.mx2 th,table.mx2 td{border-right:1px solid var(--rule2);border-bottom:1px solid var(--rule2);padding:5px 8px;text-align:center;white-space:nowrap}
+  table.mx2 thead th{font-family:var(--mono);font-size:10.5px;color:var(--ink3);background:var(--card);position:sticky;top:0;z-index:2}
+  table.mx2 th.rh{text-align:left;background:#fff;position:sticky;left:0;z-index:1;font-family:var(--mono);font-size:11.5px;padding-left:10px}
+  table.mx2 thead th.rh{background:var(--card);z-index:3}
+  table.mx2 td.cell{cursor:pointer}
+  table.mx2 td.cell:hover{background:var(--acc-soft);outline:1px solid var(--acc)}
+  /* ⭐ 批 4b-4：矩阵格缩略图（契约 E12）+ 点开大图 */
+  .mthumb{display:block;width:24px;height:24px;object-fit:contain;margin:0 auto 2px;border:1px solid var(--rule);border-radius:2px;background:#fff}
+  .mbig{display:block;max-width:160px;max-height:160px;margin-top:6px;border:1px solid var(--rule);border-radius:3px;background:#fff}
+  .tick{display:inline-flex;gap:2px}
+  .tick b{font-family:var(--mono);font-size:9.5px;font-weight:400;border:1px solid var(--rule);border-radius:2px;padding:0 3px;background:#fff;color:var(--ink3)}
+  .tick b.on{border-color:#b9dbc6;background:var(--ok-soft);color:var(--ok)}
+  .tick b.no{border-color:#ecc9bb;background:var(--mark-soft);color:var(--mark)}
+  .mxadd{background:var(--card);color:var(--acc);font-family:var(--mono);font-size:11px;cursor:pointer}
+  .mxadd:hover{background:var(--acc-soft)}
+  .tb2{font-family:var(--mono);font-size:12px;padding:5px 11px;border:1px solid var(--rule);background:#fff;color:var(--ink2);border-radius:3px;cursor:pointer}
+  .tb2[aria-selected="true"]{border-color:var(--acc);background:var(--acc-soft);color:var(--acc);font-weight:600}
+  .slist{background:#fff;border:1px solid var(--rule);border-radius:3px}
+  .sli{display:grid;grid-template-columns:170px 130px minmax(0,1fr) 240px;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--rule2)}
+  .sli:last-child{border-bottom:0}
+  .sli .nm{font-family:var(--mono);font-size:12.5px}
+  .sli .ops{display:flex;gap:6px;justify-content:flex-end}
+  .slh{display:grid;grid-template-columns:170px 130px minmax(0,1fr) 240px;gap:10px;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+  .mxnote{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:8px;line-height:1.7}
+  .mxstat{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--ink2);margin:4px 0 8px}
+
+  @media (max-width:900px){.shell{grid-template-columns:1fr}.rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}}
+
+  /* ===== 阶段①.5 简化版自动隐藏（只对右侧 V2/V3 ✓ 不依赖停靠系统 ✓）
+     规格 §六：移出收起／移入展开／📌 钉住；收起后停在其停靠边的边缘，只显示面板名
+     ⭐ 不挤压主区：右侧列宽由 --colA 固定 ✓ 面板自身变窄不改列宽 → 无布局拖拽 ✓ */
+  .panel.m2-hide{transition:width .12s ease}
+  .panel.collapsed{width:34px;min-width:34px;max-width:34px;margin-left:auto;overflow:hidden}
+  .panel.collapsed>.panel-h{height:100%;flex-direction:column;justify-content:flex-start;align-items:center;padding:8px 0;gap:6px}
+  .panel.collapsed>.panel-h .ph-title,
+  .panel.collapsed>.panel-h .ph-ctl{display:none}
+  .panel.collapsed .lane-scroll,.panel.collapsed .stream{display:none}
+  .ph-vert{display:none;writing-mode:vertical-rl;font-family:var(--mono);font-size:11px;color:var(--ink3);letter-spacing:.08em}
+  .panel.collapsed .ph-vert{display:block}
+  .ph-pin{font-size:11px;opacity:.5}
+  .panel.pinned>.panel-h .ph-pin{opacity:1;border-color:var(--acc);background:var(--acc-soft);color:var(--acc)}
+
+  @media (max-width:900px){.cols.reading,.cols.board{grid-template-columns:1fr}.stream,.lane-scroll{max-height:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <div class="kicker">3.0 · M2 协作台（渲染面）</div>
+    <h1>投递可见化 · 三层同源</h1>
+    <div class="meta" id="meta">数据源：—</div>
+  </div>
+  <div class="meta">
+    状态：<span class="status stopped" id="state" data-state="unknown" data-reason="">—</span>
+  </div>
+  <!-- ⭐ D6-5：服务连接小灯（⛔ 不新增端点 ✗ —— 只读现成的 GET /api/health ✓）-->
+  <div class="meta">
+    服务：<span class="conn probing" id="conn" data-conn="probing" data-reason="尚未探测"
+      title="服务连接状态（探测只读端点 /api/health）">⚪ 未探测</span>
+  </div>
+</header>
+
+<!-- ⭐ A2/D6-2：服务未连上 → 顶部横条（原因 ＋ 出路 ＋ 重试）；⛔ 不静默 ✗ -->
+<div class="banner" id="conn-banner" hidden>
+  <b>服务没在跑</b>
+  <span id="conn-banner-why">—</span>
+  <span class="meta" style="margin:0">→ 右键桌宠菜单 →「🍵 打开协作台」即可启动（本机 <code>127.0.0.1:8792</code> ✓ 绝不上网 ✓）</span>
+  <button id="conn-retry">⟳ 重试探测</button>
+</div>
+
+<!-- ⭐ A3/D6-1：首次向导（5 步，可跳过；只占一块不遮挡面板）-->
+<div class="guide" id="guide" hidden>
+  <h3>👋 第一次用？五步就能跑起来</h3>
+  <div class="hint">⭐ 不用先配多模型 —— 默认「单点」即可发起 ✓；圆桌/多模型是「可选项」✓<br>
+  ⭐ 第 0 步（可选但推荐）：先在终端跑 <code>python collab\init_channel.py --base . --check</code> ——
+  未就绪就加 <code>--apply</code> 建通道目录 ＋ <code>COLLAB.md</code>（⛔ 不初始化 ⇒ 两条线的产出会互相覆盖 ✗）</div>
+  <div class="steps" id="guide-steps"></div>
+  <div class="srow">
+    <button id="guide-next">▶ 下一步</button>
+    <button id="guide-skip">跳过向导</button>
+    <span class="meta" style="margin:0">向导只占这一块，不遮挡面板 ✓</span>
+  </div>
+</div>
+
+<!-- ⭐ A2/D6-2：首屏起手区（常驻主输入框）—— ⛔ 不新增端点 ✗：发起复用 POST /api/interrupt ＋ /api/step ✓ -->
+<div class="starter" id="starter">
+  <h2>开始一轮</h2>
+  <div class="hint" id="starter-hint">⭐ 一句普通话就能开始 ✓ ｜ 不必先选多模型 ✓ ｜ 运行中也能继续排队（B 阶段上线）✓</div>
+  <div class="srow">
+    <input type="text" id="starter-input" placeholder="想让它做什么？一句话就行（回车＝排队 ✓）" autocomplete="off">
+  </div>
+  <!-- ⭐ B5/E15.4：**两个明确动作**（⛔ 不合成一个含糊按钮 ✗）；⭐ 两者都**显式传 mode** ✓ -->
+  <div class="srow">
+    <span class="meta" style="margin:0">提交：</span>
+    <button id="starter-queue" title="不打断：入队，本轮自然结束后按序执行（默认 ✓）">⏳ 排队（不打断）</button>
+    <button id="starter-interrupt" title="立即打断当前回合并进暂停（现有语义 ✓）；恢复需点「继续」">⚡ 插话（打断）</button>
+    <span class="meta" style="margin:0" id="starter-act-note">⭐ 默认「排队」：不打断、等本轮结束自动执行 ✓</span>
+  </div>
+  <div class="srow">
+    <span class="meta" style="margin:0">参与：</span>
+    <div class="seg" id="starter-mode" role="group" aria-label="参与范围">
+      <span class="on" data-mode="single" id="starter-mode-single">单点（默认）</span>
+      <span class="off" data-mode="round" id="starter-mode-round"
+        title="多模型圆桌：B 阶段上线（契约待定，现在选了也不会生效 ✗ 所以先禁用 ✓）">圆桌 多模型（B 阶段）</span>
+    </div>
+    <span class="meta" style="margin:0" id="starter-roles-note">⭐ 默认单点：不选任何模型也能发起 ✓</span>
+  </div>
+  <div class="srow" id="starter-pmrow">
+    <span class="meta" style="margin:0">推进：</span>
+    <div class="seg" id="starter-pm" role="group" aria-label="Plan / Act">
+      <span class="on" data-pm="plan" id="starter-pm-plan"
+        title="Plan（只读讨论）：只写下这句话，⛔ 不推进执行 ✗ 不会改文件 ✓">Plan（只读讨论）</span>
+      <span data-pm="act" id="starter-pm-act"
+        title="Act（可执行）：写下并推进一回合 —— ⚠️ 会改文件 ✓">Act（可执行）</span>
+    </div>
+    <span class="meta" style="margin:0" id="starter-pm-note">⭐ 默认 Plan：只写下意图、⛔ 不推进 ✗</span>
+  </div>
+  <div class="banner" id="starter-act-warn" hidden style="margin:10px 0 0">
+    ⚠️ <b>现在会改文件</b>
+    <span class="meta" style="margin:0">Act 会推进一回合（可能写盘／改文件 ✓）；切回 Plan 只是写下意图、⛔ 不推进 ✗</span>
+  </div>
+</div>
+
+<!-- ⭐ 起手卡（有历史时显示）-->
+<!-- ⭐ B5／E15：队列区（只读 `GET /api/queue` ✓）——⭐ 未启用时只能写「已暂停，待处理 N 条」 ✓ -->
+<div class="qbox" id="qbox">
+  <div class="qhead">⏳ 排队与暂停<span class="meta" id="q-note" style="margin-left:8px">（本次刷新未取到）</span></div>
+  <div id="q-list"></div>
+</div>
+
+<!-- ⭐ B7／E16：运行历史（只读 `GET /api/history` ✓）——⭐ 步骤必须明标「由消息序列派生（近似）」 ✓ -->
+<div class="qbox" id="hbox">
+  <div class="qhead">🕘 运行历史（最近 20 轮）<span class="meta" id="h-note" style="margin-left:8px">（本次刷新未取到）</span></div>
+  <div id="h-list"></div>
+</div>
+
+<!-- ⭐ C2／D5-2：⚙ 配置面（⭐ 只读 ✓ 依 165 读路径契约 ✓；⛔ 敏感值恒不显 ✗）-->
+<div class="qbox" id="cfgbox">
+  <div class="qhead">⚙ 配置（只读）<span id="cfg-ro"></span>
+    <span class="meta" id="cfg-note" style="margin-left:8px">（本次刷新未取到）</span></div>
+  <div id="cfg-list"></div>
+</div>
+
+<div class="cards" id="starter-cards">
+  <div class="card" id="starter-card-resume"><b>🔁 继续上次议题</b><p id="c-resume">—</p></div>
+  <div class="card" id="starter-card-pending"><b>📋 处理待办</b><p id="c-pending">—</p></div>
+  <div class="card" id="starter-card-matrix"><b>▦ 看资产矩阵</b><p id="c-matrix">—</p></div>
+</div>
+
+<div class="projbar" id="projbar">
+  <span class="lbl">当前项目</span>
+  <span class="projsel" id="proj-sel">—</span>
+  <span class="pchips" id="proj-chips"></span>
+  <button id="btn-proj-edit" title="编辑项目五字段（提交为待办，须人触发运行器执行）">✎ 编辑项目</button>
+  <button id="btn-matrix" title="状态图矩阵（数据源 GET /api/assets；操作提交为待办）">▦ 资产矩阵</button>
+</div>
+
+<div class="meta" style="margin:-4px 0 10px;line-height:1.8">
+  ⭐ <b>怎么起协作台</b>：① 右键桌宠菜单 →「<b>🍵 打开协作台</b>」（本机 <code>127.0.0.1:8792</code> ✓ 绝不上网 ✓）；
+  ② 或手动：<code>python collab\relay_server.py --port 8792</code> ✓；
+  ③ 端口可在 <code>config.json</code> 的 <code>collab_port</code> 改 ✓。<br>
+  ⚠️ 投递的待办<b>须人触发</b>才真执行：<code>python collab\run_pending.py --base .</code> ✓（终端里跑 ✓）<br>
+  ⭐ <b>窄写这条路的边界（务必看清）</b>：以上的提交走 <code>/api/pending</code>（契约特批的<b>窄写</b> ✓）——
+  ⭐ <b>它<b>不受</b>「只读模式」（<code>--enable-actions</code>）管</b> ✗ ⇒ ⭐ <b>“服务只读” ≠ “这条也安全”</b> ✗；
+  但它<b>只落待办</b> ✓ <b>不执行</b> ✓，⭐ 真改动<b>必须人跑运行器</b> ✓<br>
+  ⭐ <b>第 0 步·初始化通道</b>：<code>python collab\init_channel.py --base . --check</code>（看缺什么 ✓）；
+  未就绪则 <code>--apply</code> 建（建目录 ＋ 落 <code>COLLAB.md</code> 约定 ✓ 默认 dry-run ✗ 不加 <code>--apply</code> 不写盘 ✓）——
+  ⭐ <b>未初始化时产出会散在同一个目录里、极易被另一条线静默覆盖</b> ✗
+</div>
+
+<div class="opsbox" id="opsbox">
+  <span class="lbl">我的提交（真三态 · 数据源只读 GET /api/pending）</span>
+  <div id="ops-list"></div>
+</div>
+
+<div class="editpanel" id="editpanel">
+  <h3>编辑项目（五字段）</h3>
+  <div class="hint">提交 → 落 <code>collab/pending/</code> → ⭐ **须人触发运行器才真执行**（<code>python collab\run_pending.py --base .</code>）</div>
+  <div class="frow"><label>项目名 name</label><div><input type="text" id="ed-pj-name" maxlength="80" placeholder="1–80 字"><div class="sub" id="hint-name">1–80 字，去首尾空白后非空 ✓</div></div></div>
+  <div class="frow"><label>项目根 root</label><div><input type="text" id="ed-pj-root" placeholder="绝对路径（⭐ 唯一允许绝对的字段）"><div class="sub" id="hint-root">⭐ 仅此项可绝对路径：必须**已存在目录**、≤512 字、不含 <code>..</code>、非 UNC/设备名 ✓（只登记不创建 ✗）</div></div></div>
+  <div class="frow"><label>产物目录 outputs</label><div><input type="text" id="ed-pj-outputs" placeholder="相对路径，如 输出"><div class="sub" id="hint-outputs">⛔ 只允许**相对路径**（拒绝对路径 / <code>..</code> / 盘符 / <code>~</code>）</div></div></div>
+  <div class="frow"><label>项目记忆 memory_file</label><div><input type="text" id="ed-pj-memory" placeholder="相对路径，如 MEMORY.md"><div class="sub" id="hint-memory">⛔ 只允许**相对路径** ✓</div></div></div>
+  <div class="frow"><label>角色白名单 roles</label><div><div class="rchips" id="ed-pj-roles"></div><div class="sub">只从 <code>/api/roles</code> 已见过的角色里选 ✓</div></div></div>
+  <div class="editacts">
+    <button class="primary" id="btn-pj-submit">提交为待办</button>
+    <button id="btn-pj-cancel">取消</button>
+    <span class="meta" id="pj-msg"></span>
+  </div>
+  <div class="estate" id="pj-state"></div>
+</div>
+
+<div class="mxpanel" id="mxpanel">
+  <h3>状态图矩阵（行 = 角色 ／ 列 = 状态）</h3>
+  <div class="mxstat" id="mx-stat">—</div>
+  <div class="bar" id="mx-modes">
+    <span class="tb2" data-mxmode="matrix" aria-selected="true">▦ 矩阵</span>
+    <span class="tb2" data-mxmode="single" aria-selected="false">☰ 单角色</span>
+    <span class="meta">筛选状态：</span>
+    <input type="text" id="mx-filter" placeholder="如 peek / coffee" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
+    <label class="meta" style="display:inline-flex;gap:5px;align-items:center;cursor:pointer">
+      <input type="checkbox" id="mx-onlygap">只看有缺口的列
+    </label>
+    <span class="meta" id="mx-rolewrap" style="display:none">角色：</span>
+    <select id="mx-role" style="display:none;font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
+  </div>
+  <div id="mx-single" style="display:none"></div>
+  <div class="bar" id="mx-actions" style="display:none">
+    <span class="meta" id="mx-pick"></span>
+    <button id="mx-op-pipe">补三件套（run_pipeline）</button>
+    <button id="mx-op-replace">从素材池替换（replace）</button>
+    <button id="mx-op-insert">从素材池插入（insert）</button>
+    <label class="meta" style="margin-left:10px" title="契约 E8①：整格已齐备时默认跳过；要重跑需显式 force ✓"><input type="checkbox" id="mx-force"> 强制重跑（force）</label>
+  </div>
+  <div class="bar">
+    <span class="meta">新增状态（作用于上方选中的角色）：</span>
+    <input type="text" id="mx-newstate" placeholder="如 coffee（[a-z0-9_]{1,32}）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px">
+    <input type="text" id="mx-newstate-ref" placeholder="首图 source_ref（如 deepseek/deepseek_idle.png）" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px;min-width:260px" title="契约 E8②：add_state ＝ 新增状态并同时给出首图（首图必填 ✗ 缺了会被 400 拒）">
+    <button id="mx-op-addstate">＋ 新增状态</button>
+    <span class="meta" style="margin-left:10px">设绑定（set_portrait）：</span>
+    <select id="mx-bind-role" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
+    <span class="meta">→</span>
+    <select id="mx-bind-prefix" style="font-family:var(--mono);font-size:12px;padding:4px 7px;border:1px solid var(--rule);border-radius:3px"></select>
+    <button id="mx-op-setportrait">🔗 设绑定</button>
+    <span class="meta">（⭐ 重启桌宠后生效）</span>
+    <button id="mx-refresh">⟳ 重新读取资产</button>
+  </div>
+  <div class="mxwrap"><table class="mx2" id="mx-table"></table></div>
+  <div class="mxnote">
+    ⭐ 三布尔 = 白底 / 绿幕 / 透明（<code>GET /api/assets</code> ✓ 只有布尔，不含图片与路径 ✓）。<br>
+    点格子或行尾「＋」→ ⭐ 生成 <code>asset_op</code> <b>待办</b> ✓（<b>只投递不执行</b> ✗）→ 须<b>人</b>跑 <code>python collab\run_pending.py --base .</code> ✓。<br>
+    ⭐ <b>已齐备的格子默认跳过</b>（结果里明写“已齐备，跳过” ✓ 不静默 ✗）→ 要重跑请勾「<b>强制重跑（force）</b>」✓（契约 <b>E8</b> ✓）。<br>
+    ⭐ <b>新增状态必须带首图</b>（<code>source_ref</code> ✓ 缺则本地先拦下 ＋ 说明 ✓）—— 契约 <b>E8②</b>：状态的存在就是文件本身 ✓。<br>
+    <span id="thumb-note" class="meta">⭐ 缩略图（契约 E12）：正在探测端点…</span><br>
+    ⚠️ 若运行器尚不支持某类操作，会在结果文件里<b>明报原因</b>（界面不会假装成功 ✗）。
+  </div>
+  <div class="estate" id="mx-state"></div>
+</div>
+
+<div class="gauges">
+  <div class="g"><div class="k">回合</div><div class="v" id="g-turn">—</div></div>
+  <div class="g"><div class="k">成本（元）</div><div class="v" id="g-cost">—</div></div>
+  <div class="g"><div class="k">tokens</div><div class="v" id="g-tokens">—</div></div>
+  <div class="g"><div class="k">L1/L2/L3 条目</div><div class="v" id="g-counts">—</div></div>
+</div>
+
+<div class="actions">
+  <button class="primary" id="btn-mode">⇄ 切到看板模式</button>
+  <button class="primary" id="btn-step">▶ 推进一回合</button>
+  <button class="danger" id="btn-interrupt">⏸ 打断（人类接管）</button>
+  <button id="btn-resume">⏵ 继续（显式）</button>
+  <button id="btn-width">↔ 行宽：满宽</button>
+  <button id="btn-refresh">⟳ 刷新投递（V1/V2/V3）</button>
+  <button id="btn-export-l1">⤓ 导出 L1 视图</button>
+  <button id="btn-export-l2">⤓ 导出 L2 视图</button>
+  <button id="btn-export-snap">⤓ 导出快照</button>
+  <button id="btn-raw">查看原始日志</button>
+  <span class="meta" id="last">（未刷新）</span>
+</div>
+
+<div id="errs"></div>
+
+<!-- ⭐ C4/D5-4：术语对照一行（界面用 V1/V2/V3，内部/契约用 L1/L2/L3 ✓ 同一件事的两个叫法 ✗）-->
+<div class="meta" id="term-map" style="margin:8px 0 0;line-height:1.8">
+  术语对照：⭐ 界面显示 <b>V1 群聊流</b>／<b>V2 投递轨道</b>／<b>V3 后台总线</b>
+  ＝ ⭐ 内部与契约里写作 <b>L1</b>／<b>L2</b>／<b>L3</b>（<code>data-view</code>／<code>data-panel</code> ✓）
+  —— 同一件事的两个叫法 ✓；⭐ 两个“刷新”各带范围：<b>刷新投递</b>（V1/V2/V3）／<b>重新读取资产</b>（矩阵）✓
+</div>
+
+<div class="tabs" id="tabs" role="tablist" aria-label="面板页签（←/→ 切换，Enter 激活）">
+  <button class="tab" role="tab" id="tab-L1" data-view="L1" aria-selected="false" tabindex="-1" aria-controls="panel-l1">V1 群聊流</button>
+  <button class="tab" role="tab" id="tab-L2" data-view="L2" aria-selected="false" tabindex="-1" aria-controls="panel-l2">V2 投递轨道</button>
+  <button class="tab" role="tab" id="tab-L3" data-view="L3" aria-selected="false" tabindex="-1" aria-controls="panel-l3">V3 后台总线</button>
+  <button class="tab" role="tab" id="tab-all" data-view="all" aria-selected="true" tabindex="0">⧉ 全部显示</button>
+</div>
+
+<div class="shell" id="shell">
+  <div class="rail" id="rolebar" aria-label="角色条（数据源 GET /api/roles）">
+    <div class="rail-h">角色</div>
+    <div class="rail-list" id="rail-list"><div class="rail-empty">（未取到角色）</div></div>
+    <div class="rail-h" style="margin-top:10px">项目边界</div>
+    <div class="rail-proj" id="rail-proj">—</div>
+  </div>
+
+  <div class="cols reading" id="cols">
+  <div class="slot" id="slot-left" data-slot="left">
+  <div class="panel" id="panel-l1" data-panel="L1">
+    <div class="panel-h" data-drag><span class="ph-title">V1 · 群聊流（human）—— 阅读模式占满宽；行宽可切档</span><span class="ph-ctl"><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c1">0</span></span></div>
+    <div class="stream" id="stream-l1"></div>
+  </div>
+  </div>
+  <div class="split-v" id="split-v" title="拖动调整左右宽度（双击重置）"></div>
+  <div id="side">
+    <div class="split-h" id="split-h" title="拖动调整下方面板高度（双击重置）"></div>
+    <div class="slot" id="slot-right" data-slot="right">
+    <div class="panel" id="panel-l2" data-panel="L2" style="margin-bottom:12px">
+      <div class="panel-h" data-drag><span class="ph-title">V2 · 投递轨道（meta）</span><span class="ph-vert">V2 · 投递轨道</span><span class="ph-ctl"><button class="ph-btn ph-pin" data-act="pin" title="钉住（不自动收起）">📌</button><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c2">0</span></span></div>
+      <div class="lane-scroll">
+        <table><thead><tr><th>seq</th><th>投递</th><th>类型</th><th>tok</th><th>成本(微元)</th></tr></thead>
+        <tbody id="lane-l2"></tbody></table>
+      </div>
+    </div>
+    <div class="panel" id="panel-l3" data-panel="L3">
+      <div class="panel-h" data-drag><span class="ph-title">V3 · 后台总线（debug）</span><span class="ph-vert">V3 · 后台总线</span><span class="ph-ctl"><button class="ph-btn ph-pin" data-act="pin" title="钉住（不自动收起）">📌</button><button class="ph-btn" data-act="float" title="浮动（⇱）">⇱</button><button class="ph-btn" data-act="dock" title="停靠（⇲ 回到槽位）">⇲</button><button class="ph-btn" data-act="reset" title="复位（↺）">↺</button><span id="c3">0</span></span></div>
+      <div class="lane-scroll" id="lane-l3"></div>
+    </div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="slot" id="slot-bottom" data-slot="bottom"></div>
+<div id="float-layer"></div>
+<div id="dock-hint"></div>
+
+<footer>
+  M2 只做<b>渲染</b>：条目一律来自后端 <code>/api/view|inbox|snapshot|log.jsonl</code>（内核投影原样，不二次过滤/重排）。
+  复核脚本请只依赖 <code>data-*</code>：行级 <code>data-id / data-seq / data-layer / data-kind / data-sender</code>，
+  L2 行另有 <code>data-cost-micro / data-tokens</code>，状态节点 <code>data-state / data-reason</code>。
+</footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var CHANNEL = 'group:main';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) {
+    // ⭐ 补单引号（$#39;）：当前属性都是双引号故不可利用 ✗，但属**潜在缺口** ✓
+    //    （电脑侧 `PC-…-117` §五 指出 ✓ 我方 `-10` 已自报 ✓）
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  // 轻量正文渲染：``` 围栏 → <pre>（不换行、横向滚动，排版不丢）；`行内` → <code>
+  // 安全性：先整体 esc()，再只插入白名单标签
+  function renderBody(text) {
+    var s = String(text == null ? '' : text);
+    var parts = s.split('```');
+    var out = '';
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        var code = parts[i].replace(/^[a-zA-Z0-9_+-]*\n/, '');
+        out += '<pre>' + esc(code) + '</pre>';
+      } else {
+        out += esc(parts[i]).replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      }
+    }
+    return out;
+  }
+  function isLong(t) { return String(t || '').length > 300 || String(t || '').indexOf('```') >= 0; }
+
+  // ⭐ 带**超时**的 fetch（本机服务卡住时不让请求挂死 ✗ —— 与"DSH 卡死"同族的防护 ✓）
+  //    契约/铁律不变：仍只读或窄写 ✓ 仅多一层客户端超时 ✓
+  function fetchT(url, opts, ms) {
+    var o = opts || {};
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctl) { try { ctl.abort(); } catch (e) {} } }, ms || 6000);
+    if (ctl) { o.signal = ctl.signal; }
+    return fetch(url, o).then(
+      function (r) { clearTimeout(t); return r; },
+      function (e) { clearTimeout(t); throw new Error('请求超时/' + ((e && e.name) || 'error') + '：' + url); }
+    );
+  }
+  function getJSON(url) {
+    return fetchT(url, { cache: 'no-store' }, 6000).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error(url + ' → HTTP ' + r.status + ' ' + t); }
+        return t ? JSON.parse(t) : {};
+      });
+    });
+  }
+  function post(path, payload) {
+    return fetchT(path, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }, 10000).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error(path + ' → HTTP ' + r.status + ' ' + t); }
+        return t ? JSON.parse(t) : {};
+      });
+    });
+  }
+  function err(msg) {
+    var d = document.createElement('div');
+    d.className = 'err';
+    d.textContent = '取数失败：' + msg;
+    $('errs').appendChild(d);
+  }
+
+  // ================= ⭐ D6-5：常驻「服务连接」小灯 🟢 / 🔴 / ⚪ =================
+  //   缺陷原形：服务没在跑时，页面**能打开、一切为空、用户不知为何** ✗（＝ Owner 这次体感的直接原因 ✓）
+  //   口径：数据源只用**现成的只读端点** `GET /api/health` ✓（⛔ 不新增端点 ✗ 守契约 C1 ✓）
+  //   ⛔ 不静默 ✗：连不上时**必须把原因摆出来**（超时 / HTTP 码 / fetch 失败原因）✓
+  var CONN_TEXT = { ok: '🟢 服务在跑', down: '🔴 未连上', probing: '⚪ 未探测' };
+
+  function setConn(kind, reason) {
+    var el = $('conn');
+    if (!el) { return; }                       // ⛔ 缺元素不抛 ✗
+    el.className = 'conn ' + kind;
+    el.setAttribute('data-conn', kind);
+    el.setAttribute('data-reason', reason || '');
+    el.textContent = (CONN_TEXT[kind] || CONN_TEXT.probing) + (reason ? '（' + reason + '）' : '');
+    el.title = '服务连接：' + (CONN_TEXT[kind] || '') + (reason ? ' ｜ ' + reason : '');
+    setStarter(kind === 'ok', reason);      // ⭐ A2×D6-5 联动：未连上 → 起手区禁用 ＋ 明写原因
+  }
+
+  function probeConn() {
+    if (probeConn._busy) { return; }            // 防重入：不堆积请求（同 refresh ✓）
+    probeConn._busy = true;
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) { ctl.abort(); } }, 4000);
+    fetch('/api/health', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.json();
+      })
+      .then(function (j) {
+        // ⭐ E13.3 完全体：据 `GET /api/health` 的**只读字段 `actions`** **事先**置灰 ✓
+        //   （电脑侧 `ff0c7d5` 已加该字段 ✓）⇒ ⛔ 不必“调了才发现” ✗
+        var off = (j && j.actions === false);
+        actionsOff = off;
+        setConn('ok', 'seq=' + ((j && j.seq !== undefined) ? j.seq : '?'));
+        if (off) {
+          ['starter-queue', 'starter-interrupt'].forEach(function (bid) {
+            var b = $(bid);
+            if (b) { b.title = '动作面未开启：服务端未开 --enable-actions'; }
+          });
+          $('starter-hint').textContent = '⛔ 动作面未开启（服务端未开 --enable-actions ✓）⇒ 两个提交按钮已**事先**置灰 ✓；'
+            + '要用请按上面「怎么起协作台」加上 --enable-actions 再重启服务 ✓';
+        }
+      })
+      .catch(function (e) {
+        var why = (e && e.name === 'AbortError') ? '探测超时 4s'
+                : ((e && e.message) ? e.message : '未知原因');
+        setConn('down', why);                  // ⛔ 绝不静默 ✗
+      })
+      .then(function () { clearTimeout(timer); probeConn._busy = false; });
+  }
+
+  // ═══════════ ⭐ A2/D6-2：首屏起手区 ＋ ⭐ A3/D6-1：首次向导 ═══════════
+  //   痛点：首屏**全是“看”**（页签/面板/矩阵/待办）✗ → 不知道从哪开始一件事 ✗
+  //   口径：⭐ 首屏就能「开始一件事」✓；⭐ **不选模型也能发起** ✓（多模型从门槛降为可选项 ✓）
+  //   ⛔ 不新增端点 ✗：发起复用 **POST /api/interrupt**（人类发话）＋ **POST /api/step**（推进一格）✓
+  //   ⛔ 不静默 ✗：服务未连上 → 输入框禁用 ＋ 写明原因 ＋ 给「重试探测」✓
+  var GUIDE_KEY = 'collab_guide_skipped';
+  var GUIDE_STEPS = [
+    ['起服务', '探测到 🟢 就无需操作 ✓'],
+    ['选模型', '默认单点，可跳过 ✓'],
+    ['选工作区', '沿用当前项目，或新建 ✓'],
+    ['写第一条任务', '一句普通话即可 ✓'],
+    ['看投递', 'V1/V2/V3 三层 ✓']
+  ];
+  var guideActive = 0;
+  var starterReady = false;      // ⭐ 必须**先声明**：页面为严格模式 ⇒ 未声明就赋值会抛 ReferenceError ✗
+                                 //   （本条由 e2e 当场逮住 ✓：连接灯曾变成“🔴 未连上（starterReady is not defined）”✗）
+  var actionsOff = false;        // ⭐ E13.3：动作面**默认关**（需服务端 --enable-actions ✓）
+  var PM_WARN_TEXT = '⚠️ 现在会改文件';   // ⭐ B6/D6-4：切到 Act 必须说这句 ✓（⛔ 不静默切换 ✗）
+
+  function howEmpty(what, how) {
+    // ⭐ 空面板指引（⛔ 不再是一片空白 ✗；也不泄后端路径 ✗）
+    return '<div class="howempty"><div class="t">' + esc(what) + '</div>' +
+           '<div class="h">' + esc(how) + '</div></div>';
+  }
+
+  function guideSkipped() {
+    try { return window.localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) { return false; }
+  }
+  function skipGuide() {
+    try { window.localStorage.setItem(GUIDE_KEY, '1'); } catch (e) { /* 存不了就不记（下次还会显示 ✓ 不算错 ✓）*/ }
+    $('guide').hidden = true;
+  }
+  function renderGuide() {
+    var box = $('guide-steps');
+    if (!box) { return; }
+    box.innerHTML = GUIDE_STEPS.map(function (it, i) {
+      return '<div class="step' + (i === guideActive ? ' on' : '') + '">' +
+        '<div class="n">STEP ' + (i + 1) + '</div>' +
+        '<div class="t">' + esc(it[0]) + '</div>' +
+        '<div class="d">' + esc(it[1]) + '</div></div>';
+    }).join('');
+  }
+
+  // 参与范围：默认**单点** ✓（圆桌＝B 阶段：控件保留但**禁用 ＋ 写清原因** ✓ 不让“点了没反应”✗）
+  function starterMode() {
+    var s = $('starter-mode-single');
+    return (s && s.classList.contains('on')) ? 'single' : 'round';
+  }
+
+  // ⭐ B6/D6-4：Plan（只读讨论）/ Act（可执行）两态 —— **默认 Plan** ✓（对照 Cline Plan&Act ✓）
+  //   · Plan 👉 只写“这一句”＝ `POST /api/interrupt` ✓（⛔ 不推进 ✗ 不改文件 ✓）
+  //   · Act  👉 写下＋推进一回合 ＝ `interrupt` ＋ `step` ✓
+  //   ⭐ 切换时必须**显式提示“现在会改文件”** ✗（⛔ 不静默切 ✗）
+  function pmMode() {
+    var a = $('starter-pm-act');
+    return (a && a.classList.contains('on')) ? 'act' : 'plan';
+  }
+
+  function setPm(m) {
+    var plan = $('starter-pm-plan'), act = $('starter-pm-act');
+    if (!plan || !act) { return; }
+    plan.className = (m === 'act') ? '' : 'on';
+    act.className = (m === 'act') ? 'on' : '';
+    var warn = $('starter-act-warn');
+    if (warn) { warn.hidden = (m !== 'act'); }           // ⭐ 只有 Act 才把“会改文件”摆出来 ✓
+    var note = $('starter-pm-note');
+    if (note) {
+      note.textContent = (m === 'act')
+        ? PM_WARN_TEXT + ' —— 会推进一回合（可能写盘 ✓）；切回 Plan 可停 ✓'
+        : '⭐ 默认 Plan：只写下意图、⛔ 不推进 ✗';
+    }
+  }
+
+  function setStarter(ok, why) {
+    var box = $('starter');
+    var inp = $('starter-input');
+    var bn = $('conn-banner');
+    if (!box || !inp) { return; }                    // ⛔ 缺元素不抛 ✗
+    starterReady = !!ok;
+    box.classList.toggle('dim', !ok);
+    inp.disabled = !ok;
+    // ⭐ E15.4：两个**明确动作**——一起置灰／一起恢复
+    ['starter-queue', 'starter-interrupt'].forEach(function (bid) {
+      var b = $(bid);
+      if (b) { b.disabled = !ok || actionsOff; }
+    });
+    inp.placeholder = ok ? '想让它做什么？一句话就行（回车＝排队 ✓）'
+                         : '（服务未连上，暂不能提交）';
+    $('starter-hint').textContent = ok
+      ? '⭐ 一句普通话就能开始 ✓ ｜ 默认「排队」不打断 ✓ ｜「插话」会立即打断 ✓'
+      : '⛔ 服务未连上 —— 先起服务再提交 ✗（按钮已禁用 ✓ 不让“点了没反应”✗）';
+    if (bn) {
+      bn.hidden = !!ok;
+      if (!ok) { $('conn-banner-why').textContent = '原因：' + (why || '未知') ; }
+    }
+  }
+
+  function markActionsOff(why) {
+    // ⭐ 契约 E13.3：动作面默认关 ⇒ ⛔ 不许“点了才发现” ✗ ⇒ 置灰 ＋ 写明原因 ＋ 给开启指引 ✓
+    actionsOff = true;
+    ['starter-queue', 'starter-interrupt'].forEach(function (bid) {
+      var b = $(bid);
+      if (b) { b.disabled = true; b.title = '动作面未开启：' + why; }
+    });
+    $('starter-hint').textContent = '⛔ 动作面未开启 —— ' + why + ' ⇒ 两个提交按钮已置灰 ✓（⛔ 不让“点了才发现” ✗）';
+    err('动作面未开启：' + why + ' ｜ 出路：用 --enable-actions 起服务（如 python collab\\relay_server.py --enable-actions ✓），'
+        + '或从桌宠菜单「🍵 打开协作台」✓');
+  }
+
+  // ⭐ B5／E15：提交（**两个明确动作** ✓ 两者都**显式传 `mode`** ✓ ⛔ 不依赖端点默认值 ✗）
+  //   kind='queue'     → mode='queue'（不打断 ✓ 本轮自然结束后内核按序执行 ✓）
+  //   kind='interrupt' → mode='interrupt'（立即打断 ✓ 现有语义 ✓）
+  //   ⭐ Plan/Act 只管“**要不要顺手推一格**” —— 四种组合各有意义 ✓ 无一是空动作 ✓
+  function submitStarter(kind) {
+    if (!starterReady) { err('服务未连上 —— 先起服务再提交 ✗（右上角小灯有原因 ✓）'); return; }
+    if (actionsOff) { err('动作面未开启 —— 两个提交按钮已置灰 ✓（见上方提示 ✓）'); return; }
+    var inp = $('starter-input');
+    var t = (inp.value || '').trim();
+    if (!t) { err('请先写一句要它做的事 ✗（空内容不提交 ✓）'); inp.focus(); return; }
+    var mode = (kind === 'interrupt') ? 'interrupt' : 'queue';   // ⭐ 一律显式 ✓
+    var btns = ['starter-queue', 'starter-interrupt'];
+    btns.forEach(function (b) { if ($(b)) { $(b).disabled = true; } });
+    // ⛔ 不新增端点 ✗：① 人类发话 → /api/interrupt（扩参 mode ✓ E15）② 推进一格 → /api/step
+    post('/api/interrupt', { body: t, mode: mode })
+      .then(function () {
+        if (pmMode() !== 'act') { return null; }     // ⭐ Plan：只写下、⛔ 不推进 ✗
+        return post('/api/step', {});                 // ⭐ Act：顺手推一格 ✓
+      })
+      .then(function () { inp.value = ''; return refresh(); })
+      .catch(function (e) {
+        var m = (e && e.message) || '未知原因';
+        // ⭐ E13.3：403（动作面未开）**不得当普通错误** ✗ —— 须置灰 ＋ 写原因 ＋ 指引 ✓
+        if (/403/.test(m) && /(动作端点未开启|enable-actions)/.test(m)) {
+          markActionsOff('需服务端 --enable-actions（默认只读 ✓）');
+          return;
+        }
+        err('提交失败（' + mode + '）：' + m);       // ⛔ 不静默 ✗
+      })
+      .then(function () {
+        btns.forEach(function (b) { if ($(b)) { $(b).disabled = !starterReady || actionsOff; } });
+      });
+  }
+
+  // ════════ ⭐ B5/E15：队列与暂停（只读 `GET /api/queue` ✓） ════════
+  //   ⭐ E15.4 硬约束：⛔ 界面**不得**写“排队·执行中”这类字样 ✗
+  //   —— 未启用 E15 时，人类插话 ＝ **打断进暂停** ✓ ⇒ 只能写「已暂停，待处理 N 条」✓
+  function qNote(t) { var el = $('q-note'); if (el) { el.textContent = t; } }
+
+  function loadQueue() {
+    return fetchT('/api/queue', { cache: 'no-store' }, 8000).then(function (r) {
+      if (r.status === 404) { return { __unready: true }; }      // ⭐ 未就绪**明示** ✗ 不空白 ✓
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    }).then(renderQueue).catch(function (e) {
+      qNote('取不到队列：' + ((e && e.message) || '未知原因') + ' ✓');   // ⛔ 不静默 ✗
+    });
+  }
+
+  function renderQueue(j) {
+    var box = $('q-list');
+    if (!box) { return; }
+    if (!j || j.__unready) {
+      qNote('⭐ 队列端点未就绪 ✓（等内核半上线 ✓）');
+      box.innerHTML = '<div class="qmeta">端点未就绪 ✓ —— 本页其余功能不受影响 ✓</div>';
+      return;
+    }
+    var qs = j.queued || [];
+    var n = (j.queued_count !== undefined) ? j.queued_count : qs.length;
+    if (j.interrupted) {
+      qNote('⭐ **已暂停**，待处理 ' + n + ' 条 ✓（⭐ 点「继续」才恢复 ✓）');
+    } else if (j.running) {
+      qNote('运行中（turn ' + ((j.turn_no !== undefined) ? j.turn_no : '—') + '）｜ 待处理 ' + n + ' 条 ✓');
+    } else {
+      qNote('空闲 ✓（已停/已结束 ✓）');
+    }
+    if (!n) { box.innerHTML = '<div class="qmeta">当前无排队 ✓</div>'; return; }
+    box.innerHTML = qs.map(function (it) {
+      var who = String(it.sender || '?') + (it.line ? ' · ' + it.line : '') + (it.channel ? ' · ' + it.channel : '');
+      return '<div class="qitem"><span class="qmeta">seq ' + esc(String(it.seq)) + ' ｜ ' + esc(who)
+           + ' ｜ mode=' + esc(String(it.mode || '—')) + '</span><br>' + esc(String(it.preview || '')) + '</div>';
+    }).join('') + '<div class="qmeta">⭐ v1 不可撤回 ✓（撤回属新写操作，另案 ✓）</div>';
+  }
+
+  // ════════ ⭐ B7/E16：运行历史（只读 `GET /api/history` ✓） ════════
+  //   ⭐ E16.2 硬约束：⭐ 步骤＝**由消息序列派生（近似）** ✗ ⇒ 界面**必须标明** ✓
+  function hNote(t) { var el = $('h-note'); if (el) { el.textContent = t; } }
+
+  function loadHistory() {
+    return fetchT('/api/history?limit=20', { cache: 'no-store' }, 8000).then(function (r) {
+      if (r.status === 404) { return { __unready: true }; }
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    }).then(renderHistory).catch(function (e) {
+      hNote('取不到历史：' + ((e && e.message) || '未知原因') + ' ✓');
+    });
+  }
+
+  function renderHistory(arr) {
+    var box = $('h-list');
+    if (!box) { return; }
+    if (!arr || arr.__unready) {
+      hNote('⭐ 历史端点未就绪 ✓');
+      box.innerHTML = '<div class="qmeta">端点未就绪 ✓ —— 本页其余功能不受影响 ✓</div>';
+      return;
+    }
+    if (!arr.length) {
+      hNote('还没有运行记录 ✓');
+      box.innerHTML = '<div class="qmeta">跑一轮后这里会出现该轮 ✓</div>';
+      return;
+    }
+    hNote(arr.length + ' 轮 ✓ ｜ ⭐ 步骤＝由消息序列派生（近似）✓');
+    box.innerHTML = arr.map(function (t, i) {
+      var ok = (t.ok !== false);
+      var head = 'turn ' + esc(String(t.turn_no)) + ' ｜ ' + (ok ? '✅ 正常' : '❌ 有错') +
+                 ' ｜ ' + esc(String(t.cost_micro)) + ' 微元 ｜ ' + esc(String(t.tokens)) + ' tok' +
+                 ' ｜ stop=' + esc(String(t.stop_reason || '—'));
+      var steps = (t.steps || []).map(function (s) {
+        return '<div class="hstep">seq ' + esc(String(s.seq)) + ' ｜ ' + esc(String(s.kind || '')) +
+               ' ｜ ' + esc(String(s.sender || '')) + (s.line ? ' · ' + esc(String(s.line)) : '') +
+               ' ｜ ' + esc(String(s.preview || '')) + '</div>';
+      }).join('');
+      var errBlk = t.error ? ('<div class="herr">原始错误：' + esc(String(t.error)) + '</div>') : '';
+      return '<div class="hrow"><div class="qmeta" data-hidx="' + i + '" style="cursor:pointer">▸ ' + head + '</div>' +
+        '<div id="hdetail-' + i + '" hidden><div class="hderiv">⭐ 以下步骤由消息序列派生（近似 ✓）—— ⛔ 非内核精确步骤 ✗</div>' +
+        (steps || '<div class="hstep">（该轮无步骤记录）</div>') + errBlk + '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-hidx]'), function (el) {
+      el.onclick = function () {
+        var d = $('hdetail-' + el.getAttribute('data-hidx'));
+        if (!d) { return; }
+        d.hidden = !d.hidden;
+        el.textContent = (d.hidden ? '▸ ' : '▾ ') + el.textContent.replace(/^[▸▾]\s*/, '');
+      };
+    });
+  }
+
+  // ════════ ⭐ C2／D5-2：⚙ 配置面（**只读** ✓ 依对方 `-165` 读路径契约 ✓） ════════
+  //   ⭐ 三条硬约束（契约 §2.1 ✓）：① 纯读 ✓ ② ⭐ **敏感键的值恒不显示** ✗（只回“配没配” ✓）
+  //   ③ ⭐ **`writable` 为空 ⇒ 界面必须明示“当前不可写”** ✗（⛔ 不静默置灰 ✗）
+  function cfgNote(t) { var el = $('cfg-note'); if (el) { el.textContent = t; } }
+
+  function loadConfig() {
+    return fetchT('/api/config', { cache: 'no-store' }, 8000).then(function (r) {
+      if (r.status === 404) { return { __unready: true }; }      // ⭐ 未就绪**明示** ✗ 不空白 ✓
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    }).then(renderConfig).catch(function (e) {
+      cfgNote('取不到配置：' + ((e && e.message) || '未知原因') + ' ✓');
+    });
+  }
+
+  function renderConfig(c) {
+    var box = $('cfg-list');
+    if (!box) { return; }
+    if (!c || c.__unready) {
+      cfgNote('⭐ 配置端点未就绪 ✓（等内核半上线 ✓）');
+      box.innerHTML = '<div class="qmeta">端点未就绪 ✓ —— 本页其余功能不受影响 ✓</div>';
+      var ro0 = $('cfg-ro'); if (ro0) { ro0.textContent = ''; }
+      return;
+    }
+    var nr = c.needs_restart || [], wr = c.writable || [];
+    // ⭐ 两种形状都兼容（⭐ 对方 `5d35e43` 实际发的是 `items[]` ✓ ＝ 我方 `-51` 草稿 3 ✓；
+    //    PC-165 §2.1 的 `keys{}` 作为兼容分支保留 ✓）⇒ ⭐ 免得“契约改了界面就不显示” ✗
+    var rows = [];
+    if (Array.isArray(c.items)) {
+      rows = c.items.map(function (it) {
+        return { k: it.key, v: it.value, scope: it.scope, src: it.source, rs: it.restart };
+      });
+    } else {
+      var keys = c.keys || {}, conf = c.configured || {};
+      rows = Object.keys(keys).map(function (k) {
+        var v = keys[k];
+        return { k: k, v: (v === null || v === undefined) ? (conf[k] ? '••••（已配置 ✓）' : '（未配置 ✓）') : v,
+                 scope: '', src: '', rs: (nr.indexOf(k) >= 0) };
+      });
+    }
+    var hid = c.hidden || [];
+    var total = (typeof c.count === 'number') ? c.count : rows.length;
+    var _v = String(c.version || '—');
+    cfgNote((/^v/i.test(_v) ? _v : ('v' + _v)) + ' ｜ ' + total + ' 个键 ✓ ｜ ⭐ 敏感键 ' + hid.length +
+            ' 个（**一个字符都不回** ✗ ✓）｜ ' + (nr.length ? nr.length + ' 个改后需重启 ✓' : '无需重启项 ✓'));
+    // ⭐ 硬约束③：writable 为空 ⇒ **明示不可写**（⛔ 不静默置灰 ✗）
+    var ro = $('cfg-ro');
+    if (ro) { ro.textContent = (wr.length ? ('（可写 ' + wr.length + ' 项 ✓）') : '（⭐ 当前不可写 · 只读展示 ✓）'); }
+    var html = '<div class="cfg">' + rows.map(function (r) {
+      var v = r.v, shown;
+      if (v === null || v === undefined) { shown = '••••（不回值 ✓）'; }
+      else {
+        shown = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+        if (shown.length > 42) { shown = shown.slice(0, 42) + '…'; }
+      }
+      var tag = r.rs ? ' <span class="cfgwarn">⭐ 改后需重启</span>' : '';
+      var sc = (r.scope ? ('<span class="qmeta">[' + esc(String(r.scope)) + (r.src ? '·' + esc(String(r.src)) : '') + ']</span> ') : '');
+      return '<div class="cfgrow"><span class="cfgk">' + sc + esc(String(r.k)) +
+             '</span><span class="cfgv">' + esc(shown) + tag + '</span></div>';
+    }).join('');
+    if (hid.length) {
+      html += hid.map(function (k) {
+        return '<div class="cfgrow"><span class="cfgk">' + esc(String(k)) +
+               '</span><span class="cfgv">••••（⭐ 敏感键 · 不回值 ✓）</span></div>';
+      }).join('');
+    }
+    box.innerHTML = html + '</div>';
+  }
+
+  function updateStarter(snap, projects, pend) {    var issue = (snap && snap.issue && snap.issue.title) || '';
+    var turn = (snap && snap.turn_no !== undefined) ? snap.turn_no : '—';
+    $('c-resume').textContent = issue
+      ? (issue + ' · 上一轮 turn ' + turn + ' ｜ 点这里接着聊')
+      : '还没有议题 ｜ 在下面写一句就能开第一轮 ✓';
+    var pn = (pend && pend.pending) ? pend.pending.length : null;
+    $('c-pending').textContent = (pn === null)
+      ? '取不到待办（服务未连上或未就绪）✓'
+      : (pn + ' 条待办等人触发运行器 ｜ 点开逐条看载荷');
+    var an = 0;
+    if (ASSETS) { Object.keys(ASSETS).forEach(function (k) { an += Object.keys(ASSETS[k] || {}).length; }); }
+    $('c-matrix').textContent = an
+      ? '已载入 ' + an + ' 条状态资产 ｜ 点开看三件套 ✓'
+      : '尚未载入资产 ｜ 点开矩阵即可拉取 ✓';
+    // ⭐ 首次使用判定：无议题 ＋ 无待办 ＋ 无项目 ⇒ 显示向导（可跳过 ✓）
+    var projN = (projects && projects.projects) ? projects.projects.length : 0;
+    var first = !issue && (pn === null || pn === 0) && !projN;
+    var g = $('guide');
+    if (g) { g.hidden = !(first && !guideSkipped()); }
+    if (!g.hidden) {
+      guideActive = starterReady ? 1 : 0;
+      renderGuide();
+    }
+  }
+
+  function avatarText(sender) {
+    var s = String(sender || '?');
+    if (s.indexOf('human:') === 0) return '我';
+    if (s.indexOf('agent:') === 0) return s.slice(6, 7).toUpperCase();
+    return '#';
+  }
+  function rowClass(sender) {
+    var s = String(sender || '');
+    if (s.indexOf('human:') === 0) return 'row me';
+    if (s === 'system') return 'row sys';
+    return 'row';
+  }
+
+  function renderL1(msgs) {
+    var box = $('stream-l1');
+    box.innerHTML = '';
+    if (!msgs.length) { box.innerHTML = howEmpty('这里会出现：每个角色说的话（群聊流 L1）', '怎么让它出现 → 在上面输入一句话，点「▶ 发起」✓'); }
+    msgs.forEach(function (m) {
+      var d = document.createElement('div');
+      d.className = rowClass(m.sender);
+      d.setAttribute('data-id', m.id);
+      d.setAttribute('data-seq', m.seq);
+      d.setAttribute('data-layer', 'L1');
+      d.setAttribute('data-kind', m.kind);
+      d.setAttribute('data-sender', m.sender);
+      var long = isLong(m.body);
+      d.innerHTML =
+        '<div class="av">' + esc(avatarText(m.sender)) + '</div>' +
+        '<div><div class="m-h"><b>' + esc(m.sender) + '</b>' +
+        '<span>' + esc(m.kind) + '</span><span>seq ' + m.seq + '</span>' +
+        (m.recipients && m.recipients.length ? '<span>→ ' + esc(m.recipients.join(',')) + '</span>' : '') +
+        '</div><div class="m-b' + (long ? ' clip' : '') + '">' + renderBody(m.body) + '</div>' +
+        (long ? '<span class="more">▾ 展开全文（共 ' + String(m.body).length + ' 字）</span>' : '') +
+        '</div>';
+      var more = d.querySelector('.more');
+      if (more) {
+        more.onclick = function () {
+          var b = d.querySelector('.m-b');
+          var on = b.classList.toggle('clip');
+          more.textContent = on ? '▾ 展开全文（共 ' + String(m.body).length + ' 字）' : '▴ 收起';
+        };
+      }
+      box.appendChild(d);
+    });
+    $('c1').textContent = msgs.length;
+  }
+
+  function renderL2(msgs) {
+    var tb = $('lane-l2');
+    tb.innerHTML = '';
+    if (!msgs.length) {
+      // ⭐ A2/D6-2：空面板自带「下一步做什么」（⛔ 不再是一片空白 ✗）
+      var tr0 = document.createElement('tr');
+      tr0.className = 'l2-empty';
+      tr0.innerHTML = '<td colspan="5">' +
+        howEmpty('这里会出现：每张投递的去向与花费（V2 投递轨道）',
+                 '怎么让它出现 → 发起一轮 ＋ 让运行器真跑（python collab\\run_pending.py --base .）✓') + '</td>';
+      tb.appendChild(tr0);
+    }
+    msgs.forEach(function (m) {
+      var meta = m.meta || {};
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-id', m.id);
+      tr.setAttribute('data-seq', m.seq);
+      tr.setAttribute('data-layer', 'L2');
+      tr.setAttribute('data-kind', m.kind);
+      tr.setAttribute('data-sender', m.sender);
+      tr.setAttribute('data-cost-micro', meta.cost_micro == null ? '' : meta.cost_micro);
+      tr.setAttribute('data-tokens', meta.tokens == null ? '' : meta.tokens);
+      tr.innerHTML = '<td class="num">' + m.seq + '</td>' +
+        '<td>' + esc(m.sender) + ' → ' + esc((m.recipients || []).join(',') || '（广播）') + '</td>' +
+        '<td><span class="kind">' + esc(m.kind) + '</span></td>' +
+        '<td class="num">' + esc(meta.tokens == null ? '—' : meta.tokens) + '</td>' +
+        '<td class="num">' + esc(meta.cost_micro == null ? '—' : meta.cost_micro) + '</td>';
+      tb.appendChild(tr);
+    });
+    $('c2').textContent = msgs.length;
+  }
+
+  function renderL3(msgs) {
+    var box = $('lane-l3');
+    box.innerHTML = '';
+    if (!msgs.length) { box.innerHTML = howEmpty('这里会出现：每一次投递的原始记录（V3 后台总线）', '怎么让它出现 → 先发起一轮 ✓；运行器真跑起来才会有投递 ✓'); }
+    msgs.forEach(function (m) {
+      var d = document.createElement('div');
+      d.className = 'empty';
+      d.setAttribute('data-id', m.id);
+      d.setAttribute('data-seq', m.seq);
+      d.setAttribute('data-layer', 'L3');
+      d.setAttribute('data-kind', m.kind);
+      d.setAttribute('data-sender', m.sender);
+      d.textContent = 'seq ' + m.seq + '  ' + m.sender + '  ' + m.kind + '  ' + m.body;
+      box.appendChild(d);
+    });
+    $('c3').textContent = msgs.length;
+  }
+
+  function renderState(snap) {
+    var el = $('state');
+    var st = snap.stopped ? 'stopped' : (snap.interrupted ? 'interrupted' : 'running');
+    el.className = 'status ' + st;
+    el.setAttribute('data-state', st);
+    el.setAttribute('data-reason', snap.stop_reason || '');
+    el.textContent = st + (snap.stop_reason ? '（' + snap.stop_reason + '）' : '');
+    $('g-turn').textContent = snap.turn_no;
+    $('g-cost').textContent = (snap.cost_micro / 1e6).toFixed(4);
+    $('g-tokens').textContent = snap.tokens;
+    $('meta').textContent = '数据源：' + (snap.issue ? snap.issue.title : '（未开议题）') + ' ｜ seq=' + snap.seq;
+    if (snap.alerts && snap.alerts.length) {
+      err('严重告警 ' + snap.alerts.length + ' 条（首条：' + snap.alerts[0] + '）');
+    }
+    if (snap.warnings && snap.warnings.length) {
+      $('last').textContent += ' ｜ 告知 ' + snap.warnings.length + ' 条';
+    }
+  }
+
+  // ================= 批 4 第一刀·项目层（只读面接线：/api/projects · /api/project/current · /api/roles）=================
+  // ⭐ 契约安全红线：角色条**只做展示与选中态** ✓；⛔ **不做客户端过滤/重排** ✗
+  //    （否则 DOM 会与 /api/view 不一致 ✗ → 直接打红契约 §4 的比对③）
+  var PROJ = { current: null, list: [], boundary: null };
+  var ROLES = [];
+  var selectedRole = null;
+  // ⭐ 立绘缩略图端点前缀（默认 null = 不发起请求 ✓）：契约 E3 下 `/api/assets` 不含图片
+  //    将来若批下只读缩略图端点 → 填成如 '/api/thumb?role=' 即接回 ✓
+  // ================= ⭐ 批 4b-4：立绘缩略图（契约 E12 · 界面半）=================
+  // ⭐ E12：`GET /api/thumb?prefix=<目录>&kind=alpha|chroma|white&w=64..512` → image/png（只读 ✓ 白名单根之下 ✓）
+  // ⭐ 界面三条口径（均本批落地 ✓）：
+  //   ① **先探针** ✗ 未上线则不发图片请求 ＋ 明示原因 ✓（⛔ 不假装 ✗）
+  //   ② **lazy** ✓ 只对**可见格**发请求 ✗ —— 否则 22×59＝**1298 格**并发会打爆 ✗
+  //   ③ **单格 1 图** ✓ 依 `/api/assets` 已知布尔**本地**选 kind（alpha→chroma→white ✓）✗ 不发探测请求 ✗
+  var THUMB_BASE = '/api/thumb';
+  var THUMB_STATE = 'unknown';        // unknown ｜ on ｜ off
+  var THUMB_REASON = '';
+  var THUMB_KINDS = ['alpha', 'chroma', 'white'];
+  function thumbUrl(prefix, st, kind, w) {
+    return THUMB_BASE + '?prefix=' + encodeURIComponent(prefix)
+         + (st ? ('&state=' + encodeURIComponent(st)) : '')
+         + '&kind=' + encodeURIComponent(kind) + '&w=' + (w || 128);
+  }
+  // ⭐ 角色是否真有可用缩略图（⛔ 没有则**不发请求** ✗ —— 否则 `flash`/`pro` 这类无资产目录的角色会白送 404 ✗）
+  function roleHasAlpha(prefix) {
+    var d = (ASSETS || {})[prefix];      // ⭐ 必须防 `ASSETS` 尚未赋值 ✗（否则 TypeError 会被上游 try 静默吞掉 ✗ → 角色条空白却无任何报错 ✗）
+    if (!d) { return false; }
+    for (var s in d) { if (d[s] && d[s].alpha) { return true; } }
+    return false;
+  }
+  function thumbKindOf(v) {          // ⭐ 本地挑第一个可用 kind（不额外发请求 ✓）
+    if (!v) { return null; }
+    for (var i = 0; i < THUMB_KINDS.length; i++) { if (v[THUMB_KINDS[i]]) { return THUMB_KINDS[i]; } }
+    return null;
+  }
+  function probeThumb() {
+    if (THUMB_STATE !== 'unknown') { return; }
+    // ⭐ 判据（照 E12 明文 ✓）：**参数非法 → 400** ＝ **端点存在** ✓ ；**端点不存在 → 404** ✓
+    fetchT(THUMB_BASE, { cache: 'no-store' }, 6000).then(function (res) {
+      if (res.status === 400) { THUMB_STATE = 'on'; THUMB_REASON = ''; }
+      else if (res.status === 404) { THUMB_STATE = 'off'; THUMB_REASON = 'HTTP 404 · 端点未上线'; }
+      else if (res.ok) { THUMB_STATE = 'on'; THUMB_REASON = ''; }
+      else { THUMB_STATE = 'off'; THUMB_REASON = 'HTTP ' + res.status; }
+    }).catch(function (e) {
+      THUMB_STATE = 'off'; THUMB_REASON = '请求失败：' + (e && e.message ? e.message : e);
+    }).then(function () {
+      var tn = $('thumb-note');
+      if (tn) {
+        tn.innerHTML = (THUMB_STATE === 'on')
+          ? '⭐ 缩略图（契约 E12）：端点已就绪 ✓ —— 矩阵格按需懒加载 ✓（只对可见格发请求 ✗）'
+          : ('⚠️ 缩略图（契约 E12）：<b>端点未上线</b>（' + esc(THUMB_REASON) + '）→ 本页<b>不发起任何图片请求</b> ✓ 矩阵仍以三布尔显示 ✓（此状态常驻显示 ✓ 不静默 ✗）');
+      }
+      if (THUMB_STATE === 'on') {
+        try { renderRoleBar(true); renderMatrix(); } catch (e) {}
+      }
+    });
+  }
+
+  function getJSONSoft(url) { return getJSON(url).catch(function () { return null; }); }
+
+  function renderProjectBar(force) {
+    var sel = $('proj-sel');
+    if (!sel) { return; }
+    // ⭐ 数据未变则不重建 DOM（本函数每 2s 被调一次 ✓ 避免无谓重绘 ✓）
+    var _k = JSON.stringify(PROJ);
+    if (!force && _k === renderProjectBar._k) { return; }
+    renderProjectBar._k = _k;
+    var cur = PROJ.current;
+    sel.textContent = cur ? (cur.name || cur.id) : '（未取到项目）';
+    // ⭐ 降级：项目端点不可用 → ⛔ 不让用户以为能编辑（守“不假装可用”✓）
+    var eb = $('btn-proj-edit');
+    if (eb) { eb.disabled = !cur; eb.title = cur ? '编辑项目五字段（提交为待办，须人触发运行器执行）' : '项目信息未取到，暂不可编辑'; }
+    var chips = $('proj-chips');
+    if (chips) {
+      chips.innerHTML = '';
+      PROJ.list.forEach(function (p) {
+        var c = document.createElement('span');
+        c.className = 'pchip' + (cur && p.id === cur.id ? ' on' : '');
+        c.textContent = (p.name || p.id) + (p.unread ? ' · ' + p.unread : '');
+        c.title = cur && p.id === cur.id ? '当前项目（只读展示）' : '项目（切换未实现，v1 仅默认项目）';
+        chips.appendChild(c);
+      });
+    }
+    var pel = $('rail-proj');
+    if (pel) {
+      var n = (PROJ.boundary && PROJ.boundary.roles ? PROJ.boundary.roles.length : 0);
+      pel.innerHTML = cur ? ('<b>' + esc(cur.id || 'default') + '</b><br>' + n + ' 个角色') : '—';
+    }
+  }
+
+  function faceFallback(role) {
+    var el = document.createElement('span');
+    el.className = 'face ph';
+    el.style.background = role.color || '#8b949c';
+    el.textContent = String(role.display_name || role.key || '?').slice(0, 1).toUpperCase();
+    return el;
+  }
+
+  function renderRoleBar(force) {
+    var box = $('rail-list');
+    if (!box) { return; }
+    // ⭐ 同上：数据未变不重建（每 2s 一次 ✓）
+    var _k = JSON.stringify(ROLES) + '|' + selectedRole;
+    if (!force && _k === renderRoleBar._k) { return; }
+    renderRoleBar._k = _k;
+    box.innerHTML = '';
+    if (!ROLES.length) {
+      box.innerHTML = '<div class="rail-empty">（未取到角色）</div>';
+      return;
+    }
+    ROLES.forEach(function (r) {
+      var d = document.createElement('div');
+      d.className = 'role' + (selectedRole === r.key ? ' on' : '');
+      d.title = (r.display_name || r.key) + '（' + r.key + '）';
+      d.setAttribute('data-role', r.key);
+      var prefix = r.portrait_prefix || r.key;
+      // ⭐ 契约 **E12**（已确认 ✓）：`GET /api/thumb?prefix=&state=&kind=&w=` → image/png
+      //    ⚠️ 仅当**探针通过**（THUMB_STATE==='on'）才建 `img` ✗ —— 否则**一个请求都不发** ✓（不 404 ✗ 不假装 ✗）
+      //    ⚠️ 建议补条：E12 原稿只写了 `prefix`＋`kind`，**没写 `state`** ✗ → 无法定位是哪个状态的图 ✗
+      //       → 我方已按 `&state=` 先实现（向前兼容 ✓）并**另件提请**补 `state` 参数 ✓
+      var tk = (THUMB_STATE === 'on' && roleHasAlpha(prefix)) ? 'alpha' : null;
+      if (tk) {
+        var img = document.createElement('img');
+        img.className = 'face';
+        img.loading = 'lazy';                       // ⭐ lazy ✓
+        img.alt = r.display_name || r.key;
+        img.onerror = function () {                 // ⭐ 失败退回色块＋首字（不碎图 ✗）
+          var fb = faceFallback(r);
+          if (img.parentNode) { img.parentNode.replaceChild(fb, img); }
+        };
+        img.src = thumbUrl(prefix, 'idle', tk, 128);
+        d.appendChild(img);
+      } else {
+        d.appendChild(faceFallback(r));             // ⭐ 无缩略图端点 → 色块＋首字（不 404 ✓ 不假装 ✓）
+      }
+      var nm = document.createElement('div');
+      nm.className = 'rn';
+      nm.textContent = r.display_name || r.key;
+      d.appendChild(nm);
+      d.onclick = function () { selectedRole = r.key; renderRoleBar(true); };
+      box.appendChild(d);
+    });
+  }
+
+  function renderProjectLayer(projects, current, roles) {
+    if (projects && projects.projects) {
+      PROJ.list = projects.projects;
+      if (!PROJ.current) { PROJ.current = projects.projects[0] || null; }
+    }
+    if (current) {
+      PROJ.current = current.project || PROJ.current;
+      PROJ.boundary = current.boundary || null;
+      if (PROJ.current && (!PROJ.list || !PROJ.list.length)) { PROJ.list = [PROJ.current]; }
+    }
+    if (Array.isArray(roles)) { ROLES = roles; }
+    renderProjectBar();
+    renderRoleBar();
+  }
+
+  // ================= 批 4b-1：项目五字段编辑（提交 project_edit → 窄写端点 /api/pending）=================
+  // ⭐ 契约依据：条款 IV E1（唯一窄写端点）/ E2（文件格式）/ `-16` §二 schema
+  // ⭐ 界面**只投递**·不执行 ✓；真改动须**人触发运行器** ✓
+  var selectedRoles = [];
+
+  function isAbsPath(s) { return /^[A-Za-z]:[\\/]/.test(s) || /^\\\\/.test(s) || s.charAt(0) === '/'; }
+  function hasDotDot(s) { return s.split(/[\\/]+/).indexOf('..') >= 0; }
+  function opIdNew() {
+    var d = new Date();
+    var p = function (n, w) { return String(n).length >= w ? String(n) : ('0000' + n).slice(-w); };
+    return '' + d.getFullYear() + p(d.getMonth() + 1, 2) + p(d.getDate(), 2) + 'T' + p(d.getHours(), 2)
+         + p(d.getMinutes(), 2) + '-' + Math.random().toString(36).slice(2, 6);
+  }
+  function setPjState(cls, text) {
+    var el = $('pj-state');
+    if (!el) { return; }
+    el.className = 'estate on ' + cls;
+    el.textContent = text;
+  }
+  function renderRoleChips() {
+    var box = $('ed-pj-roles');
+    if (!box) { return; }
+    box.innerHTML = '';
+    if (!ROLES.length) { box.innerHTML = '<span class="sub">（未取到角色列表）</span>'; return; }
+    ROLES.forEach(function (r) {
+      var c = document.createElement('span');
+      c.className = 'rchip' + (selectedRoles.indexOf(r.key) >= 0 ? ' on' : '');
+      c.textContent = (r.display_name || r.key) + '（' + r.key + '）';
+      c.onclick = function () {
+        var i = selectedRoles.indexOf(r.key);
+        if (i >= 0) { selectedRoles.splice(i, 1); } else { selectedRoles.push(r.key); }
+        renderRoleChips();
+      };
+      box.appendChild(c);
+    });
+  }
+  function openProjEdit() {
+    var cur = PROJ.current || {}, b = PROJ.boundary || {};
+    $('ed-pj-name').value = cur.name || cur.id || '';
+    $('ed-pj-root').value = cur.root || b.root || '';
+    $('ed-pj-outputs').value = b.outputs || '';
+    $('ed-pj-memory').value = b.memory_file || '';
+    selectedRoles = (b.roles && b.roles.slice) ? b.roles.slice() : ROLES.map(function (r) { return r.key; });
+    renderRoleChips();
+    var st = $('pj-state'); st.className = 'estate'; st.textContent = '';
+    $('editpanel').classList.add('on');
+  }
+  function closeProjEdit() { $('editpanel').classList.remove('on'); }
+
+  // ⭐ 只提交**改动过的**字段（changes 必须非空 ✓）；前置校验与端点**同一套**（双层拦 ✓）
+  function collectProjChanges() {
+    var cur = PROJ.current || {}, b = PROJ.boundary || {};
+    var ch = {};
+    var name = ($('ed-pj-name').value || '').trim();
+    var root = ($('ed-pj-root').value || '').trim();
+    var outs = ($('ed-pj-outputs').value || '').trim();
+    var mem = ($('ed-pj-memory').value || '').trim();
+
+    if (name !== (cur.name || '')) {
+      if (!(name.length >= 1 && name.length <= 80)) { return { err: '项目名须 1–80 字（去空白后非空）' }; }
+      ch.name = name;
+    }
+    if (root && root !== (cur.root || b.root || '')) {
+      if (!isAbsPath(root)) { return { err: '项目根必须是绝对路径（⭐ 唯一允许绝对的字段）' }; }
+      if (hasDotDot(root)) { return { err: '项目根不得含 .. 段' }; }
+      if (root.length > 512) { return { err: '项目根超过 512 字' }; }
+      if (/^\\\\\\\\\?\\/.test(root) || /^(CON|NUL|COM\d|LPT\d)$/i.test(root)) { return { err: '项目根不接受 UNC / 设备名' }; }
+      ch.root = root;
+    }
+    if (outs && outs !== (b.outputs || '')) {
+      if (isAbsPath(outs) || hasDotDot(outs) || outs.charAt(0) === '~') { return { err: '产物目录只允许相对路径（不得绝对 / 含 .. / 以 ~ 开头）' }; }
+      ch.outputs = outs;
+    }
+    if (mem && mem !== (b.memory_file || '')) {
+      if (isAbsPath(mem) || hasDotDot(mem) || mem.charAt(0) === '~') { return { err: '记忆文件只允许相对路径' }; }
+      ch.memory_file = mem;
+    }
+    var curR = (b.roles || []).slice().sort().join(',');
+    if (selectedRoles.slice().sort().join(',') !== curR) { ch.roles = selectedRoles.slice(); }
+
+    if (!Object.keys(ch).length) { return { err: '没有改动（changes 必须非空）' }; }
+    return { changes: ch };
+  }
+
+  function submitProjEdit() {
+    var r = collectProjChanges();
+    if (r.err) { setPjState('bad', '⛔ ' + r.err + '（**未提交**）'); return; }
+    var req = { type: 'project_edit', op_id: opIdNew(), payload: { changes: r.changes } };
+    setPjState('wait', '⏳ 正在投递待办…');
+    var btn = $('btn-pj-submit'); btn.disabled = true;
+    // ⭐ 改走 fetchT（带超时 ✓）—— 电脑侧 `PC-…-121` §2.2 指出：本条**仍是裸 fetch** ✗
+    //    后果：服务半死时界面**永远停在"正在投递…"** ✗ 且按钮**永久禁用** ✗
+    fetchT('/api/pending', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req)
+    }, 10000).then(function (res) {
+      return res.text().then(function (t) {
+        var j = null; try { j = JSON.parse(t); } catch (e) { /* 非 JSON 也要展示原文 ✓ */ }
+        if (res.status === 202) {
+          trackOp(req, '项目编辑');
+          setPjState('wait', '⏳ 已投递为待办：' + ((j && j.file) || '') +
+            '　⭐ 须人触发运行器才真执行：python collab\\run_pending.py --base .');
+        } else {
+          setPjState('bad', '⛔ 被拒（HTTP ' + res.status + '）：' + String((j && j.error) || t || '').slice(0, 300));
+        }
+      });
+    }).catch(function (e) {
+      setPjState('bad', '⛔ 提交失败：' + e.message + '（窄写端点不可用？）');
+    }).then(function () { btn.disabled = false; });
+  }
+
+  // ================= 批 4b-2：状态图矩阵（GET /api/assets → 三勾 → asset_op 待办）=================
+  var ASSETS = null;
+  var mxPick = null;
+  var mxMode = 'matrix';
+
+  function setMxState(cls, text) {
+    var el = $('mx-state'); if (!el) { return; }
+    el.className = 'estate on ' + cls; el.textContent = text;
+  }
+  function openMatrix() { $('mxpanel').classList.add('on'); loadAssets(); }
+  function closeMatrix() { $('mxpanel').classList.remove('on'); }
+  function collectStates() {
+    var s = {};
+    Object.keys(ASSETS || {}).forEach(function (r) { Object.keys(ASSETS[r] || {}).forEach(function (st) { s[st] = 1; }); });
+    return Object.keys(s).sort();
+  }
+  function loadAssets() {
+    setMxState('wait', '⏳ 正在读取资产矩阵…');
+    fetchT('/api/assets', { cache: 'no-store' }, 8000).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status + ' ' + t); }
+        return JSON.parse(t);
+      });
+    }).then(function (j) {
+      ASSETS = j || {};
+      renderMatrix();
+      applyMxMode();
+      if (window.__fillBindSelects) { window.__fillBindSelects(); }
+      setMxState('ok', '✅ 已读取：角色 ' + Object.keys(ASSETS).filter(function (r) { return r.charAt(0) !== '_'; }).length + ' 个 ✓');
+    }).catch(function (e) {
+      setMxState('bad', '⛔ 读取失败：' + e.message + '（只读端点 /api/assets 不可用？）');
+    });
+  }
+  function renderMatrix() {
+    var tb = $('mx-table'); if (!tb) { return; }
+    // ⚠️ 防御：`/api/assets` 会把备份目录（如 `_raw_backup`）也列出来 ✗ —— 那不是角色 ✗
+    //    ⭐ 界面侧先过滤 `_` 开头（同时已提请端点侧排除 ✓）
+    var roles = Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort();
+    var states = collectStates();
+    // ⭐ 批 4b-3：状态筛选 ＋ 只看有缺口的列
+    var flt = String(($('mx-filter') && $('mx-filter').value) || '').trim().toLowerCase();
+    if (flt) { states = states.filter(function (s) { return s.toLowerCase().indexOf(flt) >= 0; }); }
+    var onlyGap = !!($('mx-onlygap') && $('mx-onlygap').checked);
+    if (onlyGap) {
+      states = states.filter(function (st) {
+        return roles.some(function (r) { var v = (ASSETS[r] || {})[st]; return !v || !(v.white && v.chroma && v.alpha); });
+      });
+    }
+    // 角色下拉（单角色视图用）
+    var sel = $('mx-role');
+    if (sel && sel.getAttribute('data-filled') !== String(roles.length)) {
+      sel.innerHTML = roles.map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
+      sel.setAttribute('data-filled', String(roles.length));
+    }
+    var full = 0, partial = 0;
+    roles.forEach(function (r) {
+      states.forEach(function (st) {
+        var v = (ASSETS[r] || {})[st];
+        if (v) { if (v.white && v.chroma && v.alpha) { full++; } else { partial++; } }
+      });
+    });
+    var stat = $('mx-stat');
+    if (stat) {
+      stat.innerHTML = '角色 <b>' + roles.length + '</b> ｜ 状态 <b>' + states.length + '</b> ｜ 三件套齐 <b>' + full
+        + '</b> ｜ 不全 <b>' + partial + '</b> ｜ 空格 <b>' + (roles.length * states.length - full - partial) + '</b>';
+    }
+    var h = ['<thead><tr><th class="rh">角色 ＼ 状态</th>'];
+    states.forEach(function (st) { h.push('<th>' + esc(st) + '</th>'); });
+    h.push('<th class="mxadd">行操作</th></tr></thead><tbody>');
+    roles.forEach(function (r) {
+      h.push('<tr><th class="rh">' + esc(r) + '</th>');
+      states.forEach(function (st) {
+        var v = (ASSETS[r] || {})[st];
+        var ticks = v
+          ? ('<span class="tick"><b class="' + (v.white ? 'on' : 'no') + '" title="白底">白</b>'
+             + '<b class="' + (v.chroma ? 'on' : 'no') + '" title="绿幕">绿</b>'
+             + '<b class="' + (v.alpha ? 'on' : 'no') + '" title="透明">透</b></span>')
+          : '<span class="tick"><b class="no" title="无此状态图（可插入）">＋</b></span>';
+        h.push('<td class="cell" data-role="' + esc(r) + '" data-state="' + esc(st) + '" title="点击选中该格">' + ticks + '</td>');
+      });
+      h.push('<td class="mxadd" data-pipe="' + esc(r) + '">整行补三件套</td></tr>');
+    });
+    h.push('</tbody>');
+    tb.innerHTML = h.join('');
+    // ⭐ 批 4b-4：矩阵格缩略图 —— **lazy** ✓（只对**可见格**发请求 ✗ 否则 22×59＝1298 格并发 ✗）
+    if (typeof IntersectionObserver !== 'undefined' && !window.__thumbIO) {
+      window.__thumbIO = new IntersectionObserver(function (ents) {
+        ents.forEach(function (en) {
+          if (!en.isIntersecting) { return; }
+          var im = en.target;
+          if (im && im.getAttribute('data-src') && !im.getAttribute('src')) { im.src = im.getAttribute('data-src'); }
+          window.__thumbIO.unobserve(im);
+        });
+      }, { root: null, rootMargin: '200px' });
+    }
+    [].slice.call(tb.querySelectorAll('td.cell')).forEach(function (td) {
+      var r0 = td.getAttribute('data-role'), st0 = td.getAttribute('data-state');
+      // ⭐ 仅当**探针通过**才建 img ✗ —— 否则一个图片请求都不发 ✓（不 404 ✗ 不假装 ✗）
+      if (THUMB_STATE === 'on') {
+        var k0 = thumbKindOf((ASSETS[r0] || {})[st0]);
+        if (k0) {
+          var im = document.createElement('img');
+          im.className = 'mthumb'; im.loading = 'lazy';
+          im.alt = r0 + ' / ' + st0;
+          im.setAttribute('data-src', thumbUrl(r0, st0, k0, 96));
+          im.onerror = function () { if (im.parentNode) { im.remove(); } };   // ⭐ 缺图撤掉（不留碎图 ✗）
+          td.appendChild(im);
+          if (window.__thumbIO) { window.__thumbIO.observe(im); } else { im.src = im.getAttribute('data-src'); }
+        }
+      }
+      td.onclick = function () {
+        mxPick = { role: r0, state: st0 };
+        var bar = $('mx-actions'); if (bar) { bar.style.display = 'flex'; }
+        var pk = $('mx-pick'); if (pk) { pk.textContent = '已选中：' + r0 + ' ／ ' + st0; }
+        var pb = $('mx-preview'); if (pb) { pb.__big = null; }   // ⭐ 换格重选 kind
+        renderMxPreview();
+      };
+    });
+    [].slice.call(tb.querySelectorAll('td.mxadd')).forEach(function (td) {
+      td.onclick = function () {
+        var r = td.getAttribute('data-pipe');
+        submitAsset({ role: r, state: 'idle', op: 'run_pipeline', source: 'pool', run_pipeline: true });
+      };
+    });
+    renderSingle(roles);
+  }
+
+  // ⭐ 批 4b-3：单角色状态列表（形态 B ✓ 与矩阵互补）
+  function renderSingle(roles) {
+    var box = $('mx-single');
+    if (!box || mxMode !== 'single') { return; }
+    var sel = $('mx-role');
+    var role = sel ? sel.value : '';
+    if (!role && roles.length) { role = roles[0]; if (sel) { sel.value = role; } }
+    var st = ASSETS[role] || {};
+    var names = Object.keys(st).sort();
+    var h = ['<div class="slh"><span>状态名</span><span>三件套</span><span>备注</span><span>操作</span></div>', '<div class="slist">'];
+    names.forEach(function (nm) {
+      var v = st[nm] || {};
+      var full = v.white && v.chroma && v.alpha;
+      h.push('<div class="sli"><span class="nm">' + esc(nm) + '</span>'
+        + '<span class="tick"><b class="' + (v.white ? 'on' : 'no') + '">白</b>'
+        + '<b class="' + (v.chroma ? 'on' : 'no') + '">绿</b>'
+        + '<b class="' + (v.alpha ? 'on' : 'no') + '">透</b></span>'
+        + '<span class="meta">' + (full ? '完整' : '⚠️ 缺项（可补三件套）') + '</span>'
+        + '<span class="ops">'
+        + '<button class="ghost sbtn" data-role="' + esc(role) + '" data-state="' + esc(nm) + '" data-op="run_pipeline">补三件套</button>'
+        + '<button class="ghost sbtn" data-role="' + esc(role) + '" data-state="' + esc(nm) + '" data-op="replace">替换</button>'
+        + '</span></div>');
+    });
+    h.push('</div>');
+    box.innerHTML = h.join('');
+    [].slice.call(box.querySelectorAll('.sbtn')).forEach(function (b) {
+      b.onclick = function () {
+        submitAsset({ role: b.getAttribute('data-role'), state: b.getAttribute('data-state'),
+                      op: b.getAttribute('data-op'), source: 'pool', run_pipeline: true });
+      };
+    });
+  }
+
+  function applyMxMode() {
+    var single = mxMode === 'single';
+    var mw = $('mx-actions'); if (mw && single) { mw.style.display = 'none'; }
+    var tbl = $('mx-table'); if (tbl) { tbl.style.display = single ? 'none' : ''; }
+    var wrapEl = document.querySelector('.mxwrap'); if (wrapEl) { wrapEl.style.display = single ? 'none' : ''; }
+    var stat = $('mx-stat'); if (stat) { stat.style.display = single ? 'none' : ''; }
+    if ($('mx-role')) { $('mx-role').style.display = single ? '' : 'none'; }
+    if ($('mx-rolewrap')) { $('mx-rolewrap').style.display = single ? '' : 'none'; }
+    if ($('mx-single')) { $('mx-single').style.display = single ? '' : 'none'; }
+    if (single) { renderSingle(Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort()); }
+  }
+
+  // ⭐ 批 4b-4：点开那格后的预览（三 kind 可切 ✓ 尺寸走 w=512 ✓；探针未通则什么都不显示 ✗）
+  function renderMxPreview() {
+    var host = $('mx-actions'); if (!host) { return; }
+    var box = $('mx-preview');
+    if (!box) { box = document.createElement('span'); box.id = 'mx-preview'; box.className = 'meta'; host.appendChild(box); }
+    box.innerHTML = '';
+    if (THUMB_STATE !== 'on' || !mxPick) { return; }
+    var v = (ASSETS[mxPick.role] || {})[mxPick.state] || {};
+    box.appendChild(document.createTextNode('预览：'));
+    THUMB_KINDS.forEach(function (kd) {
+      if (!v[kd]) { return; }
+      var b = document.createElement('button');
+      b.className = 'ghost'; b.textContent = kd; b.title = '看该 kind 的大图（w=512）';
+      b.onclick = function () { box.__big = kd; renderMxPreview(); };
+      box.appendChild(b);
+    });
+    var kd2 = box.__big || thumbKindOf(v);
+    if (kd2 && v[kd2]) {
+      var im = document.createElement('img');
+      im.className = 'mbig'; im.alt = mxPick.role + '/' + mxPick.state;
+      im.src = thumbUrl(mxPick.role, mxPick.state, kd2, 512);
+      box.appendChild(im);
+    }
+  }
+
+  // ⭐ 资产类 op 的载荷：set_portrait **只收** {role, op, portrait_prefix}（⛔ 不带 state ✗ 多余字段会被正当拒掉）
+  function submitAsset(payload) {
+    if (payload && payload.op === 'set_portrait') {
+      if (!payload.role) { setMxState('bad', '⛔ 请选一个角色'); return; }
+    } else if (!payload || !payload.role || !payload.state) {
+      setMxState('bad', '⛔ 请先点一个格子选中 角色／状态');
+      return;
+    }
+    // ⭐ 契约 E8②：add_state ＝ 新增状态 ＋ **同时给出首图**（首图必填 ✗）→ **本地先拦** ✓（别等 400 ✗）
+    if (payload.op === 'add_state' && !String(payload.source_ref || '').trim()) {
+      setMxState('bad', '⛔ add_state 需要**首图**（source_ref）✗ —— 契约 E8②：“状态的存在”就是文件本身 ✓（无图则界面与渲染都看不到它 ✗）→ 请在「首图 source_ref」填一张 ✓');
+      return;
+    }
+    // ⭐ 契约 E8①：已齐备默认跳过；要重跑须显式 force ✓（仅对会写图的 op 有意义 ✓）
+    var fc = $('mx-force');
+    if (fc && fc.checked && ['run_pipeline', 'insert', 'replace', 'add_state'].indexOf(payload.op) >= 0) {
+      payload = Object.assign({}, payload, { force: true });
+    }
+    var req = { type: 'asset_op', op_id: opIdNew(), payload: payload };
+    setMxState('wait', '⏳ 正在投递资产待办…');
+    // ⭐ 同上：改走 fetchT（超时 10s）
+    fetchT('/api/pending', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req)
+    }, 10000).then(function (res) {
+      return res.text().then(function (t) {
+        var j = null; try { j = JSON.parse(t); } catch (e) {}
+        if (res.status === 202) {
+          trackOp(req, '资产 · ' + payload.op + ' · ' + payload.role + '/' + payload.state);
+          setMxState('wait', '⏳ 已投递为待办：' + ((j && j.file) || '') +
+            '　⭐ 须人跑 python collab\\run_pending.py --base . ✓；⚠️ 若运行器尚不支持该类操作，会在结果文件里明报原因（不假成功 ✗）');
+        } else {
+          setMxState('bad', '⛔ 被拒（HTTP ' + res.status + '）：' + String((j && j.error) || t || '').slice(0, 300));
+        }
+      });
+    }).catch(function (e) { setMxState('bad', '⛔ 提交失败：' + e.message); });
+  }
+
+  // ================= 批 4b-3：真三态（接只读 GET /api/pending）=================
+  var MY_OPS = [];                          // 我投递过的 op（只展示自己的 ✓）
+  var PEND = { pending: null, results: null };  // null = 未取到（⛔ 不假装有数据 ✗）
+
+  function trackOp(req, desc) {
+    MY_OPS.unshift({ op_id: req.op_id, type: req.type, desc: desc || '', at: Date.now() });
+    if (MY_OPS.length > 10) { MY_OPS.pop(); }
+    renderOps();
+  }
+  function opStateOf(opId) {
+    if (!PEND.pending && !PEND.results) { return { s: 'unknown', t: '状态未知（读回端点不可用）' }; }
+    var r = null;
+    (PEND.results || []).forEach(function (x) { if (x && x.op_id === opId) { r = x; } });
+    if (r) {
+      return r.ok
+        ? { s: 'ok', t: '已完成' + (r.detail ? '：' + r.detail : '') }
+        : { s: 'bad', t: '失败：' + (r.reason || '（未给原因）') };
+    }
+    var p = null;
+    (PEND.pending || []).forEach(function (x) { if (x && x.op_id === opId) { p = x; } });
+    if (p) { return { s: 'wait', t: '待办中（等人触发运行器）' }; }
+    return { s: 'unknown', t: '未见于待办/结果（可能已被清理）' };
+  }
+  function renderOps() {
+    var box = $('opsbox'), list = $('ops-list');
+    if (!box || !list) { return; }
+    if (!MY_OPS.length) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    list.innerHTML = '';
+    MY_OPS.forEach(function (o) {
+      var st = opStateOf(o.op_id);
+      var d = document.createElement('div');
+      d.className = 'oprow';
+      d.innerHTML = '<span class="opstate ' + st.s + '" title="投递 ' + esc(new Date(o.at).toLocaleTimeString()) + '">'
+        + esc(st.t) + '</span><span class="opmeta">' + esc(o.type) + (o.desc ? ' · ' + esc(o.desc) : '') + ' · ' + esc(o.op_id) + '</span>';
+      list.appendChild(d);
+    });
+  }
+
+  function refresh() {
+    // ⭐ 防重入：上一轮没回来就不叠下一轮 ✗
+    //    （本机服务卡住时，2s 一次轮询会**堆积请求** —— 与"DSH 主线程被占"同族的风险 ✓）
+    if (refresh._busy) { return Promise.resolve(); }
+    refresh._busy = true;
+    $('errs').innerHTML = '';
+    var c = encodeURIComponent(CHANNEL);
+    return Promise.all([
+      getJSON('/api/snapshot'),
+      getJSON('/api/view?channel=' + c + '&layer=L1'),
+      getJSON('/api/view?channel=' + c + '&layer=L2'),
+      getJSON('/api/view?channel=' + c + '&layer=L3'),
+      getJSONSoft('/api/projects'),
+      getJSONSoft('/api/project/current'),
+      getJSONSoft('/api/roles'),
+      getJSONSoft('/api/pending'),
+      loadQueue(),                                   // ⭐ B5/E15：队列（只读 ✓ 自带降级 ✓）
+      loadHistory(),                                 // ⭐ B7/E16：运行历史（只读 ✓ 自带降级 ✓）
+      loadConfig()                                   // ⭐ C2/D5-2：⚙ 配置（只读 ✓ 自带降级 ✓）
+    ]).then(function (r) {
+      renderState(r[0]); renderL1(r[1]); renderL2(r[2]); renderL3(r[3]);
+      renderProjectLayer(r[4], r[5], r[6]);   // ⭐ 项目层（不可用时为空态 ✓ 不白屏 ✗）
+      if (r[7] && (r[7].pending || r[7].results)) {
+        PEND = { pending: r[7].pending || [], results: r[7].results || [] };
+      } else {
+        PEND = { pending: null, results: null };   // ⭐ 取不到 → 状态显示“未知”✓ 不假装 ✗
+      }
+      renderOps();
+      updateStarter(r[0], r[4], r[7]);          // ⭐ A2/D6-2：起手区文案 ＋ 首次使用判定
+      $('g-counts').textContent = r[1].length + '/' + r[2].length + '/' + r[3].length;
+      $('last').textContent = '（已刷新 ' + new Date().toLocaleTimeString() + '）';
+    }).catch(function (e) { err(e.message); }).then(function () {
+      refresh._busy = false;
+      probeConn();                              // ⭐ D6-5：每轮刷新顺带探一次连接灯 ✓
+    });
+  }
+
+  function download(name, text, mime) {
+    var blob = new Blob([text], { type: mime || 'application/json;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+  }
+  function stamp() { return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19); }
+
+  function dumpRows(sel, extra) {
+    var rows = [].slice.call(document.querySelectorAll(sel));
+    return rows.map(function (r) {
+      var o = { id: r.getAttribute('data-id'), seq: +r.getAttribute('data-seq'),
+                layer: r.getAttribute('data-layer'), kind: r.getAttribute('data-kind'),
+                sender: r.getAttribute('data-sender') };
+      (extra || []).forEach(function (k) { o[k] = r.getAttribute('data-' + k.replace('_', '-')); });
+      return o;
+    });
+  }
+  $('btn-export-l1').onclick = function () {
+    download('view_export_L1_' + stamp() + '.json', JSON.stringify(dumpRows('#stream-l1 [data-seq]'), null, 2));
+  };
+  $('btn-export-l2').onclick = function () {
+    download('view_export_L2_' + stamp() + '.json',
+      JSON.stringify(dumpRows('#lane-l2 [data-seq]', ['cost_micro', 'tokens']), null, 2));
+  };
+  $('btn-export-snap').onclick = function () {
+    getJSON('/api/snapshot').then(function (s) { download('snapshot_' + stamp() + '.json', JSON.stringify(s, null, 2)); })
+      .catch(function (e) { err(e.message); });
+  };
+  $('btn-raw').onclick = function () { window.open('/api/log.jsonl', '_blank'); };
+  $('btn-refresh').onclick = refresh;
+
+  // ---- 行宽档位（回应：阅读模式不能“名宽而实窄”）----
+  var WIDTHS = [['none', '满宽'], ['88ch', '舒适 88ch'], ['64ch', '窄 64ch']];
+  var wi = 0;
+  $('btn-width').onclick = function () {
+    wi = (wi + 1) % WIDTHS.length;
+    var w = WIDTHS[wi];
+    document.documentElement.style.setProperty('--readw', w[0]);
+    this.textContent = '↔ 行宽：' + w[1];
+  };
+
+  // ---- 可拖动分隔条（竖向=左右宽度；横向=下方面板高度）----
+  function drag(el, onMove) {
+    var dragging = false;
+    el.addEventListener('pointerdown', function (e) {
+      dragging = true; el.classList.add('drag');
+      el.setPointerCapture && el.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', function (e) { if (dragging) { onMove(e); } });
+    el.addEventListener('pointerup', function () { dragging = false; el.classList.remove('drag'); });
+    el.addEventListener('pointercancel', function () { dragging = false; el.classList.remove('drag'); });
+  }
+  drag($('split-v'), function (e) {
+    var r = $('cols').getBoundingClientRect();
+    var pct = Math.min(82, Math.max(22, (e.clientX - r.left) / r.width * 100));
+    $('cols').style.setProperty('--colA', pct.toFixed(1) + '%');
+  });
+  $('split-v').ondblclick = function () { $('cols').style.setProperty('--colA', '54%'); };
+  drag($('split-h'), function (e) {
+    var top = $('side').getBoundingClientRect().top;
+    var h = Math.min(70, Math.max(18, e.clientY - top));
+    $('side').style.setProperty('--sideH', 'calc(' + h + 'vh)');
+    document.querySelectorAll('#side .lane-scroll').forEach(function (el) { el.style.maxHeight = 'calc(' + h + 'vh)'; });
+  });
+  $('split-h').ondblclick = function () {
+    document.querySelectorAll('#side .lane-scroll').forEach(function (el) { el.style.maxHeight = ''; });
+  };
+
+  // ---- 阶段① 页签：单页 / 全显（只切可见性，不重渲染）----
+  var TAB_KEYS = ['L1', 'L2', 'L3'];
+  var view = 'all';
+  function applyView(v) {
+    view = v;
+    var single = TAB_KEYS.indexOf(v) >= 0;
+    document.body.classList.remove('view-L1', 'view-L2', 'view-L3');
+    if (single) { document.body.classList.add('view-' + v); }
+    $('cols').classList.toggle('single', single);
+    TAB_KEYS.concat(['all']).forEach(function (k) {
+      var t = $('tab-' + k);
+      if (!t) { return; }
+      var on = (k === v);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+    });
+  }
+  function activateTab(k) {
+    applyView(k);
+    if (k === 'all') {
+      // 「全部显示」= 回到三栏（看板模式，规格 §二）
+      var c = $('cols'); c.classList.remove('reading'); c.classList.add('board');
+      $('btn-mode').textContent = '⇄ 切到阅读模式';
+    }
+  }
+  try {
+    TAB_KEYS.concat(['all']).forEach(function (k) {
+      var t = $('tab-' + k);
+      if (t) { t.addEventListener('click', function () { activateTab(k); }); }
+    });
+    $('tabs').addEventListener('keydown', function (e2) {
+      var order = TAB_KEYS.concat(['all']);
+      var i = order.indexOf(view);
+      if (i < 0) { i = order.length - 1; }
+      if (e2.key === 'ArrowRight' || e2.key === 'ArrowLeft') {
+        var n = (i + (e2.key === 'ArrowRight' ? 1 : -1) + order.length) % order.length;
+        activateTab(order[n]);
+        var el = $('tab-' + order[n]);
+        if (el) { el.focus(); }
+        e2.preventDefault();
+      } else if (e2.key === 'Enter' || e2.key === ' ') {
+        activateTab(view);
+        e2.preventDefault();
+      }
+    });
+  } catch (e2) {
+    // 退化保护（规格 §三）：页签系统出错 → 回落三栏固定布局，不白屏
+    document.body.classList.remove('view-L1', 'view-L2', 'view-L3');
+    var cc = $('cols');
+    if (cc) { cc.classList.remove('single'); }
+  }
+
+  $('btn-mode').onclick = function () {
+    if (view !== 'all') { applyView('all'); }
+    var c = $('cols');
+    if (c.classList.contains('reading')) {
+      c.classList.remove('reading'); c.classList.add('board');
+      this.textContent = '⇄ 切到阅读模式';
+    } else {
+      c.classList.remove('board'); c.classList.add('reading');
+      this.textContent = '⇄ 切到看板模式';
+    }
+  };
+
+  function act(path, payload, btn) {
+    return post(path, payload).then(function () { return refresh(); })
+      .catch(function (e) {
+        var m = String((e && e.message) || '');
+        // ⭐ 默认未开动作端点（`--enable-actions`）→ 置灰 ＋ 说清原因（免得用户以为坏了 ✗）
+        //    电脑侧 `PC-…-117` §三 指出：这三个是**遗留动作面**、默认必然 403 ✓
+        if (m.indexOf('HTTP 403') >= 0) {
+          [].slice.call(document.querySelectorAll('#btn-step,#btn-interrupt,#btn-resume')).forEach(function (b) {
+            b.disabled = true;
+            b.title = '动作端点未开启：需服务端以 --enable-actions 启动（契约 C1：默认面只有窄写端点 /api/pending）';
+          });
+          err('动作端点未开启（HTTP 403）：请以 --enable-actions 启动协作台；默认面只有窄写端点 POST /api/pending ✓');
+          return;
+        }
+        err(m);
+      });
+  }
+  $('btn-step').onclick = function () { act('/api/step', {}, this); };
+  $('btn-interrupt').onclick = function () { act('/api/interrupt', { body: '［人类接管］先停一下' }, this); };
+  $('btn-resume').onclick = function () { act('/api/resume', { text: '继续' }, this); };
+
+  // ================= 阶段②③④ 面板停靠系统（浮动 / 停靠 / 状态持久 / 出错回落）=================
+  // 规格：docs/3.0-M2-面板停靠系统规格-20260921.md
+  // 约束：不进第三方库 ✗、不改 data-* 契约 ✓、不新增 HTTP 端点 ✓、不二次过滤/重排 ✓
+  var PMAP = [
+    { id: 'V1', panel: 'panel-l1', home: 'slot-left' },
+    { id: 'V2', panel: 'panel-l2', home: 'slot-right' },
+    { id: 'V3', panel: 'panel-l3', home: 'slot-right' }
+  ];
+  var SLOTS = { left: 'slot-left', right: 'slot-right', bottom: 'slot-bottom' };
+  var MINW = 260, MINH = 140;
+  // ⭐ 阶段①.5 简化版自动隐藏：只对右侧 V2/V3 ✓（规格 §六“简化版不依赖停靠系统”✓）
+  var AUTOHIDE = { V2: true, V3: true };
+  var COLLAPSE_MS = 250;
+  var pstate = {
+    V1: { mode: 'dock', slot: 'left', pinned: false },
+    V2: { mode: 'dock', slot: 'right', pinned: false },
+    V3: { mode: 'dock', slot: 'right', pinned: false }
+  };
+
+  function pEl(id) {
+    for (var i = 0; i < PMAP.length; i++) { if (PMAP[i].id === id) { return $(PMAP[i].panel); } }
+    return null;
+  }
+  function homeEl(id) {
+    for (var i = 0; i < PMAP.length; i++) { if (PMAP[i].id === id) { return $(PMAP[i].home); } }
+    return null;
+  }
+  function keyOfEl(p) {
+    for (var i = 0; i < PMAP.length; i++) { if ($(PMAP[i].panel) === p) { return PMAP[i].id; } }
+    return null;
+  }
+
+  // ---- 状态 → URL 哈希（规格 §二：内存 + URL 哈希；不用 localStorage ✗）----
+  function encHash() {
+    var parts = PMAP.map(function (m) {
+      var s = pstate[m.id];
+      var pin = s.pinned ? '~p' : '';   // ⭐ 钉住状态随哈希持久 ✓
+      if (s.mode === 'float') {
+        return [m.id, 'f', Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.round(s.h)].join('~') + pin;
+      }
+      return [m.id, 'd', s.slot].join('~') + pin;
+    });
+    var c = $('cols');
+    var mode = c.classList.contains('board') ? 'board' : 'reading';
+    var colA = (c.style.getPropertyValue('--colA') || '').trim() || '54%';
+    return 'm2=' + encodeURIComponent(parts.join('|')) + '&mode=' + mode + '&colA=' + encodeURIComponent(colA);
+  }
+  function saveHash() {
+    try { history.replaceState(null, '', '#' + encHash()); } catch (e) { /* 例隐私模式/沙箱：忽略 ✓ */ }
+  }
+  function loadHash() {
+    var raw = (location.hash || '').replace(/^#/, '');
+    if (!raw) { return false; }
+    var q = {};
+    raw.split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) { q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); }
+    });
+    if (q.m2) {
+      q.m2.split('|').forEach(function (seg) {
+        var a = seg.split('~');
+        if (a.length < 3 || !pstate[a[0]]) { return; }
+        var pinned = a.indexOf('p') >= 0;
+        if (a[1] === 'f' && a.length >= 6) {
+          pstate[a[0]] = { mode: 'float', x: +a[2], y: +a[3], w: +a[4], h: +a[5], pinned: pinned };
+        } else if (a[1] === 'd' && SLOTS[a[2]]) {
+          pstate[a[0]] = { mode: 'dock', slot: a[2], pinned: pinned };
+        }
+      });
+    }
+    if (q.mode === 'board' || q.mode === 'reading') { setMode(q.mode); }
+    if (q.colA) { $('cols').style.setProperty('--colA', q.colA); }
+    return true;
+  }
+  function setMode(m) {
+    var c = $('cols');
+    if (m === 'board') {
+      c.classList.remove('reading'); c.classList.add('board');
+      $('btn-mode').textContent = '⇄ 切到阅读模式';
+    } else {
+      c.classList.remove('board'); c.classList.add('reading');
+      $('btn-mode').textContent = '⇄ 切到看板模式';
+    }
+  }
+
+  // ---- 落位：浮动态 → 固定定位；停靠态 → 回到槽位 ----
+  function applyPanel(key) {
+    var p = pEl(key); if (!p) { return; }
+    var s = pstate[key];
+    if (s.mode === 'float') {
+      p.classList.add('floating');
+      p.style.left = s.x + 'px'; p.style.top = s.y + 'px';
+      p.style.width = s.w + 'px'; p.style.height = s.h + 'px';
+      if (p.parentNode !== $('float-layer')) { $('float-layer').appendChild(p); }
+      ensureResize(p);
+    } else {
+      p.classList.remove('floating');
+      p.style.left = ''; p.style.top = ''; p.style.width = ''; p.style.height = '';
+      var rs = p.querySelector('.ph-rs'); if (rs) { rs.parentNode.removeChild(rs); }
+      var box = $(SLOTS[s.slot]);
+      if (box && p.parentNode !== box) { box.appendChild(p); }
+      reorderSlot(SLOTS[s.slot]);
+    }
+  }
+  function reorderSlot(slotId) {
+    var box = $(slotId); if (!box) { return; }
+    PMAP.forEach(function (m) {
+      var p = $(m.panel);
+      if (p && p.parentNode === box) { box.appendChild(p); }
+    });
+  }
+  function floatPanel(key, rect) {
+    var p = pEl(key); if (!p) { return; }
+    var r = rect || p.getBoundingClientRect();
+    var g = clampGeom(r);
+    var pin = !!(pstate[key] && pstate[key].pinned);   // ⭐ 保留钉住状态 ✓
+    pstate[key] = { mode: 'float', x: g.x, y: g.y, w: g.w, h: g.h, pinned: pin };
+    expandNow(key);
+    applyPanel(key); syncBtns(); updatePin(key); updateHide(key); saveHash();
+  }
+  // ⭐ 浮窗几何归一：宽高上限 = 视口 62%/74%（否则宽面板浮起来会把右侧标题栏控件推到屏外 ✗）
+  function clampGeom(rect) {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var w = Math.round(Math.min(rect.width, Math.max(MINW, vw * 0.62)));
+    var h = Math.round(Math.min(rect.height, Math.max(MINH, vh * 0.74)));
+    var x = Math.round(Math.max(8, Math.min(Math.max(8, vw - w - 8), rect.left)));
+    var y = Math.round(Math.max(8, Math.min(Math.max(8, vh - h - 8), rect.top)));
+    return { w: w, h: h, x: x, y: y };
+  }
+  // ⭐ x 归一：右边缘保在屏内（标题栏控件在右侧 → 必须可达 ✓）
+  function clampX(x, w) {
+    var maxX = Math.max(8, window.innerWidth - 8 - w);
+    var minX = 8 - Math.min(200, Math.max(0, w - 200));
+    return Math.round(Math.max(minX, Math.min(maxX, x)));
+  }
+  function dockPanel(key, slot) {
+    if (!SLOTS[slot]) { return; }
+    var pin = !!(pstate[key] && pstate[key].pinned);   // ⭐ 保留钉住状态 ✓
+    pstate[key] = { mode: 'dock', slot: slot, pinned: pin };
+    var p = pEl(key);
+    if (p) { p.classList.remove('dragging'); }
+    applyPanel(key);
+    Object.keys(SLOTS).forEach(reorderSlot);
+    syncBtns(); updatePin(key); updateHide(key); saveHash();
+  }
+  function resetPanel(key) {
+    var h = homeEl(key);
+    dockPanel(key, h ? h.id.replace('slot-', '') : 'left');
+  }
+  function syncBtns() {
+    PMAP.forEach(function (m) {
+      var p = pEl(m.id); if (!p) { return; }
+      var s = pstate[m.id];
+      var bf = p.querySelector('button[data-act="float"]');
+      var bd = p.querySelector('button[data-act="dock"]');
+      if (bf) { bf.disabled = (s.mode === 'float'); }
+      if (bd) { bd.disabled = (s.mode === 'dock'); }
+    });
+  }
+
+  // ---- 右下角改尺寸（仅浮动态 ✓）----
+  function ensureResize(p) {
+    if (p.querySelector('.ph-rs')) { return; }
+    var h = document.createElement('div');
+    h.className = 'ph-rs'; h.title = '拖动改尺寸（右下角）';
+    p.appendChild(h);
+    h.addEventListener('pointerdown', function (e) {
+      var key = keyOfEl(p); var s = pstate[key];
+      if (!s || s.mode !== 'float') { return; }
+      var r = p.getBoundingClientRect();
+      var sx = e.clientX, sy = e.clientY, sw = r.width, sh = r.height;
+      try { h.setPointerCapture(e.pointerId); } catch (x) { /* 旧内核：降级为普通事件 ✓ */ }
+      function mv(ev) {
+        s.w = Math.max(MINW, Math.min(Math.round(window.innerWidth - 16), Math.round(sw + (ev.clientX - sx))));
+        s.h = Math.max(MINH, Math.min(Math.round(window.innerHeight - 16), Math.round(sh + (ev.clientY - sy))));
+        s.x = clampX(s.x, s.w);   // 改尺寸后把 x 收回，保证右边缘在屏内 ✓
+        applyPanel(key);
+      }
+      function up() {
+        h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); saveHash();
+      }
+      h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+      e.preventDefault(); e.stopPropagation();
+    });
+  }
+
+  // ---- 拖标题栏：未停靠 → 自由移动；近边缘 → 高亮预览 → 松手停靠（照 ArcGIS Pro 手感）----
+  function zoneAt(x, y) {
+    var W = window.innerWidth, H = window.innerHeight;
+    if (y > H * 0.84) { return 'bottom'; }
+    if (x < W * 0.14) { return 'left'; }
+    if (x > W * 0.86) { return 'right'; }
+    return null;
+  }
+  function showHint(zone) {
+    var el = $('dock-hint'); if (!el) { return; }
+    if (!zone) { el.style.display = 'none'; return; }
+    var W = window.innerWidth, H = window.innerHeight;
+    var box = { left: [0, 0, Math.round(W * 0.22), H],
+                right: [Math.round(W * 0.78), 0, Math.round(W * 0.22), H],
+                bottom: [0, Math.round(H * 0.72), W, Math.round(H * 0.28)] }[zone];
+    el.style.left = box[0] + 'px'; el.style.top = box[1] + 'px';
+    el.style.width = box[2] + 'px'; el.style.height = box[3] + 'px';
+    el.style.display = 'block';
+  }
+  function headerDrag(key) {
+    var p = pEl(key); if (!p) { return; }
+    var hd = p.querySelector('.panel-h'); if (!hd) { return; }
+    var st = null;
+    hd.addEventListener('pointerdown', function (e) {
+      if (e.target && e.target.closest && e.target.closest('button')) { return; }
+      var r = p.getBoundingClientRect();
+      st = { ox: e.clientX - r.left, oy: e.clientY - r.top, zone: null };
+      if (pstate[key].mode !== 'float') {
+        // 从停靠态抓起 → 先转为浮动态（贴着原位置）
+        pstate[key] = { mode: 'float', x: Math.round(r.left), y: Math.round(r.top),
+                        w: Math.round(r.width), h: Math.round(r.height) };
+        applyPanel(key);
+      }
+      p.classList.add('dragging');
+      document.body.classList.add('m2-dragging');
+      try { hd.setPointerCapture(e.pointerId); } catch (x) { /* 降级 ✓ */ }
+      e.preventDefault();
+    });
+    hd.addEventListener('pointermove', function (e) {
+      if (!st) { return; }
+      var s = pstate[key]; if (s.mode !== 'float') { return; }
+      // ⭐ 右边缘保在屏内（标题栏控件在右侧）＋下边缘也保在屏内（右下角把手可达 ✓）
+      s.x = clampX(e.clientX - st.ox, s.w);
+      s.y = Math.max(0, Math.min(Math.max(0, window.innerHeight - 8 - s.h), e.clientY - st.oy));
+      applyPanel(key);
+      st.zone = zoneAt(e.clientX, e.clientY);
+      showHint(st.zone);
+    });
+    function end(e) {
+      if (!st) { return; }
+      var zone = st.zone; st = null;
+      p.classList.remove('dragging');
+      document.body.classList.remove('m2-dragging');
+      showHint(null);
+      if (zone) { dockPanel(key, zone); } else { syncBtns(); saveHash(); }
+    }
+    hd.addEventListener('pointerup', end);
+    hd.addEventListener('pointercancel', end);
+  }
+
+  // ---- 阶段①.5 简化版自动隐藏（V2/V3：移出收起 / 移入展开 / 📌 钉住）规格 §六 ----
+  var _hideTimers = {};
+  function canAutohide(key) {
+    var s = pstate[key];
+    return !!AUTOHIDE[key] && s && s.mode === 'dock' && !s.pinned;
+  }
+  function collapseNow(key) {
+    var p = pEl(key); if (!p || !canAutohide(key)) { return; }
+    if (p.classList.contains('collapsed')) { return; }
+    var h = Math.round(p.getBoundingClientRect().height);
+    if (h > 0) { p.style.height = h + 'px'; p.style.minHeight = h + 'px'; }  // ⭐ 保留高度 → 竖向不挤压 ✓
+    p.classList.add('m2-hide', 'collapsed');
+  }
+  function expandNow(key) {
+    if (_hideTimers[key]) { clearTimeout(_hideTimers[key]); _hideTimers[key] = null; }
+    var p = pEl(key); if (!p) { return; }
+    p.classList.remove('collapsed');
+    p.style.height = ''; p.style.minHeight = '';
+  }
+  function scheduleCollapse(key) {
+    if (!canAutohide(key)) { return; }
+    if (_hideTimers[key]) { clearTimeout(_hideTimers[key]); }
+    _hideTimers[key] = setTimeout(function () {
+      _hideTimers[key] = null;
+      var p = pEl(key); if (!p) { return; }
+      // ⭐ 延迟期间鼠标又回到面板上 → 不收起 ✓
+      try { if (p.matches(':hover')) { return; } } catch (e) { /* 旧内核：无 :hover → 继续收起 ✓ */ }
+      collapseNow(key);
+    }, COLLAPSE_MS);
+  }
+  function updateHide(key) {
+    var p = pEl(key); if (!p) { return; }
+    if (canAutohide(key)) { p.classList.add('m2-hide'); }
+    else { p.classList.remove('m2-hide'); expandNow(key); }
+  }
+  function updatePin(key) {
+    var p = pEl(key); if (!p) { return; }
+    var pinned = !!(pstate[key] && pstate[key].pinned);
+    p.classList.toggle('pinned', pinned);
+    var b = p.querySelector('button[data-act="pin"]');
+    if (b) { b.title = pinned ? '已钉住（鼠标移出也不收起）· 点击取消' : '钉住（不自动收起）'; }
+  }
+
+  // ---- 出错回落：任何异常 → 回三栏固定布局（不白屏 ✗）----
+  function fallbackLayout() {
+    try {
+      PMAP.forEach(function (m) {
+        var p = $(m.panel); if (!p) { return; }
+        p.classList.remove('floating', 'dragging', 'collapsed', 'm2-hide');   // ⭐ 回落时清掉收起态 ✓
+        if (_hideTimers[m.id]) { clearTimeout(_hideTimers[m.id]); _hideTimers[m.id] = null; }
+        p.style.left = ''; p.style.top = ''; p.style.width = ''; p.style.height = ''; p.style.minHeight = '';
+        var rs = p.querySelector('.ph-rs'); if (rs) { rs.parentNode.removeChild(rs); }
+        var home = $(m.home);
+        if (home && p.parentNode !== home) { home.appendChild(p); }
+        pstate[m.id] = { mode: 'dock', slot: m.home.replace('slot-', ''), pinned: !!(pstate[m.id] && pstate[m.id].pinned) };
+      });
+      var c = $('cols'); if (c) { c.classList.remove('single'); }
+      document.body.classList.remove('view-L1', 'view-L2', 'view-L3', 'm2-dragging');
+      showHint(null);
+    } catch (e2) { /* 决不二次抛出 ✓ */ }
+  }
+  function initPanels() {
+    PMAP.forEach(function (m) {
+      headerDrag(m.id);
+      var p = pEl(m.id);
+      var hd = p.querySelector('.panel-h');
+      [].slice.call(hd.querySelectorAll('button[data-act]')).forEach(function (b) {
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var act = b.getAttribute('data-act');
+          if (act === 'float') { floatPanel(m.id); }
+          else if (act === 'dock') { resetPanel(m.id); }
+          else if (act === 'reset') { resetPanel(m.id); }
+          else if (act === 'pin') {
+            pstate[m.id].pinned = !pstate[m.id].pinned;
+            if (pstate[m.id].pinned) { expandNow(m.id); }
+            updatePin(m.id); updateHide(m.id); saveHash();
+          }
+        });
+      });
+      // ⭐ 阶段①.5：移出收起（延迟 250ms）/ 移入立即展开 ✓
+      if (AUTOHIDE[m.id]) {
+        p.addEventListener('pointerenter', function () { expandNow(m.id); });
+        p.addEventListener('pointerleave', function () { scheduleCollapse(m.id); });
+      }
+    });
+    loadHash();
+    PMAP.forEach(function (m) { applyPanel(m.id); });
+    PMAP.forEach(function (m) { updatePin(m.id); updateHide(m.id); });
+    syncBtns();
+    saveHash();
+  }
+  // 验收 §四.5：可用 #m2fail 强制注入异常，验证“仍显示三栏、不白屏”
+  window.__m2Fallback = fallbackLayout;
+  (function bootPanels() {
+    var forceFail = /(^|[#&?])m2fail(=1)?(&|$)/.test(location.hash + '&' + location.search);
+    try {
+      if (forceFail) { throw new Error('injected(m2fail)'); }
+      initPanels();
+    } catch (e3) {
+      /* 规格 §三：行为退化保护 —— 出错回落三栏固定布局 ✓ */
+      try { window.console && console.warn && console.warn('[M2] 面板系统初始化失败，已回落三栏：' + e3.message); } catch (x) {}
+      fallbackLayout();
+    }
+  })();
+  // 面板尺寸/分栏宽度变化 → 同步到 URL 哈希（规格 §二：面板尺寸也持久 ✓）
+  document.addEventListener('pointerup', function () { try { saveHash(); } catch (e) {} });
+  var _modeBtn = $('btn-mode');
+  if (_modeBtn) {
+    var _origToggle = _modeBtn.onclick;
+    _modeBtn.onclick = function () {
+      if (typeof _origToggle === 'function') { _origToggle.call(this); }
+      saveHash();
+    };
+  }
+
+  refresh();
+  if ($('btn-proj-edit')) { $('btn-proj-edit').onclick = openProjEdit; }
+  if ($('btn-pj-cancel')) { $('btn-pj-cancel').onclick = closeProjEdit; }
+  if ($('btn-pj-submit')) { $('btn-pj-submit').onclick = submitProjEdit; }
+  if ($('btn-matrix')) { $('btn-matrix').onclick = function () { $('mxpanel').classList.contains('on') ? closeMatrix() : openMatrix(); }; }
+  if ($('mx-refresh')) { $('mx-refresh').onclick = loadAssets; }
+  if ($('mx-op-pipe')) { $('mx-op-pipe').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'run_pipeline', source: 'pool', run_pipeline: true }); }; }
+  if ($('mx-op-replace')) { $('mx-op-replace').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'replace', source: 'pool', run_pipeline: true }); }; }
+  if ($('mx-op-insert')) { $('mx-op-insert').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: mxPick && mxPick.state, op: 'insert', source: 'pool', run_pipeline: true }); }; }
+  if ($('mx-op-addstate')) { $('mx-op-addstate').onclick = function () { submitAsset({ role: mxPick && mxPick.role, state: ($('mx-newstate').value || '').trim(), op: 'add_state', source: 'pool', source_ref: ($('mx-newstate-ref') && $('mx-newstate-ref').value || '').trim() }); }; }
+  // ⭐ set_portrait（Owner 00:36 已批 ✓ 对方已上线 ✓）：载荷**只收** {role, op, portrait_prefix} ⛔ 不带 state ✗
+  if ($('mx-op-setportrait')) { $('mx-op-setportrait').onclick = function () {
+    var r = $('mx-bind-role') ? $('mx-bind-role').value : '';
+    var pre = $('mx-bind-prefix') ? $('mx-bind-prefix').value : '';
+    if (!r) { setMxState('bad', '⛔ 请选一个角色（角色必须已在档案里 ✗ 不新建）'); return; }
+    submitAsset({ role: r, op: 'set_portrait', portrait_prefix: pre });
+  }; }
+  if ($('mx-op-addrole')) { $('mx-op-addrole').onclick = function () {
+    var rk = ($('mx-newrole').value || '').trim();
+    submitAsset({ role: rk, state: 'idle', op: 'add_role', source: 'pool', portrait_prefix: rk });
+  }; }
+  // ⭐ 设绑定的两个下拉：角色取自 /api/roles（= 档案已有 ✓）；前缀取自 /api/assets 的资产目录（= 池子 ✓）
+  function fillBindSelects() {
+    var rs = $('mx-bind-role'), ps = $('mx-bind-prefix');
+    if (rs) {
+      var cur = rs.value;
+      rs.innerHTML = ROLES.map(function (r) { return '<option value="' + esc(r.key) + '">' + esc((r.display_name || r.key) + '（' + r.key + '）') + '</option>'; }).join('');
+      if (cur) { rs.value = cur; }
+    }
+    if (ps) {
+      var cur2 = ps.value;
+      var dirs = Object.keys(ASSETS || {}).filter(function (k) { return k.charAt(0) !== '_'; }).sort();
+      ps.innerHTML = dirs.map(function (d) { return '<option value="' + esc(d) + '">' + esc(d) + '</option>'; }).join('');
+      if (cur2) { ps.value = cur2; }
+    }
+  }
+  window.__fillBindSelects = fillBindSelects;
+  // ⭐ 批 4b-3：筛选 / 只看缺口 / 矩阵↔单角色切换 / 角色下拉
+  if ($('mx-filter')) { $('mx-filter').oninput = function () { renderMatrix(); }; }
+  if ($('mx-onlygap')) { $('mx-onlygap').onchange = function () { renderMatrix(); }; }
+  if ($('mx-role')) { $('mx-role').onchange = function () { renderSingle(Object.keys(ASSETS || {}).filter(function (r) { return r.charAt(0) !== '_'; }).sort()); }; }
+  [].slice.call(document.querySelectorAll('.tb2')).forEach(function (t) {
+    t.onclick = function () {
+      mxMode = t.getAttribute('data-mxmode') || 'matrix';
+      [].slice.call(document.querySelectorAll('.tb2')).forEach(function (x) {
+        x.setAttribute('aria-selected', x === t ? 'true' : 'false');
+      });
+      applyMxMode();
+    };
+  });
+  setInterval(refresh, 2000);       // 实时：能直接看到“打断后不再有新投递”
+  probeConn();                     // ⭐ D6-5：启动即探一次（页面能开但服务没了 → 立刻显 🔴＋原因 ✓）
+  // ⭐ A2/D6-2 ＋ A3/D6-1：起手区/向导/起手卡/重试按钮 接线
+  if ($('starter-queue')) { $('starter-queue').onclick = function () { submitStarter('queue'); }; }
+  if ($('starter-interrupt')) { $('starter-interrupt').onclick = function () { submitStarter('interrupt'); }; }
+  if ($('starter-input')) {
+    $('starter-input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitStarter('queue'); }
+    });                                       // ⭐ 回车＝**最安全**那个（排队不打断 ✓）
+  }
+  if ($('conn-retry')) {
+    $('conn-retry').onclick = function () { probeConn(); };     // ⭐ 不用刷新整页 ✓
+  }
+  if ($('guide-skip')) { $('guide-skip').onclick = skipGuide; }
+  // ⭐ B6/D6-4：Plan / Act 切换接线（默认 Plan ✓；切 Act 显式提示“会改文件” ✓）
+  if ($('starter-pm-plan')) { $('starter-pm-plan').onclick = function () { setPm('plan'); }; }
+  if ($('starter-pm-act')) { $('starter-pm-act').onclick = function () { setPm('act'); }; }
+  setPm('plan');                    // 默认态（也把横幅藏好 ✓）
+  if ($('guide-next')) {
+    $('guide-next').onclick = function () {
+      guideActive = Math.min(guideActive + 1, GUIDE_STEPS.length - 1);
+      renderGuide();
+      if (guideActive >= 3 && $('starter-input')) { $('starter-input').focus(); }
+    };
+  }
+  if ($('starter-card-resume')) {
+    $('starter-card-resume').onclick = function () {
+      var t = $('c-resume').textContent || '';
+      if (t.indexOf('还没有议题') < 0 && $('starter-input')) { $('starter-input').value = '继续上一轮：' + t.split(' ｜ ')[0]; }
+      if ($('starter-input')) { $('starter-input').focus(); }
+    };
+  }
+  if ($('starter-card-pending')) {
+    $('starter-card-pending').onclick = function () {
+      if ($('opsbox')) { $('opsbox').scrollIntoView({ block: 'center' }); }
+    };
+  }
+  if ($('starter-card-matrix')) {
+    $('starter-card-matrix').onclick = function () {
+      if ($('mxpanel') && !$('mxpanel').classList.contains('on')) { openMatrix(); }
+    };
+  }
+  probeThumb();                     // ⭐ 批 4b-4：缩略图端点探针（未上线 → 一个图片请求都不发 ✗ 明示原因 ✓）
+})();
+</script>
+</body>
+</html>

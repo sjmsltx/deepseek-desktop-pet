@@ -27,6 +27,8 @@
 import ctypes
 import os
 import sys
+import shutil
+import subprocess
 
 # ---- 热键修饰键(Win32 常量,纯数值,不依赖平台模块)----
 MOD_ALT = 0x0001
@@ -359,6 +361,131 @@ AUTOSTART_LEGACY = ('DeepSeekPet.bat', 'DeepSeekPet.cmd')
 AUTOSTART_RUN_VALUE = 'DeepSeekPet'
 
 
+# ⭐⭐ P0-3（2026-10-05 · Owner 已批 ✓）：⭐ **子进程命令白名单** —— 只跑**登记过**的程序 ✗
+#
+# ⭐ 理由：⭐ "能起子进程"＝能力面的一大块 ✓（⭐ 实测 **14**（我方口径）/ **31**（微信侧口径）个文件 ✓）
+#    ⇒ ⭐ 未登记的程序**一律拒绝** ✗ ＋ **落痕** ✓（⛔ 不静默 ✗）。
+# ⭐ ⚠️ 本批**只建机制 ＋ 接入最危险的一处** ✓（`dsh_adapter` 的"任意 PowerShell 脚本" ✗）
+#    —— ⭐ 其余站点**分批接入** ✓（⛔ 不一次性大改 ✗ 避免引入新缺陷 ✓）。
+
+# ═══════════════════════════════════════════════════════════════════
+# ⭐ 可执行路径解析（2026-10-10，⭐ 采纳微信侧 `WX-…-69` §3.1 ✓）
+#
+# ⭐ 为什么需要（⭐ 实测 ✓，⭐ 不是推测 ✗）：
+#   ⭐ 1) 用**短名**调 `subprocess.run(['git', …])` ⇒ ⭐ 正确性依赖**运行环境的 PATH** ✗；
+#      ⭐ PATH 被别的软件改动、git 搬家、换用户、换机器 ⇒ ⭐ **同一缺陷会同样复发** ✗
+#      （⭐ 2026-10-07 搬迁后已经真实发生过一次 ✓）。
+#   ⭐ 2) ⭐ ⭐ **Python 3.14 / Windows 上，显式传 `env` 时 `['git', …]` 并不按 PATH 找到 exe** ✗
+#      （⭐ 实测：`subprocess.run(['git','--version'], env=<含git的PATH>)` ⇒ `FileNotFoundError` ✓，
+#       ⭐ 而 `shell=True` 与**绝对路径**均成功 ✓）⇒ ⭐ **"靠短名 + PATH" 比想象中更脆弱** ✓。
+#
+# ⭐ 对策：⭐ **启动后显式解析出**绝对路径**并缓存** ✗ ⇒ ⭐ 此后所有调用都用绝对路径 ✓
+#   ⇒ ⭐ **PATH 怎么变都不影响** ✓（⭐ 且 `program_allowed()` 取 basename ⇒ ⭐ 白名单照样通过 ✓）。
+# ═══════════════════════════════════════════════════════════════════
+
+_PROGRAM_CACHE = {}
+
+# ⭐ 常见安装位置（⭐ 仅在 PATH 找不到时兜底 ✓ —— 键为小写程序名 ✓）
+_PROGRAM_HINTS = {
+    'git': (r'D:\Git\cmd\git.exe',
+            r'C:\Program Files\Git\cmd\git.exe',
+            r'C:\Program Files (x86)\Git\cmd\git.exe'),
+    'git.exe': (r'D:\Git\cmd\git.exe',
+                r'C:\Program Files\Git\cmd\git.exe',
+                r'C:\Program Files (x86)\Git\cmd\git.exe'),
+}
+
+
+def resolve_program(name: str):
+    """⭐ 把程序名解析成**绝对路径** ✓；⭐ 解析不到返回 `None` ✗（⛔ 不抛 · 不静默 ✓）。
+
+    ⭐ 顺序：⭐ ① 已是存在的绝对路径 ⇒ 直接用 ✓ ② 缓存 ✓ ③ `shutil.which`（⭐ 走 PATH ✓）
+    ④ ⭐ 常见安装位置兜底 ✓ ⑤ ⭐ 都没有 ⇒ `None` ✓。
+    """
+    if not name:
+        return None
+    key = str(name).strip()
+    if not key:
+        return None
+    if key in _PROGRAM_CACHE:
+        return _PROGRAM_CACHE[key]
+    found = None
+    # ⭐ ① 绝对/相对路径且真的存在
+    if os.path.isabs(key) or os.sep in key or '/' in key:
+        if os.path.isfile(key):
+            found = key
+    # ⭐ ③ PATH（⭐ which 是标准库 ✓ 不引第三方 ✓）
+    if not found:
+        try:
+            found = shutil.which(key)
+        except Exception as exc:                      # ⭐ 不静默 ✓
+            print('  \u26a0\ufe0f which(%r) 失败：%r' % (key, exc))
+    # ⭐ ④ 常见安装位置兜底
+    if not found:
+        for cand in _PROGRAM_HINTS.get(key.lower(), ()):
+            if os.path.isfile(cand):
+                found = cand
+                break
+    _PROGRAM_CACHE[key] = found
+    return found
+
+
+ALLOWED_PROGRAMS = (
+    'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe',   # ⭐ 系统脚本宿主（多处在用 ✓）
+    'cmd', 'cmd.exe',                                     # ⭐ 兼容
+    'git', 'git.exe',                                     # ⭐ 自改码基线 ✓
+    'tasklist', 'taskkill',                               # ⭐ 进程排查/回收 ✓
+    'where', 'where.exe',                                 # ⭐ 定位程序 ✓
+    'python', 'python.exe', 'pythonw', 'pythonw.exe',     # ⭐ 本项目自身的解释器 ✓
+    'dsh.cmd', 'dsh.ps1',                                 # ⭐ DSH 启动脚本（dsh_adapter 用 · 动态路径 ✓）
+)
+
+
+def program_allowed(argv) -> tuple:
+    """⭐ 判定某命令是否**在白名单内** ✗。返回 `(是否允许, 程序名, 原因)` ✓。
+
+    ⭐ 判定对象＝ `argv[0]` 的 **basename**（⭐ 小写 ✓）—— ⭐ 只看"跑哪个程序" ✓，
+    ⛔ **不看参数内容** ✗（⭐ 参数级控制属另一层，本批不做 ✓ 已在件里注明 ✓）。
+    """
+    try:
+        if isinstance(argv, (str, bytes)):
+            first = str(argv)
+        else:
+            first = str(list(argv)[0]) if argv else ''
+    except Exception as exc:
+        return False, '', '无法解析命令（%r）' % (exc,)
+    name = os.path.basename(first.replace('\\', '/')).strip().lower()
+    if not name:
+        return False, '', '空命令'
+    if name in ALLOWED_PROGRAMS:
+        return True, name, ''
+    return False, name, '程序 %r 不在白名单内' % (name,)
+
+
+def safe_spawn(argv, **kwargs):
+    """⭐ 受控起进程 ✓：⭐ 白名单外的程序**一律拒绝** ✗（⛔ 不静默 ✗ 抛错让人看见 ✓）。
+
+    ⭐ 白名单内的命令**行为与原来完全一致** ✓（⭐ 只是**加了一道前置判定** ✓）。
+    """
+    ok, name, why = program_allowed(argv)
+    if not ok:
+        # ⭐ 落痕 ＋ 抛错（⭐ 让调用方**看得见** ✗ 而不是悄悄不跑 ✓）
+        print('  \u26a0\ufe0f P0-3 拒绝起进程：%s（白名单外 ✗）' % (name or '?',))
+        raise PermissionError('[SPAWN-403-01] P0-3 子进程白名单：%s' % why)
+    return subprocess.run(argv, **kwargs)
+
+
+def safe_popen(argv, **kwargs):
+    """⭐ 同上，`Popen` 版 ✓。"""
+    ok, name, why = program_allowed(argv)
+    if not ok:
+        print('  \u26a0\ufe0f P0-3 拒绝起进程（Popen）：%s（白名单外 ✗）' % (name or '?',))
+        # ⭐ 采纳微信侧 `WX-…-20261005-55` §二 ✓：⭐ 此处**曾漏码** ✗（⭐ 我只给 `safe_spawn` 加了 ✓）
+        #   ⇒ ⭐ 两处消息**必须一致** ✗（⭐ 否则 `safe_popen` 路径的报错**没有 `SPAWN-403-01`** ✓）
+        raise PermissionError('[SPAWN-403-01] P0-3 子进程白名单：%s' % why)
+    return subprocess.Popen(argv, **kwargs)
+
+
 def startup_dir():
     """当前用户的启动文件夹（Windows）"""
     appdata = os.environ.get('APPDATA') or os.path.expanduser(r'~\AppData\Roaming')
@@ -419,7 +546,8 @@ def _run_ps(script, timeout=20):
     import base64
     import subprocess
     enc = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
-    return subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    # ⭐ P0-3：改走受控入口 ✓（⭐ 行为不变 ✓ 只加前置白名单判定 ✓）
+    return safe_spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
                            '-EncodedCommand', enc], capture_output=True, timeout=timeout)
 
 
@@ -561,3 +689,15 @@ def clear_dwm_shadow(hwnd):
         return True
     except Exception:
         return False
+
+
+def data_dir():
+    """⭐ 产品数据目录（⭐ D1 起用于放"仓库外的东西" ✓ 承可移植性 E14 ✓）。
+
+    顺序：`AC_PET_DATA_DIR` 环境变量 → `<APPDATA>/DeepSeekPet` ✓
+    """
+    env = (os.environ.get('AC_PET_DATA_DIR') or '').strip()
+    if env:
+        return env
+    appdata = os.environ.get('APPDATA') or os.path.expanduser(r'~\AppData\Roaming')
+    return os.path.join(appdata, 'DeepSeekPet')

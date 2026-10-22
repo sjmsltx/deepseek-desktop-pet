@@ -12,16 +12,52 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pet_selfcode import edit_own_code  # noqa: E402
+from pet_selfcode import edit_own_code  # noqa: E402  # noqa: E402
+from pathlib import Path
+
+import pytest  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+_GIT = "git"
+try:
+    import platform_layer as _pl
+    _GIT = _pl.resolve_program("git") or "git"
+except Exception as _e:                                   # ⭐ 落痕不静默 ✓
+    print("  \u26a0\ufe0f 测试夹具解析 git 失败，退回短名：%r" % (_e,))
+
+
+@pytest.fixture(autouse=True)
+def _open_self_edit_gate(monkeypatch):
+    """⭐ P0-1（2026-10-05 · Owner 已批 ✓）：本文件专测自改码**成功路径** ✓
+    ⇒ ⭐ 前提是闸门**已开** ✓（⭐ 闸门默认关是有意为之：危险能力默认关 ✗）。
+
+    ⭐ 用 `monkeypatch`（⛔ 不裸赋值 ✗）⇒ ⭐ **本文件内**生效并**自动还原** ✓，
+    ⛔ 不污染其它用例 ✗（承 EXP.0104 ✓）。
+    """
+    monkeypatch.setenv('AC_PET_ALLOW_SELF_EDIT', '1')
+
+
 
 def _sandbox(name):
+    # ⭐ 微信侧 `WX-…-20261004-02` §三.3 实测揪出的真根因：
+    #   固定目录名 ＋ `rmtree(ignore_errors=True)`（**失败静默** ✗，如文件被占 ✓）
+    #   ＋ `makedirs()` **无 `exist_ok`** ✗ → 一旦有遗留目录（上次被中断 ✓）
+    #   → `FileExistsError` ✗ → 表现为「单跑绿 ✓ 全量红 ✗」的**假失败** ✗
     d = os.path.join(tempfile.gettempdir(), "selfcode_t_" + name)
     shutil.rmtree(d, ignore_errors=True)
-    os.makedirs(d)
-    subprocess.run(["git", "init", "-q"], cwd=d, capture_output=True)
+    os.makedirs(d, exist_ok=True)          # ⭐ 遗留目录不再炸 ✗
+    if os.path.isdir(d):
+        for _f in os.listdir(d):            # ⭐ rmtree 失败时残留物也要扫掉 ✓
+            _p = os.path.join(d, _f)
+            try:
+                shutil.rmtree(_p) if os.path.isdir(_p) else os.remove(_p)
+            except Exception:
+                pass
+    # ⭐ 2026-10-10：⭐ 不再用**短名**起 git ✗ —— 与产品同源解析 ✓
+    #   ⭐ 原因：实测 Python 3.14/Windows 上，⭐ 显式传 `env` 时 `['git', …]` 不按 PATH 找 exe ✗；
+    #   ⭐ 且"靠 PATH"会让同一缺陷随环境复发（⭐ 2026-10-07 已发生一次 ✓）
+    subprocess.run([_GIT, "init", "-q"], cwd=d, capture_output=True)
     return d
 
 
@@ -33,7 +69,7 @@ def test_lf_oldtext_matches_crlf_file():
         f.write(b"A = 1\r\nB = 2\r\nC = 3\r\n")
     r = edit_own_code("A = 1\nB = 2", "A = 111\nB = 222", file="m.py", base_dir=d)
     assert r.startswith("✅"), "LF old_text 仍无法匹配 CRLF 文件：%s" % r[:80]
-    assert "A = 111" in open(p, encoding="utf-8").read()
+    assert "A = 111" in Path(p).read_text(encoding="utf-8")
 
 
 def test_line_endings_preserved():
@@ -43,37 +79,52 @@ def test_line_endings_preserved():
     with open(p, "wb") as f:
         f.write(b"A = 1\r\nB = 2\r\nC = 3\r\n")
     edit_own_code("", "B = 22", start_line=2, end_line=2, file="m.py", base_dir=d)
-    raw = open(p, "rb").read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(p, "rb") as _fh:
+        raw = _fh.read()
     assert raw.count(b"\r\n") == 3, "CRLF 被改写：现在有 %d 个 CRLF" % raw.count(b"\r\n")
     # LF 文件也不应被改成 CRLF
     p2 = os.path.join(d, "n.py")
     with open(p2, "wb") as f:
         f.write(b"A = 1\nB = 2\nC = 3\n")
     edit_own_code("", "B = 22", start_line=2, end_line=2, file="n.py", base_dir=d)
-    raw2 = open(p2, "rb").read()
+    # ⭐ S3：with 关句柄（原本一行读漏句柄 → ResourceWarning ✗）
+    with open(p2, "rb") as _fh:
+        raw2 = _fh.read()
     assert raw2.count(b"\r\n") == 0 and raw2.count(b"\n") == 3, "LF 文件被污染"
 
 
-def test_backup_really_created():
-    """R3 修复：改前备份必须真的落盘（此前 datetime 未导入 → backup/ 一直是空的）"""
+def test_backup_really_created(monkeypatch, tmp_path):
+    """R3 修复：改前备份必须真的落盘。
+
+    ⭐ D1 更新（2026-10-04）：⭐ 备份位置**从 `base_dir/backup` 改为仓库外** ✓
+      （承 E14/P5 可移植性 ✓）—— ⭐ 本用例**保留原本意**（"必须真落盘" ✓），
+      ⭐ 只把**位置判据**换成新口径 ✓ ＋ ⭐ 反向钉一句"⛔ 不得落在仓库内" ✗。
+    """
+    monkeypatch.setenv("AC_PET_BACKUP_DIR", str(tmp_path / "bk"))
     d = _sandbox("r3")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\n")
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\n")
     r = edit_own_code("A = 1", "A = 2", file="m.py", base_dir=d)
     assert r.startswith("✅")
-    bdir = os.path.join(d, "backup")
+    bdir = str(tmp_path / "bk")
     files = os.listdir(bdir) if os.path.isdir(bdir) else []
-    assert files, "backup/ 仍为空（备份没写出）"
+    assert files, "备份仍为空（备份没写出）"
     assert "改前备份" in r, "成功消息未提到备份"
-    # 备份内容应为改前版本
+    # ⭐ 备份内容应为改前版本
     assert open(os.path.join(bdir, files[0]), encoding="utf-8").read().strip() == "A = 1"
-
+    # ⭐ D1：⛔ 仓库内**不得**再出现 backup/ ✗
+    assert not os.path.isdir(os.path.join(d, "backup")), \
+        "⭐ 备份不得再落进仓库（D1 ✗）"
 
 def test_trailing_space_tolerant():
     """行尾空格差异可容忍（AI 常把行尾空格丢掉）"""
     d = _sandbox("r4")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("X = 1   \nY = 2\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("X = 1   \nY = 2\n")
     r = edit_own_code("X = 1\nY = 2", "X = 9\nY = 8", file="m.py", base_dir=d)
     assert r.startswith("✅"), "行尾空格差异导致匹配失败：%s" % r[:80]
 
@@ -82,18 +133,22 @@ def test_syntax_guard_still_blocks():
     """语法门必须仍在（这条此前是好的，防止修坏）"""
     d = _sandbox("r5")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\nB = 2\n")
-    before = open(p, encoding="utf-8").read()
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\nB = 2\n")
+    before = Path(p).read_text(encoding="utf-8")
     r = edit_own_code("A = 1", "def broken(:", file="m.py", base_dir=d)
     assert "语法验证失败" in r, "语法门失效：%s" % r[:80]
-    assert open(p, encoding="utf-8").read() == before, "非法改动竟然落盘了"
+    assert Path(p).read_text(encoding="utf-8") == before, "非法改动竟然落盘了"
 
 
 def test_multi_match_hint():
     """多处匹配要给出可操作建议（改用行号模式）"""
     d = _sandbox("r6")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\nA = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\nA = 1\n")
     r = edit_own_code("A = 1", "A = 2", file="m.py", base_dir=d)
     assert "多处匹配" in r or "处匹配" in r
     assert "start_line" in r, "未提示改用行号模式"
@@ -103,7 +158,9 @@ def test_success_message_useful():
     """成功消息要能指导使用者：文件 + 位置 + 重启生效"""
     d = _sandbox("r7")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\n")
     r = edit_own_code("", "A = 2", start_line=1, end_line=1, file="m.py", base_dir=d)
     assert "m.py" in r and "第 1" in r and "重启" in r
 
@@ -112,17 +169,21 @@ def test_inline_fragment_fallback():
     """v6.56b：行内片段也要能匹配（模型常只给一句话中间的片段）"""
     d = _sandbox("r8")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write('DESC = "自动带 git 保护（改前提交基线，改后语法验证）"\n')
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write('DESC = "自动带 git 保护（改前提交基线，改后语法验证）"\n')
     r = edit_own_code("改前提交基线", "改前记录基线 hash", file="m.py", base_dir=d)
     assert r.startswith("✅"), "行内片段未能匹配：%s" % r[:90]
-    assert "改前记录基线 hash" in open(p, encoding="utf-8").read()
+    assert "改前记录基线 hash" in Path(p).read_text(encoding="utf-8")
 
 
 def test_no_backup_on_failed_match():
     """v6.56b：匹配失败不应留下备份（避免 backup/ 噪音）"""
     d = _sandbox("r9")
     p = os.path.join(d, "m.py")
-    open(p, "w", encoding="utf-8").write("A = 1\n")
+    # ⭐ S3：with 关句柄（原本一行写漏句柄 ✗）
+    with open(p, "w", encoding="utf-8") as _fh:
+        _fh.write("A = 1\n")
     edit_own_code("这段根本不存在", "X", file="m.py", base_dir=d)
     bdir = os.path.join(d, "backup")
     assert not (os.path.isdir(bdir) and os.listdir(bdir)), "失败也写了备份"
@@ -130,7 +191,7 @@ def test_no_backup_on_failed_match():
 
 def test_source_guards():
     """源码护栏：不许退回旧写法（sys.executable 校验 / datetime 未导入 / 静默 pass）"""
-    src = open(os.path.join(ROOT, "pet_selfcode.py"), encoding="utf-8-sig").read()
+    src = Path(os.path.join(ROOT, "pet_selfcode.py")).read_text(encoding="utf-8-sig")
     # 去掉模块 docstring 后再扫（docstring 里会描述“旧写法”，不应触发护栏）
     body = src.split('"""', 2)[2] if src.count('"""') >= 2 else src
     assert "import datetime as _dt" in src, "datetime 未导入（备份会再次静默失败）"

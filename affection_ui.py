@@ -171,6 +171,9 @@ class MemoriesDialog(QDialog):
 class CostBubble(QLabel):
     """费用/好感度动画气泡：上浮渐隐（dsh-pet 余额气泡 + LiveGalGame 动效）"""
 
+    # ⭐ D11-1（2026-10-11）：气泡两侧与边界的最小留白 ✓
+    PAD = 6
+
     def __init__(self, parent, text: str, color: str = None):
         super().__init__(parent)
         self.setText(text)
@@ -178,6 +181,13 @@ class CostBubble(QLabel):
         self.setStyleSheet(
             f'color:{color}; font-size:12px; font-weight:bold; background:{T("ui_bubble_bg")};'
             f'border:1px solid {color}; border-radius:8px; padding:2px 8px;')
+        # ⭐ D11-1（2026-10-11 修）：**允许换行** ✓ ＋ **限制最大宽度** ✓
+        #   现象（Owner 实测）：对话框面板小的时候，气泡里的字**被吃掉** ✗
+        #   根因：QLabel **默认不折行** ✗，气泡按整行文字撑到自然宽度 ✗
+        #        ⇒ 超出父窗口右侧 ⇒ 被裁掉 ✗（调用方还按 `len(text)*6` 估宽 ✗ 中文/emoji 必偏）
+        #   ⇒ 收在控件内部统一兜住 ✓（与 D11-2「门收到唯一出口」同一思路 ✓）
+        self.setWordWrap(True)
+        self._fit_width()
         self.adjustSize()
         self._op = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self._op)
@@ -185,12 +195,45 @@ class CostBubble(QLabel):
         self._op_anim = QPropertyAnimation(self._op, b'opacity', self)
         self._finished = False
 
+    def _fit_width(self):
+        """⭐ D11-1：把最大宽度限制在父控件之内 ✓（留 PAD 边距 ✓）
+
+        宽度上限只在「真的超出」时才起作用 ✓ —— 短文本仍按自然宽度显示 ✓
+        （setWordWrap 单独用不会强制换行 ✓，必须配合最大宽度才有意义 ✓）
+        """
+        par = self.parentWidget()
+        pw = int(par.width()) if par is not None else 0
+        if pw > 0:
+            self.setMaximumWidth(max(80, pw - 2 * self.PAD))
+
     def show_bubble(self, x: int, y: int, dy: int = -46, duration: int = 1400, hold_ms: int = 0):
         """从 (x,y) 上浮 dy 并渐隐，结束后销毁自己。
 
         hold_ms > 0 时先原地静止 hold_ms 毫秒再开始上浮渐隐 —— 费用/好感这类数字
         一闪而来看不清（v6.61：使用者反馈「一秒钟之内就没了」）。
         """
+        # ⭐ D11-1（2026-10-11）：显示前**按当前父宽重算** ✓（父可能已 resize ✓）+ **夹取位置** ✓
+        #   ⛔ 不能只信调用方给的 x ✗（它按 `len(text)*6` 估宽，中文/emoji 必偏 ✓）
+        self._fit_width()
+        self.adjustSize()
+        # ⭐ 这里刻意**不包 try/except** ✗ —— 上面全部是无副作用算术与 Qt 取值 ✓，不会抛 ✓，
+        #   而 `except: pass` 会被静默护栏判红 ✓（`tests/test_silent_guard.py` ✓）——
+        #   「不落痕的失败」比「失败」更危险 ✓，所以宁可让真实异常照常冒泡 ✓。
+        _par = self.parentWidget()
+        x, y, dy = int(x), int(y), int(dy)
+        _pw = int(_par.width()) if _par is not None else 0
+        _ph = int(_par.height()) if _par is not None else 0
+        _w, _h = int(self.width()), int(self.height())
+        if _pw > 0:
+            x = max(self.PAD, min(x, max(self.PAD, _pw - _w - self.PAD)))
+        if _ph > 0:
+            # 上浮终点是 y+dy（dy 为负 ⇒ 向上）✓ ⇒ 保证起止都在父控件内 ✓
+            _top = min(y, y + dy)
+            _bot = max(y, y + dy) + _h
+            if _bot > _ph:
+                y = max(self.PAD, y - (_bot - _ph))
+            if _top < 0:
+                y = y - _top
         self.move(x, y)
         self.show()
         self.raise_()

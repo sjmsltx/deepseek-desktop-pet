@@ -20,6 +20,7 @@ if BASE not in sys.path:
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import governance as gov  # noqa: E402
+from pathlib import Path   # ⭐ S3：读文件自动关句柄 ✓
 
 
 def _write_stats(tmp_path, cost, date=None):
@@ -52,14 +53,15 @@ def test_today_cost_ignores_stale_date(tmp_path):
 
 def test_check_cost_passes_under_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 20})
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 5.0)
+    # 取数接口已迁到 today_cost_ex（cost_state 用它才拿得到 ok 标志），换注入点
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (5.0, True, ''))
     ok, why, used = gov.check_cost()
     assert ok is True and why == '' and used == 5.0
 
 
 def test_check_cost_blocks_over_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 20})
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 20.5)
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (20.5, True, ''))
     ok, why, used = gov.check_cost()
     assert ok is False and used == 20.5
     assert '已花 ¥20.50' in why and '¥20.00' in why
@@ -68,13 +70,13 @@ def test_check_cost_blocks_over_limit(tmp_path, monkeypatch):
 
 def test_check_cost_counts_estimate(tmp_path, monkeypatch):
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 10})
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 9.5)
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (9.5, True, ''))
     assert gov.check_cost()[0] is True
     assert gov.check_cost(estimate=1.0)[0] is False
 
 
 def test_check_cost_disabled_or_zero_always_passes(monkeypatch):
-    monkeypatch.setattr(gov, 'today_cost', lambda path=None: 999.0)
+    monkeypatch.setattr(gov, 'today_cost_ex', lambda path=None: (999.0, True, ''))
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': False, 'cost_limit_daily': 1})
     assert gov.check_cost()[0] is True
     monkeypatch.setattr(gov, '_cfg', lambda: {'cost_limit_enabled': True, 'cost_limit_daily': 0})
@@ -91,7 +93,7 @@ def test_run_task_is_gated_and_config_untouched(monkeypatch):
     import desktop_pet as dp
 
     cfg = os.path.join(BASE, 'config.json')
-    before = hashlib.md5(open(cfg, 'rb').read()).hexdigest() if os.path.isfile(cfg) else ''
+    before = hashlib.md5(Path(cfg).read_bytes()).hexdigest() if os.path.isfile(cfg) else ''
 
     blocked = {'why': ''}
     monkeypatch.setattr(gov, 'check_cost', lambda estimate=0.0: (False, '今日已花 ¥25.00，达到上限 ¥20.00', 25.0))
@@ -107,8 +109,10 @@ def test_run_task_is_gated_and_config_untouched(monkeypatch):
     p._run_task('测试一句话')
 
     assert started == [], '超限时不得起线程（不发请求）'
-    assert emitted and '已暂停本次调用' in emitted[0] and '¥20.00' in emitted[0], emitted
+    # v1-B：拦截提示改走**四段卡片**且层名=本地闸门（不再用旧文案“已暂停本次调用”）✓
+    assert emitted and '本地闸门' in emitted[0] and '¥20.00' in emitted[0], emitted
+    assert '这一步未发出' in emitted[0] or '本次调用未发出' in emitted[0], emitted
     assert '¥20.00' in blocked['why'], '要写一条 deny 审计'
     assert getattr(p, '_ai_busy', False) is False, '不得把界面卡在 busy（闸门要在改状态之前）'
-    after = hashlib.md5(open(cfg, 'rb').read()).hexdigest() if os.path.isfile(cfg) else ''
+    after = hashlib.md5(Path(cfg).read_bytes()).hexdigest() if os.path.isfile(cfg) else ''
     assert after == before, '成本判定不得改动 config.json'

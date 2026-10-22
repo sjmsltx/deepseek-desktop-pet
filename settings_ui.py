@@ -244,6 +244,26 @@ class SettingsDialog(QDialog):
         except Exception as e:
             self._notify('成本上限设置失败：%s' % e)
 
+    def _apply_roundtable_limits(self):
+        """⭐ 门槛第 1 件（Owner 2026-10-02 21:53 批「成本上限默认值 → 自定义」）
+
+        · 圆桌额度由**用户自己填** ✓（不写死数 ✗）· 0 = 不限 ✓ · 未启用 = 不配置 ✓
+        · 写入 **config.json 扁平键** ✓（`roundtable_max_tokens` / `roundtable_max_cost_micro`）
+          —— ⭐ 不走 HTTP ✗（守「写面只走文件通道」口径 ✓）；由 relay_log.load_limits() 读回 ✓
+        """
+        if self._building:
+            return
+        try:
+            on = bool(self.ck_rt.isChecked())
+            tok = int(round(float(self.sp_rt_tok.value())))
+            micro = int(round(round(float(self.sp_rt_cost.value()), 2) * 1_000_000))
+            self.host._save_cfg_value('roundtable_max_tokens',
+                                      tok if (on and tok > 0) else 0)
+            self.host._save_cfg_value('roundtable_max_cost_micro',
+                                      micro if (on and micro > 0) else 0)
+        except Exception as e:
+            self._notify('圆桌额度设置失败：%s' % e)
+
     # ---------- ② 对话 ----------
     def _toggle_advanced_tools(self, on):
         """v6.53：进阶工具模式开关（默认关 → 只放开 core 工具）"""
@@ -391,7 +411,7 @@ class SettingsDialog(QDialog):
 
         self._buttons(f, '模型档案', [('🎯 模型管理…', self.host._open_model_manager)])
         self._buttons(f, '密钥', [('🔑 修改 API Key…', self.host._set_api_key_dialog),
-                                  ('🌐 修改联网搜索 Key…', self.host._set_search_key_dialog)])
+                                  ('🌐 联网搜索（已用 DeepSeek Key）', self.host._set_search_key_dialog)])
 
         # v6.64：接入自己的模型 / 声音的说明（其他使用者最容易卡在这里）
         self._buttons(f, '接入说明', [('❓ 怎么填自己的模型 / 自己的声音', self.host._show_model_help)])
@@ -523,6 +543,54 @@ class SettingsDialog(QDialog):
         self.sp_cost.setToolTip('当日累计模型费用超过此值就不再发起请求（设为 0 = 不限）')
         self.sp_cost.editingFinished.connect(self._apply_cost_limit)
         f.addRow('', self.sp_cost)
+        # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：圆桌额度 → 「自定义」✓
+        #   用户自己填 ✓ 不写死数 ✗；0 = 不限 ✓；写 config.json 扁平键 ✓（不经 HTTP ✗）
+        self.ck_rt = QCheckBox('给圆桌设额度上限（大厅 / @点名 / 投递 触发模型调用时生效）')
+        self.ck_rt.setToolTip('圆桌（多模型协作）会真实消耗 token 与费用 ✓\n'
+                              '默认「不限」✗ —— 建议设一个上限；触顶会「停 + 出结论 + @人类」✓')
+        self.ck_rt.toggled.connect(self._apply_roundtable_limits)
+        f.addRow('圆桌额度', self.ck_rt)
+        self.sp_rt_tok = QDoubleSpinBox()
+        self.sp_rt_tok.setRange(0.0, 100000000.0)
+        self.sp_rt_tok.setDecimals(0)
+        self.sp_rt_tok.setSingleStep(10000.0)
+        self.sp_rt_tok.setSpecialValueText('不限')
+        self.sp_rt_tok.setToolTip('圆桌累计 token 上限（0 = 不限 ✓）')
+        self.sp_rt_tok.editingFinished.connect(self._apply_roundtable_limits)
+        f.addRow('', self.sp_rt_tok)
+        self.sp_rt_cost = QDoubleSpinBox()
+        self.sp_rt_cost.setRange(0.0, 100000.0)
+        self.sp_rt_cost.setDecimals(2)
+        self.sp_rt_cost.setSingleStep(1.0)
+        self.sp_rt_cost.setSuffix(' 元')
+        self.sp_rt_cost.setSpecialValueText('不限')
+        self.sp_rt_cost.setToolTip('圆桌累计费用上限（0 = 不限 ✓）；按微元整数记账 ✓')
+        self.sp_rt_cost.editingFinished.connect(self._apply_roundtable_limits)
+        f.addRow('', self.sp_rt_cost)
+        self.lb_rt_note = QLabel('留空/不加锁 = 不限；未设置时协作台启动会提示一次 ✓')
+        self.lb_rt_note.setStyleSheet(STYLE_HINT)
+        self.lb_rt_note.setWordWrap(True)
+        f.addRow('', self.lb_rt_note)
+        # 缺陷 4（批 B · Owner 2026-09-26）：⭐ 口径**分列两行** ——
+        #   「账户余额（全项目共享）」✗ ≠ 「桌宠今日花费」✓（日上限只按后者判 ✓ 不看余额 ✗）
+        self.lb_bal_shared = QLabel('未查询')
+        self.lb_bal_shared.setToolTip('来自上游账户接口（/user/balance）的 total_balance ——\n'
+                                      '⚠ 这是**账户级**余额，可能同时被其它项目消耗 ✗ 不等于桌宠专属余额 ✓')
+        f.addRow('账户余额（全项目共享）', self.lb_bal_shared)
+        self.lb_today_cost = QLabel('—')
+        self.lb_today_cost.setToolTip('桌宠**自己**今日累计的模型费用（读 api_stats.json 的 today.cost）✓\n'
+                                      '日成本上限**只按这个判** ✓ 与上面的账户余额无关 ✗')
+        f.addRow('桌宠今日花费', self.lb_today_cost)
+        # 批 C（Owner 2026-09-26 批）：在「桌宠今日花费」下**按用途分列** ✓（先让"这笔花费是谁花的"能回答 ✓）
+        self.lb_purposes = QLabel('—')
+        self.lb_purposes.setWordWrap(True)
+        self.lb_purposes.setToolTip('按**用途**拆开今日花费（对话 / 主动关心 / 工具 / 小游戏 / 其它）✓\n'
+                                    '⭐ 该分项只用于**看得清** ✗ 拦不拦只看上面的「桌宠今日花费」✓')
+        # 缺陷 3（批 B）：主动关心**分项可见** + 说明 ✓
+        self.lb_care = QLabel('—')
+        self.lb_care.setToolTip('主动关心会**真实调用模型**、按频率消耗 token ✓\n'
+                                '可在「通用 → 主动关心」关闭 ✓；成本触顶时会**自动暂停**并在次日恢复 ✓')
+        f.addRow('主动关心', self.lb_care)
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
                                         ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
 
@@ -909,6 +977,8 @@ class SettingsDialog(QDialog):
         self.lb_ver.setStyleSheet('font-family:Consolas,monospace;font-size:12.5px;')
         f.addRow('程序目录', self.lb_ver)
         self._buttons(f, '窗口', [('🏠 最小化到托盘', self.host.hide_to_tray)])
+        # L4-2：最近错误入口（右键菜单「状态」里也有同款入口 ✓）
+        self._buttons(f, '诊断', [('🧯 最近错误', self.host.show_recent_errors)])
         # ---- 平台能力（只读诊断块，v6.74 批次5：直接渲染 platform_layer.report()）----
         box = QWidget()
         vb = QVBoxLayout(box)
@@ -1003,8 +1073,62 @@ class SettingsDialog(QDialog):
                 import governance as _gov_r
                 self.ck_cost.setChecked(bool(_gov_r.cost_limit_enabled()))
                 self.sp_cost.setValue(float(_gov_r.cost_limit_daily() or 0))
+                # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：圆桌额度回显（缺省/0 = 不限 ✓）
+                # ⭐ 条款 ③-2（`WX-桌宠-20261003-01`）：非法值必须**可见** —— 收集 problems 并在设置页明报 ✓
+                try:
+                    import relay_log as _rl
+                    _probs = []
+                    _lim = _rl.load_limits(warn=_probs.append)
+                    _rt_tok = int(_lim.get('max_tokens') or 0)
+                    _rt_micro = int(_lim.get('max_cost_micro') or 0)
+                    self.ck_rt.setChecked(bool(_rt_tok or _rt_micro))
+                    self.sp_rt_tok.setValue(float(_rt_tok))
+                    self.sp_rt_cost.setValue(round(_rt_micro / 1_000_000.0, 2))
+                    if _probs:
+                        self.lb_rt_note.setText('⚠️ 配置有误，已按不限运行：' + '；'.join(_probs))
+                    else:
+                        self.lb_rt_note.setText('留空/不加锁 = 不限；未设置时协作台启动会提示一次 ✓')
+                except Exception:
+                    pass
             except Exception:
                 pass
+            # 缺陷 4/3（批 B）：两行分列 + 主动关心分项（均带 try ✓ 取不到不影响设置页 ✓）
+            try:
+                self.lb_today_cost.setText('¥%.2f' % float(_gov_r.today_cost()))
+            except Exception:
+                self.lb_today_cost.setText('—')
+            try:
+                _bt = ''
+                try:
+                    _bt = str(self.host.api_stats.balance_text(True) or '')
+                except Exception:
+                    _bt = ''
+                self.lb_bal_shared.setText(_bt or '未查询')
+            except Exception:
+                self.lb_bal_shared.setText('未查询')
+            try:
+                _ct = getattr(h, '_care_today', None) or {}
+                _n = int(_ct.get('n') or 0) if isinstance(_ct, dict) else 0
+                self.lb_care.setText('今日 %d 次（会调用模型、消耗 token ✓ 可在「通用」关闭 ✗）' % _n)
+            except Exception:
+                self.lb_care.setText('—')
+            # 批 C：用途分列（守恒口径 ✓ 分项之和 = 总账 ✓ 旧档无分项 → 明示"历史未分类" ✗ 不编数字 ✗）
+            try:
+                _rows = []
+                try:
+                    _rows = list(self.host.api_stats.purpose_breakdown() or [])
+                except Exception:
+                    _rows = []
+                if _rows:
+                    _parts = ['%s ¥%.4f（%d 次 · %.0f%%）'
+                              % (r.get('label') or r.get('purpose'), float(r.get('cost') or 0),
+                                 int(r.get('count') or 0), 100.0 * float(r.get('share') or 0))
+                              for r in _rows]
+                    self.lb_purposes.setText('按用途：' + ' ｜ '.join(_parts))
+                else:
+                    self.lb_purposes.setText('按用途：—（历史数据无用途维度，从本次更新后开始记录 ✓）')
+            except Exception:
+                self.lb_purposes.setText('按用途：—')
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()

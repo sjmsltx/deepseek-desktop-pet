@@ -12,6 +12,7 @@ import datetime
 import os
 import sys
 import time
+from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -117,7 +118,7 @@ def test_fallback_library_variety():
 
 
 def test_source_guard_throttle_wired():
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     for token in ('CARE_COOLDOWN_MIN', 'CARE_DAILY_MAX', 'self._care_allowed()',
                   'self._care_mark()', 'self._scene_ready()'):
         assert token in src, '节流/场景触发未接线：%s' % token
