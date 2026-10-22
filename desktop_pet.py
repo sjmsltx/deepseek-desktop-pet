@@ -234,28 +234,57 @@ def _asset_dir_for(pfx, role):
     return os.path.join(ASSETS, role)
 
 
+# ⭐ 贴边系（peek*）**不得跨角色回落**（2026-10-22 Owner 报「待机与吸附不是同一个人」）：
+#   素材池里没有贴边图时，原逻辑会跳到 `assets/<role>/` 拿**老角色**的贴边图 ✗
+#   ⇒ 换角色后待机是新角色、贴边是老角色。现改为只在本角色前缀目录内回落（最终落到自己的 idle）。
+_PEEK_STATES = frozenset((
+    'peek', 'peek_top', 'peek_bottom',
+    'peek_sleep', 'peek_bottom_sleep',
+    'peek_hungry', 'peek_top_hungry', 'peek_bottom_hungry',
+))
+
+
+def _pick_asset(d, stem):
+    """在目录 d 里取 `<stem>.png`；**优先 `<stem>_alpha.png`**。
+
+    ⭐ 素材池（assets_3.0）约定：裸版是白底或绿幕，`_alpha` 才是抠好的透明版。
+      此前直接拼裸名 ⇒ 待机背景不透明（Owner 2026-10-22 报的第二个问题）。
+    ⭐ 没有 `_alpha` 变体时（flash/pro 等老素材）行为与从前完全一致 ✓
+    """
+    for name in ('%s_alpha.png' % stem, '%s.png' % stem):
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            return p
+    return None
+
+
 def asset(role, state):
     pfx = _asset_prefix(role)          # ⭐ 立绘绑定：优先用档案指定的资产目录 ✓ 否则用 key ✓
     _dir = _asset_dir_for(pfx, role)
-    p = os.path.join(_dir, f'{pfx}_{state}.png')
-    if os.path.exists(p):
+    p = _pick_asset(_dir, '%s_%s' % (pfx, state))
+    if p:
         return p
-    if pfx != role:                    # ⭐ 前缀目录里没这张 → 再试角色 key 目录（两个根都试 ✓）
-        p0 = os.path.join(_asset_dir_for(role, role), f'{role}_{state}.png')
-        if os.path.exists(p0):
+    if pfx != role and state not in _PEEK_STATES:
+        # ⭐ 前缀目录里没这张 → 再试角色 key 目录（两个根都试 ✓）
+        #   ⛔ 贴边系除外 ✗ —— 见 _PEEK_STATES 上方注释
+        p0 = _pick_asset(_asset_dir_for(role, role), '%s_%s' % (role, state))
+        if p0:
             return p0
     # v6.30 兜底：新状态素材缺失时降级到已有状态
     fallback = {'hungry': 'eating', 'victory': 'happy', 'defeat': 'sad',
                 'kiss': 'hug_whale', 'shy_hug': 'hug_whale'}
     fb = fallback.get(state)
     if fb:
-        p2 = os.path.join(_dir, f'{pfx}_{fb}.png')
-        if os.path.exists(p2):
+        p2 = _pick_asset(_dir, '%s_%s' % (pfx, fb))
+        if p2:
             return p2
-    p3 = os.path.join(_dir, f'{pfx}_idle.png')
-    if os.path.exists(p3):
+    p3 = _pick_asset(_dir, '%s_idle' % pfx)
+    if p3:
         return p3
-    return os.path.join(_asset_dir_for(role, role), f'{role}_idle.png')   # 最终回落：原行为 ✓
+    p4 = _pick_asset(_asset_dir_for(role, role), '%s_idle' % role)   # 最终回落：原行为 ✓
+    if p4:
+        return p4
+    return os.path.join(_asset_dir_for(role, role), f'{role}_idle.png')
 
 # ============ 国际化（v6.20，右键菜单/提示/AI 回复语言） ============
 UI_ZH = {
