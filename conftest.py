@@ -50,6 +50,23 @@ def _isolate_gate_card_state(tmp_path, monkeypatch):
 #   · ⭐ 与 EXP.0104「⭐ **mock 必须可自动恢复**」✗ 同族 ✓
 # ⭐ 注：⭐ 治本之策是"⭐ **把开关做进 server 实例**"✗（⭐ 对面建议 1 ✓ ⇒ ⭐ 从根上不可能污染 ✓）
 #   —— ⭐ 那属**较大改动** ✗ ⇒ ⭐ 我方列为下一批 ✓；⭐ 本护栏是**当下就该有**的探针 ✓。
+# -- 聊天历史隔离护栏（2026-10-23 实测发现的真缺陷） ------------------
+# 实测：跑全量后 Owner 的 chat_memory_flash.json 从 60 条变 62 条（多 2 条闸门卡）✗
+#   原因：_chat_memory_path() 用 BASE_DIR（真仓库根），
+#         而 7 个用例会真建 PetWidget 并触发 _save_chat_memory() ✗
+#   修法：与 D1「闸门卡状态件一律落 tmp」同一口径，历史文件也一律落 tmp ✓
+@_pytest.fixture(autouse=True)
+def _isolate_chat_memory(tmp_path, monkeypatch):
+    """所有用例的聊天历史一律落 tmp（真 chat_memory_*.json 不受影响）"""
+    # 窄异常 + 不静默：导入不到就带原因跳过（不吞错，也不刷屏）
+    try:
+        import desktop_pet as _dp
+    except ImportError as _exc:
+        _pytest.skip('desktop_pet 不可导入，跳过聊天历史隔离：%s' % _exc)
+    monkeypatch.setattr(_dp.PetWidget, '_chat_memory_path',
+                        lambda self: str(tmp_path / ('chat_memory_%s.json'
+                                                   % getattr(self, 'current', 'flash'))))
+
 @_pytest.fixture(autouse=True)
 def _guard_actions_allowed_global(request):
     """⭐ 用例跑完，`relay_server.ACTIONS_ALLOWED` 必须回到初始值 ✗（⭐ 否则当场红 ✓）。"""

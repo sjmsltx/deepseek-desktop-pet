@@ -1320,6 +1320,109 @@ class PetWidget(QWidget):
             _silent_log('_notify_failure_card', _exc)
             return 'error'
 
+    # ── ⭐ 闸门卡：同因原地替换（方案 B，Owner 2026-10-23 定）──────────
+    #   ⭐ 现状（改前）：每被拦一次就 append 一条卡到 display_msgs 并落盘
+    #     → 60 条历史里 43 条是同一张卡 ⇒ 真对话被顶掉（Owner 10-23 报的就是这个）
+    #   ⭐ 现在：同一 key 只占一条（重复被拦 → 改写那一条，不新增）
+    #   ⛔ 只对「本地闸门 / 额度」生效 ✗ —— 上游故障/工具失败等卡行为不变 ✓
+    _GATE_CARD_MARKS = ('出在哪：本地闸门', '出在哪：额度')
+
+    def _gate_card_key_of(self, text):
+        """判断一条回复是不是闸门卡；是就返回归类 key（否则 ''）
+
+        ⭐ 从**文本自身**推 key，不依赖实例属性 ✓
+          —— `ai_reply_signal` 是跨线程信号，寄存在 self 上的临时标记会有竞态 ✗
+        ⭐ 归类口径与 `_cost_gate_key` 一致（daily_cost / balance）⇒ 与日内去重同一套语义 ✓
+        """
+        s = str(text or '')
+        if not s.strip():
+            return ''
+        if not any(m in s for m in self._GATE_CARD_MARKS):
+            return ''
+        return self._cost_gate_key(s)
+
+    def _find_last_gate_bubble(self, key):
+        """在消息流里往回找最后一个标了该 key 的气泡（找不到 → None ✓ 不报错 ✗）"""
+        lay = getattr(self, 'chat_history_layout', None)
+        if lay is None:
+            return None
+        for i in range(lay.count() - 1, -1, -1):
+            w = lay.itemAt(i).widget()
+            if w is not None and getattr(w, '_gate_key', '') == key:
+                return w
+        return None
+
+    def _show_gate_card(self, key, text):
+        """闸门卡出口：同 key 就写回上一条，否则追加。返回 'replaced' / 'appended'
+
+        ⛔ 不动 `ai_reply_signal` 接口与既有单点出口契约 ✓（既有测试不受影响）
+        """
+        import datetime as _dt
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+        msgs = getattr(self, 'display_msgs', None)
+        if msgs is None:
+            return 'skipped'
+        last = msgs[-1] if msgs else None
+        same = bool(last) and isinstance(last, dict) and last.get('gate_key') == key
+
+        if same:
+            # ① 同因：改写那一条（数据 + 界面），不新增 ✓
+            last['text'] = str(text)
+            last['ts'] = ts
+            b = self._find_last_gate_bubble(key)
+            if b is not None:
+                self._replace_bubble_text(b, '%s  %s' % (ts, str(text)))
+            try:
+                self._save_chat_memory()
+            except Exception as _exc:
+                _silent_log('_show_gate_card:save', _exc)
+            try:
+                self._chat_scroll_bottom()
+            except Exception as _exc:
+                _silent_log('_show_gate_card:scroll', _exc)
+            return 'replaced'
+
+        # ② 首次（或换了原因）：正常追加，并打 gate_key 标记 ✓
+        msgs.append({'who': '桌宠', 'text': str(text), 'ts': ts, 'gate_key': key})
+        if len(msgs) > 300:
+            del msgs[:-300]
+        bubble = content = None
+        try:
+            bubble, content = self._new_bubble('桌宠', ts, is_user=False, text=str(text))
+            bubble._gate_key = key
+            bubble._content_layout = content
+            safe = (str(text).replace('&', '&amp;').replace('<', '&lt;')
+                    .replace('>', '&gt;').replace('\n', '<br>'))
+            content.addWidget(self._bubble_text_label(safe, is_user=False))
+        except Exception as _exc:
+            _silent_log('_show_gate_card:render', _exc)
+        try:
+            self._save_chat_memory()
+        except Exception as _exc:
+            _silent_log('_show_gate_card:save2', _exc)
+        try:
+            self._chat_scroll_bottom()
+        except Exception as _exc:
+            _silent_log('_show_gate_card:scroll2', _exc)
+        return 'appended'
+
+    def _replace_bubble_text(self, bubble, text):
+        """把已存在的卡气泡改写成新文本（清内容重建一个标签）"""
+        content = getattr(bubble, '_content_layout', None)
+        if content is None:
+            return
+        try:
+            while content.count():
+                item = content.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
+            safe = (str(text).replace('&', '&amp;').replace('<', '&lt;')
+                    .replace('>', '&gt;').replace('\n', '<br>'))
+            content.addWidget(self._bubble_text_label(safe, is_user=False))
+        except Exception as _exc:
+            _silent_log('_replace_bubble_text', _exc)
+
     def _on_user_facing_failure(self, where, exc):
         """hook 入口（`_silent_log(user_facing=True)` → 这里）：归因 → 单点出卡 ✓"""
         try:
@@ -3845,6 +3948,12 @@ class PetWidget(QWidget):
             self._remove_status_line()
         except Exception as _exc:
             _silent_log('_display_ai_reply:2480', _exc)   # v6.54
+        # ⭐ 方案 B（Owner 2026-10-23 定）：闸门卡**同因原地替换**，不许一条条追加 ✗
+        #   原因：卡片走普通 AI 回复路径 → 进 display_msgs 并落盘 → 被拦一次就多一条，
+        #   实测 60 条历史里 43 条是同一张卡（真对话被顶掉）。
+        _gk = self._gate_card_key_of(reply)
+        if _gk:
+            return self._show_gate_card(_gk, str(reply))
         if getattr(self, '_stream_rendered', False) and reply:
             # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复打字机
             self._stream_rendered = False
@@ -3961,16 +4070,43 @@ class PetWidget(QWidget):
                 for _m in self.display_msgs:
                     if isinstance(_m, dict) and _m.get('text'):
                         _m['text'] = _re.sub(r'\[emotion:[^\]]*\]', '', str(_m['text']))
+                        # ⭐ 方案 B：老历史没有 gate_key 字段 ⇒ 按文本补一次（只读推断，不改文案）
+                        if not _m.get('gate_key'):
+                            _gk = self._gate_card_key_of(_m['text'])
+                            if _gk:
+                                _m['gate_key'] = _gk
         except Exception as _exc:
             _silent_log('_load_chat_memory:2593', _exc, user_facing=True)   # v1-B：记忆读失败→“它怎么不记得了”
 
     def _echo_display_history(self):
-        """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）"""
+        """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）
+
+        ⭐ 方案 B（Owner 2026-10-23 定）：闸门卡**按因只回显最新一条** ✓
+          ⭐ 原因：卡片当普通消息存进历史 ⇒ 每次开机都把旧卡重新回显 ✗
+            实测 60 条里 43 条是卡（最长连续 40 条），最后 30 条里 20 条是卡
+            ⇒ Owner 截图里那张「10-21 23:21」就是这么被重新显示出来的（不是新拦截）。
+          ⭐ 只影响回显，**不删数据** ✓（历史文件保持原样，审计可查）
+        """
         shown = self.display_msgs[-30:]
-        for m in shown:
+        # ⭐ 先算出「每个闸门原因在本次回显里最后出现的位置」✓
+        _last_pos = {}
+        for _i, _m in enumerate(shown):
+            if isinstance(_m, dict) and _m.get('gate_key'):
+                _last_pos[str(_m['gate_key'])] = _i
+        _skipped = 0
+        for _i, m in enumerate(shown):
+            # ⛔ 同因旧卡（不是最新那条）→ 不回显 ✗ 但不删数据 ✓
+            if isinstance(m, dict) and m.get('gate_key') and \
+                    _last_pos.get(str(m['gate_key'])) != _i:
+                _skipped += 1
+                continue
             ts = m.get('ts', '')
             who = m.get('who', '桌宠')
             bubble, content = self._new_bubble(who, ts, is_user=(who == '我'), text=str(m.get('text', '')))
+            # ⭐ 方案 B：回显时也带上 gate_key，否则重启后找不到那张卡 ✗
+            if isinstance(m, dict) and m.get('gate_key'):
+                bubble._gate_key = str(m.get('gate_key'))
+                bubble._content_layout = content
             self._render_md_into(content, str(m.get('text', '')))
         self._display_offset = max(0, len(self.display_msgs) - len(shown))
         self._update_more_button()
