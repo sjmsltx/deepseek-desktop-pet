@@ -6,6 +6,7 @@
 运行：python -m pytest tests/test_balance_watch.py -q
 """
 import datetime as dt
+import io
 import os
 import sys
 import threading
@@ -222,3 +223,132 @@ def test_gap_still_blocks_same_moment_duplicates():
     """GAP 不能降到 0：同一刻的重复（手动查询 + 定时器撞车）仍要被挡住"""
     p = _pet()
     assert p.BALANCE_WATCH_GAP > 0, 'GAP 为 0 会让手动查询与定时器各报一次'
+
+# ---------- WX-107 §2：被挡下的差额必须累计，不能丢 ----------
+
+def _fresh(p):
+    """清掉内部基线，模拟「真机刚启动」"""
+    for a in ('_bw_base_at', '_bw_base_total', '_balance_watch_last'):
+        if hasattr(p, a):
+            delattr(p, a)
+
+
+def test_small_spends_accumulate_instead_of_lost():
+    """实测缺陷（WX-107 §2）：每次别处花 ¥0.004，旧实现永远不报
+
+    旧逻辑：基线 = 上一次查询 → 被 MIN(0.01) 挡下就丢；下次 prev 已含这笔
+    ⇒ 一小时 ¥0.048 一次都不报。
+    新逻辑：被挡不推进基线 → 累计到跨过 1 分再报。
+    """
+    p = _pet()
+    bubbles = []
+    _setup(p, [], bubbles)          # 本机不花钱，纯粹看别处小额
+    _fresh(p)
+    total = 13.90
+    t0 = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for i in range(12):             # 12 次 × ¥0.004 = ¥0.048
+        total -= 0.004
+        p._report_other_spend({'at': t0, 'total': 13.90},
+                              {'ok': True, 'total': round(total, 4)})
+    assert bubbles, '小额高频消费累计 ¥0.048 仍未上报（旧缺陷复现）'
+    got = float(bubbles[0][0].split('¥')[1].split('（')[0])
+    assert got >= 0.01, '累计后金额应 ≥ ¥0.01，实际 %.4f' % got
+    assert got <= 0.05, '累计金额不应超过实际花费太多，实际 %.4f' % got
+
+
+def test_blocked_by_gap_is_not_lost():
+    """被防刷屏挡下 → 下次仍要报（旧实现会永久丢）"""
+    p = _pet()
+    bubbles = []
+    _setup(p, [], bubbles)
+    _fresh(p)
+    t0 = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    p._report_other_spend({'at': t0, 'total': 13.90}, {'ok': True, 'total': 13.78})
+    assert len(bubbles) == 1
+    # 紧接着又掉 ¥0.05（会被 GAP 挡）
+    p._report_other_spend({'at': t0, 'total': 13.78}, {'ok': True, 'total': 13.73})
+    assert len(bubbles) == 1, '被 GAP 挡下时不该报（第一阶段断言）'
+    # 等过 GAP 后再查：上次被挡的 ¥0.05 必须还在
+    p._balance_watch_last = 0
+    p._report_other_spend({'at': t0, 'total': 13.73}, {'ok': True, 'total': 13.73})
+    assert len(bubbles) == 2, '被 GAP 挡下的差额丢失了（应累计到下一次）'
+
+
+def test_settle_only_on_report_or_reset():
+    """基线只在「已上报」或「必须重置」时推进"""
+    p = _pet()
+    bubbles = []
+    _setup(p, [], bubbles)
+    _fresh(p)
+    t0 = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    p._report_other_spend({'at': t0, 'total': 13.90}, {'ok': True, 'total': 13.895})
+    assert len(bubbles) == 0
+    assert not hasattr(p, '_bw_base_total') or p._bw_base_total == 13.90, \
+        '被挡下时不该推进基线'
+    p._report_other_spend({'at': t0, 'total': 13.90}, {'ok': True, 'total': 13.86})
+    assert len(bubbles) == 1, '累计到 ¥0.04 应上报'
+    assert abs(p._bw_base_total - 13.86) < 1e-9, '上报后基线应结清到当前余额'
+
+
+def test_topup_resets_baseline():
+    """充值 → 重置基线，之后不把充值算成负数"""
+    p = _pet()
+    bubbles = []
+    _setup(p, [], bubbles)
+    _fresh(p)
+    t0 = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    p._report_other_spend({'at': t0, 'total': 13.90}, {'ok': True, 'total': 20.00})
+    assert bubbles == []
+    assert abs(p._bw_base_total - 20.00) < 1e-9, '充值后基线应重置到新余额'
+
+
+def test_bubble_carries_balance():
+    """气泡要带余额（否则「报了花费、余额不动」会让人以为没生效）"""
+    p = _pet()
+    bubbles = []
+    _setup(p, [_call(0.0, 3)], bubbles)
+    p.api_stats.balance_text = lambda with_detail=False: '¥13.48'
+    _fresh(p)
+    p._report_other_spend({'at': _ts(5), 'total': 13.90}, {'ok': True, 'total': 13.48})
+    assert len(bubbles) == 1
+    assert '¥13.48' in bubbles[0][0], '盯梢气泡应带当前余额：%s' % bubbles[0][0]
+
+
+# ---------- WX-107 §3：跨线程转发不得丢 mark_purpose ----------
+
+def test_cross_thread_forwards_mark_purpose():
+    """非主线程调 say_care(mark_purpose=False) 时，转发后仍必须是 False"""
+    import threading
+    p = _pet()
+    seen = {}
+
+    class _FakeThread(threading.Thread):
+        pass
+
+    # 直接验证源码转发参数（真起线程会牵扯 Qt 事件循环，这里锁死转发表达式）
+    src = io.open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    i = src.index("if threading.current_thread() is not threading.main_thread():\n            # v3.1c")
+    body = src[i:i + 400]
+    assert 'm=mark_purpose' in body, '跨线程转发丢了 mark_purpose（会静默串 care 标）'
+    assert 'self.say_care(t, k, m)' in body, '转发时应把 mark_purpose 传下去'
+
+    # 行为面：主线程传 False 时不得打标（已有用例），此处补「转发到位」的行为等价验证
+    p.say_care = lambda t, k='care', m=True: seen.update(t=t, m=m)
+    p._run_on_ui = lambda fn: fn()
+    p.say_care('x', 'care', False)
+    assert seen.get('m') is False
+
+# ---------- WX-107 §4.4：真统计路径不得在多处硬编码 ----------
+
+def test_real_stats_path_hardcoded_only_once():
+    """`os.path.join(BASE_DIR, 'api_stats.json')` 只允许出现 1 处
+
+    WX-107 §4.4 指出的隐患：conftest 的 `_isolate_api_stats` 会把
+    **任何** path 都换成 tmp ⇒ 若将来又有人在别处硬编码真路径，会被夹具
+    **静默吞掉**（缺陷被藏住而不是暴露）。
+    这条 ratchet 把「又开一处」变成当场红。
+    """
+    src = io.open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    n = src.count("os.path.join(BASE_DIR, 'api_stats.json')")
+    assert n == 1, ('真统计路径出现了 %d 处（应为 1：PetWidget 初始化）。'
+                    '新增处会被测试夹具静默吞掉，请改用统一常量' % n)

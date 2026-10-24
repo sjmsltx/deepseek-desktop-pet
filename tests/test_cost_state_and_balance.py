@@ -32,6 +32,9 @@ def test_cost_state_reports_default_limit_honestly(tmp_path, monkeypatch):
     empty = tmp_path / 'config.json'
     empty.write_text('{}', encoding='utf-8')
     monkeypatch.setattr(gov, 'CONFIG_PATH', str(empty))
+    # WX-107 §4.5：自证 patch 真的打上了 —— 否则「喂空配置」没生效也可能绿
+    assert gov.CONFIG_PATH == str(empty), 'patch 没生效，本用例的判据不成立'
+    assert gov._cfg() == {}, '读到的配置不是空（patch 打偏了）'
     st = gov.cost_state()
     assert 'enabled' in st and 'limit' in st and 'used' in st
     assert isinstance(st['is_default'], bool)

@@ -921,7 +921,10 @@ class PetWidget(QWidget):
         self.timer.start(33)
 
         self.greet_timer = QTimer(self)
-        self.greet_timer.timeout.connect(self.say_random)
+        # v3.1c（WX-107 §1）：原来这个定时器是**重复**的 ⇒ randint 只抽一次、
+        #   之后按固定间隔重复（Owner 说的「固定刷」）。改 singleShot + 每次重排。
+        self.greet_timer.setSingleShot(True)
+        self.greet_timer.timeout.connect(self._on_greet)
         QTimer.singleShot(90000, self._schedule_greet)
 
         # v3.1：余额盯梢定时器（**独立于**「自己调用后才懒查」那条路 → 别处花钱也能发现）
@@ -1012,6 +1015,18 @@ class PetWidget(QWidget):
 
     def _schedule_greet(self):
         self.greet_timer.start(random.randint(*GREET_INTERVAL))
+
+    def _on_greet(self):
+        """定时问候：说一句后**重新抽间隔**再排下一次（v3.1c）
+
+        旧行为：greet_timer 是重复定时器，`randint` 只在上电时抽一次
+        ⇒ 之后每次都是同一个间隔，看着像「掐着点固定刷」。
+        `finally` 保证即使 say_random 抛异常也会重排，不会永久静默。
+        """
+        try:
+            self.say_random()
+        finally:
+            self._schedule_greet()
 
     # ---------- AI 对话 ----------
     def _t(self, key):
@@ -5546,7 +5561,10 @@ class PetWidget(QWidget):
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
-            self._run_on_ui(lambda t=text, k=kind: self.say_care(t, k))
+            # v3.1c（WX-107 §3）：原来漏转发 mark_purpose → 非主线程调用时
+            #   重入后走默认 True ⇒ 静默打上 care 用途标（串到下一次真对话）
+            self._run_on_ui(lambda t=text, k=kind, m=mark_purpose:
+                            self.say_care(t, k, m))
             return
         self._bubble_mode = 'care'
         self._care_click_text = text
@@ -8995,39 +9013,75 @@ class PetWidget(QWidget):
         try:
             if not getattr(self, 'balance_watch', False):
                 return
-            if not isinstance(prev, dict) or not prev.get('at'):
+            new_total = info.get('total')
+            if new_total is None:
                 return
-            old_total, new_total = prev.get('total'), info.get('total')
-            if old_total is None or new_total is None:
-                return
-            diff = float(old_total) - float(new_total)
-            if diff <= 0:
-                return                       # 充值 / 余额没动 → 不管
             import datetime as _dt
-            try:
-                t0 = _dt.datetime.strptime(str(prev.get('at')), '%Y-%m-%d %H:%M:%S')
-            except Exception as _exc:
-                _silent_log('_report_other_spend:prev_at', _exc)
-                return
+            # v3.1c（WX-107 §2）：基线 = **上次已结清**的点，与显示缓存解耦。
+            #   旧实现直接拿 prev（上一次查询）当基线，而 _on_balance_result 已经
+            #   先 set_balance 推进了缓存 ⇒ 任何 early-return 都让这段差额**永久丢失**
+            #   （小额高频：每次 ¥0.004，一小时 ¥0.048 永远不报）。
+            #   现在被挡下时不推进基线 → 差额自然累计到下一次。
+            base_at = getattr(self, '_bw_base_at', None)
+            base_total = getattr(self, '_bw_base_total', None)
+            if base_at is None or base_total is None:
+                # 首次：用调用方给的旧快照当基线（测试与真机同一入口）
+                if not isinstance(prev, dict) or not prev.get('at') or prev.get('total') is None:
+                    return
+                try:
+                    base_at = _dt.datetime.strptime(str(prev.get('at')), '%Y-%m-%d %H:%M:%S')
+                except Exception as _exc:
+                    _silent_log('_report_other_spend:prev_at', _exc)
+                    return
+                base_total = float(prev.get('total'))
             now = _dt.datetime.now()
-            if (now - t0).total_seconds() > self.BALANCE_WATCH_MAX_WINDOW:
-                return                       # 窗口太长，归因没意义
-            own = self._own_cost_since(prev.get('at'))
+            # 余额上升（充值 / 回冲）→ 重置基线，不报
+            if float(new_total) > float(base_total):
+                self._bw_settle(now, new_total)
+                return
+            # 窗口过长 → 重置（说不清是谁花的，宁可不说，也不编）
+            if (now - base_at).total_seconds() > self.BALANCE_WATCH_MAX_WINDOW:
+                log.info('余额盯梢：窗口已超 %d 秒，重置基线（这段不归因）',
+                         int(self.BALANCE_WATCH_MAX_WINDOW))
+                self._bw_settle(now, new_total)
+                return
+            diff = float(base_total) - float(new_total)
+            if diff <= 0:
+                return                       # 没变化：**不推进基线**
+            own = self._own_cost_since(base_at.strftime('%Y-%m-%d %H:%M:%S'))
             if own is None:
-                return                       # 无法归因 → 不编数字
+                return                       # 无法归因 → 不编数字，也不推进（下次再试）
             other = diff - own
             if other < self.BALANCE_WATCH_MIN:
-                return
+                return                       # 不足 1 分：**不推进基线** → 累计
             if (time.time() - float(getattr(self, '_balance_watch_last', 0) or 0)) < self.BALANCE_WATCH_GAP:
-                return                       # 防刷屏
+                return                       # 防刷屏：**不推进基线** → 累计
+            # —— 到这里才真正上报并结清 ——
             self._balance_watch_last = time.time()
+            self._bw_settle(now, new_total)
             log.info('余额盯梢：别处花费约 ¥%.4f（余额差 ¥%.4f − 本机 ¥%.4f，%s → %s）',
-                     other, diff, own, t0.strftime('%H:%M'), now.strftime('%H:%M'))
-            self.say_care('别处用了约 ¥%.4f（%s → %s）'
-                          % (other, t0.strftime('%H:%M'), now.strftime('%H:%M')),
+                     other, diff, own, base_at.strftime('%H:%M'), now.strftime('%H:%M'))
+            # 余额一并带上：否则「报了花费、余额一位没动」会让人以为没生效
+            # （余额接口只有 2 位小数 —— 实测 /user/balance 返回 "11.97"，
+            #   所以这里按源精度显示 2 位，不做假的 3 位精度）
+            _bal = ''
+            try:
+                _bal = self.api_stats.balance_text()
+            except Exception as _exc:
+                _silent_log('_report_other_spend:balance_text', _exc)
+            # 金额保持 4 位（Owner 2026-10-24 明确要求「小数只有两位」要改）；
+            # 余额按接口源精度 2 位（实测 /user/balance 返回 "11.97"）
+            self.say_care('别处用了约 ¥%.4f（%s → %s）%s'
+                          % (other, base_at.strftime('%H:%M'), now.strftime('%H:%M'),
+                             ('，余额 ' + _bal) if _bal else ''),
                           kind='care', mark_purpose=False)
         except Exception as _exc:
             _silent_log('_report_other_spend', _exc)
+
+    def _bw_settle(self, at, total):
+        """结清基线：只有「已上报」或「必须重置」时才调（v3.1c）"""
+        self._bw_base_at = at
+        self._bw_base_total = float(total)
 
     def _maybe_low_balance_alert(self, info):
         """余额低于阈值提醒一次（每天最多一次）；阈值可在设置里手改"""

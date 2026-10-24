@@ -87,10 +87,22 @@ def test_only_right_click_menu_passes_into_history():
 
 
 def test_greet_timer_uses_default_no_history():
-    """定时器直连 say_random（不传参 → 默认不进历史）"""
+    """定时器路径：经 _on_greet → say_random()（不传参 → 默认不进历史）
+
+    v3.1c（WX-107 §1）：接线由 `connect(self.say_random)` 改为 `connect(self._on_greet)`
+    —— 因为要让每次重新抽间隔（singleShot + 重排）。断言随之改为「经 _on_greet 且不传参」。
+    """
     src = _src('desktop_pet.py')
-    assert 'self.greet_timer.timeout.connect(self.say_random)' in src, \
-        'greet_timer 接线被改动，请确认自动问候仍走默认（不进历史）'
+    assert 'self.greet_timer.timeout.connect(self._on_greet)' in src, \
+        'greet_timer 应经 _on_greet 重排，实际接线不是它'
+    assert 'self.greet_timer.setSingleShot(True)' in src, \
+        'greet_timer 必须是 singleShot（否则间隔一次定死 = Owner 说的「固定刷」）'
+    # _on_greet 内部必须用**无参** say_random（不传 into_history）
+    i = src.index('def _on_greet(')
+    body = src[i:i + 700]
+    assert 'self.say_random()' in body, '_on_greet 应调无参 say_random（默认不进历史）'
+    assert 'into_history=True' not in body, '_on_greet 不得传 into_history=True（会污染面板）'
+    assert '_schedule_greet()' in body, '_on_greet 末尾必须重排下一次（finally 里）'
 
 
 def test_say_random_wrapper_default_false():
