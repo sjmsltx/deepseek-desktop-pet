@@ -184,3 +184,68 @@ def test_chart_no_matplotlib():
     body = re.sub(r'#.*$', '', body, flags=re.M)
     assert 'matplotlib' not in body.lower(), '不许引 matplotlib（注释里提它没问题，代码里 import 才判红）'
     assert 'QPainter' in body, '应使用 Qt 自绘'
+
+# ---------- v3.6d：用量分析窗的模态处理（WX-112 §5 提醒，同一个坑第二次）----------
+
+def test_open_usage_stats_passes_parent_at_construction():
+    """「用量分析」新窗必须**构造时**传 parent，否则会重演「看得见点不动」
+
+    背景：WX-112 §5 扫了 `stats_ui.py` 没看到 `activeModalWidget`，
+          判断「大概率重演老 A7 的模态阻塞」，让我自查。
+    我核实：处理在**宿主侧** `_open_usage_stats`（不在 stats_ui.py 里）——
+          `_modal = parent or QApplication.activeModalWidget()`
+          `UsageStatsDialog(self, parent=_modal)`
+    实测三种写法（收件箱/02-加工/实测-新窗口模态2.py）：
+          构造时传 parent=activeModalWidget()  → 模态在祖先链 ✓ 可点
+          无 parent                            → 不在祖先链   ✗ 被挡
+    ⇒ 写法是对的，但**没人锁住它**。这条把它钉住：
+      以后谁把 `parent=_modal` 改成无 parent，或改成事后 setParent，就会红。
+
+    （v3.1d 的结论：运行时 setParent 对已显示的顶层窗无效 —— 必须构造时给。）
+    """
+    import io as _io
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    src = _io.open(_os.path.join(root, 'desktop_pet.py'), encoding='utf-8').read()
+    i = src.index('def _open_usage_stats')
+    body = src[i:i + 1200]
+
+    assert 'activeModalWidget()' in body, (
+        '右键路径（不传 parent）丢失了 activeModalWidget 探测 '
+        '⇒ 设置面板开着时新窗会点不动')
+    assert 'UsageStatsDialog(self, parent=_modal)' in body, (
+        'UsageStatsDialog 必须在**构造时**传 parent=_modal '
+        '（事后 setParent 对已显示的顶层窗无效，v3.1d 实测）')
+
+
+def test_usage_stats_modal_path_clickable_not_blocked():
+    """结构判据：模态开着时，新窗必须落在模态的祖先链上
+
+    按 Qt 的模态语义：模态只挡「既不是模态自身、也不是模态子孙」的窗口。
+    （⚠ 不能用 `isEnabled()` 判 —— 模态不会 disable 其它窗，恒 True，没区分能力；
+      也不能用 `activeModalWidget() is not dlg` 判 —— 会把正常判成被挡。
+      这两版判据我都写错过，留在这里当反例。）
+    """
+    from PySide6.QtWidgets import QApplication, QDialog
+    app = QApplication.instance()
+    if app is None:
+        import pytest
+        pytest.skip('需要 QApplication')
+
+    from stats_ui import UsageStatsDialog
+
+    class _Modal(QDialog):
+        pass
+
+    modal = _Modal()
+    modal.setModal(True)
+    dlg = UsageStatsDialog(None, parent=modal)      # 复刻 _open_usage_stats 的做法
+    try:
+        chain, cur = [], dlg
+        while cur is not None:
+            chain.append(cur)
+            cur = cur.parent()
+        assert modal in chain, '新窗不在模态的祖先链上 ⇒ 会被模态挡住（点不动）'
+    finally:
+        dlg.deleteLater()
+        modal.deleteLater()
