@@ -22,13 +22,20 @@ import governance as gov  # noqa: E402
 
 # ==================== D11-3：cost_state 是单一来源 ====================
 
-def test_cost_state_reports_default_limit_honestly():
-    """没设过上限时必须标 is_default=True（否则卡上会谎称「你设的」）"""
+def test_cost_state_reports_default_limit_honestly(tmp_path, monkeypatch):
+    """没设过上限时必须标 is_default=True（否则卡上会谎称「你设的」）
+
+    2026-10-24：原用例直接读**本机真 config**。Owner 自己设过 cost_limit_daily
+    （先 1.0 后 5.0）之后它就永久红了 —— 不是代码错，是夹具依赖了可变的本机状态。
+    改成喂一份空配置，测的才是「默认值判定」这条真不变量。
+    """
+    empty = tmp_path / 'config.json'
+    empty.write_text('{}', encoding='utf-8')
+    monkeypatch.setattr(gov, 'CONFIG_PATH', str(empty))
     st = gov.cost_state()
     assert 'enabled' in st and 'limit' in st and 'used' in st
     assert isinstance(st['is_default'], bool)
-    # 本机 config 里没有 cost_limit_daily 这个键 → 必须是默认值
-    assert st['is_default'] is True, 'config 里没有 cost_limit_daily，应判为默认值'
+    assert st['is_default'] is True, '配置里没有 cost_limit_daily，应判为默认值'
     assert st['limit'] == gov.COST_LIMIT_DEFAULT
 
 

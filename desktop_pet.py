@@ -924,6 +924,11 @@ class PetWidget(QWidget):
         self.greet_timer.timeout.connect(self.say_random)
         QTimer.singleShot(90000, self._schedule_greet)
 
+        # v3.1：余额盯梢定时器（**独立于**「自己调用后才懒查」那条路 → 别处花钱也能发现）
+        self.balance_watch_timer = QTimer(self)
+        self.balance_watch_timer.timeout.connect(self._balance_watch_tick)
+        QTimer.singleShot(self.BALANCE_WATCH_START_MS, self._balance_watch_arm)
+
         self.load_character('flash')
         self._restore_position()
 
@@ -1050,6 +1055,15 @@ class PetWidget(QWidget):
                     self.balance_auto_minutes = max(1, int(cfg.get('balance_auto_minutes', 10) or 10))
                 except Exception:
                     self.balance_auto_minutes = 10
+                # v3.1：余额盯梢（别的程序用同一账户花钱 → 冒一个关心气泡）
+                #   开关与间隔可在 config.json 改，也可右键菜单「📈 API 用量 → 别处花费提醒」切换
+                self.balance_watch = bool(cfg.get('balance_watch', True))
+                try:
+                    self.balance_watch_minutes = max(1, min(60, int(
+                        cfg.get('balance_watch_minutes', 5) or 5)))
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:balance_watch_minutes', _exc)
+                    self.balance_watch_minutes = 5
                 # v6.58：记住 config 里保存的主题名（启动时在 UI 就绪后恢复；此前只写不读 → 重启被重置）
                 self._saved_theme = str(cfg.get('theme') or 'default')
                 self._theme_widgets = []   # 受主题着色的控件登记表（切主题时统一刷新）
@@ -5519,7 +5533,7 @@ class PetWidget(QWidget):
     # 使用者反馈「开了主动关心会混在一起、效果不明显」。现关心走独立样式与独立记录。
     _CARE_LABEL = {'care': '主动关心', 'remind': '提醒', 'greet': '问候'}
 
-    def say_care(self, text, kind='care'):
+    def say_care(self, text, kind='care', mark_purpose=True):
         """关心气泡（v6.60 批 3）
 
         - 外观：左侧 accent 色条（与普通说话气泡一眼分开）
@@ -5538,7 +5552,10 @@ class PetWidget(QWidget):
         self._care_click_text = text
         self._care_kind = kind if kind in self._CARE_LABEL else 'care'
         # 批 C：标记本轮用途为**主动关心** ✓（供记账分项；一次性 ✓ 由 `_run_task` 消费 ✗）
-        self._pending_purpose = 'care'
+        # v3.1：`mark_purpose=False` 时不打标 —— 余额盯梢不是「主动关心」，
+        #   否则下一次真对话的用途会被错记成 care，用途分项就不准了
+        if mark_purpose:
+            self._pending_purpose = 'care'
         try:
             pb.apply_say_bubble_theme(self.bubble, self.theme, 'care')
             self.bubble.setCursor(Qt.PointingHandCursor)
@@ -5612,9 +5629,12 @@ class PetWidget(QWidget):
             return conf.get(key + '_en') or conf.get(key) or []
         return conf.get(key) or []
 
-    def say_random(self):
-        """随机说一句问候（实现已搬至 pet_anim.say_random）"""
-        return anim.say_random(self)
+    def say_random(self, into_history=False):
+        """随机说一句问候（实现已搬至 pet_anim.say_random）
+
+        v3.1：默认**不写聊天历史**（只出气泡）；右键「说点什么」传 into_history=True
+        """
+        return anim.say_random(self, into_history=into_history)
     def do_thinking(self):
         """思考状态（3 秒后恢复）"""
         if self.sleeping:
@@ -5721,7 +5741,7 @@ class PetWidget(QWidget):
             calls = list(reversed(st.calls[-20:]))
             today = dict(st.today)
             total = dict(st.total)
-        lines = [f"今日 {today.get('count',0)}次/{today.get('total',0)}tok/{today.get('cost',0):.3f}元 · 累计 {total.get('count',0)}次/{total.get('total',0)}tok/{total.get('cost',0):.3f}元", '']
+        lines = [f"今日 {today.get('count',0)}次/{today.get('total',0)}tok/{today.get('cost',0):.4f}元 · 累计 {total.get('count',0)}次/{total.get('total',0)}tok/{total.get('cost',0):.4f}元", '']
         if not calls:
             lines.append('（暂无调用记录——发消息后自动统计）')
         for c in calls:
@@ -8765,7 +8785,7 @@ class PetWidget(QWidget):
                 bal = self.api_stats.balance_text()   # v6.61：有缓存则附上余额
             except Exception:
                 bal = ''
-            msg = '本次 −¥%.4f · 今日 ¥%.2f / %d 次%s' % (
+            msg = '本次 −¥%.4f · 今日 ¥%.4f / %d 次%s' % (
                 float(cost or 0), float(today.get('cost') or 0), int(today.get('count') or 0),
                 (' · 余额 ' + bal) if bal else '')
             self._notify(msg, ms=self.COST_NOTIFY_MS)
@@ -8775,6 +8795,11 @@ class PetWidget(QWidget):
     # ---- v6.61：余额查询（手动 / 对话后静默刷新 / 低余额提醒） ----
     BALANCE_LOW_DEFAULT = 5.0        # 低余额提醒阈值（元），可在设置里手改
     BALANCE_NOTIFY_MS = 8000         # 余额类提示停留时长
+    # v3.1：余额盯梢（别处花费）
+    BALANCE_WATCH_START_MS = 180000   # 启动后 3 分钟才首次盯梢（不和开机动作抢）
+    BALANCE_WATCH_MIN = 0.01          # 别处花费低于 1 分钱不报（采样噪声）
+    BALANCE_WATCH_GAP = 300           # 两条「别处花费」气泡最小间隔（秒）
+    BALANCE_WATCH_MAX_WINDOW = 3600   # 快照超过 1 小时 → 不归因（窗口太长，报了也没意义）
 
     def set_balance_low(self, value):
         """设置低余额提醒阈值（元）；0 表示关闭提醒"""
@@ -8863,6 +8888,12 @@ class PetWidget(QWidget):
         info = dict(info or {})
         manual = bool(info.pop('_manual', False))
         self._balance_busy = False
+        # v3.1：**覆盖前**先存旧快照（盯梢要算「这期间余额掉了多少」）
+        prev = None
+        try:
+            prev = dict(self.api_stats.balance or {})
+        except Exception as _exc:
+            _silent_log('_on_balance_result:prev', _exc)
         try:
             self.api_stats.set_balance(info if info.get('ok') else None)
         except Exception as e:
@@ -8878,12 +8909,121 @@ class PetWidget(QWidget):
                 _note = str(getattr(self, '_balance_target_note', '') or '')
                 self._notify('💰 余额 %s%s' % (txt or '—', ('；' + _note) if _note else ''),
                              ms=self.BALANCE_NOTIFY_MS)
+            self._report_other_spend(prev, info)   # v3.1：别处花费（不进对话历史）
             self._maybe_low_balance_alert(info)
         else:
             log.debug('余额查询失败：%s', info.get('error'))
             if manual:
                 self._notify('余额查询失败：%s' % (info.get('error') or '未知错误'),
                              ms=self.COST_NOTIFY_MS)
+
+    # ---- v3.1：余额盯梢（别处花费） ----
+
+    def _balance_watch_arm(self):
+        """启动盯梢（间隔取自 config；加载时已夹到 1~60 分钟）"""
+        try:
+            mins = int(getattr(self, 'balance_watch_minutes', 5) or 5)
+            self.balance_watch_timer.start(max(60000, mins * 60000))
+            log.info('余额盯梢已启动：每 %d 分钟查一次（balance_watch=false 可关）', mins)
+        except Exception as e:
+            log.debug('余额盯梢启动失败：%s', e)
+
+    def _balance_watch_tick(self):
+        """定时查余额（**不看自己有没有调用过**）→ 别处花钱也能被发现
+
+        旧机制只在「自己调用完 + 缓存过期」时才查 → 别的程序花钱时永远发现不了。
+        """
+        if not getattr(self, 'balance_watch', False):
+            return
+        if getattr(self, '_balance_busy', False):
+            return
+        self._query_balance_async(manual=False)
+
+    def toggle_balance_watch(self):
+        """开关「别处花费提醒」（右键 📈 API 用量 → 别处花费提醒）"""
+        self.balance_watch = not getattr(self, 'balance_watch', False)
+        try:
+            self._save_cfg_value('balance_watch', self.balance_watch)
+        except Exception as e:
+            log.debug('余额盯梢开关保存失败：%s', e)
+        if self.balance_watch:
+            self._notify('别处花费提醒：已开启（每 %d 分钟查一次余额）'
+                         % int(getattr(self, 'balance_watch_minutes', 5) or 5),
+                         ms=self.BALANCE_NOTIFY_MS)
+        else:
+            self._notify('别处花费提醒：已关闭', ms=self.BALANCE_NOTIFY_MS)
+
+    def _own_cost_since(self, since_at):
+        """本机（桌宠自己）从 since_at 到现在的花费；None = 无法归因（不编数字）"""
+        try:
+            import datetime as _dt
+            since = _dt.datetime.strptime(str(since_at), '%Y-%m-%d %H:%M:%S')
+        except Exception as _exc:
+            _silent_log('_own_cost_since:since', _exc)
+            return None
+        try:
+            with self.api_stats.lock:
+                calls = list(self.api_stats.calls)
+        except Exception as _exc:
+            _silent_log('_own_cost_since:calls', _exc)
+            return None
+        total = 0.0
+        for c in calls:
+            try:
+                t = _dt.datetime.strptime(str(c.get('time')), '%Y-%m-%d %H:%M:%S')
+            except Exception as _exc:
+                _silent_log('_own_cost_since:entry', _exc)
+                continue
+            if t >= since:
+                total += float(c.get('cost') or 0)
+        return total
+
+    def _report_other_spend(self, prev, info):
+        """余额盯梢：**别处**用同一个账户花了钱 → 冒一个关心气泡（不进对话历史）
+
+        口径：别处花费 ≈ 余额差 − 本机这段时间的记录花费
+        - 差额 ≤ 0（充值 / 没变化）→ 不报
+        - 扣掉本机后 < BALANCE_WATCH_MIN（1 分）→ 不报（采样噪声）
+        - 旧快照超过 BALANCE_WATCH_MAX_WINDOW → 不归因
+        局限（接口层面，改不了）：只有账户总额，**没有按应用分项**
+        → 只能说「别处用了约 ¥X」，说不出「是哪个软件」。
+        """
+        try:
+            if not getattr(self, 'balance_watch', False):
+                return
+            if not isinstance(prev, dict) or not prev.get('at'):
+                return
+            old_total, new_total = prev.get('total'), info.get('total')
+            if old_total is None or new_total is None:
+                return
+            diff = float(old_total) - float(new_total)
+            if diff <= 0:
+                return                       # 充值 / 余额没动 → 不管
+            import datetime as _dt
+            try:
+                t0 = _dt.datetime.strptime(str(prev.get('at')), '%Y-%m-%d %H:%M:%S')
+            except Exception as _exc:
+                _silent_log('_report_other_spend:prev_at', _exc)
+                return
+            now = _dt.datetime.now()
+            if (now - t0).total_seconds() > self.BALANCE_WATCH_MAX_WINDOW:
+                return                       # 窗口太长，归因没意义
+            own = self._own_cost_since(prev.get('at'))
+            if own is None:
+                return                       # 无法归因 → 不编数字
+            other = diff - own
+            if other < self.BALANCE_WATCH_MIN:
+                return
+            if (time.time() - float(getattr(self, '_balance_watch_last', 0) or 0)) < self.BALANCE_WATCH_GAP:
+                return                       # 防刷屏
+            self._balance_watch_last = time.time()
+            log.info('余额盯梢：别处花费约 ¥%.4f（余额差 ¥%.4f − 本机 ¥%.4f，%s → %s）',
+                     other, diff, own, t0.strftime('%H:%M'), now.strftime('%H:%M'))
+            self.say_care('别处用了约 ¥%.4f（%s → %s）'
+                          % (other, t0.strftime('%H:%M'), now.strftime('%H:%M')),
+                          kind='care', mark_purpose=False)
+        except Exception as _exc:
+            _silent_log('_report_other_spend', _exc)
 
     def _maybe_low_balance_alert(self, info):
         """余额低于阈值提醒一次（每天最多一次）；阈值可在设置里手改"""
@@ -9186,7 +9326,7 @@ class PetWidget(QWidget):
 
         # 2. 互动：只放「做一件事」（动作 / 玩法 / 开关）
         imenu = menu.addMenu(T('menu_interact'))
-        imenu.addAction(T('say')).triggered.connect(lambda: self.say_random())
+        imenu.addAction(T('say')).triggered.connect(lambda: self.say_random(into_history=True))
         imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
         imenu.addAction(T('random')).triggered.connect(lambda: self.random_action())
         imenu.addSeparator()
@@ -9276,6 +9416,10 @@ class PetWidget(QWidget):
         umenu = stmenu.addMenu('📈 API 用量')
         umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())
         umenu.addAction('💰 查询余额').triggered.connect(lambda: self._query_balance_async(True))
+        _bw = umenu.addAction('🔔 别处花费提醒')
+        _bw.setCheckable(True)
+        _bw.setChecked(bool(getattr(self, 'balance_watch', True)))
+        _bw.triggered.connect(self.toggle_balance_watch)
         umenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)
         umenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
 

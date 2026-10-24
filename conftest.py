@@ -67,6 +67,30 @@ def _isolate_chat_memory(tmp_path, monkeypatch):
                         lambda self: str(tmp_path / ('chat_memory_%s.json'
                                                    % getattr(self, 'current', 'flash'))))
 
+# -- 用量统计隔离护栏（2026-10-24 实测发现的真缺陷） --------------------
+# 实测：跑全量时真 api_stats.json 的余额缓存被改写（mtime 18:03:11），
+#   日志出现「余额查询成功」—— 测试进程构造了真 PetWidget，
+#   而 PetWidget 用 os.path.join(BASE_DIR, 'api_stats.json') 这个**真路径**。
+# 口径与 _isolate_chat_memory 一致：统计文件一律落 tmp ✓
+@_pytest.fixture(autouse=True)
+def _isolate_api_stats(tmp_path, monkeypatch):
+    """所有用例的用量统计一律落 tmp（真 api_stats.json 不受影响）"""
+    try:
+        import desktop_pet as _dp
+    except ImportError as _exc:
+        _pytest.skip('desktop_pet 不可导入，跳过用量统计隔离：%s' % _exc)
+    _real = _dp.ApiStats
+    _seq = [0]
+
+    class _TmpStats(_real):
+        def __init__(self, path=None, *args, **kwargs):
+            _seq[0] += 1
+            super().__init__(str(tmp_path / ('api_stats_%d.json' % _seq[0])),
+                             *args, **kwargs)
+
+    monkeypatch.setattr(_dp, 'ApiStats', _TmpStats)
+
+
 @_pytest.fixture(autouse=True)
 def _guard_actions_allowed_global(request):
     """⭐ 用例跑完，`relay_server.ACTIONS_ALLOWED` 必须回到初始值 ✗（⭐ 否则当场红 ✓）。"""

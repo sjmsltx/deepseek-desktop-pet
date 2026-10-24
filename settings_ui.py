@@ -1094,7 +1094,7 @@ class SettingsDialog(QDialog):
                 pass
             # 缺陷 4/3（批 B）：两行分列 + 主动关心分项（均带 try ✓ 取不到不影响设置页 ✓）
             try:
-                self.lb_today_cost.setText('¥%.2f' % float(_gov_r.today_cost()))
+                self.lb_today_cost.setText('¥%.4f' % float(_gov_r.today_cost()))
             except Exception:
                 self.lb_today_cost.setText('—')
             try:
