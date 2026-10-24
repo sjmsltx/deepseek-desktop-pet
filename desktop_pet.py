@@ -5849,6 +5849,29 @@ class PetWidget(QWidget):
                      + ('；其中 %d 次是价格未知的估算' % unk if unk else ''))
         QMessageBox.information(self, '按模型统计', '\n'.join(lines))
 
+    def _open_usage_stats(self, parent=None):
+        """打开「📈 用量分析」大窗（按天表格 + 柱状趋势 + 用途/模型占比）
+
+        v3.4（Owner 2026-10-24「统计更丰富一点，比如花到哪个模块、时间啊」）
+        与「📊 统计悬浮窗」分工：小窗=实时看今日，本窗=看历史趋势。
+
+        ``parent``：设置页会显式传自己（应用级模态），右键菜单不传走探测 ——
+        与 `_toggle_api_stats_window` 同一口径（v3.1d 那个「看得见点不动」的坑）。
+        """
+        _modal = parent
+        if _modal is None:
+            try:
+                from PySide6.QtWidgets import QApplication as _QA
+                _modal = _QA.activeModalWidget()
+            except Exception as _exc:
+                _silent_log('_open_usage_stats:modal', _exc)
+        try:
+            from stats_ui import UsageStatsDialog
+            dlg = UsageStatsDialog(self, parent=_modal)
+            dlg.exec()
+        except Exception as _exc:
+            _silent_log('_open_usage_stats', _exc, user_facing=True)
+
     def _toggle_api_stats_window(self, parent=None):
         """开关 API 统计悬浮窗（透明置顶小窗，实时刷新 + 缓存命中率图表）"""
         WIN_W = 320          # v6.62：宽度固定 320，高度按内容算（不再写死）
@@ -9602,6 +9625,7 @@ class PetWidget(QWidget):
         stmenu.addSeparator()
         umenu = stmenu.addMenu('📈 API 用量')
         umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())
+        umenu.addAction('📈 用量分析…').triggered.connect(lambda: self._open_usage_stats())
         umenu.addAction('💰 查询余额').triggered.connect(lambda: self._query_balance_async(True))
         _bw = umenu.addAction('🔔 别处花费提醒')
         _bw.setCheckable(True)

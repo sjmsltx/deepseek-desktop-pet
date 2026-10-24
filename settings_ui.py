@@ -597,7 +597,12 @@ class SettingsDialog(QDialog):
                                         #   不传 parent 的顶层窗会被挡住（用户看得见却点不动）。
                                         #   显式传参比 activeModalWidget() 探测可靠（探测有窗口期）。
                                         ('📊 统计悬浮窗',
-                                         lambda: self.host._toggle_api_stats_window(self))])
+                                         lambda: self.host._toggle_api_stats_window(self)),
+                                        # v3.4：大窗看历史（按天表格 + 柱状趋势）。
+                                        #   同样显式传 self —— 设置对话框是应用级模态，
+                                        #   不传 parent 的窗口会被挡住（"看得见点不动"）
+                                        ('📈 用量分析…',
+                                         lambda: self.host._open_usage_stats(self))])
 
         try:
             import server_clock as _sc
