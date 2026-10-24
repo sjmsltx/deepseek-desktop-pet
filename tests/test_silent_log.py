@@ -14,12 +14,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def test_silent_log_callable():
-    """统一出口本身必须不抛异常（否则会把主程序拖垮）"""
-    import desktop_pet as dp
-    dp._silent_log('unittest', ValueError('故意触发'))
-    dp._silent_log('unittest', None)          # 连 None 也不能崩
-    assert callable(dp._silent_log)
+def test_silent_log_callable(tmp_path):
+    """统一出口本身必须不抛异常（否则会把主程序拖垮）
+
+    2026-10-24：本用例原先**没注入日志路径** → `_silent_log` 写真 logs/pet.log
+    （实测留下「unittest | ValueError: 故意触发」两条）。同文件下一个用例早有注入，
+    这一个漏了；现补上同一口径。
+    """
+    import pet_log
+    pet_log.set_log_file(tmp_path / 'pet.log')
+    try:
+        import desktop_pet as dp
+        dp._silent_log('unittest', ValueError('故意触发'))
+        dp._silent_log('unittest', None)          # 连 None 也不能崩
+        assert callable(dp._silent_log)
+    finally:
+        pet_log.reset()
 
 
 def test_silent_log_writes_through_pet_log(tmp_path):

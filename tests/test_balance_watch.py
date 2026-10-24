@@ -197,3 +197,28 @@ def test_on_balance_result_captures_prev_and_reports(monkeypatch):
     p._on_balance_result({'ok': True, 'total': 13.48})
     assert len(bubbles) == 1, '走真实入口没触发盯梢（旧快照没取到 / 没调到 _report_other_spend）'
     assert '别处用了约 ¥0.4099' in bubbles[0][0]
+
+# ---------- 实测发现的漏报缺陷：防刷屏间隔必须小于查询间隔 ----------
+
+def test_gap_is_smaller_than_query_interval():
+    """GAP 必须**明显小于**定时器间隔，否则正常轮询会被自己的防刷屏吃掉
+
+    实测（2026-10-24 logs/pet.log）：
+      18:22:06 报 ¥0.12 → 18:27:05 余额又掉 ¥0.08，却没有任何记录
+      原因：GAP=300 秒 与 查询间隔 5 分钟=300 秒 **相等**，
+            两次间隔 299~300 秒，`elapsed < 300` 随机成立 → 约一半被丢
+    """
+    p = _pet()
+    gap = p.BALANCE_WATCH_GAP
+    query = int(getattr(p, 'balance_watch_minutes', 5) or 5) * 60
+    assert gap < query, ('防刷屏间隔 %d 秒 >= 查询间隔 %d 秒 → 正常轮询会被自己挡住'
+                         '（实测漏报过 ¥0.08）' % (gap, query))
+    # 留出余量：至少要能容忍半分钟级的抖动
+    assert query - gap >= 60, ('间隔余量只有 %d 秒，太小：两次轮询差几秒就会被吃掉'
+                               % (query - gap))
+
+
+def test_gap_still_blocks_same_moment_duplicates():
+    """GAP 不能降到 0：同一刻的重复（手动查询 + 定时器撞车）仍要被挡住"""
+    p = _pet()
+    assert p.BALANCE_WATCH_GAP > 0, 'GAP 为 0 会让手动查询与定时器各报一次'
