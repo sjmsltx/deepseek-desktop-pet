@@ -48,7 +48,10 @@ def _keep(entry):
 
 datas = []
 binaries = []
-hiddenimports = ['pythoncom', 'pywintypes']
+# v3.4（2026-10-24）：stats_ui 是**函数内局部 import**（点菜单才加载）。
+#   PyInstaller 的 AST 分析能追踪到函数内 import（status_panel 就是同类先例，
+#   v3.0.0 包里已在用）；这里再登记一条做双保险，避免「开发能开、打包打不开」。
+hiddenimports = ['pythoncom', 'pywintypes', 'stats_ui']
 for pkg in ('PySide6', 'shiboken6', 'edge_tts', 'win32com'):
     d, b, h = collect_all(pkg)
     datas += [x for x in d if _keep(x)]
