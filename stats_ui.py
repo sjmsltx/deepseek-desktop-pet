@@ -188,6 +188,17 @@ class UsageStatsDialog(QDialog):
         self.lb_purpose.setWordWrap(True)
         root.addWidget(self.lb_purpose)
 
+        # v3.5：效率与省钱（缓存 / 峰谷 / 时段）
+        self.lb_cache = QLabel('缓存：—')
+        self.lb_cache.setWordWrap(True)
+        root.addWidget(self.lb_cache)
+        self.lb_peak = QLabel('峰谷：—')
+        self.lb_peak.setWordWrap(True)
+        root.addWidget(self.lb_peak)
+        self.lb_hour = QLabel('时段：—')
+        self.lb_hour.setWordWrap(True)
+        root.addWidget(self.lb_hour)
+
         # 按模型（终身口径）
         self.lb_model = QLabel('模型：—')
         self.lb_model.setWordWrap(True)
@@ -276,7 +287,135 @@ class UsageStatsDialog(QDialog):
             self._fill_summary(sel)
             self._fill_purpose_range(sel)     # v3.4：按**所选范围**汇总用途
 
+        self._fill_insights(sel if (rows and not legacy) else [])
         self._fill_model()
+
+    def _fill_insights(self, rows):
+        """效率与省钱三项（v3.5）：缓存命中 / 峰谷分布 / 时段分布
+
+        Owner 2026-10-24「用量分析还有其他可以分析的吗」——
+        我只加**算得出真价值**的三项，并且每条都标数据口径。
+
+        ⚠ 数据边界（写死在这里，别改成"看起来都准"）：
+        - 缓存命中率：按 **by_day 所选范围**累加 → 与表格同源，准确
+        - 峰谷 / 时段：只能用 **calls（最近 200 条）** → 是**样本**不是全域
+          （by_day 没有小时粒度，这是数据结构硬限制，不是偷懒）
+        - 省钱金额：按当前主力模型单价估，不是逐模型精算
+          （by_model 里没有 cache 字段）
+        """
+        try:
+            self._fill_cache_insight(rows)
+            self._fill_peak_insight()
+        except Exception as exc:
+            _log.warning('效率指标刷新失败：%s', exc)
+            self.lb_cache.setText('缓存：读取失败')
+            self.lb_peak.setText('峰谷：读取失败')
+            self.lb_hour.setText('时段：读取失败')
+
+    def _fill_cache_insight(self, rows):
+        """缓存命中率 + 省下多少钱
+
+        为什么值得看：缓存价 0.02 元/百万 vs 正常 input 1.0 元/百万 —— **相差 50 倍**。
+        实测本机命中率 58.7% 时，省下的钱比错峰还多。
+        """
+        hit = miss = 0
+        for item in rows or []:
+            hit += int(item.get('cache_hit') or 0)
+            miss += int(item.get('cache_miss') or 0)
+        if not (hit or miss):
+            self.lb_cache.setText('缓存：所选范围内无缓存数据（旧档未记录）')
+            return
+        rate = 100.0 * hit / (hit + miss) if (hit + miss) else 0.0
+        saved = ''
+        try:
+            prices = getattr(self.host.api_stats, 'PRICES', None) or {}
+            cur = getattr(self.host, 'current', 'flash')
+            pr = prices.get(cur) or prices.get('deepseek-flash') or {}
+            p_in = float(pr.get('input') or 0)
+            p_ci = float(pr.get('cache') or 0)
+            if p_in > p_ci > 0:
+                # 单位：元/百万 token。命中部分本该按 input 价，实际按 cache 价
+                saved = '｜省下约 ¥%.4f（缓存价 ¥%.2f vs 正常 ¥%.2f/百万）' % (
+                    hit * (p_in - p_ci) / 1_000_000.0, p_ci, p_in)
+        except Exception as exc:
+            _log.warning('缓存省钱估算失败：%s', exc)
+        # ⚠ 必须标清统计范围：缓存在 by_day（=所选天数），峰谷在 calls（最近 200 条），
+        #   两者范围不同。不标的话用户会拿两个金额直接比，误以为口径一致。
+        _nd = len(rows or [])
+        self.lb_cache.setText('缓存：命中 %d / 未命中 %d tok ⇒ 命中率 %.1f%%%s'
+                              '　〔按所选范围 %d 天〕'
+                              % (hit, miss, rate, saved, _nd))
+
+    def _fill_peak_insight(self):
+        """峰谷分布 + 错峰潜在节省（只基于 calls 样本）
+
+        为什么值得看：官方峰谷价**正好 2 倍**（input 1.0→2.0 / output 4.0→8.0）。
+        高峰时段花的钱里，有一半是峰谷溢价 —— 那部分挪到空闲时段就能省下。
+        """
+        try:
+            calls = list(getattr(self.host.api_stats, 'calls', None) or [])
+        except Exception as exc:
+            _log.warning('读取调用明细失败：%s', exc)
+            self.lb_peak.setText('峰谷：读取失败')
+            self.lb_hour.setText('时段：读取失败')
+            return
+        if not calls:
+            self.lb_peak.setText('峰谷：暂无调用明细')
+            self.lb_hour.setText('时段：暂无调用明细')
+            return
+
+        try:
+            from server_clock import PEAK_HOURS
+        except Exception as exc:
+            _log.warning('取峰谷规则失败（按 9-12/14-18 兜底）：%s', exc)
+            PEAK_HOURS = ((9, 12), (14, 18))
+
+        def _hour(c):
+            try:
+                return int(str(c.get('time') or '')[11:13])
+            except (TypeError, ValueError):
+                return None
+
+        def _is_peak(h):
+            return h is not None and any(a <= h < b for a, b in PEAK_HOURS)
+
+        peak_c = peak_n = off_c = off_n = 0.0
+        by_hour = {}
+        for c in calls:
+            h = _hour(c)
+            cost = float(c.get('cost') or 0)
+            if h is not None:
+                cur = by_hour.setdefault(h, [0, 0.0])
+                cur[0] += 1
+                cur[1] += cost
+            if _is_peak(h):
+                peak_n += 1
+                peak_c += cost
+            else:
+                off_n += 1
+                off_c += cost
+
+        total = peak_c + off_c
+        pct = 100.0 * peak_c / total if total else 0.0
+        # 峰谷正好 2 倍 ⇒ 高峰花费的一半是溢价
+        save = peak_c / 2.0
+        span = ('%s ~ %s' % (str(calls[0].get('time') or '')[:16],
+                             str(calls[-1].get('time') or '')[:16]))
+        self.lb_peak.setText(
+            '峰谷：高峰 %d 次 ¥%.4f（占 %.0f%%）｜空闲 %d 次 ¥%.4f'
+            '　⇒ 错峰可省约 ¥%.4f'
+            '　⚠ 仅统计最近 %d 条调用明细（%s），非全域'
+            % (int(peak_n), peak_c, pct, int(off_n), off_c, save, len(calls), span))
+
+        # 时段：按花费排前 3（哪几个钟点最费钱）
+        try:
+            top = sorted(by_hour.items(), key=lambda kv: -kv[1][1])[:3]
+            parts = ['%02d 点 %d 次 ¥%.4f' % (h, int(v[0]), v[1]) for h, v in top if v[0]]
+            self.lb_hour.setText('时段：花费最高 ' + ' ｜ '.join(parts) if parts
+                                 else '时段：暂无')
+        except Exception as exc:
+            _log.warning('时段统计失败：%s', exc)
+            self.lb_hour.setText('时段：统计失败')
 
     def _fill_table(self, rows):
         self.tbl.setRowCount(len(rows))

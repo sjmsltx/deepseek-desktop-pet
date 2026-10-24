@@ -465,6 +465,12 @@ class ApiStats:
                             'count': int(agg.get('count') or 0),
                             'prompt': int(agg.get('prompt') or 0),
                             'completion': int(agg.get('completion') or 0),
+                            # v3.5：这三项 by_day 里本来就存着，原先漏了没暴露
+                            #   ⇒ 界面想算「缓存命中率 / 省钱」拿到永远是 0，
+                            #   显示「无缓存数据」，而数据明明在文件里。只加不删。
+                            'total': int(agg.get('total') or 0),
+                            'cache_hit': int(agg.get('cache_hit') or 0),
+                            'cache_miss': int(agg.get('cache_miss') or 0),
                             'by_purpose': dict(agg.get('by_purpose') or {})})
             self.day_legacy = False
         except Exception as _exc:
