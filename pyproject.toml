@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepseek-desktop-pet"
-version = "3.0.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）；本版 = 可选主区（待办/状态两个面板 + 面板注册机制）+ 待办同步与金额口径修复 + 余额固定查 DeepSeek 账户 + ps1 编码修复（语音输入恢复）+ 静默护栏补洞
+version = "3.0.0"   # 与 CHANGELOG 发布号对齐（源码注释里的 v6.xx 是内部开发迭代号）；本版 = 可选主区（待办/状态两个面板 + 面板注册机制）+ 待办同步与金额口径修复 + 余额固定查 DeepSeek 账户 + ps1 编码修复（语音输入恢复）+ 静默护栏补洞 + 10-24 并入：AI 可调用气泡 / 用量分析窗与效率三项 / 按天存档 / 余额盯梢 / P0 提示不可见修复 / 用量分析改非模态（该版仍为 3.0.0，无新版本号）
 description = "一只住在你电脑里的 Q 版桌宠：陪你聊天、帮你干活、主动关心你。"
 readme = "README.md"
 requires-python = ">=3.10"
