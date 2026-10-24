@@ -39,16 +39,20 @@ def _pet():
     return p
 
 
-def test_cost_goes_to_status_bar_with_long_hold():
-    """费用提示应落在底部状态条，且停留 ≥6 秒（原来 1.4 秒渐隐看不清）"""
+def test_cost_goes_to_bubble_with_long_hold():
+    """费用提示走人物气泡（v3.3），停留仍 ≥6 秒（原来 1.4 秒渐隐看不清）
+
+    改自 test_cost_goes_to_status_bar_with_long_hold：
+    Owner 2026-10-24「统一走人物弹出气泡」→ 改的是**显现在哪**，
+    「金额要看清、停留要够」这条要求没变，所以停留断言保留。
+    """
     p = _pet()
     p._on_cost_bubble(0.0032)
-    txt = p.status_bar.text()
-    assert '本次' in txt and '今日' in txt, '状态条应显示本次+今日：%r' % txt
+    txt = p.bubble.text()
+    assert '本次' in txt and '今日' in txt, '气泡应显示本次+今日：%r' % txt
     assert '−¥0.0032' in txt or '-¥0.0032' in txt, '应含本次金额（4 位小数）：%r' % txt
-    assert not p.status_bar.isHidden(), '状态条应显示出来'
-    assert p.status_hide_timer.interval() >= 6000, \
-        '费用提示停留应 ≥6 秒，实际 %d ms' % p.status_hide_timer.interval()
+    assert p.bubble_hide_timer.interval() >= 6000, \
+        '费用提示停留应 ≥6 秒，实际 %d ms' % p.bubble_hide_timer.interval()
 
 
 def test_cost_does_not_create_top_bubble():

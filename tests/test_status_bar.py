@@ -37,8 +37,13 @@ def test_notify_does_not_pollute_chat_list():
     n0 = len(p.display_msgs)
     p._notify('💾 记忆已备份：E:\\备份')
     assert len(p.display_msgs) == n0, '状态提示被写进了聊天列表（污染回归）'
-    assert p.status_bar.text() == '💾 记忆已备份：E:\\备份'
-    assert not p.status_bar.isHidden(), '状态条应显示出来'
+    # v3.3（Owner 2026-10-24「统一走人物弹出气泡」）：短提示改显现在人物气泡，
+    #   不再显示底部状态条。断言随之改「气泡里能看到」——
+    #   ⛔ 上面的污染断言一字未动（这是本条的核心，不许因换地方而放松）。
+    assert p.status_bar.text() == '💾 记忆已备份：E:\\备份', '文本仍要写进状态条（兜底）'
+    assert p.bubble.text() == '💾 记忆已备份：E:\\备份', '短提示应显现在人物气泡'
+    assert not p.bubble.isHidden(), '气泡应显示出来'
+    assert p.status_bar.isHidden(), '走了气泡就不该同时留底部条（同一句话不出现两遍）'
 
 
 def test_append_chat_still_records_conversation():
@@ -57,10 +62,30 @@ def test_append_chat_still_records_conversation():
 
 
 def test_status_bar_auto_hide_timer():
+    """短提示走气泡后，自动隐藏由气泡的计时器负责（v3.3）"""
     p = _pet()
     p._notify('会自动消失')
-    assert p.status_hide_timer.isActive(), '状态条应启动自动隐藏计时'
-    assert p.status_hide_timer.interval() == p.STATUS_MS
+    assert p.bubble_hide_timer.isActive(), '气泡应启动自动隐藏计时'
+    assert p.bubble_hide_timer.interval() >= p.BUBBLE_HOLD_MIN_MS, \
+        '气泡停留不应短于下限 %d ms' % p.BUBBLE_HOLD_MIN_MS
+
+
+def test_long_notify_still_uses_status_bar():
+    """长文本/多行仍走底部状态条（气泡装不下会把窗口撑爆）"""
+    p = _pet()
+    long_txt = '很长的诊断信息' * 8          # 56 字 > NOTIFY_BUBBLE_MAX_CHARS(40)
+    p._notify(long_txt)
+    assert p.status_bar.text() == long_txt
+    assert not p.status_bar.isHidden(), '长文本应仍显示底部状态条'
+    assert p.status_bar.isHidden() is False
+
+
+def test_notify_ms_passed_to_bubble_hold():
+    """调用方明确要的停留时长要传递到气泡（否则 8 秒提示被缩短成 6 秒）"""
+    p = _pet()
+    p._notify('余额 ¥70.68', ms=8000)
+    assert p.bubble_hide_timer.interval() == 8000, \
+        'ms=8000 没传到气泡停留，实际 %d' % p.bubble_hide_timer.interval()
 
 
 def test_notify_ignores_empty():
@@ -96,3 +121,35 @@ def test_source_guard_notify_widely_used():
     src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     n = src.count('self._notify(')
     assert n >= 55, '_notify 调用点从 64 掉到 %d，疑似被回退' % n
+
+def test_queue_full_falls_back_to_status_bar():
+    """气泡队列满时回落底部状态条 —— **信息不能丢**（v3.3 设计要点）
+
+    背景：`say_plain` 在 `_speak_busy` 且队列已满（BUBBLE_QUEUE_MAX=2）时
+    **静默丢弃**新文本。状态提示（"已保存""查询失败"）比闲聊重要，
+    宁可回落底部条，也不能让它消失。
+    """
+    p = _pet()
+    p._speak_busy = True
+    p._speak_queue = [('占位1', True), ('占位2', True)]     # 队列已满
+    try:
+        p._notify('保存失败：磁盘已满')
+        assert p._speak_queue and len(p._speak_queue) == p.BUBBLE_QUEUE_MAX, \
+            '队列不该被再塞进第 3 条（应为回落而不是硬塞）'
+        assert p.status_bar.text() == '保存失败：磁盘已满', '队列满时应回落状态条'
+        assert not p.status_bar.isHidden(), '回落时必须真的显示出来（否则信息丢了）'
+    finally:
+        p._speak_busy = False
+        p._speak_queue = []
+
+
+def test_bubble_not_ready_falls_back_to_status_bar():
+    """气泡控件还没建好（启动早期）时回落状态条"""
+    p = _pet()
+    p.bubble = None
+    try:
+        p._notify('启动早期提示')
+        assert p.status_bar.text() == '启动早期提示'
+        assert not p.status_bar.isHidden()
+    finally:
+        pass

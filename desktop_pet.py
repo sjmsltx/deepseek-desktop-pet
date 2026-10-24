@@ -5479,6 +5479,10 @@ class PetWidget(QWidget):
     # 使用者反馈「污染会话、太人机」。现改为窗口底部一条细状态条：
     # 不进聊天列表（display_msgs）、不进模型上下文（chat_history_msgs），只额外记一条日志。
     STATUS_MS = 2500                     # 状态条默认停留时长
+    # v3.3（Owner 2026-10-24）：状态提示统一走**人物气泡**；超过这个长度或含换行
+    #   才退回底部状态条（气泡装不下，硬塞会把窗口撑爆）。
+    #   定 40 的依据：全仓 124 处 _notify 里文案中位数 13 字，>40 字只有 2 处。
+    NOTIFY_BUBBLE_MAX_CHARS = 40
     COST_NOTIFY_MS = 6000                # 费用提示停留时长（v6.61：太短看不清）
 
     def _init_status_bar(self):
@@ -5522,9 +5526,17 @@ class PetWidget(QWidget):
             pass
 
     def _notify(self, text, ms=None):
-        """系统状态提示（v6.60 批 2）：底部状态条 + 日志；不写聊天列表、不进模型上下文。
+        """系统状态提示：**人物气泡优先**，长文本/多行退回底部状态条
 
-        取代原先「系统通知以桌宠身份写进聊天记录」的做法。非主线程调用自动转主线程。
+        v3.3（Owner 2026-10-24）：「这些都统一走人物弹出气泡那里吧」
+          - 单行且 ≤ NOTIFY_BUBBLE_MAX_CHARS → 人物气泡（immediate，不逐字）
+          - 长文本 / 多行 → 底部状态条（气泡装不下）
+          - 气泡队列满 → 回落状态条（**不丢信息**；say_plain 满队列原本会静默丢弃）
+        无论走哪条路：都 `status_bar.setText()`（兜底 + 兼容既有断言）、只写日志，
+        **不写聊天列表、不进模型上下文**。非主线程调用自动转主线程。
+
+        ⚠ 日志前缀由「状态条：」改为「提示：」—— 因为现在多数走气泡，叫状态条是错的。
+          按「提示：」grep 可见全部；历史日志里旧前缀仍是「状态条：」。
         """
         text = self._strip_emotion_tags(str(text))[0].strip()
         if not text:
@@ -5533,15 +5545,62 @@ class PetWidget(QWidget):
             self._run_on_ui(lambda t=text, m=ms: self._notify(t, m))
             return
         try:
-            log.info('状态条：%s', text)
+            log.info('提示：%s', text)
         except Exception:
             pass
+
+        _to_bubble = False
+        try:
+            _one_line = ('\n' not in text) and ('\r' not in text)
+            if _one_line and len(text) <= self.NOTIFY_BUBBLE_MAX_CHARS:
+                _to_bubble = self._notify_via_bubble(text, ms)
+        except Exception as _exc:
+            _silent_log('_notify:bubble', _exc)
+
         if getattr(self, 'status_bar', None) is None:
             return
+        # 文本照旧写进去：长文本显示要用它，既有断言也读它
         self.status_bar.setText(text)
+        if _to_bubble:
+            # 气泡已经承担显示职责 → 收起状态条，避免同一句话出现两遍
+            try:
+                self.status_hide_timer.stop()
+                self.status_bar.hide()
+            except Exception as _exc:
+                _silent_log('_notify:hide_status_bar', _exc)
+            return
         self.status_bar.show()
         self._place_status_bar()
         self.status_hide_timer.start(int(ms or self.STATUS_MS))
+
+    def _notify_via_bubble(self, text, ms=None):
+        """把一条状态提示交给人物气泡；返回 True=气泡已接走，False=请调用方退回状态条
+
+        ``ms``：调用方要求的停留时长（如余额提示 8000）。明确给了就用它，
+        否则用气泡按字数算的时长 —— 不传就静默缩短，属回退。
+
+        退回的两种情形（都**不丢信息**）：
+        1. 气泡控件还没建好（启动早期）
+        2. 气泡队列已满 —— `say_plain` 在 `_speak_busy` 且队列满时会**静默丢弃**，
+           状态提示（保存结果/失败原因）比闲聊重要，宁可回落状态条也不让它消失
+        """
+        try:
+            if getattr(self, 'bubble', None) is None:
+                return False
+            if getattr(self, '_speak_busy', False) and \
+                    len(getattr(self, '_speak_queue', []) or []) >= self.BUBBLE_QUEUE_MAX:
+                return False
+            self.say_plain(text, immediate=True)
+            # ms 明确给了 → 覆盖气泡按字数算的停留（否则 8 秒的提示会被缩短到 6 秒）
+            if ms:
+                try:
+                    self.bubble_hide_timer.start(int(ms))
+                except Exception as _exc:
+                    _silent_log('_notify_via_bubble:hold', _exc)
+            return True
+        except Exception as _exc:
+            _silent_log('_notify_via_bubble', _exc)
+            return False
 
     # ---- v6.60 批 3：关心通道（独立外观 + 可点开接话 + 回忆日志留痕） ----
     # 此前关心/回访/提醒与系统提示共用一个气泡外观、且“气泡 + 聊天列表”各写一遍（重复），
