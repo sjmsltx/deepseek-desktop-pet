@@ -114,6 +114,9 @@ class ApiStats:
                 'is_available': bool(data.get('is_available', True)),
                 'at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
+    # v3.2：按天存档保留天数（够看季度趋势；文件不会无限涨）
+    KEEP_DAYS = 120
+
     def __init__(self, path, config_path=None, registry=None):
         self.path = path
         self.config_path = config_path  # 价格覆盖来源（P1 模块化：由调用方注入）
@@ -127,6 +130,8 @@ class ApiStats:
         self.calls = []  # 最近调用明细（上限 200）
         self.by_model = {}  # 按模型累计（终身口径：次数/token/费用/价格未知次数）
         self.balance = None  # v6.61：最近一次余额查询结果（缓存，落盘）
+        self.by_day = {}     # v3.2：按天存档 {ISO日期: {count/cost/.../by_purpose}}
+        self.day_legacy = False   # 旧档无 by_day → True（界面据此提示"历史未留存"）
         self._load()
         self._load_price_overrides()
 
@@ -198,10 +203,22 @@ class ApiStats:
                 self.calls = data.get('calls', [])[-200:]
                 self.by_model = data.get('by_model', {})
                 self.balance = data.get('balance') or None   # v6.61
+                by_day = data.get('by_day')
+                if isinstance(by_day, dict):
+                    self.by_day = {str(k): v for k, v in by_day.items() if isinstance(v, dict)}
+                else:
+                    self.day_legacy = True       # 旧档：没有按天维度
                 today = datetime.date.today().isoformat()
                 if data.get('date') == today:
                     self.today = data.get('today', self.today)
                 else:
+                    # v3.2：**先把旧 today 结算进 by_day，再重置**
+                    #   旧实现直接丢弃 → 跨天那段的「今天」在重启后没有归属
+                    _old_date = str(data.get('date') or '')
+                    _old_today = data.get('today')
+                    if (_old_date and isinstance(_old_today, dict)
+                            and int(_old_today.get('count') or 0) > 0):
+                        self.by_day[_old_date] = self._copy_agg(_old_today)
                     self.today['date'] = today
         except Exception as e:
             _log.warning('用量统计文件读取失败，本次从零开始：%s', e)
@@ -212,6 +229,7 @@ class ApiStats:
                 json.dump({'date': datetime.date.today().isoformat(),
                            'today': self.today, 'total': self.total,
                            'by_model': self.by_model,
+                           'by_day': self.by_day,
                            'balance': self.balance,
                            'calls': self.calls[-200:]}, f,
                           ensure_ascii=False, indent=2)
@@ -334,6 +352,10 @@ class ApiStats:
         with self.lock:
             today = datetime.date.today().isoformat()
             if self.today.get('date') != today:
+                # v3.2：跨天前把旧 today 结算进 by_day（有调用才结算，避免造空条目）
+                _prev_date = str(self.today.get('date') or '')
+                if _prev_date and int(self.today.get('count') or 0) > 0:
+                    self.by_day[_prev_date] = self._copy_agg(self.today)
                 self.today = {'count': 0, 'prompt': 0, 'completion': 0, 'total': 0, 'cost': 0.0,
                               'cache_hit': 0, 'cache_miss': 0, 'date': today, 'unknown': 0}
             for agg in (self.today, self.total):
@@ -373,6 +395,10 @@ class ApiStats:
             mb['cost'] += cost
             if entry.get('price_unknown'):
                 mb['unknown'] = mb.get('unknown', 0) + 1
+            # v3.2：今天的累计镜像进 by_day（与 today **同口径**，不另立一套计价）
+            #   用拷贝而非引用：today 跨天会被整体替换，引用会变味
+            self.by_day[today] = self._copy_agg(self.today)
+            self._prune_by_day()
         self._save()
         return cost  # v6.30 返回本次费用（余额气泡用）
 
@@ -385,6 +411,73 @@ class ApiStats:
         """用途白名单（未知 → 'other' ✓ 不报错 ✗）"""
         p = str(p or 'chat').strip().lower()
         return p if p in self.PURPOSES else 'other'
+
+    @staticmethod
+    def _copy_agg(agg):
+        """深拷贝一天的累计结构（by_purpose 是二层 dict，必须逐层拷）
+
+        为什么要拷：`today` 在跨天时会被整体替换成新 dict，
+        若 by_day 直接引用它，历史条目会跟着变味。
+        """
+        out = {}
+        try:
+            for k, v in (agg or {}).items():
+                if k == 'by_purpose' and isinstance(v, dict):
+                    out['by_purpose'] = {pk: dict(pv) if isinstance(pv, dict) else pv
+                                         for pk, pv in v.items()}
+                else:
+                    out[k] = v
+        except Exception as _exc:
+            _log.warning('按天存档拷贝失败：%s', _exc)
+            return {}
+        return out
+
+    def _prune_by_day(self):
+        """只保留最近 KEEP_DAYS 天（含今天），防文件无限涨"""
+        try:
+            if len(self.by_day) <= self.KEEP_DAYS:
+                return
+            keep = sorted(self.by_day.keys())[-self.KEEP_DAYS:]
+            keep_set = set(keep)
+            self.by_day = {k: v for k, v in self.by_day.items() if k in keep_set}
+        except Exception as _exc:
+            # 裁剪失败不影响记账（文件略大而已），但要留痕
+            _log.warning('按天存档裁剪失败：%s', _exc)
+
+    def day_breakdown(self, limit=None):
+        """**按天**汇总（降序）：``[{date, cost, count, prompt, completion, by_purpose}]``
+
+        - 旧档无 `by_day` → 返回 **[]** 且 `self.day_legacy = True`
+          （⛔ 不编数字：历史那几天确实没存，不能拿 total 摊到天上）
+        - `limit` 只截返回条数，不删数据（裁剪由 KEEP_DAYS 负责）
+        """
+        out = []
+        try:
+            if not isinstance(self.by_day, dict) or not self.by_day:
+                self.day_legacy = True
+                return []
+            for d in sorted(self.by_day.keys(), reverse=True):
+                agg = self.by_day.get(d)
+                if not isinstance(agg, dict):
+                    continue
+                out.append({'date': d,
+                            'cost': float(agg.get('cost') or 0),
+                            'count': int(agg.get('count') or 0),
+                            'prompt': int(agg.get('prompt') or 0),
+                            'completion': int(agg.get('completion') or 0),
+                            'by_purpose': dict(agg.get('by_purpose') or {})})
+            self.day_legacy = False
+        except Exception as _exc:
+            _log.warning('按天汇总失败：%s', _exc)
+            return []
+        if limit is not None:
+            try:
+                return out[:max(0, int(limit))]
+            except Exception as _exc:
+                # limit 来自 UI 输入，非法值不该让整个汇总塌掉；但要留原因可查
+                _log.warning('按天汇总 limit 非法（%r），改为返回全部：%s', limit, _exc)
+                return out
+        return out
 
     def purpose_breakdown(self):
         """今日**各用途**花费（降序）：``[{purpose, label, cost, count, share}]``
