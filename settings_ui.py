@@ -592,7 +592,12 @@ class SettingsDialog(QDialog):
                                 '可在「通用 → 主动关心」关闭 ✓；成本触顶时会**自动暂停**并在次日恢复 ✓')
         f.addRow('主动关心', self.lb_care)
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
-                                        ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
+                                        # v3.1e（WX-108 §6.2）：把 **self（SettingsDialog）显式传进去**
+                                        #   当 parent —— 设置对话框是 dlg.exec() 应用级模态，
+                                        #   不传 parent 的顶层窗会被挡住（用户看得见却点不动）。
+                                        #   显式传参比 activeModalWidget() 探测可靠（探测有窗口期）。
+                                        ('📊 统计悬浮窗',
+                                         lambda: self.host._toggle_api_stats_window(self))])
 
         try:
             import server_clock as _sc

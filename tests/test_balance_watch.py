@@ -352,3 +352,11 @@ def test_real_stats_path_hardcoded_only_once():
     n = src.count("os.path.join(BASE_DIR, 'api_stats.json')")
     assert n == 1, ('真统计路径出现了 %d 处（应为 1：PetWidget 初始化）。'
                     '新增处会被测试夹具静默吞掉，请改用统一常量' % n)
+    # WX-108 §2.2：只锁计数有弱点 —— 删一处、另处新写一处，总数仍为 1 抓不到。
+    #   故再锁「它必须落在 _init_services_and_data 里」。
+    _i = src.index("os.path.join(BASE_DIR, 'api_stats.json')")
+    _func = src.rfind('def ', 0, _i)
+    _name = src[_func:src.index('(', _func)]
+    assert '_init_services_and_data' in _name, \
+        '真统计路径跑到 %r 里去了（原本在 _init_services_and_data）；' \
+        '换了位置总数不变也抓不到，故这里锁函数名' % _name[:40]

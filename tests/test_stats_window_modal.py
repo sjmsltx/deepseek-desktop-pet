@@ -113,3 +113,79 @@ def test_source_guard_parent_at_construction():
     # 不允许出现"建完再 setParent(_modal)"这种无效写法
     assert 'win.setParent(_modal)' not in src, \
         '运行时 setParent 对模态无效（实测 A/B/C 对照），不许用'
+
+# ---------- WX-108 §6.2：显式传参优先，探测兜底 ----------
+
+def test_explicit_parent_wins_over_probe(monkeypatch):
+    """传入的 parent 应优先于 activeModalWidget 探测（调用方更知道自己在哪）"""
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    p = _pet()
+    dlg = QDialog(p)
+    other = QDialog(p)          # 探测会返回这个「错」的
+    monkeypatch.setattr(QApplication, 'activeModalWidget', staticmethod(lambda: other))
+    try:
+        p._toggle_api_stats_window(dlg)      # 显式传 dlg
+        w = p._api_stats_win
+        assert w is not None
+        assert w.parent() is dlg, '显式传参没生效（被探测结果覆盖了）'
+        assert w.parent() is not other
+    finally:
+        _cleanup(p)
+        dlg.close()
+        other.close()
+
+
+def test_probe_still_works_as_fallback(monkeypatch):
+    """不传参时仍走探测（右键菜单那条路）"""
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    p = _pet()
+    dlg = QDialog(p)
+    monkeypatch.setattr(QApplication, 'activeModalWidget', staticmethod(lambda: dlg))
+    try:
+        p._toggle_api_stats_window()          # 不传
+        assert p._api_stats_win.parent() is dlg, '探测兜底失效'
+    finally:
+        _cleanup(p)
+        dlg.close()
+
+
+def test_release_does_not_show_hidden_window(monkeypatch):
+    """WX-108 §6.1-1：本来不可见的窗，释放时不该被 show 出来（否则意外弹出）"""
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    p = _pet()
+    dlg = QDialog(p)
+    monkeypatch.setattr(QApplication, 'activeModalWidget', staticmethod(lambda: dlg))
+    try:
+        p._toggle_api_stats_window()
+        w = p._api_stats_win
+        w.hide()                       # 模拟用户先隐藏了它
+        dlg.accept()                   # 触发释放
+        assert not w.isVisible(), '隐藏的窗被释放逻辑意外 show 出来了'
+    finally:
+        _cleanup(p)
+        dlg.close()
+
+
+def test_release_only_on_finished_not_destroyed():
+    """释放回调**只接 finished**，不接 destroyed（v3.1e 实测结论）
+
+    WX-108 §6.1-3 建议同时接 `destroyed` 兜底。我试过，**会崩**：
+    接上后跑全量 → rc=0xC0000005（ACCESS_VIOLATION），
+    且稳定停在 test_settings_dialog_does_not_write_config（真建 SettingsDialog）。
+
+    原因：`destroyed` 在 C++ 析构**过程中**发出，此后再回调 Qt
+    （我这里要 `setParent(None)` + `show()`）属于对半析构对象操作 → 未定义行为。
+
+    另外它逻辑上也太晚：parent 析构时子窗口**已经被一起销毁**，
+    此时再去 setParent 没有意义。所以这个"兜底"不成立，改为只接 finished。
+    若某平台真不走 finished，代价是统计窗随设置一起消失 —— 用户重开一次即可，
+    比崩溃好得多。
+    """
+    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
+    assert "_modal.finished.connect(_release_from_modal)" in src, 'finished 释放回调没了'
+    assert "'destroyed'" not in src.split('_release_from_modal')[0][-2000:] or \
+        "_modal.destroyed.connect" not in src, \
+        '又接了 destroyed（实测会 ACCESS_VIOLATION，别加回来）'

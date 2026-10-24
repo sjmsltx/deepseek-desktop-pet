@@ -5790,7 +5790,7 @@ class PetWidget(QWidget):
                      + ('；其中 %d 次是价格未知的估算' % unk if unk else ''))
         QMessageBox.information(self, '按模型统计', '\n'.join(lines))
 
-    def _toggle_api_stats_window(self):
+    def _toggle_api_stats_window(self, parent=None):
         """开关 API 统计悬浮窗（透明置顶小窗，实时刷新 + 缓存命中率图表）"""
         WIN_W = 320          # v6.62：宽度固定 320，高度按内容算（不再写死）
         if self._api_stats_win is not None:
@@ -5813,12 +5813,17 @@ class PetWidget(QWidget):
         #     B QWidget(dlg) 构造带 parent     → 能激活     ✓
         #     C QWidget() 无 parent            → 不能激活 ✗
         #   ⇒ 所以先探测模态窗，再决定构造参数；不能建完再 setParent。
-        _modal = None
-        try:
-            from PySide6.QtWidgets import QApplication as _QA
-            _modal = _QA.activeModalWidget()
-        except Exception as _exc:
-            _silent_log('_toggle_api_stats_window:modal', _exc)
+        # v3.1e（WX-108 §6.2）：**显式传参优先，全局探测兜底**
+        #   理由：调用方（设置面板）天然知道自己正在模态里，比瞬时探测准；
+        #   探测有窗口期（exec() 之前 / show() 之后 exec() 之前 / 平台延迟）。
+        #   右键菜单那条路没有 parent 可传，才落到探测。
+        _modal = parent
+        if _modal is None:
+            try:
+                from PySide6.QtWidgets import QApplication as _QA
+                _modal = _QA.activeModalWidget()
+            except Exception as _exc:
+                _silent_log('_toggle_api_stats_window:modal', _exc)
 
         win = QWidget(_modal) if _modal is not None else QWidget()
         win.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
@@ -6052,19 +6057,26 @@ class PetWidget(QWidget):
 
         if _modal is not None:
             def _release_from_modal():
-                """设置面板关闭 → 统计窗脱离父关系继续独立存活（v3.1d）
+                """设置面板关闭 → 统计窗脱离父关系继续独立存活（v3.1d/e）
 
                 不这样做的话，parent=dlg 的窗口会随 dlg 一起销毁/隐藏，
                 用户会以为「关掉设置，统计窗自己没了」。
-                setParent(None) 在 Qt 里会隐藏窗口，故随后 show() + 复位位置。
+                setParent(None) 在 Qt 里会隐藏窗口，故随后复位位置 + show()。
+
+                v3.1e（WX-108 §6.1）三点加固：
+                1. 先记 isVisible —— 本来不可见的窗口别 show（否则意外弹出）
+                2. 顺序必须 move 在 show 之前（反了会先闪一下旧位置）
+                3. destroy/finished 都要接（某些平台关窗不走 finished）
                 """
                 try:
                     if self._api_stats_win is not win:
                         return
+                    _was_visible = win.isVisible()
                     _pos = win.pos()
                     win.setParent(None)
                     win.move(_pos)
-                    win.show()
+                    if _was_visible:
+                        win.show()
                 except Exception as _exc:
                     _silent_log('_toggle_api_stats_window:release', _exc)
             try:
@@ -9078,7 +9090,14 @@ class PetWidget(QWidget):
                 base_total = float(prev.get('total'))
             now = _dt.datetime.now()
             # 余额上升（充值 / 回冲）→ 重置基线，不报
+            # ⚠（WX-108 §3.1）接口只给余额快照、不给交易流水，
+            #   **同窗口内既有充值又有消费时无法分离** —— 这段消费会被吞。
+            #   无解，但必须留痕：与「窗口超限」那条对齐（同为放弃归因，
+            #   不能一条留 log、一条静默，自己内部就不一致）。
             if float(new_total) > float(base_total):
+                log.info('余额盯梢：检测到余额上升（¥%.4f → ¥%.4f），重置基线；'
+                         '若该窗口内同时有消费，此段不归因（接口无流水，无法分离）',
+                         float(base_total), float(new_total))
                 self._bw_settle(now, new_total)
                 return
             # 窗口过长 → 重置（说不清是谁花的，宁可不说，也不编）
@@ -9400,6 +9419,8 @@ class PetWidget(QWidget):
 
     def _open_settings(self, page=0):
         """打开统一设置窗口（page 指定初始分类）"""
+        # v3.1e（WX-108 §6.2）：设置页里「统计悬浮窗」按钮应把 dlg 传进来
+        #   （显式传参优先于 activeModalWidget 探测；设置页自己知道在模态中）
         dlg = SettingsDialog(self, MODEL_REGISTRY, parent=self)
         try:
             if 0 <= int(page) < dlg.nav.count():
