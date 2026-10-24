@@ -6063,10 +6063,17 @@ class PetWidget(QWidget):
                 用户会以为「关掉设置，统计窗自己没了」。
                 setParent(None) 在 Qt 里会隐藏窗口，故随后复位位置 + show()。
 
-                v3.1e（WX-108 §6.1）三点加固：
+                v3.1e（WX-108 §6.1）两点加固：
                 1. 先记 isVisible —— 本来不可见的窗口别 show（否则意外弹出）
                 2. 顺序必须 move 在 show 之前（反了会先闪一下旧位置）
-                3. destroy/finished 都要接（某些平台关窗不走 finished）
+
+                ONLY finished, NOT destroyed（v3.1f，WX-109 §4.2 报的注释反实现）
+                   destroyed 在 C++ 析构**过程中**发出，此时回调 Qt 属未定义行为；
+                   实测接上后跑全量 -> rc=0xC0000005（ACCESS_VIOLATION）。
+                   且逻辑上也晚了：parent 析构时子窗口已被一起销毁，setParent 无对象可救。
+                   若某平台真不走 finished，代价是统计窗随设置一起消失（用户重开一次即可），
+                   比崩溃好。见 tests/test_stats_window_modal.py::
+                   test_release_only_on_finished_not_destroyed
                 """
                 try:
                     if self._api_stats_win is not win:

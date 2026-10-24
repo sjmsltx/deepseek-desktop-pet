@@ -18,6 +18,7 @@ Owner 反馈：「从设置面板打开统计面板之后，需要先把设置�
 运行：python -m pytest tests/test_stats_window_modal.py -q
 """
 import os
+import re
 import sys
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -186,6 +187,17 @@ def test_release_only_on_finished_not_destroyed():
     """
     src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
     assert "_modal.finished.connect(_release_from_modal)" in src, 'finished 释放回调没了'
-    assert "'destroyed'" not in src.split('_release_from_modal')[0][-2000:] or \
-        "_modal.destroyed.connect" not in src, \
-        '又接了 destroyed（实测会 ACCESS_VIOLATION，别加回来）'
+
+    # v3.1f（WX-109 §4.1）：原护栏是 A or B 短路 + 切片范围错，
+    #   实测 A/B/C 三种绕过写法**全部穿过**（拦不住）：
+    #     A `_modal.destroyed.connect(...)` 直接写            -> PASS
+    #     B `getattr(_modal, 'destroyed').connect(...)`       -> PASS
+    #     C `_dg='destroyed'; getattr(_modal, _dg).connect()` -> PASS
+    #   根因：`src.split('_release_from_modal')[0]` 取的是**第一个**出现位置之前的内容，
+    #   而第一次出现就是 `def _release_from_modal():` —— 之后全不在范围内。
+    #   改为：剥掉 docstring 与注释后全文搜（docstring 里那句「别加回来」说明不算违规）。
+    _body = re.sub(r'"{3}.*?"{3}', '', src, flags=re.S)
+    _body = re.sub(r"'{3}.*?'{3}", '', _body, flags=re.S)
+    _body = re.sub(r'#.*$', '', _body, flags=re.M)
+    assert 'destroyed' not in _body, \
+        '又接了 destroyed（实测 ACCESS_VIOLATION，别加回来）—— docstring 里提它没问题，代码里出现才判红'
