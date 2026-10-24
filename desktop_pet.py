@@ -1073,6 +1073,15 @@ class PetWidget(QWidget):
                 # v3.1：余额盯梢（别的程序用同一账户花钱 → 冒一个关心气泡）
                 #   开关与间隔可在 config.json 改，也可右键菜单「📈 API 用量 → 别处花费提醒」切换
                 self.balance_watch = bool(cfg.get('balance_watch', True))
+                # v3.6（Owner 2026-10-24 需求 5）：AI 可调用气泡
+                #   默认开；关掉则工具直接回「已关闭」，不弹气泡（回退到随机台词行为）
+                self.ai_bubble = bool(cfg.get('ai_bubble', True))
+                try:
+                    self.ai_bubble_max_chars = max(8, min(120, int(
+                        cfg.get('ai_bubble_max_chars', 40) or 40)))
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:ai_bubble_max_chars', _exc)
+                    self.ai_bubble_max_chars = 40
                 try:
                     self.balance_watch_minutes = max(1, min(60, int(
                         cfg.get('balance_watch_minutes', 5) or 5)))
@@ -2954,6 +2963,7 @@ class PetWidget(QWidget):
         'offer_choices': '_tool_offer_choices',
         'office_doc': '_tool_office_doc',   # v6.66 办公文档（WPS/Office COM）
         'set_voice_summary': '_tool_set_voice_summary',   # v6.76 朗读摘要（只影响朗读）
+        'say_bubble': '_tool_say_bubble',   # v3.6 AI 可调用气泡（三道闸见该方法）
         'skill_pack': '_tool_skill_pack',   # v6.67 技能包管理（安装/权限/启停/卸载）
         'open_app': '_tool_open_app',
         'query_weather': '_tool_query_weather',
@@ -2972,6 +2982,74 @@ class PetWidget(QWidget):
         'write_config': '_tool_write_config',
         'write_file': '_tool_write_file',
     }
+
+    def _tool_say_bubble(self, args):
+        """AI 可调用气泡（v3.6，Owner 2026-10-24 需求 5）
+
+        为什么要有它：此前 32 个工具里**没有一个是说话类**，气泡只能从预设台词库
+        随机取 ⇒ 与本轮回复毫无关系，所以「呆板」。有了它，正文详细、气泡一句话。
+
+        三道闸（缺一道就会变成刷屏源；任何一道拦下都**不报错**，只回一句说明，
+        避免 AI 因为工具失败而反复重试）：
+        1. 长度闸：超过 ai_bubble_max_chars（默认 40）→ **截断**，不拒绝
+           （截断仍能说话；拒绝会让 AI 白调一次）
+        2. 频次闸：**同一轮对话最多 1 次**（按 _cur_gen 判断）
+           —— 否则一次回复弹五个气泡，比原来更吵
+        3. 开关闸：config `ai_bubble`（默认 True）；关掉就回退到现在的随机台词行为
+
+        不写聊天列表、不进模型上下文（say_plain 本身只动气泡）。
+        非主线程调用由 say_plain 自己转发主线程（本方法在 _post_stream 的后台线程里跑）。
+        """
+        try:
+            text = self._strip_emotion_tags(str(args.get('text') or ''))[0].strip()
+        except Exception as _exc:
+            _silent_log('_tool_say_bubble:strip', _exc)
+            text = str(args.get('text') or '').strip()
+        if not text:
+            return '（气泡文本为空，没有说）'
+
+        # ---- 闸 3：开关 ----
+        if not getattr(self, 'ai_bubble', True):
+            return '（AI 气泡已在设置里关闭，请用正文表达）'
+
+        # ---- 闸 2：频次（同一轮只一次）----
+        _gen = getattr(self, '_cur_gen', None)
+        if getattr(self, '_bubble_said_gen', None) is not None and \
+                getattr(self, '_bubble_said_gen', None) == _gen:
+            return '（本轮气泡已用过一次，这次忽略；正文照常显示）'
+
+        # ---- 闸 1：长度（截断，不拒绝）----
+        _max = int(getattr(self, 'ai_bubble_max_chars', 40) or 40)
+        if len(text) > _max:
+            log.info('AI 气泡超长（%d > %d），已截断：%s', len(text), _max, text[:_max])
+            text = text[:_max]
+
+        # ---- 可选：停留秒数 ----
+        ms = None
+        try:
+            sec = int(args.get('seconds') or 0)
+            if sec > 0:
+                ms = max(1000, min(30000, sec * 1000))
+        except (TypeError, ValueError) as _exc:
+            _silent_log('_tool_say_bubble:seconds', _exc)
+
+        # ---- 出气泡 ----
+        try:
+            self.say_plain(text, immediate=True)
+            if ms and getattr(self, 'bubble_hide_timer', None) is not None:
+                try:
+                    self.bubble_hide_timer.start(ms)
+                except Exception as _exc:
+                    _silent_log('_tool_say_bubble:hold', _exc)
+            self._bubble_said_gen = _gen
+            log.info('AI 气泡：%s', text)
+            return '（已在气泡里说了：%s）' % text
+        except Exception as _exc:
+            # ⚠ 不标 user_facing：气泡没显示但**正文照常**，
+            #   用户既看不懂也不需行动（不是「什么都没发生」）。
+            #   标了只会多刷一张失败卡 —— 正是要避免的刷屏。
+            _silent_log('_tool_say_bubble', _exc)
+            return '（气泡没能显示，正文照常）'
 
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本（v6.69：统一记审计 + 额度限制）"""
@@ -3437,6 +3515,8 @@ class PetWidget(QWidget):
         try:
             # v6.43：记录本次任务代次（用于强制停止判断）
             self._cur_gen = getattr(self, '_ai_generation', 0)
+            # v3.6：新一轮 → 允许 AI 再说一次气泡（频次闸按轮次算）
+            self._bubble_said_gen = None
             aborted = False          # v6.53：流内被取消标志（避免后续再发请求）
             # v6.43 fix：闭合悬空任务——上次中断遗留的 user 无 assistant 回复，
             # 不闭合则下次对话 AI 会误继续执行旧任务（如：卡住的"找文件夹"在你说 evening 时复活）
@@ -7413,6 +7493,20 @@ class PetWidget(QWidget):
                                   getattr(self, '_cur_gen', None), getattr(self, '_ai_busy', None))
         except Exception:
             pass
+
+    def set_ai_bubble(self, on):
+        """AI 可调用气泡开关（v3.6，设置页调用）
+
+        关掉时：say_bubble 工具会直接回「已在设置里关闭」，
+        气泡回到原来「从台词库随机取一句」的行为。
+        """
+        self.ai_bubble = bool(on)
+        try:
+            self._save_cfg_value('ai_bubble', self.ai_bubble)
+        except Exception as _exc:
+            _silent_log('set_ai_bubble:save', _exc)
+        self._notify('AI 气泡：%s' % ('已开启' if self.ai_bubble else '已关闭'),
+                     ms=self.STATUS_MS)
 
     def set_foreground_aware(self, on):
         """v6.59：前台程序感知开关（默认关）。开启后仅在唤醒判断里附加「当前前台程序」信号。

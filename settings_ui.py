@@ -173,6 +173,15 @@ class SettingsDialog(QDialog):
         self.ck_adv.toggled.connect(self._toggle_advanced_tools)
         f.addRow('工具范围', self.ck_adv)
 
+        # v3.6（Owner 2026-10-24 需求 5）：AI 可调用气泡
+        #   给 GUI 入口而不是只写 config.json —— Owner 2026-08-02「懒得改配置文件」
+        self.ck_bubble = QCheckBox('允许 AI 用头顶气泡说一句短话（关掉=只随机念台词）')
+        self.ck_bubble.setToolTip(
+            '开启后：AI 回复时会顺手用 say_bubble 在气泡里说一句短短的话\n'
+            '关闭后：回到原来「从台词库随机取一句」的行为')
+        self.ck_bubble.toggled.connect(self._toggle_ai_bubble)
+        f.addRow('AI 气泡', self.ck_bubble)
+
         # v6.51：原先只有一个「切换」动作按钮——用户看不到当前是哪种模式。
         # 改成两项下拉 + _refresh 回填（与窗口内其他控件一致）
         self.cb_edge = QComboBox()
@@ -181,6 +190,15 @@ class SettingsDialog(QDialog):
         self.cb_edge.currentIndexChanged.connect(self._apply_edge_mode)
         f.addRow('贴边模式', self.cb_edge)
         return p
+
+    def _toggle_ai_bubble(self, on):
+        """AI 气泡开关（落盘 + 提示由宿主负责）"""
+        if self._building:
+            return
+        try:
+            self.host.set_ai_bubble(bool(on))
+        except Exception as exc:
+            _log.debug('AI 气泡开关保存失败：%s', exc)
 
     def _toggle_foreground(self, on):
         """v6.59：前台程序感知开关（落盘与提示由宿主负责）"""
@@ -1140,6 +1158,7 @@ class SettingsDialog(QDialog):
             except Exception:
                 self.lb_purposes.setText('按用途：—')
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
+            self.ck_bubble.setChecked(bool(getattr(h, 'ai_bubble', True)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()
             # 对话

@@ -449,6 +449,30 @@ AI_TOOLS = [
             }
         }
     },
+    # v3.6（Owner 2026-10-24 需求 5）：AI 可调用气泡
+    #   之前 32 个工具里没一个是说话类 ⇒ 气泡只能随机念预设台词、与本轮回复无关，
+    #   所以「呆板」。有了它，正文详细、气泡一句话。
+    #   三道闸（长度/频次/开关）在宿主 _tool_say_bubble 里，不在这里做。
+    {
+        "type": "function",
+        "function": {
+            "name": "say_bubble",
+            "description": ("在角色头顶的气泡里说一句简短的话，配合正文使用。"
+                            "正文照常详细，气泡只放一句话（建议≤20字，最多40字）。"
+                            "自己平时的口头禅/情绪反应/一句总结都可以用它说。"
+                            "同一轮对话最多调用一次，多调用会被忽略。"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string",
+                             "description": "要说的话，口语化短句，不要 markdown，最多 40 字"},
+                    "seconds": {"type": "integer",
+                                "description": "可选：气泡停留秒数；不填或 0 = 按字数自动"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
     # v6.76：朗读摘要（AI 主动声明“这段该怎么念”，只影响朗读不进正文）
     {
         "type": "function",
@@ -482,6 +506,7 @@ TOOL_STATUS = {
     'set_reminder': ('正在设置提醒', 'Setting reminder'),
     'lock_screen': ('正在锁定屏幕', 'Locking screen'),
     'control_volume': ('正在调整音量', 'Adjusting volume'),
+    'say_bubble': ('正在挑一句话', 'Thinking of a line'),   # v3.6
 }
 
 
@@ -497,6 +522,8 @@ CORE_TOOLS = (
     # 陪伴 / 日常（v6.53 原 core）
     'get_time', 'query_weather', 'set_reminder', 'manage_todo',
     'memorize', 'offer_choices', 'schedule_followup', 'web_search',
+    # v3.6：说话是自己的事，用户说「说一句××」时手上必须有这个工具
+    'say_bubble',
     # v6.58：外观 / 自改 / 插件 / 文件（用户能明确感知的能力，默认必须可用）
     'read_file', 'write_file', 'search_code', 'edit_own_code',
     'install_plugin', 'uninstall_plugin', 'list_plugins', 'set_theme',
