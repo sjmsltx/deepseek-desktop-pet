@@ -173,6 +173,15 @@ class SettingsDialog(QDialog):
         self.ck_adv.toggled.connect(self._toggle_advanced_tools)
         f.addRow('工具范围', self.ck_adv)
 
+        # v3.6（Owner 2026-10-24 需求 5）：AI 可调用气泡
+        #   给 GUI 入口而不是只写 config.json —— Owner 2026-08-02「懒得改配置文件」
+        self.ck_bubble = QCheckBox('允许 AI 用头顶气泡说一句短话（关掉=只随机念台词）')
+        self.ck_bubble.setToolTip(
+            '开启后：AI 回复时会顺手用 say_bubble 在气泡里说一句短短的话\n'
+            '关闭后：回到原来「从台词库随机取一句」的行为')
+        self.ck_bubble.toggled.connect(self._toggle_ai_bubble)
+        f.addRow('AI 气泡', self.ck_bubble)
+
         # v6.51：原先只有一个「切换」动作按钮——用户看不到当前是哪种模式。
         # 改成两项下拉 + _refresh 回填（与窗口内其他控件一致）
         self.cb_edge = QComboBox()
@@ -181,6 +190,15 @@ class SettingsDialog(QDialog):
         self.cb_edge.currentIndexChanged.connect(self._apply_edge_mode)
         f.addRow('贴边模式', self.cb_edge)
         return p
+
+    def _toggle_ai_bubble(self, on):
+        """AI 气泡开关（落盘 + 提示由宿主负责）"""
+        if self._building:
+            return
+        try:
+            self.host.set_ai_bubble(bool(on))
+        except Exception as exc:
+            _log.debug('AI 气泡开关保存失败：%s', exc)
 
     def _toggle_foreground(self, on):
         """v6.59：前台程序感知开关（落盘与提示由宿主负责）"""
@@ -592,7 +610,17 @@ class SettingsDialog(QDialog):
                                 '可在「通用 → 主动关心」关闭 ✓；成本触顶时会**自动暂停**并在次日恢复 ✓')
         f.addRow('主动关心', self.lb_care)
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
-                                        ('📊 统计悬浮窗', self.host._toggle_api_stats_window)])
+                                        # v3.1e（WX-108 §6.2）：把 **self（SettingsDialog）显式传进去**
+                                        #   当 parent —— 设置对话框是 dlg.exec() 应用级模态，
+                                        #   不传 parent 的顶层窗会被挡住（用户看得见却点不动）。
+                                        #   显式传参比 activeModalWidget() 探测可靠（探测有窗口期）。
+                                        ('📊 统计悬浮窗',
+                                         lambda: self.host._toggle_api_stats_window(self)),
+                                        # v3.4：大窗看历史（按天表格 + 柱状趋势）。
+                                        #   同样显式传 self —— 设置对话框是应用级模态，
+                                        #   不传 parent 的窗口会被挡住（"看得见点不动"）
+                                        ('📈 用量分析…',
+                                         lambda: self.host._open_usage_stats(self))])
 
         try:
             import server_clock as _sc
@@ -1094,7 +1122,7 @@ class SettingsDialog(QDialog):
                 pass
             # 缺陷 4/3（批 B）：两行分列 + 主动关心分项（均带 try ✓ 取不到不影响设置页 ✓）
             try:
-                self.lb_today_cost.setText('¥%.2f' % float(_gov_r.today_cost()))
+                self.lb_today_cost.setText('¥%.4f' % float(_gov_r.today_cost()))
             except Exception:
                 self.lb_today_cost.setText('—')
             try:
@@ -1130,6 +1158,7 @@ class SettingsDialog(QDialog):
             except Exception:
                 self.lb_purposes.setText('按用途：—')
             self.ck_adv.setChecked(bool(getattr(h, 'advanced_tools', False)))
+            self.ck_bubble.setChecked(bool(getattr(h, 'ai_bubble', True)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()
             # 对话

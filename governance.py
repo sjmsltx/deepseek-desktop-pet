@@ -397,7 +397,7 @@ def check_cost(estimate=0.0):
         calls = st.get('calls')
         scope = ('（截至 %s%s）' % (st.get('at') or '--:--',
                                    ('，今日 %d 次调用' % calls) if calls is not None else ''))
-        why = '今日模型调用已花 ¥%.2f%s，已达%s；%s' % (used, scope, cost_limit_text(st, brief=True), tail)
+        why = '今日模型调用已花 ¥%.4f%s，已达%s；%s' % (used, scope, cost_limit_text(st, brief=True), tail)
         return False, why, used
     return True, '', used
 

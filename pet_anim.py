@@ -205,11 +205,20 @@ def toggle_sleep(w):
         w.say_plain('醒啦！')
 
 
-def say_random(w):
-    """随机说一句问候（气泡 + 聊天记录）"""
+def say_random(w, into_history=False):
+    """随机说一句问候（只出气泡；落不落聊天记录由调用方决定）
+
+    v3.1（2026-10-24 Owner 反馈「固定刷的这玩意儿」「刷了一堆占着面板非常难受」）：
+    - 旧行为：**任何**触发都 `_append_chat` 写进聊天面板并落盘永久留存
+      → 自动问候每 20~40 分钟一次（`greet_timer` 间隔一次定死），面板被台词塞满
+    - 现在：`into_history` **默认 False** → 只出气泡、不占面板、不进模型上下文
+    - 只有玩家**主动点「说点什么」（右键菜单）** 才传 True 留一条
+    气泡行为完全不变（台词照说、停留时长照旧），本次只改「留不留痕」。
+    """
     if w.sleeping:
         return
     lines = w._char_lines('greetings')
     text = random.choice(lines) if lines else 'Hello!'
     w.say_plain(text)
-    w._append_chat('桌宠', text)
+    if into_history:
+        w._append_chat('桌宠', text)

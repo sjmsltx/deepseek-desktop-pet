@@ -921,8 +921,16 @@ class PetWidget(QWidget):
         self.timer.start(33)
 
         self.greet_timer = QTimer(self)
-        self.greet_timer.timeout.connect(self.say_random)
+        # v3.1c（WX-107 §1）：原来这个定时器是**重复**的 ⇒ randint 只抽一次、
+        #   之后按固定间隔重复（Owner 说的「固定刷」）。改 singleShot + 每次重排。
+        self.greet_timer.setSingleShot(True)
+        self.greet_timer.timeout.connect(self._on_greet)
         QTimer.singleShot(90000, self._schedule_greet)
+
+        # v3.1：余额盯梢定时器（**独立于**「自己调用后才懒查」那条路 → 别处花钱也能发现）
+        self.balance_watch_timer = QTimer(self)
+        self.balance_watch_timer.timeout.connect(self._balance_watch_tick)
+        QTimer.singleShot(self.BALANCE_WATCH_START_MS, self._balance_watch_arm)
 
         self.load_character('flash')
         self._restore_position()
@@ -1008,6 +1016,18 @@ class PetWidget(QWidget):
     def _schedule_greet(self):
         self.greet_timer.start(random.randint(*GREET_INTERVAL))
 
+    def _on_greet(self):
+        """定时问候：说一句后**重新抽间隔**再排下一次（v3.1c）
+
+        旧行为：greet_timer 是重复定时器，`randint` 只在上电时抽一次
+        ⇒ 之后每次都是同一个间隔，看着像「掐着点固定刷」。
+        `finally` 保证即使 say_random 抛异常也会重排，不会永久静默。
+        """
+        try:
+            self.say_random()
+        finally:
+            self._schedule_greet()
+
     # ---------- AI 对话 ----------
     def _t(self, key):
         """取当前语言的 UI 文本"""
@@ -1050,6 +1070,24 @@ class PetWidget(QWidget):
                     self.balance_auto_minutes = max(1, int(cfg.get('balance_auto_minutes', 10) or 10))
                 except Exception:
                     self.balance_auto_minutes = 10
+                # v3.1：余额盯梢（别的程序用同一账户花钱 → 冒一个关心气泡）
+                #   开关与间隔可在 config.json 改，也可右键菜单「📈 API 用量 → 别处花费提醒」切换
+                self.balance_watch = bool(cfg.get('balance_watch', True))
+                # v3.6（Owner 2026-10-24 需求 5）：AI 可调用气泡
+                #   默认开；关掉则工具直接回「已关闭」，不弹气泡（回退到随机台词行为）
+                self.ai_bubble = bool(cfg.get('ai_bubble', True))
+                try:
+                    self.ai_bubble_max_chars = max(8, min(120, int(
+                        cfg.get('ai_bubble_max_chars', 40) or 40)))
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:ai_bubble_max_chars', _exc)
+                    self.ai_bubble_max_chars = 40
+                try:
+                    self.balance_watch_minutes = max(1, min(60, int(
+                        cfg.get('balance_watch_minutes', 5) or 5)))
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:balance_watch_minutes', _exc)
+                    self.balance_watch_minutes = 5
                 # v6.58：记住 config 里保存的主题名（启动时在 UI 就绪后恢复；此前只写不读 → 重启被重置）
                 self._saved_theme = str(cfg.get('theme') or 'default')
                 self._theme_widgets = []   # 受主题着色的控件登记表（切主题时统一刷新）
@@ -1319,6 +1357,109 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_notify_failure_card', _exc)
             return 'error'
+
+    # ── ⭐ 闸门卡：同因原地替换（方案 B，Owner 2026-10-23 定）──────────
+    #   ⭐ 现状（改前）：每被拦一次就 append 一条卡到 display_msgs 并落盘
+    #     → 60 条历史里 43 条是同一张卡 ⇒ 真对话被顶掉（Owner 10-23 报的就是这个）
+    #   ⭐ 现在：同一 key 只占一条（重复被拦 → 改写那一条，不新增）
+    #   ⛔ 只对「本地闸门 / 额度」生效 ✗ —— 上游故障/工具失败等卡行为不变 ✓
+    _GATE_CARD_MARKS = ('出在哪：本地闸门', '出在哪：额度')
+
+    def _gate_card_key_of(self, text):
+        """判断一条回复是不是闸门卡；是就返回归类 key（否则 ''）
+
+        ⭐ 从**文本自身**推 key，不依赖实例属性 ✓
+          —— `ai_reply_signal` 是跨线程信号，寄存在 self 上的临时标记会有竞态 ✗
+        ⭐ 归类口径与 `_cost_gate_key` 一致（daily_cost / balance）⇒ 与日内去重同一套语义 ✓
+        """
+        s = str(text or '')
+        if not s.strip():
+            return ''
+        if not any(m in s for m in self._GATE_CARD_MARKS):
+            return ''
+        return self._cost_gate_key(s)
+
+    def _find_last_gate_bubble(self, key):
+        """在消息流里往回找最后一个标了该 key 的气泡（找不到 → None ✓ 不报错 ✗）"""
+        lay = getattr(self, 'chat_history_layout', None)
+        if lay is None:
+            return None
+        for i in range(lay.count() - 1, -1, -1):
+            w = lay.itemAt(i).widget()
+            if w is not None and getattr(w, '_gate_key', '') == key:
+                return w
+        return None
+
+    def _show_gate_card(self, key, text):
+        """闸门卡出口：同 key 就写回上一条，否则追加。返回 'replaced' / 'appended'
+
+        ⛔ 不动 `ai_reply_signal` 接口与既有单点出口契约 ✓（既有测试不受影响）
+        """
+        import datetime as _dt
+        ts = _dt.datetime.now().strftime('%m-%d %H:%M')
+        msgs = getattr(self, 'display_msgs', None)
+        if msgs is None:
+            return 'skipped'
+        last = msgs[-1] if msgs else None
+        same = bool(last) and isinstance(last, dict) and last.get('gate_key') == key
+
+        if same:
+            # ① 同因：改写那一条（数据 + 界面），不新增 ✓
+            last['text'] = str(text)
+            last['ts'] = ts
+            b = self._find_last_gate_bubble(key)
+            if b is not None:
+                self._replace_bubble_text(b, '%s  %s' % (ts, str(text)))
+            try:
+                self._save_chat_memory()
+            except Exception as _exc:
+                _silent_log('_show_gate_card:save', _exc)
+            try:
+                self._chat_scroll_bottom()
+            except Exception as _exc:
+                _silent_log('_show_gate_card:scroll', _exc)
+            return 'replaced'
+
+        # ② 首次（或换了原因）：正常追加，并打 gate_key 标记 ✓
+        msgs.append({'who': '桌宠', 'text': str(text), 'ts': ts, 'gate_key': key})
+        if len(msgs) > 300:
+            del msgs[:-300]
+        bubble = content = None
+        try:
+            bubble, content = self._new_bubble('桌宠', ts, is_user=False, text=str(text))
+            bubble._gate_key = key
+            bubble._content_layout = content
+            safe = (str(text).replace('&', '&amp;').replace('<', '&lt;')
+                    .replace('>', '&gt;').replace('\n', '<br>'))
+            content.addWidget(self._bubble_text_label(safe, is_user=False))
+        except Exception as _exc:
+            _silent_log('_show_gate_card:render', _exc)
+        try:
+            self._save_chat_memory()
+        except Exception as _exc:
+            _silent_log('_show_gate_card:save2', _exc)
+        try:
+            self._chat_scroll_bottom()
+        except Exception as _exc:
+            _silent_log('_show_gate_card:scroll2', _exc)
+        return 'appended'
+
+    def _replace_bubble_text(self, bubble, text):
+        """把已存在的卡气泡改写成新文本（清内容重建一个标签）"""
+        content = getattr(bubble, '_content_layout', None)
+        if content is None:
+            return
+        try:
+            while content.count():
+                item = content.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
+            safe = (str(text).replace('&', '&amp;').replace('<', '&lt;')
+                    .replace('>', '&gt;').replace('\n', '<br>'))
+            content.addWidget(self._bubble_text_label(safe, is_user=False))
+        except Exception as _exc:
+            _silent_log('_replace_bubble_text', _exc)
 
     def _on_user_facing_failure(self, where, exc):
         """hook 入口（`_silent_log(user_facing=True)` → 这里）：归因 → 单点出卡 ✓"""
@@ -2822,6 +2963,7 @@ class PetWidget(QWidget):
         'offer_choices': '_tool_offer_choices',
         'office_doc': '_tool_office_doc',   # v6.66 办公文档（WPS/Office COM）
         'set_voice_summary': '_tool_set_voice_summary',   # v6.76 朗读摘要（只影响朗读）
+        'say_bubble': '_tool_say_bubble',   # v3.6 AI 可调用气泡（三道闸见该方法）
         'skill_pack': '_tool_skill_pack',   # v6.67 技能包管理（安装/权限/启停/卸载）
         'open_app': '_tool_open_app',
         'query_weather': '_tool_query_weather',
@@ -2840,6 +2982,74 @@ class PetWidget(QWidget):
         'write_config': '_tool_write_config',
         'write_file': '_tool_write_file',
     }
+
+    def _tool_say_bubble(self, args):
+        """AI 可调用气泡（v3.6，Owner 2026-10-24 需求 5）
+
+        为什么要有它：此前 32 个工具里**没有一个是说话类**，气泡只能从预设台词库
+        随机取 ⇒ 与本轮回复毫无关系，所以「呆板」。有了它，正文详细、气泡一句话。
+
+        三道闸（缺一道就会变成刷屏源；任何一道拦下都**不报错**，只回一句说明，
+        避免 AI 因为工具失败而反复重试）：
+        1. 长度闸：超过 ai_bubble_max_chars（默认 40）→ **截断**，不拒绝
+           （截断仍能说话；拒绝会让 AI 白调一次）
+        2. 频次闸：**同一轮对话最多 1 次**（按 _cur_gen 判断）
+           —— 否则一次回复弹五个气泡，比原来更吵
+        3. 开关闸：config `ai_bubble`（默认 True）；关掉就回退到现在的随机台词行为
+
+        不写聊天列表、不进模型上下文（say_plain 本身只动气泡）。
+        非主线程调用由 say_plain 自己转发主线程（本方法在 _post_stream 的后台线程里跑）。
+        """
+        try:
+            text = self._strip_emotion_tags(str(args.get('text') or ''))[0].strip()
+        except Exception as _exc:
+            _silent_log('_tool_say_bubble:strip', _exc)
+            text = str(args.get('text') or '').strip()
+        if not text:
+            return '（气泡文本为空，没有说）'
+
+        # ---- 闸 3：开关 ----
+        if not getattr(self, 'ai_bubble', True):
+            return '（AI 气泡已在设置里关闭，请用正文表达）'
+
+        # ---- 闸 2：频次（同一轮只一次）----
+        _gen = getattr(self, '_cur_gen', None)
+        if getattr(self, '_bubble_said_gen', None) is not None and \
+                getattr(self, '_bubble_said_gen', None) == _gen:
+            return '（本轮气泡已用过一次，这次忽略；正文照常显示）'
+
+        # ---- 闸 1：长度（截断，不拒绝）----
+        _max = int(getattr(self, 'ai_bubble_max_chars', 40) or 40)
+        if len(text) > _max:
+            log.info('AI 气泡超长（%d > %d），已截断：%s', len(text), _max, text[:_max])
+            text = text[:_max]
+
+        # ---- 可选：停留秒数 ----
+        ms = None
+        try:
+            sec = int(args.get('seconds') or 0)
+            if sec > 0:
+                ms = max(1000, min(30000, sec * 1000))
+        except (TypeError, ValueError) as _exc:
+            _silent_log('_tool_say_bubble:seconds', _exc)
+
+        # ---- 出气泡 ----
+        try:
+            self.say_plain(text, immediate=True)
+            if ms and getattr(self, 'bubble_hide_timer', None) is not None:
+                try:
+                    self.bubble_hide_timer.start(ms)
+                except Exception as _exc:
+                    _silent_log('_tool_say_bubble:hold', _exc)
+            self._bubble_said_gen = _gen
+            log.info('AI 气泡：%s', text)
+            return '（已在气泡里说了：%s）' % text
+        except Exception as _exc:
+            # ⚠ 不标 user_facing：气泡没显示但**正文照常**，
+            #   用户既看不懂也不需行动（不是「什么都没发生」）。
+            #   标了只会多刷一张失败卡 —— 正是要避免的刷屏。
+            _silent_log('_tool_say_bubble', _exc)
+            return '（气泡没能显示，正文照常）'
 
     def _execute_tool(self, name, args):
         """执行 AI 请求的工具，返回结果文本（v6.69：统一记审计 + 额度限制）"""
@@ -3305,6 +3515,8 @@ class PetWidget(QWidget):
         try:
             # v6.43：记录本次任务代次（用于强制停止判断）
             self._cur_gen = getattr(self, '_ai_generation', 0)
+            # v3.6：新一轮 → 允许 AI 再说一次气泡（频次闸按轮次算）
+            self._bubble_said_gen = None
             aborted = False          # v6.53：流内被取消标志（避免后续再发请求）
             # v6.43 fix：闭合悬空任务——上次中断遗留的 user 无 assistant 回复，
             # 不闭合则下次对话 AI 会误继续执行旧任务（如：卡住的"找文件夹"在你说 evening 时复活）
@@ -3845,6 +4057,12 @@ class PetWidget(QWidget):
             self._remove_status_line()
         except Exception as _exc:
             _silent_log('_display_ai_reply:2480', _exc)   # v6.54
+        # ⭐ 方案 B（Owner 2026-10-23 定）：闸门卡**同因原地替换**，不许一条条追加 ✗
+        #   原因：卡片走普通 AI 回复路径 → 进 display_msgs 并落盘 → 被拦一次就多一条，
+        #   实测 60 条历史里 43 条是同一张卡（真对话被顶掉）。
+        _gk = self._gate_card_key_of(reply)
+        if _gk:
+            return self._show_gate_card(_gk, str(reply))
         if getattr(self, '_stream_rendered', False) and reply:
             # v6.40 流式已渲染正文：只记录历史 + 情绪切换，不重复打字机
             self._stream_rendered = False
@@ -3961,16 +4179,43 @@ class PetWidget(QWidget):
                 for _m in self.display_msgs:
                     if isinstance(_m, dict) and _m.get('text'):
                         _m['text'] = _re.sub(r'\[emotion:[^\]]*\]', '', str(_m['text']))
+                        # ⭐ 方案 B：老历史没有 gate_key 字段 ⇒ 按文本补一次（只读推断，不改文案）
+                        if not _m.get('gate_key'):
+                            _gk = self._gate_card_key_of(_m['text'])
+                            if _gk:
+                                _m['gate_key'] = _gk
         except Exception as _exc:
             _silent_log('_load_chat_memory:2593', _exc, user_facing=True)   # v1-B：记忆读失败→“它怎么不记得了”
 
     def _echo_display_history(self):
-        """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）"""
+        """回显最近 30 条显示历史到面板（在聊天历史区创建后调用）
+
+        ⭐ 方案 B（Owner 2026-10-23 定）：闸门卡**按因只回显最新一条** ✓
+          ⭐ 原因：卡片当普通消息存进历史 ⇒ 每次开机都把旧卡重新回显 ✗
+            实测 60 条里 43 条是卡（最长连续 40 条），最后 30 条里 20 条是卡
+            ⇒ Owner 截图里那张「10-21 23:21」就是这么被重新显示出来的（不是新拦截）。
+          ⭐ 只影响回显，**不删数据** ✓（历史文件保持原样，审计可查）
+        """
         shown = self.display_msgs[-30:]
-        for m in shown:
+        # ⭐ 先算出「每个闸门原因在本次回显里最后出现的位置」✓
+        _last_pos = {}
+        for _i, _m in enumerate(shown):
+            if isinstance(_m, dict) and _m.get('gate_key'):
+                _last_pos[str(_m['gate_key'])] = _i
+        _skipped = 0
+        for _i, m in enumerate(shown):
+            # ⛔ 同因旧卡（不是最新那条）→ 不回显 ✗ 但不删数据 ✓
+            if isinstance(m, dict) and m.get('gate_key') and \
+                    _last_pos.get(str(m['gate_key'])) != _i:
+                _skipped += 1
+                continue
             ts = m.get('ts', '')
             who = m.get('who', '桌宠')
             bubble, content = self._new_bubble(who, ts, is_user=(who == '我'), text=str(m.get('text', '')))
+            # ⭐ 方案 B：回显时也带上 gate_key，否则重启后找不到那张卡 ✗
+            if isinstance(m, dict) and m.get('gate_key'):
+                bubble._gate_key = str(m.get('gate_key'))
+                bubble._content_layout = content
             self._render_md_into(content, str(m.get('text', '')))
         self._display_offset = max(0, len(self.display_msgs) - len(shown))
         self._update_more_button()
@@ -5314,6 +5559,10 @@ class PetWidget(QWidget):
     # 使用者反馈「污染会话、太人机」。现改为窗口底部一条细状态条：
     # 不进聊天列表（display_msgs）、不进模型上下文（chat_history_msgs），只额外记一条日志。
     STATUS_MS = 2500                     # 状态条默认停留时长
+    # v3.3（Owner 2026-10-24）：状态提示统一走**人物气泡**；超过这个长度或含换行
+    #   才退回底部状态条（气泡装不下，硬塞会把窗口撑爆）。
+    #   定 40 的依据：全仓 124 处 _notify 里文案中位数 13 字，>40 字只有 2 处。
+    NOTIFY_BUBBLE_MAX_CHARS = 40
     COST_NOTIFY_MS = 6000                # 费用提示停留时长（v6.61：太短看不清）
 
     def _init_status_bar(self):
@@ -5357,9 +5606,17 @@ class PetWidget(QWidget):
             pass
 
     def _notify(self, text, ms=None):
-        """系统状态提示（v6.60 批 2）：底部状态条 + 日志；不写聊天列表、不进模型上下文。
+        """系统状态提示：**人物气泡优先**，长文本/多行退回底部状态条
 
-        取代原先「系统通知以桌宠身份写进聊天记录」的做法。非主线程调用自动转主线程。
+        v3.3（Owner 2026-10-24）：「这些都统一走人物弹出气泡那里吧」
+          - 单行且 ≤ NOTIFY_BUBBLE_MAX_CHARS → 人物气泡（immediate，不逐字）
+          - 长文本 / 多行 → 底部状态条（气泡装不下）
+          - 气泡队列满 → 回落状态条（**不丢信息**；say_plain 满队列原本会静默丢弃）
+        无论走哪条路：都 `status_bar.setText()`（兜底 + 兼容既有断言）、只写日志，
+        **不写聊天列表、不进模型上下文**。非主线程调用自动转主线程。
+
+        ⚠ 日志前缀由「状态条：」改为「提示：」—— 因为现在多数走气泡，叫状态条是错的。
+          按「提示：」grep 可见全部；历史日志里旧前缀仍是「状态条：」。
         """
         text = self._strip_emotion_tags(str(text))[0].strip()
         if not text:
@@ -5368,22 +5625,84 @@ class PetWidget(QWidget):
             self._run_on_ui(lambda t=text, m=ms: self._notify(t, m))
             return
         try:
-            log.info('状态条：%s', text)
+            log.info('提示：%s', text)
         except Exception:
             pass
+
+        _to_bubble = False
+        try:
+            _one_line = ('\n' not in text) and ('\r' not in text)
+            if _one_line and len(text) <= self.NOTIFY_BUBBLE_MAX_CHARS:
+                _to_bubble = self._notify_via_bubble(text, ms)
+        except Exception as _exc:
+            _silent_log('_notify:bubble', _exc)
+
         if getattr(self, 'status_bar', None) is None:
             return
+        # 文本照旧写进去：长文本显示要用它，既有断言也读它
         self.status_bar.setText(text)
+        if _to_bubble:
+            # 气泡已经承担显示职责 → 收起状态条，避免同一句话出现两遍
+            try:
+                self.status_hide_timer.stop()
+                self.status_bar.hide()
+            except Exception as _exc:
+                _silent_log('_notify:hide_status_bar', _exc)
+            return
         self.status_bar.show()
         self._place_status_bar()
         self.status_hide_timer.start(int(ms or self.STATUS_MS))
+
+    def _notify_via_bubble(self, text, ms=None):
+        """把一条状态提示交给人物气泡；返回 True=气泡已接走，False=请调用方退回状态条
+
+        ``ms``：调用方要求的停留时长（如余额提示 8000）。明确给了就用它，
+        否则用气泡按字数算的时长 —— 不传就静默缩短，属回退。
+
+        退回的两种情形（都**不丢信息**）：
+        1. 气泡控件还没建好（启动早期）
+        2. 气泡正被占用（`_speak_busy`）—— 见下
+
+        ⚠ v3.6 fix（WX-111 §2 报的 P0，我自己复现确认）：
+          原来只判「忙 **且** 队列满」，漏了「忙但未满」这一种。此时 say_plain
+          走的是排队分支（不立即显示），本方法却返回 True ⇒ `_notify` 把状态条
+          hide 掉 ⇒ **气泡还停在上一句、状态条被收起，两条通道同时不可用**，
+          用户在这段时间里什么都看不到。
+          实测（复现-P0忙未满.py）：
+            A 空闲     → 用户可见 ✓
+            B 忙未满   → 用户看不到 ✗  ← 就是这个洞
+            C 忙已满   → 用户可见 ✓
+          AI 逐字回答期间 `_speak_busy` 会长达几秒到几十秒，而这段时间用户完全
+          可能点保存、查余额、备份记忆 —— 那些提示一个都看不见。
+
+          修法：**忙就一律回落状态条**。状态提示的价值在于「即时」，
+          "保存失败"晚 20 秒出现等于没出现。
+          （真排队也行，但那就不能 hide 状态条，否则又变成「气泡和状态条
+            同一句话显示两遍」—— 那是第 1 处断言禁止的。）
+        """
+        try:
+            if getattr(self, 'bubble', None) is None:
+                return False
+            if getattr(self, '_speak_busy', False):
+                return False
+            self.say_plain(text, immediate=True)
+            # ms 明确给了 → 覆盖气泡按字数算的停留（否则 8 秒的提示会被缩短到 6 秒）
+            if ms:
+                try:
+                    self.bubble_hide_timer.start(int(ms))
+                except Exception as _exc:
+                    _silent_log('_notify_via_bubble:hold', _exc)
+            return True
+        except Exception as _exc:
+            _silent_log('_notify_via_bubble', _exc)
+            return False
 
     # ---- v6.60 批 3：关心通道（独立外观 + 可点开接话 + 回忆日志留痕） ----
     # 此前关心/回访/提醒与系统提示共用一个气泡外观、且“气泡 + 聊天列表”各写一遍（重复），
     # 使用者反馈「开了主动关心会混在一起、效果不明显」。现关心走独立样式与独立记录。
     _CARE_LABEL = {'care': '主动关心', 'remind': '提醒', 'greet': '问候'}
 
-    def say_care(self, text, kind='care'):
+    def say_care(self, text, kind='care', mark_purpose=True):
         """关心气泡（v6.60 批 3）
 
         - 外观：左侧 accent 色条（与普通说话气泡一眼分开）
@@ -5396,13 +5715,19 @@ class PetWidget(QWidget):
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
-            self._run_on_ui(lambda t=text, k=kind: self.say_care(t, k))
+            # v3.1c（WX-107 §3）：原来漏转发 mark_purpose → 非主线程调用时
+            #   重入后走默认 True ⇒ 静默打上 care 用途标（串到下一次真对话）
+            self._run_on_ui(lambda t=text, k=kind, m=mark_purpose:
+                            self.say_care(t, k, m))
             return
         self._bubble_mode = 'care'
         self._care_click_text = text
         self._care_kind = kind if kind in self._CARE_LABEL else 'care'
         # 批 C：标记本轮用途为**主动关心** ✓（供记账分项；一次性 ✓ 由 `_run_task` 消费 ✗）
-        self._pending_purpose = 'care'
+        # v3.1：`mark_purpose=False` 时不打标 —— 余额盯梢不是「主动关心」，
+        #   否则下一次真对话的用途会被错记成 care，用途分项就不准了
+        if mark_purpose:
+            self._pending_purpose = 'care'
         try:
             pb.apply_say_bubble_theme(self.bubble, self.theme, 'care')
             self.bubble.setCursor(Qt.PointingHandCursor)
@@ -5476,9 +5801,12 @@ class PetWidget(QWidget):
             return conf.get(key + '_en') or conf.get(key) or []
         return conf.get(key) or []
 
-    def say_random(self):
-        """随机说一句问候（实现已搬至 pet_anim.say_random）"""
-        return anim.say_random(self)
+    def say_random(self, into_history=False):
+        """随机说一句问候（实现已搬至 pet_anim.say_random）
+
+        v3.1：默认**不写聊天历史**（只出气泡）；右键「说点什么」传 into_history=True
+        """
+        return anim.say_random(self, into_history=into_history)
     def do_thinking(self):
         """思考状态（3 秒后恢复）"""
         if self.sleeping:
@@ -5585,7 +5913,7 @@ class PetWidget(QWidget):
             calls = list(reversed(st.calls[-20:]))
             today = dict(st.today)
             total = dict(st.total)
-        lines = [f"今日 {today.get('count',0)}次/{today.get('total',0)}tok/{today.get('cost',0):.3f}元 · 累计 {total.get('count',0)}次/{total.get('total',0)}tok/{total.get('cost',0):.3f}元", '']
+        lines = [f"今日 {today.get('count',0)}次/{today.get('total',0)}tok/{today.get('cost',0):.4f}元 · 累计 {total.get('count',0)}次/{total.get('total',0)}tok/{total.get('cost',0):.4f}元", '']
         if not calls:
             lines.append('（暂无调用记录——发消息后自动统计）')
         for c in calls:
@@ -5616,7 +5944,94 @@ class PetWidget(QWidget):
                      + ('；其中 %d 次是价格未知的估算' % unk if unk else ''))
         QMessageBox.information(self, '按模型统计', '\n'.join(lines))
 
-    def _toggle_api_stats_window(self):
+    def _close_usage_stats(self):
+        """关掉「用量分析」窗口（设置面板关闭时自动调用）
+
+        为什么需要它（Owner 2026-10-24 实测）：
+          把 dlg 的 parent 设成设置面板，本以为 parent 关掉时会连带关闭；
+          实测 **QDialog 是顶层窗口，parent.hide() 不会隐藏它**
+          ⇒ 留下一个孤儿窗口浮在桌面上，用户还得手动关第二次。
+        """
+        dlg = getattr(self, '_usage_stats_dlg', None)
+        self._usage_stats_dlg = None
+        if dlg is None:
+            return
+        try:
+            dlg.close()
+        except Exception as _exc:
+            # RuntimeError = C++ 对象已被 parent 连带销毁（Qt 语义），属预期内：
+            #   此时只剩 Python wrapper，close() 必然抛，清引用即可，不必落错误日志。
+            #   其余异常才是真问题，必须留痕（对齐 test_silent_guard 的护栏口径）。
+            if not isinstance(_exc, RuntimeError):
+                _silent_log('_close_usage_stats', _exc)
+
+    def _open_usage_stats(self, parent=None):
+        """打开/关闭「📈 用量分析」大窗（按天表格 + 柱状趋势 + 用途/模型占比）
+
+        v3.4（Owner 2026-10-24「统计更丰富一点，比如花到哪个模块、时间啊」）
+        与「📊 统计悬浮窗」分工：小窗=实时看今日，本窗=看历史趋势。
+
+        ``parent``：设置页会显式传自己，右键菜单不传走探测。
+
+        ⚠ v3.6e（Owner 2026-10-24 报的真问题）：**必须非模态 show()，不能用 exec()**
+          原实现 `dlg.exec()` 是应用级模态，会 disable 它的 parent（设置面板）
+          ⇒ **设置面板的「关闭」按钮点不到**，用户想关整个设置却关不掉。
+
+          这是我自己写出来的：v3.4 为了躲 v3.1d 那个「看得见点不动」，
+          用了 exec() 让它能激活 —— 结果制造了反向问题「父窗关不掉」。
+
+          为什么不用 WindowModal：同样会挡 parent，症状不变。
+          用量分析是**只读查看窗**（不写文件、不改统计值），
+          没有「必须先处理完」的语义，**不该阻塞任何操作**。
+
+          toggle 语义（与「📊 统计悬浮窗」一致）：已有窗开着时再点一次 = 关掉，
+          避免连点开出多个窗。
+
+          parent 仍传：设置面板关闭时，子窗跟着消失
+          ⇒ 用户点设置「关闭」= 整个设置连同用量分析一起关，符合直觉。
+        """
+        # toggle：已有窗 → 关掉它
+        _existing = getattr(self, '_usage_stats_dlg', None)
+        if _existing is not None:
+            try:
+                if not _existing.isHidden():
+                    _existing.close()
+                    self._usage_stats_dlg = None
+                    return
+            except RuntimeError:
+                # C++ 侧已被 parent 连带销毁（Qt 对象失效）→ 清引用后当没有
+                self._usage_stats_dlg = None
+            except Exception as _exc:
+                _silent_log('_open_usage_stats:toggle', _exc)
+                self._usage_stats_dlg = None
+
+        _modal = parent
+        if _modal is None:
+            try:
+                from PySide6.QtWidgets import QApplication as _QA
+                _modal = _QA.activeModalWidget()
+            except Exception as _exc:
+                _silent_log('_open_usage_stats:modal', _exc)
+        try:
+            from stats_ui import UsageStatsDialog
+            dlg = UsageStatsDialog(self, parent=_modal)
+            # show() 后必须留强引用，否则 Python GC 会把窗口收走（窗口闪一下就没了）
+            self._usage_stats_dlg = dlg
+            dlg.show()
+            # ⚠ 设置面板关闭时**主动**关掉本窗（实测：QDialog 作为 parent 的子窗，
+            #   parent.hide() 不会连带隐藏它 —— 会留一个孤儿窗口浮在桌面上）。
+            #   用 UniqueConnection 防重复连接累积；非 QDialog 无 finished 则跳过。
+            if _modal is not None:
+                try:
+                    from PySide6.QtCore import Qt as _Qt2
+                    _modal.finished.connect(self._close_usage_stats, _Qt2.UniqueConnection)
+                except Exception as _exc:
+                    _silent_log('_open_usage_stats:connect_finished', _exc)
+        except Exception as _exc:
+            self._usage_stats_dlg = None
+            _silent_log('_open_usage_stats', _exc, user_facing=True)
+
+    def _toggle_api_stats_window(self, parent=None):
         """开关 API 统计悬浮窗（透明置顶小窗，实时刷新 + 缓存命中率图表）"""
         WIN_W = 320          # v6.62：宽度固定 320，高度按内容算（不再写死）
         if self._api_stats_win is not None:
@@ -5627,7 +6042,31 @@ class PetWidget(QWidget):
             self._api_stats_win = None
             return
         from PySide6.QtWidgets import QVBoxLayout as _VL, QProgressBar, QPushButton
-        win = QWidget()
+
+        # v3.1d（Owner 2026-10-24 反馈「设置面板开着时统计窗关不掉」）：
+        #   设置面板是 `dlg.exec()` = **应用级模态**，而这里原来建的是**无 parent**
+        #   顶层窗。真机实测（收件箱/02-加工/实测-模态是否挡住统计窗.py）：
+        #     activeModalWidget=QDialog 期间，无父窗 activateWindow 后**仍不是活动窗**
+        #   ⇒ 加了 WindowStaysOnTopHint 就成了「看得见、点不动」，必须先关设置。
+        #
+        #   ⚠ 必须**构造时**传 parent：对照实验（对照-建窗方式与模态.py）三种写法
+        #     A 先 QWidget() 再 setParent(dlg) → 仍不能激活 ✗
+        #     B QWidget(dlg) 构造带 parent     → 能激活     ✓
+        #     C QWidget() 无 parent            → 不能激活 ✗
+        #   ⇒ 所以先探测模态窗，再决定构造参数；不能建完再 setParent。
+        # v3.1e（WX-108 §6.2）：**显式传参优先，全局探测兜底**
+        #   理由：调用方（设置面板）天然知道自己正在模态里，比瞬时探测准；
+        #   探测有窗口期（exec() 之前 / show() 之后 exec() 之前 / 平台延迟）。
+        #   右键菜单那条路没有 parent 可传，才落到探测。
+        _modal = parent
+        if _modal is None:
+            try:
+                from PySide6.QtWidgets import QApplication as _QA
+                _modal = _QA.activeModalWidget()
+            except Exception as _exc:
+                _silent_log('_toggle_api_stats_window:modal', _exc)
+
+        win = QWidget(_modal) if _modal is not None else QWidget()
         win.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
                            Qt.Tool | Qt.NoDropShadowWindowHint)
         win.setAttribute(Qt.WA_TranslucentBackground)
@@ -5856,6 +6295,43 @@ class PetWidget(QWidget):
             win.move(40, 40)
         win.show()
         self._api_stats_win = win
+
+        if _modal is not None:
+            def _release_from_modal():
+                """设置面板关闭 → 统计窗脱离父关系继续独立存活（v3.1d/e）
+
+                不这样做的话，parent=dlg 的窗口会随 dlg 一起销毁/隐藏，
+                用户会以为「关掉设置，统计窗自己没了」。
+                setParent(None) 在 Qt 里会隐藏窗口，故随后复位位置 + show()。
+
+                v3.1e（WX-108 §6.1）两点加固：
+                1. 先记 isVisible —— 本来不可见的窗口别 show（否则意外弹出）
+                2. 顺序必须 move 在 show 之前（反了会先闪一下旧位置）
+
+                ONLY finished, NOT destroyed（v3.1f，WX-109 §4.2 报的注释反实现）
+                   destroyed 在 C++ 析构**过程中**发出，此时回调 Qt 属未定义行为；
+                   实测接上后跑全量 -> rc=0xC0000005（ACCESS_VIOLATION）。
+                   且逻辑上也晚了：parent 析构时子窗口已被一起销毁，setParent 无对象可救。
+                   若某平台真不走 finished，代价是统计窗随设置一起消失（用户重开一次即可），
+                   比崩溃好。见 tests/test_stats_window_modal.py::
+                   test_release_only_on_finished_not_destroyed
+                """
+                try:
+                    if self._api_stats_win is not win:
+                        return
+                    _was_visible = win.isVisible()
+                    _pos = win.pos()
+                    win.setParent(None)
+                    win.move(_pos)
+                    if _was_visible:
+                        win.show()
+                except Exception as _exc:
+                    _silent_log('_toggle_api_stats_window:release', _exc)
+            try:
+                _modal.finished.connect(_release_from_modal)
+            except Exception as _exc:
+                # 非 QDialog（没有 finished 信号）→ 只能接受"随模态窗一起消失"
+                _silent_log('_toggle_api_stats_window:connect_finished', _exc)
 
     def _new_bubble(self, who, ts, is_user=False, text=''):
         """创建消息气泡（头部名字+时间+操作按钮 + 空内容区），追加到消息流（v6.19 微信式左右布局）
@@ -7096,6 +7572,20 @@ class PetWidget(QWidget):
                                   getattr(self, '_cur_gen', None), getattr(self, '_ai_busy', None))
         except Exception:
             pass
+
+    def set_ai_bubble(self, on):
+        """AI 可调用气泡开关（v3.6，设置页调用）
+
+        关掉时：say_bubble 工具会直接回「已在设置里关闭」，
+        气泡回到原来「从台词库随机取一句」的行为。
+        """
+        self.ai_bubble = bool(on)
+        try:
+            self._save_cfg_value('ai_bubble', self.ai_bubble)
+        except Exception as _exc:
+            _silent_log('set_ai_bubble:save', _exc)
+        self._notify('AI 气泡：%s' % ('已开启' if self.ai_bubble else '已关闭'),
+                     ms=self.STATUS_MS)
 
     def set_foreground_aware(self, on):
         """v6.59：前台程序感知开关（默认关）。开启后仅在唤醒判断里附加「当前前台程序」信号。
@@ -8629,7 +9119,7 @@ class PetWidget(QWidget):
                 bal = self.api_stats.balance_text()   # v6.61：有缓存则附上余额
             except Exception:
                 bal = ''
-            msg = '本次 −¥%.4f · 今日 ¥%.2f / %d 次%s' % (
+            msg = '本次 −¥%.4f · 今日 ¥%.4f / %d 次%s' % (
                 float(cost or 0), float(today.get('cost') or 0), int(today.get('count') or 0),
                 (' · 余额 ' + bal) if bal else '')
             self._notify(msg, ms=self.COST_NOTIFY_MS)
@@ -8639,6 +9129,15 @@ class PetWidget(QWidget):
     # ---- v6.61：余额查询（手动 / 对话后静默刷新 / 低余额提醒） ----
     BALANCE_LOW_DEFAULT = 5.0        # 低余额提醒阈值（元），可在设置里手改
     BALANCE_NOTIFY_MS = 8000         # 余额类提示停留时长
+    # v3.1：余额盯梢（别处花费）
+    BALANCE_WATCH_START_MS = 180000   # 启动后 3 分钟才首次盯梢（不和开机动作抢）
+    BALANCE_WATCH_MIN = 0.01          # 别处花费低于 1 分钱不报（采样噪声）
+    # ⚠ 2026-10-24 实测修正：原为 300，与查询间隔（5 分钟 = 300 秒）**相等**
+    #   ⇒ 两次盯梢间隔恰好 299~300 秒，`elapsed < 300` 随机成立
+    #   ⇒ 约一半的「别处花费」被自己的防刷屏间隔吃掉（18:27:05 丢了一次 ¥0.08）
+    #   降到 120：远小于查询间隔（正常轮询不再被挡），仍能挡住「手动查询 + 定时器撞车」
+    BALANCE_WATCH_GAP = 120           # 两条「别处花费」气泡最小间隔（秒）
+    BALANCE_WATCH_MAX_WINDOW = 3600   # 快照超过 1 小时 → 不归因（窗口太长，报了也没意义）
 
     def set_balance_low(self, value):
         """设置低余额提醒阈值（元）；0 表示关闭提醒"""
@@ -8727,6 +9226,12 @@ class PetWidget(QWidget):
         info = dict(info or {})
         manual = bool(info.pop('_manual', False))
         self._balance_busy = False
+        # v3.1：**覆盖前**先存旧快照（盯梢要算「这期间余额掉了多少」）
+        prev = None
+        try:
+            prev = dict(self.api_stats.balance or {})
+        except Exception as _exc:
+            _silent_log('_on_balance_result:prev', _exc)
         try:
             self.api_stats.set_balance(info if info.get('ok') else None)
         except Exception as e:
@@ -8742,12 +9247,164 @@ class PetWidget(QWidget):
                 _note = str(getattr(self, '_balance_target_note', '') or '')
                 self._notify('💰 余额 %s%s' % (txt or '—', ('；' + _note) if _note else ''),
                              ms=self.BALANCE_NOTIFY_MS)
+            self._report_other_spend(prev, info)   # v3.1：别处花费（不进对话历史）
             self._maybe_low_balance_alert(info)
         else:
             log.debug('余额查询失败：%s', info.get('error'))
             if manual:
                 self._notify('余额查询失败：%s' % (info.get('error') or '未知错误'),
                              ms=self.COST_NOTIFY_MS)
+
+    # ---- v3.1：余额盯梢（别处花费） ----
+
+    def _balance_watch_arm(self):
+        """启动盯梢（间隔取自 config；加载时已夹到 1~60 分钟）"""
+        try:
+            mins = int(getattr(self, 'balance_watch_minutes', 5) or 5)
+            self.balance_watch_timer.start(max(60000, mins * 60000))
+            log.info('余额盯梢已启动：每 %d 分钟查一次（balance_watch=false 可关）', mins)
+        except Exception as e:
+            log.debug('余额盯梢启动失败：%s', e)
+
+    def _balance_watch_tick(self):
+        """定时查余额（**不看自己有没有调用过**）→ 别处花钱也能被发现
+
+        旧机制只在「自己调用完 + 缓存过期」时才查 → 别的程序花钱时永远发现不了。
+        """
+        if not getattr(self, 'balance_watch', False):
+            return
+        if getattr(self, '_balance_busy', False):
+            return
+        self._query_balance_async(manual=False)
+
+    def toggle_balance_watch(self):
+        """开关「别处花费提醒」（右键 📈 API 用量 → 别处花费提醒）"""
+        self.balance_watch = not getattr(self, 'balance_watch', False)
+        try:
+            self._save_cfg_value('balance_watch', self.balance_watch)
+        except Exception as e:
+            log.debug('余额盯梢开关保存失败：%s', e)
+        if self.balance_watch:
+            self._notify('别处花费提醒：已开启（每 %d 分钟查一次余额）'
+                         % int(getattr(self, 'balance_watch_minutes', 5) or 5),
+                         ms=self.BALANCE_NOTIFY_MS)
+        else:
+            self._notify('别处花费提醒：已关闭', ms=self.BALANCE_NOTIFY_MS)
+
+    def _own_cost_since(self, since_at):
+        """本机（桌宠自己）从 since_at 到现在的花费；None = 无法归因（不编数字）"""
+        try:
+            import datetime as _dt
+            since = _dt.datetime.strptime(str(since_at), '%Y-%m-%d %H:%M:%S')
+        except Exception as _exc:
+            _silent_log('_own_cost_since:since', _exc)
+            return None
+        try:
+            with self.api_stats.lock:
+                calls = list(self.api_stats.calls)
+        except Exception as _exc:
+            _silent_log('_own_cost_since:calls', _exc)
+            return None
+        total = 0.0
+        for c in calls:
+            try:
+                t = _dt.datetime.strptime(str(c.get('time')), '%Y-%m-%d %H:%M:%S')
+            except Exception as _exc:
+                _silent_log('_own_cost_since:entry', _exc)
+                continue
+            if t >= since:
+                total += float(c.get('cost') or 0)
+        return total
+
+    def _report_other_spend(self, prev, info):
+        """余额盯梢：**别处**用同一个账户花了钱 → 冒一个关心气泡（不进对话历史）
+
+        口径：别处花费 ≈ 余额差 − 本机这段时间的记录花费
+        - 差额 ≤ 0（充值 / 没变化）→ 不报
+        - 扣掉本机后 < BALANCE_WATCH_MIN（1 分）→ 不报（采样噪声）
+        - 旧快照超过 BALANCE_WATCH_MAX_WINDOW → 不归因
+        局限（接口层面，改不了）：只有账户总额，**没有按应用分项**
+        → 只能说「别处用了约 ¥X」，说不出「是哪个软件」。
+        """
+        try:
+            if not getattr(self, 'balance_watch', False):
+                return
+            new_total = info.get('total')
+            if new_total is None:
+                return
+            import datetime as _dt
+            # v3.1c（WX-107 §2）：基线 = **上次已结清**的点，与显示缓存解耦。
+            #   旧实现直接拿 prev（上一次查询）当基线，而 _on_balance_result 已经
+            #   先 set_balance 推进了缓存 ⇒ 任何 early-return 都让这段差额**永久丢失**
+            #   （小额高频：每次 ¥0.004，一小时 ¥0.048 永远不报）。
+            #   现在被挡下时不推进基线 → 差额自然累计到下一次。
+            base_at = getattr(self, '_bw_base_at', None)
+            base_total = getattr(self, '_bw_base_total', None)
+            if base_at is None or base_total is None:
+                # 首次：用调用方给的旧快照当基线（测试与真机同一入口）
+                if not isinstance(prev, dict) or not prev.get('at') or prev.get('total') is None:
+                    return
+                try:
+                    base_at = _dt.datetime.strptime(str(prev.get('at')), '%Y-%m-%d %H:%M:%S')
+                except Exception as _exc:
+                    _silent_log('_report_other_spend:prev_at', _exc)
+                    return
+                base_total = float(prev.get('total'))
+            now = _dt.datetime.now()
+            # 余额上升（充值 / 回冲）→ 重置基线，不报
+            # ⚠（WX-108 §3.1）接口只给余额快照、不给交易流水，
+            #   **同窗口内既有充值又有消费时无法分离** —— 这段消费会被吞。
+            #   无解，但必须留痕：与「窗口超限」那条对齐（同为放弃归因，
+            #   不能一条留 log、一条静默，自己内部就不一致）。
+            if float(new_total) > float(base_total):
+                log.info('余额盯梢：检测到余额上升（¥%.4f → ¥%.4f），重置基线；'
+                         '若该窗口内同时有消费，此段不归因（接口无流水，无法分离）',
+                         float(base_total), float(new_total))
+                self._bw_settle(now, new_total)
+                return
+            # 窗口过长 → 重置（说不清是谁花的，宁可不说，也不编）
+            if (now - base_at).total_seconds() > self.BALANCE_WATCH_MAX_WINDOW:
+                log.info('余额盯梢：窗口已超 %d 秒，重置基线（这段不归因）',
+                         int(self.BALANCE_WATCH_MAX_WINDOW))
+                self._bw_settle(now, new_total)
+                return
+            diff = float(base_total) - float(new_total)
+            if diff <= 0:
+                return                       # 没变化：**不推进基线**
+            own = self._own_cost_since(base_at.strftime('%Y-%m-%d %H:%M:%S'))
+            if own is None:
+                return                       # 无法归因 → 不编数字，也不推进（下次再试）
+            other = diff - own
+            if other < self.BALANCE_WATCH_MIN:
+                return                       # 不足 1 分：**不推进基线** → 累计
+            if (time.time() - float(getattr(self, '_balance_watch_last', 0) or 0)) < self.BALANCE_WATCH_GAP:
+                return                       # 防刷屏：**不推进基线** → 累计
+            # —— 到这里才真正上报并结清 ——
+            self._balance_watch_last = time.time()
+            self._bw_settle(now, new_total)
+            log.info('余额盯梢：别处花费约 ¥%.4f（余额差 ¥%.4f − 本机 ¥%.4f，%s → %s）',
+                     other, diff, own, base_at.strftime('%H:%M'), now.strftime('%H:%M'))
+            # 余额一并带上：否则「报了花费、余额一位没动」会让人以为没生效
+            # （余额接口只有 2 位小数 —— 实测 /user/balance 返回 "11.97"，
+            #   所以这里按源精度显示 2 位，不做假的 3 位精度）
+            _bal = ''
+            try:
+                _bal = self.api_stats.balance_text()
+            except Exception as _exc:
+                _silent_log('_report_other_spend:balance_text', _exc)
+            # 金额保持 4 位（Owner 2026-10-24 明确要求「小数只有两位」要改）；
+            # 余额按接口源精度 2 位（实测 /user/balance 返回 "11.97"）
+            self.say_care('别处用了约 ¥%.4f（%s → %s）%s'
+                          % (other, base_at.strftime('%H:%M'), now.strftime('%H:%M'),
+                             ('，余额 ' + _bal) if _bal else ''),
+                          kind='care', mark_purpose=False)
+        except Exception as _exc:
+            _silent_log('_report_other_spend', _exc)
+
+    def _bw_settle(self, at, total):
+        """结清基线：只有「已上报」或「必须重置」时才调（v3.1c）"""
+        self._bw_base_at = at
+        self._bw_base_total = float(total)
 
     def _maybe_low_balance_alert(self, info):
         """余额低于阈值提醒一次（每天最多一次）；阈值可在设置里手改"""
@@ -9024,6 +9681,8 @@ class PetWidget(QWidget):
 
     def _open_settings(self, page=0):
         """打开统一设置窗口（page 指定初始分类）"""
+        # v3.1e（WX-108 §6.2）：设置页里「统计悬浮窗」按钮应把 dlg 传进来
+        #   （显式传参优先于 activeModalWidget 探测；设置页自己知道在模态中）
         dlg = SettingsDialog(self, MODEL_REGISTRY, parent=self)
         try:
             if 0 <= int(page) < dlg.nav.count():
@@ -9050,7 +9709,7 @@ class PetWidget(QWidget):
 
         # 2. 互动：只放「做一件事」（动作 / 玩法 / 开关）
         imenu = menu.addMenu(T('menu_interact'))
-        imenu.addAction(T('say')).triggered.connect(lambda: self.say_random())
+        imenu.addAction(T('say')).triggered.connect(lambda: self.say_random(into_history=True))
         imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
         imenu.addAction(T('random')).triggered.connect(lambda: self.random_action())
         imenu.addSeparator()
@@ -9139,7 +9798,12 @@ class PetWidget(QWidget):
         stmenu.addSeparator()
         umenu = stmenu.addMenu('📈 API 用量')
         umenu.addAction('📊 统计悬浮窗').triggered.connect(lambda: self._toggle_api_stats_window())
+        umenu.addAction('📈 用量分析…').triggered.connect(lambda: self._open_usage_stats())
         umenu.addAction('💰 查询余额').triggered.connect(lambda: self._query_balance_async(True))
+        _bw = umenu.addAction('🔔 别处花费提醒')
+        _bw.setCheckable(True)
+        _bw.setChecked(bool(getattr(self, 'balance_watch', True)))
+        _bw.triggered.connect(self.toggle_balance_watch)
         umenu.addAction('📈 按模型统计').triggered.connect(self._show_model_stats)
         umenu.addAction('🔄 查看统计历史').triggered.connect(self._show_api_stats_history)
 

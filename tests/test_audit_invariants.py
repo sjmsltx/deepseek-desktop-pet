@@ -105,7 +105,8 @@ def test_official_tools_are_exposed():
 def test_counts_match_docs():
     import tools_registry as tr
     import settings_ui as su
-    assert len(tr.AI_TOOLS) == 32, len(tr.AI_TOOLS)
+    # v3.6（2026-10-24）：加第 33 个工具 say_bubble（AI 可调用气泡）
+    assert len(tr.AI_TOOLS) == 33, len(tr.AI_TOOLS)
     assert len(su.PAGES) == 10, len(su.PAGES)
     txt = (open(os.path.join(BASE, 'README.md'), encoding='utf-8').read() +
            open(os.path.join(BASE, 'CHANGELOG.md'), encoding='utf-8').read())
