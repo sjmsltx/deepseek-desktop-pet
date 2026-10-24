@@ -5944,15 +5944,67 @@ class PetWidget(QWidget):
                      + ('；其中 %d 次是价格未知的估算' % unk if unk else ''))
         QMessageBox.information(self, '按模型统计', '\n'.join(lines))
 
+    def _close_usage_stats(self):
+        """关掉「用量分析」窗口（设置面板关闭时自动调用）
+
+        为什么需要它（Owner 2026-10-24 实测）：
+          把 dlg 的 parent 设成设置面板，本以为 parent 关掉时会连带关闭；
+          实测 **QDialog 是顶层窗口，parent.hide() 不会隐藏它**
+          ⇒ 留下一个孤儿窗口浮在桌面上，用户还得手动关第二次。
+        """
+        dlg = getattr(self, '_usage_stats_dlg', None)
+        self._usage_stats_dlg = None
+        if dlg is None:
+            return
+        try:
+            dlg.close()
+        except Exception as _exc:
+            # RuntimeError = C++ 对象已被 parent 连带销毁（Qt 语义），属预期内：
+            #   此时只剩 Python wrapper，close() 必然抛，清引用即可，不必落错误日志。
+            #   其余异常才是真问题，必须留痕（对齐 test_silent_guard 的护栏口径）。
+            if not isinstance(_exc, RuntimeError):
+                _silent_log('_close_usage_stats', _exc)
+
     def _open_usage_stats(self, parent=None):
-        """打开「📈 用量分析」大窗（按天表格 + 柱状趋势 + 用途/模型占比）
+        """打开/关闭「📈 用量分析」大窗（按天表格 + 柱状趋势 + 用途/模型占比）
 
         v3.4（Owner 2026-10-24「统计更丰富一点，比如花到哪个模块、时间啊」）
         与「📊 统计悬浮窗」分工：小窗=实时看今日，本窗=看历史趋势。
 
-        ``parent``：设置页会显式传自己（应用级模态），右键菜单不传走探测 ——
-        与 `_toggle_api_stats_window` 同一口径（v3.1d 那个「看得见点不动」的坑）。
+        ``parent``：设置页会显式传自己，右键菜单不传走探测。
+
+        ⚠ v3.6e（Owner 2026-10-24 报的真问题）：**必须非模态 show()，不能用 exec()**
+          原实现 `dlg.exec()` 是应用级模态，会 disable 它的 parent（设置面板）
+          ⇒ **设置面板的「关闭」按钮点不到**，用户想关整个设置却关不掉。
+
+          这是我自己写出来的：v3.4 为了躲 v3.1d 那个「看得见点不动」，
+          用了 exec() 让它能激活 —— 结果制造了反向问题「父窗关不掉」。
+
+          为什么不用 WindowModal：同样会挡 parent，症状不变。
+          用量分析是**只读查看窗**（不写文件、不改统计值），
+          没有「必须先处理完」的语义，**不该阻塞任何操作**。
+
+          toggle 语义（与「📊 统计悬浮窗」一致）：已有窗开着时再点一次 = 关掉，
+          避免连点开出多个窗。
+
+          parent 仍传：设置面板关闭时，子窗跟着消失
+          ⇒ 用户点设置「关闭」= 整个设置连同用量分析一起关，符合直觉。
         """
+        # toggle：已有窗 → 关掉它
+        _existing = getattr(self, '_usage_stats_dlg', None)
+        if _existing is not None:
+            try:
+                if not _existing.isHidden():
+                    _existing.close()
+                    self._usage_stats_dlg = None
+                    return
+            except RuntimeError:
+                # C++ 侧已被 parent 连带销毁（Qt 对象失效）→ 清引用后当没有
+                self._usage_stats_dlg = None
+            except Exception as _exc:
+                _silent_log('_open_usage_stats:toggle', _exc)
+                self._usage_stats_dlg = None
+
         _modal = parent
         if _modal is None:
             try:
@@ -5963,8 +6015,20 @@ class PetWidget(QWidget):
         try:
             from stats_ui import UsageStatsDialog
             dlg = UsageStatsDialog(self, parent=_modal)
-            dlg.exec()
+            # show() 后必须留强引用，否则 Python GC 会把窗口收走（窗口闪一下就没了）
+            self._usage_stats_dlg = dlg
+            dlg.show()
+            # ⚠ 设置面板关闭时**主动**关掉本窗（实测：QDialog 作为 parent 的子窗，
+            #   parent.hide() 不会连带隐藏它 —— 会留一个孤儿窗口浮在桌面上）。
+            #   用 UniqueConnection 防重复连接累积；非 QDialog 无 finished 则跳过。
+            if _modal is not None:
+                try:
+                    from PySide6.QtCore import Qt as _Qt2
+                    _modal.finished.connect(self._close_usage_stats, _Qt2.UniqueConnection)
+                except Exception as _exc:
+                    _silent_log('_open_usage_stats:connect_finished', _exc)
         except Exception as _exc:
+            self._usage_stats_dlg = None
             _silent_log('_open_usage_stats', _exc, user_facing=True)
 
     def _toggle_api_stats_window(self, parent=None):

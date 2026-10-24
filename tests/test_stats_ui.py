@@ -207,8 +207,12 @@ def test_open_usage_stats_passes_parent_at_construction():
     import os as _os
     root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
     src = _io.open(_os.path.join(root, 'desktop_pet.py'), encoding='utf-8').read()
+    # ⚠ 切片长度必须够（v3.6e）：函数加了 toggle/非模态说明后变长，
+    #   原来截 1200 字符会切掉 activeModalWidget 探测 → 假红。
+    #   改用「到下一个同级 def 为止」的边界，不靠固定字符数。
     i = src.index('def _open_usage_stats')
-    body = src[i:i + 1200]
+    _j = src.find('\n    def ', i + 10)
+    body = src[i:_j if _j > i else i + 4000]
 
     assert 'activeModalWidget()' in body, (
         '右键路径（不传 parent）丢失了 activeModalWidget 探测 '
@@ -249,3 +253,82 @@ def test_usage_stats_modal_path_clickable_not_blocked():
     finally:
         dlg.deleteLater()
         modal.deleteLater()
+
+# ---------- v3.6e：用量分析不得挡住设置面板（Owner 2026-10-24 报的真问题）----------
+
+def test_usage_stats_is_not_modal():
+    """用量分析必须是**非模态**（show），不能用 exec()
+
+    Owner 原话：「打开用量分析窗口之后想要关闭设置面板，但点击设置面板的
+                关闭按钮关不掉。」
+
+    根因：`dlg.exec()` 是应用级模态，会 disable 它的 parent（设置面板）
+        ⇒ 设置面板的「关闭」按钮点不到 ⇒ 用户想关整个设置却关不掉。
+
+    这是我自己写出来的：v3.4 为了躲 v3.1d 那个「看得见点不动」用了 exec()，
+    结果制造了反向问题「父窗关不掉」。
+
+    ⚠ 判据说明（我这边出过两次错，写在测试里当反例）：
+      第一次用 show() 代替 exec() 去测四条路径，全部「能关」——
+      **测的不是真实路径**，等于没测。
+      所以这条直接断言源码形态，不靠行为模拟。
+    """
+    import io as _io
+    import os as _os
+    import tokenize as _tk
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    src = _io.open(_os.path.join(root, 'desktop_pet.py'), encoding='utf-8-sig').read()
+
+    # 剥注释与 docstring：上一版只剥行内 '#'，结果命中了函数 docstring 里
+    # 那句「原实现 dlg.exec() 是应用级模态」⇒ 假红（自指的又一种形态）。
+    toks = list(_tk.generate_tokens(_io.StringIO(src).readline))
+    kept = []
+    for tk in toks:
+        if tk.type in (_tk.COMMENT, _tk.STRING):
+            continue
+        kept.append(tk.string if tk.type != _tk.NEWLINE else ' ')
+    flat = ''.join(kept).replace(' ', '')
+
+    i = flat.find('def_open_usage_stats(')
+    assert i != -1, '_open_usage_stats 不见了'
+    j = flat.find('def_', i + 30)
+    body = flat[i:j if j > i else i + 2500]
+
+    assert 'dlg.exec()' not in body, (
+        '_open_usage_stats 又用 exec() 了 —— 它会 disable 设置面板，'
+        '用户点不到「关闭」按钮（Owner 2026-10-24 报过的原问题）')
+    assert 'dlg.show()' in body, '应改用非模态 show()'
+
+
+def test_settings_close_also_closes_usage_stats():
+    """设置面板关闭时必须**主动**关掉用量分析（否则留孤儿窗口）
+
+    实测结论：QDialog 即使 parent 设成设置面板，parent.hide() 也**不会**
+    连带隐藏它 —— 它是顶层窗口。所以必须显式关。
+    """
+    import io as _io
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    src = _io.open(_os.path.join(root, 'desktop_pet.py'), encoding='utf-8-sig').read()
+
+    assert 'def _close_usage_stats' in src, '缺少 _close_usage_stats'
+    assert '_modal.finished.connect(self._close_usage_stats' in src, (
+        '没有把设置面板的 finished 接到 _close_usage_stats '
+        '⇒ 设置关掉后用量分析会留在桌面上')
+
+
+def test_usage_stats_toggle_semantics():
+    """再点一次入口应关掉已有窗口（toggle），不累积多个窗口
+
+    与「📊 统计悬浮窗」保持同一交互口径。
+    """
+    import io as _io
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    src = _io.open(_os.path.join(root, 'desktop_pet.py'), encoding='utf-8-sig').read()
+    i = src.index('def _open_usage_stats')
+    body = src[i:i + 3000]
+    # 断言要精确到赋值本身：只查 "_usage_stats_dlg" 子串，
+    # 会把 `= None` 那几处也算通过 → 删掉真正的强引用照样绿（证伪抓到的）。
+    assert 'self._usage_stats_dlg=dlg' in body.replace(' ', ''), '缺少 self._usage_stats_dlg = dlg（无强引用，窗口会被 GC 收走）'
+    assert 'toggle' in body or '_existing' in body, '缺少 toggle 语义（重复点击会开出多个窗）'
