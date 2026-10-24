@@ -5801,7 +5801,26 @@ class PetWidget(QWidget):
             self._api_stats_win = None
             return
         from PySide6.QtWidgets import QVBoxLayout as _VL, QProgressBar, QPushButton
-        win = QWidget()
+
+        # v3.1d（Owner 2026-10-24 反馈「设置面板开着时统计窗关不掉」）：
+        #   设置面板是 `dlg.exec()` = **应用级模态**，而这里原来建的是**无 parent**
+        #   顶层窗。真机实测（收件箱/02-加工/实测-模态是否挡住统计窗.py）：
+        #     activeModalWidget=QDialog 期间，无父窗 activateWindow 后**仍不是活动窗**
+        #   ⇒ 加了 WindowStaysOnTopHint 就成了「看得见、点不动」，必须先关设置。
+        #
+        #   ⚠ 必须**构造时**传 parent：对照实验（对照-建窗方式与模态.py）三种写法
+        #     A 先 QWidget() 再 setParent(dlg) → 仍不能激活 ✗
+        #     B QWidget(dlg) 构造带 parent     → 能激活     ✓
+        #     C QWidget() 无 parent            → 不能激活 ✗
+        #   ⇒ 所以先探测模态窗，再决定构造参数；不能建完再 setParent。
+        _modal = None
+        try:
+            from PySide6.QtWidgets import QApplication as _QA
+            _modal = _QA.activeModalWidget()
+        except Exception as _exc:
+            _silent_log('_toggle_api_stats_window:modal', _exc)
+
+        win = QWidget(_modal) if _modal is not None else QWidget()
         win.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
                            Qt.Tool | Qt.NoDropShadowWindowHint)
         win.setAttribute(Qt.WA_TranslucentBackground)
@@ -6030,6 +6049,29 @@ class PetWidget(QWidget):
             win.move(40, 40)
         win.show()
         self._api_stats_win = win
+
+        if _modal is not None:
+            def _release_from_modal():
+                """设置面板关闭 → 统计窗脱离父关系继续独立存活（v3.1d）
+
+                不这样做的话，parent=dlg 的窗口会随 dlg 一起销毁/隐藏，
+                用户会以为「关掉设置，统计窗自己没了」。
+                setParent(None) 在 Qt 里会隐藏窗口，故随后 show() + 复位位置。
+                """
+                try:
+                    if self._api_stats_win is not win:
+                        return
+                    _pos = win.pos()
+                    win.setParent(None)
+                    win.move(_pos)
+                    win.show()
+                except Exception as _exc:
+                    _silent_log('_toggle_api_stats_window:release', _exc)
+            try:
+                _modal.finished.connect(_release_from_modal)
+            except Exception as _exc:
+                # 非 QDialog（没有 finished 信号）→ 只能接受"随模态窗一起消失"
+                _silent_log('_toggle_api_stats_window:connect_finished', _exc)
 
     def _new_bubble(self, who, ts, is_user=False, text=''):
         """创建消息气泡（头部名字+时间+操作按钮 + 空内容区），追加到消息流（v6.19 微信式左右布局）
