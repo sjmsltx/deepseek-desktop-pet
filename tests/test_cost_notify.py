@@ -51,8 +51,18 @@ def test_cost_goes_to_bubble_with_long_hold():
     txt = p.bubble.text()
     assert '本次' in txt and '今日' in txt, '气泡应显示本次+今日：%r' % txt
     assert '−¥0.0032' in txt or '-¥0.0032' in txt, '应含本次金额（4 位小数）：%r' % txt
-    assert p.bubble_hide_timer.interval() >= 6000, \
-        '费用提示停留应 ≥6 秒，实际 %d ms' % p.bubble_hide_timer.interval()
+    # v3.6 fix（WX-111 §6）：text() 有内容 ≠ 气泡可见
+    #   （Qt 里 setText 之后不 show()，text() 照样返回文本）
+    assert not p.bubble.isHidden(), '费用提示气泡应显示出来（只设文本不算）'
+    _iv = p.bubble_hide_timer.interval()
+    assert _iv >= 6000, '费用提示停留应 ≥6 秒，实际 %d ms' % _iv
+    # v3.6 fix（WX-111 §6）：补上限。_on_cost_bubble 明确传 ms=COST_NOTIFY_MS，
+    # 所以应该是**这个值**，不是「≥6 秒」——否则把常量改成 60 秒也照样绿
+    # （我第一版就漏在这里：注入 COST_NOTIFY_MS=60000 时，两条用例都没红）。
+    assert _iv == p.COST_NOTIFY_MS, \
+        '费用提示停留 %d ms ≠ COST_NOTIFY_MS %d ms' % (_iv, p.COST_NOTIFY_MS)
+    assert _iv <= 15000, \
+        '费用提示停留 %d ms 过长（提示会一直挂在屏幕上）' % _iv
 
 
 def test_cost_does_not_create_top_bubble():

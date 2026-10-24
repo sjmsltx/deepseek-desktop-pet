@@ -66,8 +66,67 @@ def test_status_bar_auto_hide_timer():
     p = _pet()
     p._notify('会自动消失')
     assert p.bubble_hide_timer.isActive(), '气泡应启动自动隐藏计时'
-    assert p.bubble_hide_timer.interval() >= p.BUBBLE_HOLD_MIN_MS, \
-        '气泡停留不应短于下限 %d ms' % p.BUBBLE_HOLD_MIN_MS
+    _iv = p.bubble_hide_timer.interval()
+    # v3.6 fix（WX-111 §6）：原来只验下限，丢了上限 ⇒「停留 60 秒」这种 bug 抓不到。
+    #
+    # ⚠ 我第一版在这里瞎猜了个 `BUBBLE_MS_PER_CHAR` 常量（**不存在**），
+    #   getattr 兜底成 200 ⇒ 算出一个假上限，注入「停留 60 秒」时**照样绿**。
+    #   真实算法在 _bubble_hold_ms()：max(HOLD_MIN, 字数 × HOLD_PER_CHAR + HOLD_BASE)。
+    #   既然是确定性算法，就用**精确值**断言，不用区间。
+    _expect = max(p.BUBBLE_HOLD_MIN_MS,
+                  len('会自动消失') * p.BUBBLE_HOLD_PER_CHAR + p.BUBBLE_HOLD_BASE_MS)
+    assert _iv == _expect, \
+        '气泡停留 %d ms ≠ 算法算出的 %d ms（提示会挂太久或一闪而过）' % (_iv, _expect)
+
+
+def test_busy_not_full_still_visible_to_user():
+    """AI 说话期间（忙但队列未满）状态提示必须仍然可见（v3.6 修 P0）
+
+    事故（WX-111 §2 报的，我自己复现确认）：
+      回落条件只写了「忙 **且** 队列满」，漏了「忙但未满」。
+      此时 say_plain 走排队分支（不立即显示），本应回落状态条，
+      但 _notify_via_bubble 却返回 True ⇒ _notify 把状态条 hide 掉
+      ⇒ **气泡还停在上一句、状态条被收起，两条通道同时不可用**。
+
+    实测三场景（收件箱/02-加工/复现-P0忙未满.py）：
+      A 空闲     → 用户可见 ✓
+      B 忙未满   → 用户看不到 ✗  ← 这个洞
+      C 忙已满   → 用户可见 ✓
+
+    为什么重要：_speak_busy 时长 = AI 逐字回答全程（几秒到几十秒），
+    这段时间用户完全可能点保存、查余额、备份记忆 —— 那些提示一个都看不见。
+    """
+    p = _pet()
+    msg = '💾 记忆已备份'
+    # 模拟「AI 正在说话」：忙，但队列没满
+    p._speak_busy = True
+    p._speak_queue = []
+    p.bubble.setText('AI 正在回答中……')
+    p.bubble.show()
+    p.status_bar.hide()
+
+    p._notify(msg)
+
+    bar_visible = not p.status_bar.isHidden()
+    bubble_shows_msg = msg in p.bubble.text()
+    assert bar_visible or bubble_shows_msg, (
+        '忙但队列未满时，提示对用户完全不可见：\n'
+        '  状态条可见=%s（文本 %r）\n  气泡可见=%s（文本 %r）\n'
+        '  ⇒ 两条通道同时失效（这正是 P0）'
+        % (bar_visible, p.status_bar.text(), not p.bubble.isHidden(), p.bubble.text()))
+
+
+def test_busy_always_falls_back_not_queue():
+    """忙的时候一律回落状态条，不排队（v3.6 修法的直接断言）
+
+    理由：状态提示的价值在**即时**，「保存失败」晚 20 秒出现等于没出现。
+    """
+    p = _pet()
+    p._speak_busy = True
+    p._speak_queue = []
+    ok = p._notify_via_bubble('测试', None)
+    assert ok is False, '忙的时候 _notify_via_bubble 应返回 False（叫调用方回落状态条）'
+    assert p._speak_queue == [], '不应把状态提示排进气泡队列（排了就等于延迟显示）'
 
 
 def test_long_notify_still_uses_status_bar():
@@ -116,11 +175,28 @@ def test_source_guard_system_notices_moved_out():
     assert not offenders, '以下系统话术又写回聊天列表了：%s' % offenders
 
 
+# _notify 调用点基线（2026-10-24 v3.6 实测 desktop_pet.py = 125）
+#
+# ⚠ 为什么从 55 提到 125（WX-111 §3 报的）：
+#   原来写 `>= 55`，而实测 125 ⇒ 余量 70，**删掉 56% 的调用点都不报警**。
+#   这条护栏的用途正是「v3.3 那次迁移不能被悄悄回退」，结果它拦不住任何回退。
+#   错误消息里的「从 64 掉到」也是更早期的数字，早过时 —— 一并改掉。
+_NOTIFY_BASELINE = 125
+_NOTIFY_FLOOR = 118        # 留 7 处余量：正常重构里合并/删除零散提示远到不了
+
+
 def test_source_guard_notify_widely_used():
-    """迁移不能被悄悄回退：_notify 调用点应保持在一个下限之上"""
+    """迁移不能被悄悄回退：_notify 调用点不得跌破基线"""
     src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     n = src.count('self._notify(')
-    assert n >= 55, '_notify 调用点从 64 掉到 %d，疑似被回退' % n
+    assert n >= _NOTIFY_FLOOR, (
+        '_notify 调用点从基线 %d 掉到 %d（下限 %d），疑似被回退'
+        '（v3.3 把系统提示统一走人物气泡，这条防它被改回去）'
+        % (_NOTIFY_BASELINE, n, _NOTIFY_FLOOR))
+    # 反向也要防：基线本身不得与实测长期脱节，否则护栏又变自我安慰
+    assert n <= _NOTIFY_BASELINE * 1.5, (
+        '_notify 调用点已涨到 %d，远超基线 %d —— 基线上调，否则余量又虚了'
+        % (n, _NOTIFY_BASELINE))
 
 def test_queue_full_falls_back_to_status_bar():
     """气泡队列满时回落底部状态条 —— **信息不能丢**（v3.3 设计要点）

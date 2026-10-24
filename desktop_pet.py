@@ -5661,14 +5661,29 @@ class PetWidget(QWidget):
 
         退回的两种情形（都**不丢信息**）：
         1. 气泡控件还没建好（启动早期）
-        2. 气泡队列已满 —— `say_plain` 在 `_speak_busy` 且队列满时会**静默丢弃**，
-           状态提示（保存结果/失败原因）比闲聊重要，宁可回落状态条也不让它消失
+        2. 气泡正被占用（`_speak_busy`）—— 见下
+
+        ⚠ v3.6 fix（WX-111 §2 报的 P0，我自己复现确认）：
+          原来只判「忙 **且** 队列满」，漏了「忙但未满」这一种。此时 say_plain
+          走的是排队分支（不立即显示），本方法却返回 True ⇒ `_notify` 把状态条
+          hide 掉 ⇒ **气泡还停在上一句、状态条被收起，两条通道同时不可用**，
+          用户在这段时间里什么都看不到。
+          实测（复现-P0忙未满.py）：
+            A 空闲     → 用户可见 ✓
+            B 忙未满   → 用户看不到 ✗  ← 就是这个洞
+            C 忙已满   → 用户可见 ✓
+          AI 逐字回答期间 `_speak_busy` 会长达几秒到几十秒，而这段时间用户完全
+          可能点保存、查余额、备份记忆 —— 那些提示一个都看不见。
+
+          修法：**忙就一律回落状态条**。状态提示的价值在于「即时」，
+          "保存失败"晚 20 秒出现等于没出现。
+          （真排队也行，但那就不能 hide 状态条，否则又变成「气泡和状态条
+            同一句话显示两遍」—— 那是第 1 处断言禁止的。）
         """
         try:
             if getattr(self, 'bubble', None) is None:
                 return False
-            if getattr(self, '_speak_busy', False) and \
-                    len(getattr(self, '_speak_queue', []) or []) >= self.BUBBLE_QUEUE_MAX:
+            if getattr(self, '_speak_busy', False):
                 return False
             self.say_plain(text, immediate=True)
             # ms 明确给了 → 覆盖气泡按字数算的停留（否则 8 秒的提示会被缩短到 6 秒）
