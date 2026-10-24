@@ -188,3 +188,19 @@ def test_cache_line_states_range_days(tmp_path):
         assert '按所选范围 2 天' in txt, '缓存行应标范围天数，实际：%r' % txt
     finally:
         d.close()
+
+def test_model_line_states_lifetime_scope(tmp_path):
+    """模型行必须标「终身口径」—— model_breakdown 不随范围变化
+
+    为什么锁：用户选了「近 7 天」，模型行却还是终身累计数。
+    不标的话会以为这行也是 7 天的 —— 又是最容易被误读的那类数。
+    """
+    d = _mk(tmp_path, {'2026-10-24': _day(0.01, 1, hit=10, miss=10)})
+    try:
+        d.host.api_stats.by_model = {'deepseek-flash': {'count': 99, 'cost': 1.23,
+                                                        'prompt': 100, 'completion': 10}}
+        d.reload()
+        txt = d.lb_model.text()
+        assert '终身' in txt, '模型行应标终身口径，实际：%r' % txt
+    finally:
+        d.close()

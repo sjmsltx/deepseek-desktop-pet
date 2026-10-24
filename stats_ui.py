@@ -510,7 +510,9 @@ class UsageStatsDialog(QDialog):
                                      float(r.get('cost') or 0))
                  for r in rows[:4]]
         more = '…' if len(rows) > 4 else ''
-        self.lb_model.setText('累计按模型：' + ' ｜ '.join(parts) + more)
+        # ⚠ 标「终身口径」：model_breakdown 是终身累计，**不随范围选择变化**。
+        #   不标的话用户选了「近 7 天」会以为这行也是 7 天的数。
+        self.lb_model.setText('累计按模型（终身，不随范围变化）：' + ' ｜ '.join(parts) + more)
 
     @staticmethod
     def _fmt_num(n):
