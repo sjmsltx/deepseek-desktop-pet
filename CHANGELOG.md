@@ -233,6 +233,53 @@
   `test_panel_shell::test_from_panel_true_wired_in_host`（待办面板改由 factory 造，
   接收者由 self 变 host）。
 
+#### 修复（asr_* 配置从来没被加载）
+
+- **现象**：在 设置 → 语音输入设置 里把识别后端切到 winh / whisper / http，
+  当次生效、也写进了 config.json，但**重启后又回到 auto**。
+  使用者感受是「同一套设置一会儿行一会儿不行」。
+- **根因**：`_load_ai_config()` 里加载了 7 个 `voice_*` 键，**asr_* 一个都没有**；
+  而构造参数用的是 `getattr(self, 'asr_backend', 'auto')` ⇒ 属性不存在时永远拿到 `auto`。
+  实测 `hasattr(p, 'asr_backend')` 为 False。
+- **修法**：与 voice_* 同体例把 asr_* 全组加载进来并同步到引擎；语言变了作废能力缓存。
+
+#### 修复（语音输出会静默换声线）
+
+- **现象**：「配的是晓晓，念出来却是别人」，而且没人告知。
+- **根因（三条叠加）**：
+  1. 在线合成失败 → `_synth_offline` 把在线声线名**清空**、交给系统挑默认
+     （实测产出与「不指定声线」逐字节相同）；
+  2. `tts_helper.ps1` 里 `if ($v) { SelectVoice }` —— 指定的声线不存在就什么都不做，
+     实测传一个不存在的名字照样出音频、无报错；
+  3. `fell_back` / `last_error` 记了，但**主程序没有一处读**，使用者只能靠听出来。
+- **补充事实**：本机实测在线 `edge-tts` **3/3 全部 403**
+  （`wss://speech.platform.bing.com`），即配置的晓晓**一次都没响过**；
+  未指定兜底声线时实际落到 `Microsoft Kangkang`（**男声**）。
+  已排除时钟偏差（差 2 秒）、token 缺失（包内有 Sec-MS-GEC）、bing 直连异常。
+  本地 7.2.8 / PyPI 最新 7.3.1，是否升级待定。
+- **修法**：
+  - ps1 报出**实际**用的声线（`OK ... voice=Microsoft Huihui bytes=…`），
+    指定声线找不到时输出 `WARN|`；
+  - voice_io 记 `actual_voice` / `actual_engine`，新增 `describe_actual()`；
+  - 新增配置 **`voice_fallback`**：降级时用谁（空 = 系统默认，但会告诉你实际是谁）；
+  - 三个朗读出口（自动朗读 / 朗读上一条 / 试听）后调用 `_voice_note_actual()`，
+    换人明确提示一次，同一情况按内容去重不刷屏。
+
+#### 顺带修掉的判据缺陷
+
+- `test_voice.py` 里用 `src.split('def _synth_offline(')[1][:1200]` 取「函数前 1200 字符」
+  作窗口 —— 给函数加 4 行注释就能把要断言的行挤出窗口（加注释就红、删注释就绿，
+  判据与它要判断的东西无关）。改用 `ast.get_source_segment` 取整个函数体，
+  本文件 3 处同类写法一并改。
+
+#### 已知 flaky（会让「全量绿」这个口径不可信）
+
+- `test_a_stage::test_c5_err_appends_err_code_keeps_old_fields`：
+  起 HTTP server 后 `time.sleep(0.3)` 等就绪，机器忙时不够。
+- `test_write_endpoints::test_pending_endpoint_works_without_enable_actions`：
+  fixture 起 server 后**没有等就绪**就 yield，偶发 `WinError 10053 连接被中止`。
+- 两条单独跑都绿。建议统一改成「轮询端口就绪」，待下一轮做。
+
 #### 遗留（诚实标注）
 
 - `status_panel.py` 现在没有任何地方注册它了（文件与它的 5 条行为测试都还在）。
