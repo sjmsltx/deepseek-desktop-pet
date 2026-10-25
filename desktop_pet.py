@@ -960,16 +960,8 @@ class PetWidget(QWidget):
         self._echo_display_history()  # 面板已就绪，回显上次会话历史
         self.weather_signal.connect(self._on_weather_result)
         self.ocr_signal.connect(self._on_ocr_result)
-        # 应用显示模式（config 为 live2d 时直接启用，不弹提示）
-        if getattr(self, 'display_mode', 'static') == 'live2d':
-            w = self._create_l2d_embedded()
-            if w is not None:
-                self.pet_stack.addWidget(w)
-                self._l2d_widget = w
-                self.pet_stack.setCurrentWidget(w)
-                self.bubble.raise_()
-            else:
-                self.display_mode = 'static'
+        # 应用显示模式（config 为 live2d 时直接启用）
+        self._apply_display_mode()
 
 
     # ---------- 窗口 ----------
@@ -4503,21 +4495,67 @@ class PetWidget(QWidget):
             return models[self.live2d_model]
         return None
 
-    def _create_l2d_embedded(self):
-        """创建内嵌 Live2D 显示部件（透明 GL，替代静态立绘区域）"""
+    def _l2d_unavailable_reason(self):
+        """Live2D 起不来的**具体原因**（用于提示，不许静默）—— 2026-10-25
+
+        为什么单独一个函数：原先 `_create_l2d_embedded` 里三处
+        `except Exception: return None` 把原因全吞了，调用方只能给
+        「缺少 live2d-py 或模型文件」这种笼统话术。
+
+        而便携版的真相更具体：`_internal/live2d/v3/` 里只有 `_v3cpp.pyd`，
+        缺 `__init__.py` / `lapp_model.py` / `params.py`，也没有 pyopengl。
+        Python 会把没有 `__init__.py` 的目录当 namespace package ⇒
+        `import live2d.v3` **成功**，`init()` 才炸。若还按老话术提示
+        「去 pip install」，便携版用户根本没有 pip，那是条死路。
+        所以这里把四种情况分开说，并区分便携版与源码运行。
+        """
         model_path = self._live2d_model_path()
         if model_path is None or not os.path.exists(model_path):
+            return '模型文件不存在（assets/live2d/）'
+        try:
+            import live2d.v3 as _l2d
+        except Exception as _exc:
+            _silent_log('_l2d_unavailable_reason', _exc)   # 留痕：不许静默吞
+            if getattr(sys, 'frozen', False):
+                return ('便携版不含 Live2D 运行时（需从源码运行并安装 '
+                        'live2d-py + pyopengl）')
+            return '未安装 live2d-py（pip install live2d-py pyopengl）'
+        if not hasattr(_l2d, 'init') or not hasattr(_l2d, 'LAppModel'):
+            return ('live2d 包不完整（缺 __init__.py / lapp_model.py），'
+                    '请重装 live2d-py')
+        return ''
+
+    def _create_l2d_embedded(self):
+        """创建内嵌 Live2D 显示部件（透明 GL，替代静态立绘区域）
+
+        2026-10-25：失败原因一律落到 `self._l2d_fail_msg`。
+        原先三处 `except Exception: return None` 把原因吞掉，调用方无从解释。
+        """
+        self._l2d_fail_msg = ''
+        model_path = self._live2d_model_path()
+        if model_path is None or not os.path.exists(model_path):
+            self._l2d_fail_msg = '模型文件不存在（assets/live2d/）'
             return None
         try:
             import live2d.v3 as live2d
             from PySide6.QtOpenGLWidgets import QOpenGLWidget
-        except Exception:
+        except Exception as _exc:
+            _silent_log('_create_l2d_embedded.import', _exc)
+            self._l2d_fail_msg = (self._l2d_unavailable_reason()
+                                  or ('依赖导入失败：%s' % _exc))
+            return None
+        # namespace package 陷阱：打包不全时 import 不报错，方法却根本不存在
+        if not hasattr(live2d, 'init') or not hasattr(live2d, 'LAppModel'):
+            self._l2d_fail_msg = ('live2d 包不完整（缺 __init__.py / '
+                                  'lapp_model.py），请重装 live2d-py')
             return None
         if not getattr(self, '_l2d_inited', False):
             try:
                 live2d.init()
                 self._l2d_inited = True
-            except Exception:
+            except Exception as _exc:
+                _silent_log('_create_l2d_embedded.init', _exc)
+                self._l2d_fail_msg = 'live2d.init() 失败：%s' % _exc
                 return None
 
         class L2DPet(QOpenGLWidget):
@@ -4631,6 +4669,34 @@ class PetWidget(QWidget):
                 self.bubble.raise_()
         self._notify(f'🤖 已切换 Live2D 模型：{name}' if not is_en else f'🤖 Switched Live2D model: {name}')
 
+    def _apply_display_mode(self):
+        """启动时应用 config 里的显示模式（2026-10-25 从 __init__ 抽出）
+
+        抽出原因：原先这段埋在 `__init__` 里，测试只能"读代码觉得对"，
+        无法验证。项目规矩是验证要验行为，所以给它一个名字、单独可测。
+
+        关键行为（这一条是本批修的重点）：
+            config 写了 live2d 但实际建不出来时，**不许静默退回静态**。
+            要记录原因并明确告知用户 —— 与「语音在线失败静默换声线」同类问题。
+        """
+        if getattr(self, 'display_mode', 'static') != 'live2d':
+            return
+        w = self._create_l2d_embedded()
+        if w is not None:
+            self.pet_stack.addWidget(w)
+            self._l2d_widget = w
+            self.pet_stack.setCurrentWidget(w)
+            self.bubble.raise_()
+            return
+        # 建不出来：退回静态 + 说清楚为什么
+        self.display_mode = 'static'
+        _why = (getattr(self, '_l2d_fail_msg', '') or '未知原因')
+        log.warning('Live2D 启动降级为静态立绘：%s', _why)
+        try:
+            self._notify('Live2D 未能启用，已显示静态立绘：%s' % _why)
+        except Exception as _exc:
+            _silent_log('_apply_display_mode', _exc)
+
     def _set_display_mode(self, mode):
         """切换显示模式：static 静态立绘 / live2d 模型"""
         if mode not in ('static', 'live2d'):
@@ -4640,7 +4706,13 @@ class PetWidget(QWidget):
             if not hasattr(self, '_l2d_widget') or self._l2d_widget is None:
                 w = self._create_l2d_embedded()
                 if w is None:
-                    self._notify('Live2D 不可用（缺少 live2d-py 或模型文件）' if not is_en else 'Live2D unavailable (missing live2d-py or model)')
+                    # 2026-10-25：原来是一句笼统的「缺少 live2d-py 或模型文件」，
+                    # 便携版用户照它去 pip install 会发现根本没有 pip。
+                    # 现在说具体原因（缺模型 / 没装依赖 / 包不完整 / init 失败）。
+                    _why = (getattr(self, '_l2d_fail_msg', '')
+                            or '缺少 live2d-py 或模型文件')
+                    self._notify(('Live2D 不可用：%s' % _why) if not is_en
+                                 else ('Live2D unavailable: %s' % _why))
                     return
                 self.pet_stack.addWidget(w)
                 self._l2d_widget = w

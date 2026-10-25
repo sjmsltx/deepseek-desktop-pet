@@ -15,7 +15,7 @@ A Q-style desktop pet living in your computer: chats with you, helps with tasks,
 > ⚠️ This is an independent third-party open-source project, not affiliated with DeepSeek. It only uses their public API. All character artworks are AI-generated and do not represent the official brand.
 
 **Keywords:** desktop pet · AI companion · LLM desktop assistant · DeepSeek · PySide6 · Qt for Python ·
-Live2D · function calling · MCP · plugin system · local-first · Windows desktop app
+function calling · tool use · MCP · plugin system · voice · local-first · Windows desktop app
 
 ![AI Chat Demo](screenshots/demo-chat.png)
 
@@ -33,7 +33,9 @@ Live2D · function calling · MCP · plugin system · local-first · Windows des
 
 ### 🎭 Dual Display Modes (v6.31)
 - **Static Art Mode** (default): single Q-style illustration with breath/blink animations, lightweight
-- **Live2D Mode**: official Mao model (Cubism 4), 30fps continuous animation — head sway / blinking / breathing / gaze tracking / click reactions. Switch anytime via right-click menu, persisted in config
+- **Live2D Mode** (**source runs only; extra deps required**): official Mao demo model (Cubism 4), 30fps continuous animation — head sway / blinking / breathing / gaze tracking / click reactions. Switch anytime via right-click menu, persisted in config
+  - ⚠️ **Not available in the portable zip**: the bundled `live2d` runtime is incomplete (only `_v3cpp.pyd`, missing `__init__.py` / `lapp_model.py`) and `pyopengl` is absent. Selecting it there is **rejected with a reason** instead of silently falling back to static. Use it from source: `pip install live2d-py pyopengl`.
+  - The bundled model is the official **Mao demo** — **not** this project's own character art.
 - Transparent OpenGL embedded rendering; all interactions (drag, edge-dock, chat) work in both modes
 
 ### 🎭 Dual Characters
@@ -186,7 +188,7 @@ A: Profiles live in `models.json` (`profiles`), shipped with Flash / Pro; each p
 A: Right-click the pet → **🚀 Auto-start** (shows ON / OFF). It places a shortcut in your Startup folder; delete it to turn it off.
 
 **Q: Can I change the character, or use Live2D?**
-A: Right-click → **🎭 Appearance** (character, static / Live2D mode, personality, theme). Live2D needs `live2d-py` + `pyopengl`; see [docs/live2d_pipeline.md](docs/live2d_pipeline.md).
+A: Right-click → **🎭 Appearance** (character, static / Live2D mode, personality, theme). Live2D is **source-runs only** and needs `live2d-py` + `pyopengl`; **the portable zip does not include it** (selection is rejected with a reason). The bundled model is the official Mao demo; see [docs/live2d_pipeline.md](docs/live2d_pipeline.md).
 
 **Q: Does it read my chats or my screen?**
 A: No. Only the messages you send are forwarded to the DeepSeek API; memory and usage stats stay local. The optional foreground awareness reads **process names only** — no window titles, no content, no screenshots — and is off by default.
