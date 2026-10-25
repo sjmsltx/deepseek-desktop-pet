@@ -511,6 +511,7 @@ def test_local_tts_real_service_roundtrip(tmp_path):
         assert sent['ref_audio_path'] == 'D:/voice/my.wav' and sent['prompt_text'] == '这是参考音频里的话'
     finally:
         srv.shutdown()
+        srv.server_close()
 
 
 def test_local_tts_mp3_response_detected(tmp_path):
@@ -545,6 +546,7 @@ def test_local_tts_mp3_response_detected(tmp_path):
         assert v.last_engine == 'local', '实际走了 %s，错误=%r' % (v.last_engine, v.last_error)
     finally:
         srv.shutdown()
+        srv.server_close()
 
 
 def test_local_unavailable_degrades(tmp_path):
@@ -565,6 +567,7 @@ def test_probe_local_service_real():
         assert ok is True, '服务在跑（即使根路径 404 也算活着），实测 %r' % (info,)
     finally:
         srv.shutdown()
+        srv.server_close()
     ok2, info2 = vio.probe_local_service('http://127.0.0.1:9', timeout=2)
     assert ok2 is False and info2
 

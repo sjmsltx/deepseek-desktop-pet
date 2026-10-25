@@ -175,3 +175,4 @@ def test_bare_handler_without_switch_attribute_is_closed(monkeypatch):
             '裸 Handler 的 health 报了 actions=真（应假）'
     finally:
         httpd.shutdown()
+        httpd.server_close()
