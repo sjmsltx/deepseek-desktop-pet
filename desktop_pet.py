@@ -1184,6 +1184,10 @@ class PetWidget(QWidget):
                 # 离线兜底声线（2026-10-25）：在线不可用降级时用谁。
                 # 空 = 系统默认（此时会明确告诉你实际用了哪个声线）。
                 self.voice_fallback = str(cfg.get('voice_fallback', '') or '')
+                # v6.76 语速（2026-10-25 补）：原先只在 _set_voice_rate 里赋值，
+                #   构造 VoiceIO 时用 getattr 兜底 ⇒ 重启后语速回到默认。
+                #   与 asr_backend 同一个形态（配置有键、_load_ai_config 不读）。
+                self.voice_rate = str(cfg.get('voice_rate', '') or '')
                 try:
                     if getattr(self, 'voice', None) is not None:
                         self.voice.set_config(enabled=self.voice_enabled, engine=self.voice_engine,
@@ -1191,7 +1195,8 @@ class PetWidget(QWidget):
                                               local_url=self.voice_local_url,
                                               local_ref=self.voice_local_ref,
                                               local_prompt=self.voice_local_prompt,
-                                              fallback_voice=getattr(self, 'voice_fallback', ''))
+                                              fallback_voice=getattr(self, 'voice_fallback', ''),
+                                      rate=str(getattr(self, 'voice_rate', '') or ''))
                 except Exception as _exc:
                     _silent_log('_load_ai_config:voice', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
         except Exception as _exc:
