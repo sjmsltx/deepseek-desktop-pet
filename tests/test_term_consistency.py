@@ -203,6 +203,11 @@ def test_contract_appendix_e5_pending_readonly_in_place():
 
 # ── 6f. ⭐ 追加条款 E11（写面分层 ＋ 图片预览决定 ✓ Owner 01:46 已批）──
 def test_contract_appendix_e11_write_layers_in_place():
+    # ⛔ **本条只管「契约文字与顺序」**（防误删、防闸门挪位）。
+    #    **闸门是否真拦得住，见 `tests/test_relay_isolation.py`** ——
+    #    微信侧 WX-119 §2.1 实测：把闸门条件掏空成 `if False:`（403 文案保留）时，
+    #    本文件四条文字判据**全绿**，唯一拦住的是那两条行为用例。
+    #    ⇒ 文字判据 = 守「契约还在」；行为判据 = 守「闸门管用」。两者不可互替。
     m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
     assert 'E11' in m1 and '写面分层' in m1, 'E11（写面分层）未落盘 ✗'
     # ⭐ 两层都要写明 ✓
@@ -235,6 +240,11 @@ def test_contract_appendix_e11_write_layers_in_place():
 
 # ── 6g. ⭐ E13（发起一轮＝interrupt＋step 组合）／E14（共存与可移植性原则）──
 def test_contract_appendix_e13_e14_in_place():
+    # ⛔ **本条只管「契约文字与顺序」**（防误删、防闸门挪位）。
+    #    **闸门是否真拦得住，见 `tests/test_relay_isolation.py`** ——
+    #    微信侧 WX-119 §2.1 实测：把闸门条件掏空成 `if False:`（403 文案保留）时，
+    #    本文件四条文字判据**全绿**，唯一拦住的是那两条行为用例。
+    #    ⇒ 文字判据 = 守「契约还在」；行为判据 = 守「闸门管用」。两者不可互替。
     m = _read('docs/3.0-M1-API契约-冻结v1.md')
     assert 'E13' in m and '发起一轮' in m, 'E13 未落盘 ✗'
     assert 'interrupt' in m and 'step' in m
