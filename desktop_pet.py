@@ -4667,6 +4667,20 @@ class PetWidget(QWidget):
                 self._l2d_widget = w
                 self.pet_stack.setCurrentWidget(w)
                 self.bubble.raise_()
+            else:
+                # 2026-10-25：原先这里会**先销毁旧部件、再建不出来**，
+                #   然后照样 _notify('已切换模型') 报成功 —— 画面其实是静态图，
+                #   display_mode 还写着 live2d。第三条漏掉的静默降级路径。
+                _why = (getattr(self, '_l2d_fail_msg', '') or '未知原因')
+                self.display_mode = 'static'
+                self._save_cfg_value('display_mode', 'static')
+                self.pet_stack.setCurrentWidget(self.pet_label)
+                log.warning('Live2D 换模型降级为静态立绘：%s', _why)
+                self._notify(('Live2D 未能切换到「%s」：%s；已回到静态立绘'
+                              % (name, _why)) if not is_en else
+                             ('Live2D could not switch to "%s": %s; reverted to static art'
+                              % (name, _why)))
+                return
         self._notify(f'🤖 已切换 Live2D 模型：{name}' if not is_en else f'🤖 Switched Live2D model: {name}')
 
     def _apply_display_mode(self):

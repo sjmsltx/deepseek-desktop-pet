@@ -189,3 +189,53 @@ def test_startup_static_mode_is_noop():
     assert w.pet_stack.added == []
     assert w.msgs == []
     assert w.display_mode == 'static'
+
+
+# ---------------- 4. 换模型失败也不许报成功 ----------------
+
+class _SwitchModel(_Base):
+    """换模型时：模型列表里有它，但建不出来"""
+    _set_live2d_model = PW._set_live2d_model
+
+    def __init__(self):
+        super().__init__()
+        self.display_mode = 'live2d'
+        self.language = 'zh'
+        self.live2d_model = 'mao'
+        self.pet_label = object()
+        self._l2d_widget = None
+        self._l2d_fail_msg = 'live2d 包不完整（缺 __init__.py / lapp_model.py）'
+
+    def _scan_live2d_models(self):
+        return ['mao', 'other']
+
+    def _create_l2d_embedded(self):
+        return None
+
+
+def test_switch_model_failure_does_not_claim_success():
+    """第三条路径：换模型建不出来时，不许说「已切换」
+
+    原先行为：先销毁旧部件 → 建不出来 → 仍 `_notify('已切换 Live2D 模型：xxx')`
+    ⇒ 画面悄悄回到静态、display_mode 还写着 live2d、用户被告知成功。
+    """
+    w = _SwitchModel()
+    w._set_live2d_model('other')
+    joined = ' | '.join(w.msgs)
+    assert '已切换 Live2D 模型' not in joined, \
+        '换模型失败却报了成功：%r' % w.msgs
+    assert w.display_mode == 'static', '失败后 display_mode 仍是 %r' % w.display_mode
+    assert ('display_mode', 'static') in w.saved, '没把配置改回 static：%r' % (w.saved,)
+    assert 'live2d 包不完整' in joined, '没说明具体原因：%r' % joined
+
+
+def test_switch_model_success_still_reports():
+    """正常换模型仍要报「已切换」（别把正常路径改坏）"""
+    class _Ok(_SwitchModel):
+        def _create_l2d_embedded(self):
+            return object()
+
+    w = _Ok()
+    w._set_live2d_model('other')
+    assert '已切换 Live2D 模型' in ' | '.join(w.msgs)
+    assert w.display_mode == 'live2d'
