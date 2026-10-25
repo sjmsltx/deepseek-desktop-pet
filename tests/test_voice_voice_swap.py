@@ -150,3 +150,25 @@ def test_host_notifies_once_when_voice_swapped():
         assert len(notes) == n
     finally:
         p.deleteLater()
+
+
+def test_old_edge_token_gets_upgrade_hint(monkeypatch):
+    """token 是旧格式时，提示里必须出现升级方法（否则只有一句 403，看不出原因）
+
+    判据要能证伪：新格式时必须**不**提示 —— 否则等于一直提示，等于没提示。
+
+    ⛔ 只 patch 被测的那一个静态方法。上一版我顺手把 sys.modules['edge_tts.drm']
+       换成了假模块，导致 edge_tts 自己 `from .drm import DRM` 直接 ImportError。
+    """
+    import edge_tts.drm as real_drm
+
+    import voice_io as V
+
+    monkeypatch.setattr(real_drm.DRM, 'generate_sec_ms_gec',
+                        staticmethod(lambda: 'A' * 64))          # 旧：单个 64 位 hex
+    hint = V.edge_tts_version_hint()
+    assert 'pip install -U edge-tts' in hint, hint
+
+    monkeypatch.setattr(real_drm.DRM, 'generate_sec_ms_gec',
+                        staticmethod(lambda: 'A' * 16 + '-' + 'B' * 64))   # 新：含 '-'
+    assert V.edge_tts_version_hint() == '', '新格式不该提示（否则等于没提示）'

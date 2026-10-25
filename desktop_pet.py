@@ -684,7 +684,10 @@ class PetWidget(QWidget):
                              local_ref=str(getattr(self, 'voice_local_ref', '') or ''),
                              local_prompt=str(getattr(self, 'voice_local_prompt', '') or ''),
                              max_chars=int(getattr(self, 'voice_max_chars', 1200) or 1200),
-                             rate=str(getattr(self, 'voice_rate', '') or ''))   # v6.76 语速
+                             rate=str(getattr(self, 'voice_rate', '') or ''),
+                             # 2026-10-25：这条原先漏了 ⇒ 首次构造后 fallback_voice 恒为 ''，
+                             #   要等下次热加载才生效（'改完配置立刻重启'就等于没生效）
+                             fallback_voice=str(getattr(self, 'voice_fallback', '') or ''))
         # v6.76：「朗读内容」策略（summary 要点优先 / full 全文 / manual 只念选中的）
         self._voice_summary = ''
         self.voice_content_mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
@@ -1046,6 +1049,12 @@ class PetWidget(QWidget):
         """读取 AI 配置：模型身份（模型 ID/显示名/参数）取自 models.json 档案，其余取自 config.json"""
         global CHARACTERS
         try:
+            # 结构性默认值：不依赖配置文件内容，没有 config.json 时也必须存在。
+            # ⛔ 2026-10-25：原先这两行写在下面的 if 里 ⇒ 首次运行（还没有 config.json）时
+            #    属性根本不存在，`_restore_saved_theme()` 读 self._saved_theme 直接 AttributeError。
+            #    同一个性质的问题这一轮共照出三处（asr 段缩进、voice_fallback 构造参数、这里）。
+            self._saved_theme = 'default'
+            self._theme_widgets = []
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
@@ -1135,39 +1144,39 @@ class PetWidget(QWidget):
                 self.voice_engine = str(cfg.get('voice_engine', 'auto') or 'auto')
                 self.voice_name = str(cfg.get('voice_name', '') or '')
                 self.voice_night_quiet = bool(cfg.get('voice_night_quiet', True))
-            # ===== 语音输入（asr_*）：与 voice_* 同体例 =====
-            # ⛔ 2026-10-25 修：此前这一整组**从来没被加载过**（只加载 voice_*）。
-            #   而构造参数用的是 getattr(self, 'asr_backend', 'auto') ⇒ 属性不存在时
-            #   永远拿到 'auto'。后果：设置里把后端切到 winh/whisper/http，当次生效、
-            #   也写进了 config.json，**重启后又变回 auto** ——
-            #   使用者感受就是「一会儿行一会儿不行」，这也是"时灵时不灵"的直接成因之一。
-            self.asr_backend = str(cfg.get('asr_backend', 'auto') or 'auto')
-            self.asr_lang = str(cfg.get('asr_lang', 'zh-CN') or 'zh-CN')
-            self.asr_whisper_exe = str(cfg.get('asr_whisper_exe', '') or '')
-            self.asr_whisper_model = str(cfg.get('asr_whisper_model', '') or '')
-            self.asr_http_url = str(cfg.get('asr_http_url', '') or '')
-            self.asr_http_key = str(cfg.get('asr_http_key', '') or '')
-            self.asr_winh_hotkey = str(cfg.get('asr_winh_hotkey', 'win+h') or 'win+h')
-            try:
-                self.asr_record_seconds = max(1, min(30, int(
-                    cfg.get('asr_record_seconds', 6) or 6)))
-            except (TypeError, ValueError) as _exc:
-                _silent_log('_load_ai_config:asr_record_seconds', _exc)
-                self.asr_record_seconds = 6
-            # 热加载时把配置同步到已存在的引擎（构造时也走这里，asr 可能还没建）
-            if getattr(self, 'asr', None) is not None:
+                # ===== 语音输入（asr_*）：与 voice_* 同体例 =====
+                # ⛔ 2026-10-25 修：此前这一整组**从来没被加载过**（只加载 voice_*）。
+                #   而构造参数用的是 getattr(self, 'asr_backend', 'auto') ⇒ 属性不存在时
+                #   永远拿到 'auto'。后果：设置里把后端切到 winh/whisper/http，当次生效、
+                #   也写进了 config.json，**重启后又变回 auto** ——
+                #   使用者感受就是「一会儿行一会儿不行」，这也是"时灵时不灵"的直接成因之一。
+                self.asr_backend = str(cfg.get('asr_backend', 'auto') or 'auto')
+                self.asr_lang = str(cfg.get('asr_lang', 'zh-CN') or 'zh-CN')
+                self.asr_whisper_exe = str(cfg.get('asr_whisper_exe', '') or '')
+                self.asr_whisper_model = str(cfg.get('asr_whisper_model', '') or '')
+                self.asr_http_url = str(cfg.get('asr_http_url', '') or '')
+                self.asr_http_key = str(cfg.get('asr_http_key', '') or '')
+                self.asr_winh_hotkey = str(cfg.get('asr_winh_hotkey', 'win+h') or 'win+h')
                 try:
-                    self.asr.backend_name = self.asr_backend
-                    self.asr.lang = self.asr_lang
-                    self.asr.whisper_exe = self.asr_whisper_exe
-                    self.asr.whisper_model = self.asr_whisper_model
-                    self.asr.asr_http_url = self.asr_http_url
-                    self.asr.asr_http_key = self.asr_http_key
-                    self.asr.winh_hotkey = self.asr_winh_hotkey
-                    self.asr.record_seconds = self.asr_record_seconds
-                    self.asr._avail = None          # 语言可能变了 → 能力缓存作废
-                except Exception as _exc:
-                    _silent_log('_load_ai_config:asr-apply', _exc, user_facing=True)
+                    self.asr_record_seconds = max(1, min(30, int(
+                        cfg.get('asr_record_seconds', 6) or 6)))
+                except (TypeError, ValueError) as _exc:
+                    _silent_log('_load_ai_config:asr_record_seconds', _exc)
+                    self.asr_record_seconds = 6
+                # 热加载时把配置同步到已存在的引擎（构造时也走这里，asr 可能还没建）
+                if getattr(self, 'asr', None) is not None:
+                    try:
+                        self.asr.backend_name = self.asr_backend
+                        self.asr.lang = self.asr_lang
+                        self.asr.whisper_exe = self.asr_whisper_exe
+                        self.asr.whisper_model = self.asr_whisper_model
+                        self.asr.asr_http_url = self.asr_http_url
+                        self.asr.asr_http_key = self.asr_http_key
+                        self.asr.winh_hotkey = self.asr_winh_hotkey
+                        self.asr.record_seconds = self.asr_record_seconds
+                        self.asr._avail = None          # 语言可能变了 → 能力缓存作废
+                    except Exception as _exc:
+                        _silent_log('_load_ai_config:asr-apply', _exc, user_facing=True)
                 # v6.64：本地自建 TTS 服务（自训练/克隆模型）
                 self.voice_local_url = str(cfg.get('voice_local_url', '') or '')
                 self.voice_local_ref = str(cfg.get('voice_local_ref', '') or '')

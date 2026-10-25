@@ -184,6 +184,32 @@ def is_night(now=None, start=NIGHT_START_HOUR, end=NIGHT_END_HOUR):
         return False
 
 
+def edge_tts_version_hint():
+    """edge-tts 过旧时给出升级提示（否则只会看到一句 403，看不出是版本问题）
+
+    2026-10-25 实测：本机 7.2.8 的 Sec-MS-GEC token 是旧算法（单个 64 位 SHA256），
+    微软已改收 v2 格式（"16hex-64hex"，含 '-'），于是握手 100% 403。
+    升级到 7.3.1 后 3/3 成功。
+
+    判据用 **token 格式**而不是版本号：版本号可能被 fork 或别名改，
+    但 token 格式对不上服务端就一定拒。
+    返回 '' 表示看着正常（或无法判断），调用方直接把返回值拼进错误消息即可。
+    """
+    try:
+        import edge_tts
+        from edge_tts.drm import DRM
+        tok = str(DRM.generate_sec_ms_gec() or '')
+        if '-' in tok:
+            return ''
+        return ('（当前 edge-tts %s 生成的 Sec-MS-GEC token 是旧格式，'
+                '微软已不接受 —— 执行 "pip install -U edge-tts" 升级即可修好）'
+                % getattr(edge_tts, '__version__', '?'))
+    except Exception as exc:
+        # 落痕：静默护栏要求 except 里不能只 return（与 asr 那次同口径）
+        _log.debug('edge-tts 版本自诊断失败：%s', exc)
+        return ''
+
+
 def _decode_out(raw):
     """解 ps1 输出（GBK 兜底）
 
@@ -542,7 +568,10 @@ class VoiceIO:
         try:
             asyncio.run(_run())
         except Exception as e:
-            return False, '在线合成失败：%s' % str(e)[:100]
+            # 403 多半是客户端版本过旧（token 算法换代会表现为握手 403），
+            # 把升级方法直接写进错误消息，省得使用者去查网络/代理/地区
+            _log.debug('在线合成失败：%s', e)      # 落痕（静默护栏口径）
+            return False, '在线合成失败：%s%s' % (str(e)[:100], edge_tts_version_hint())
         if not os.path.exists(out_path) or os.path.getsize(out_path) < 256:
             return False, '在线合成没有产出音频'
         return True, ''

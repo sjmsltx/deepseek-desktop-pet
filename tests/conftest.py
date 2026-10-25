@@ -40,3 +40,34 @@ def _cleanup_office_orphans():
                        timeout=60, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except Exception:
         pass
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _isolate_config_file(tmp_path_factory):
+    """把 config.json 指到临时目录 —— 测试**不得**改动 Owner 的真实配置
+
+    ⛔ 为什么必须是 **session 级**而不是 function 级（2026-10-25 实测）：
+      function 级会在每个测试结束时恢复真实路径，而 session 收尾阶段
+      （Qt 对象析构、deleteLater 队列处理）仍有对象往 config.json 写窗口位置。
+      实测：跑全量前 x=1353 y=290 → 跑完 x=1365 y=200；
+      而给每个测试挂"前后哈希对比"的监控一次都没抓到 ⇒ 写入发生在所有
+      fixture teardown 之后。只有把整个 session 都隔离开才真正挡住。
+
+    需要自己 config 的测试，继续用 function 级 monkeypatch(dp, 'CONFIG_PATH', ...)
+    覆盖即可 —— 优先级更高；teardown 后回到这里的临时文件，仍碰不到真实配置。
+
+    ⚠ 已知边界：`MODEL_REGISTRY = ModelRegistry(MODELS_PATH, CONFIG_PATH)` 是模块加载时
+      求值，patch 管不到它。若将来那里开始写盘，需要另行处理（日志已记）。
+    """
+    try:
+        import desktop_pet as _dp
+    except Exception:
+        yield                       # 该会话不需要主程序
+        return
+    real = _dp.CONFIG_PATH
+    tmp = tmp_path_factory.mktemp('cfg') / 'config.json'
+    _dp.CONFIG_PATH = str(tmp)
+    try:
+        yield
+    finally:
+        _dp.CONFIG_PATH = real
