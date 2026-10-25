@@ -16,6 +16,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# ---------- 输出编码：必须固定 UTF-8 ----------
+# 调用方用 CREATE_NO_WINDOW 启动（没有控制台），此时 PowerShell 5.1 按系统 ANSI
+# 代码页输出（本机 GBK），而 Python 侧按 UTF-8 解码 ⇒ 中文全成乱码
+# （实测 2026-10-25：WARN 里的中文声线名显示为 "ָ SAPI ߲ڣ"）。
+# 与 asr_helper.ps1 同一处理。
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+try { $OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+
 if ($ListVoices) {
     # 供设置页“列出声线”用：每行 winrt:<名>|<语言>|<性别> 或 sapi:<名>|<区域>|<性别>
     try {
@@ -65,8 +73,16 @@ function Invoke-Sapi {
     $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
     if ($Voice) {
         $v = $s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Name -like "*$Voice*" } | Select-Object -First 1
-        if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }
+        if ($v) {
+            $s.SelectVoice($v.VoiceInfo.Name)
+        } else {
+            # 2026-10-25：原先这里什么都不做 —— 指定的声线不存在就静默用默认，
+            # 使用者配了 A 却听到 B，且毫无提示。现在明确告警（Python 侧会记进 last_error）。
+            Write-Output "WARN|指定的 SAPI 声线不存在：$Voice（改用系统默认）"
+        }
     }
+    # 报出**实际**用的声线名：降级/找不到时使用者最想知道的就这一条
+    try { $script:actualVoice = $s.Voice.Name } catch { $script:actualVoice = '' }
     # SAPI Rate: -10 ~ 10
     $s.Rate = [Math]::Max(-10, [Math]::Min(10, $Rate))
     $s.SetOutputToWaveFile($Out)
@@ -80,8 +96,13 @@ function Invoke-WinRt {
     if ($Voice) {
         $v = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices |
              Where-Object { $_.DisplayName -like "*$Voice*" } | Select-Object -First 1
-        if ($v) { $syn.Voice = $v }
+        if ($v) {
+            $syn.Voice = $v
+        } else {
+            Write-Output "WARN|指定的 WinRT 声线不存在：$Voice（改用系统默认）"
+        }
     }
+    try { $script:actualVoice = $syn.Voice.DisplayName } catch { $script:actualVoice = '' }
     $stream = Await-WinRt ($syn.SynthesizeTextToStreamAsync($Text)) ([Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
     Save-StreamToFile $stream $Out
 }
@@ -110,7 +131,8 @@ if (-not $ok) {
 
 if ($ok) {
     $size = (Get-Item $Out).Length
-    Write-Output "OK engine=$Engine bytes=$size out=$Out"
+    # voice= 是**实际**用的声线（降级/名字找不到时，这一项会和配置的不一样）
+    Write-Output "OK engine=$Engine voice=$script:actualVoice bytes=$size out=$Out"
     exit 0
 }
 Write-Error '没有产出音频文件'

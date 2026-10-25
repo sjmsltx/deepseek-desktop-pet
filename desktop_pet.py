@@ -1172,13 +1172,17 @@ class PetWidget(QWidget):
                 self.voice_local_url = str(cfg.get('voice_local_url', '') or '')
                 self.voice_local_ref = str(cfg.get('voice_local_ref', '') or '')
                 self.voice_local_prompt = str(cfg.get('voice_local_prompt', '') or '')
+                # 离线兜底声线（2026-10-25）：在线不可用降级时用谁。
+                # 空 = 系统默认（此时会明确告诉你实际用了哪个声线）。
+                self.voice_fallback = str(cfg.get('voice_fallback', '') or '')
                 try:
                     if getattr(self, 'voice', None) is not None:
                         self.voice.set_config(enabled=self.voice_enabled, engine=self.voice_engine,
                                               voice=self.voice_name, night_quiet=self.voice_night_quiet,
                                               local_url=self.voice_local_url,
                                               local_ref=self.voice_local_ref,
-                                              local_prompt=self.voice_local_prompt)
+                                              local_prompt=self.voice_local_prompt,
+                                              fallback_voice=getattr(self, 'voice_fallback', ''))
                 except Exception as _exc:
                     _silent_log('_load_ai_config:voice', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
         except Exception as _exc:
@@ -7941,7 +7945,10 @@ class PetWidget(QWidget):
             if not getattr(self, 'voice_enabled', False):
                 return False
             v = getattr(self, 'voice', None)
-            return bool(v and v.speak(picked))
+            ok = bool(v and v.speak(picked))
+            if ok:
+                self._voice_note_actual()
+            return ok
         except Exception as _exc:
             _silent_log('_speak_reply', _exc)
             return False
@@ -7988,6 +7995,7 @@ class PetWidget(QWidget):
             return
         if v.speak(txt, force=True):
             self._notify('🔊 正在朗读上一条回复')
+            self._voice_note_actual()
 
     def _toggle_voice(self):
         """开关「朗读 AI 回复」（写 config.json，立即生效）"""
@@ -8073,11 +8081,49 @@ class PetWidget(QWidget):
             pass
         return val
 
+    def _voice_note_actual(self):
+        """朗读之后检查「实际用的声线」是否与设置一致；不一致就明确说一次。
+
+        为什么需要它（2026-10-25 实测）：
+          配置 edge:zh-CN-XiaoxiaoNeural（晓晓，在线），在线 403 后降级到系统离线声线，
+          实际念的是 Microsoft Huihui。voice_io 记了 fell_back / last_error，
+          但**主程序没有任何一处读它** ⇒ 使用者只能靠"听出来不一样"，
+          于是就成了「莫名其妙蹦出其他声线」。
+
+        防刷：同一句提示只出一次（按内容去重）。否则每条回复都弹一次，
+              就从"静默"变成"噪音"，等于换个方式烦人。
+        """
+        v = getattr(self, 'voice', None)
+        if v is None:
+            return
+        try:
+            label, changed = v.describe_actual()
+        except Exception as _exc:
+            _silent_log('_voice_note_actual', _exc)
+            return
+        if not changed:
+            self._voice_note_key = ''
+            return
+        msg = '🔉 实际用的是 %s（设置里选的是 %s）' % (
+            label, str(getattr(self, 'voice_name', '') or '默认'))
+        err = str(getattr(v, 'last_error', '') or '')
+        if err:
+            msg += ' —— %s' % err[:90]
+        if getattr(self, '_voice_note_key', '') == msg:
+            return                     # 同一情况不重复提示
+        self._voice_note_key = msg
+        try:
+            self._notify(msg)
+        except Exception as _exc:
+            _silent_log('_voice_note_actual:notify', _exc)
+
     def _voice_test(self, text):
         """试听（v6.76）：用户主动点，忽略开关与夜间静音；先把当前语速推给引擎"""
         try:
             self.voice.set_config(rate=str(getattr(self, 'voice_rate', '') or ''))
             ok = self.voice.speak(str(text or '试听'), force=True)
+            if ok:
+                self._voice_note_actual()
             if not ok:
                 try:
                     self._notify('试听没出声（看日志里的原因）')

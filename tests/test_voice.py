@@ -46,6 +46,22 @@ def _wait(cond, timeout=3.0):
 
 # ---------------------------------------------------------------- 文本清洗
 
+def _func_src(path, name):
+    """取某个函数的完整源码（AST 边界，不含注释长度依赖）
+
+    ⛔ 别再用 src.split('def xxx(')[1][:N]：那个 N 是"字符窗口"，
+       给函数加几行注释就会把要断言的行挤出窗口 —— 加注释就红、删注释就绿，
+       判据与它要判断的东西无关（2026-10-25 实测踩到）。
+    """
+    import ast
+    text = Path(path).read_text(encoding='utf-8')
+    tree = ast.parse(text)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return ast.get_source_segment(text, node) or ''
+    raise AssertionError('找不到函数 %s' % name)
+
+
 def test_clean_strips_tags_markdown_and_noise():
     raw = ('好呀！[emotion:happy] 我已经帮你查好了 🎉\n\n'
            '- 第一点 **很重要**，见 https://example.com/doc\n'
@@ -274,7 +290,7 @@ def test_mci_helper_never_raises():
 def test_stop_purges_both_players(tmp_path):
     """stop() 要同时清 winsound 与 MCI（在线/离线都能被立刻打断）"""
     src = Path(os.path.join(BASE, 'voice_io.py')).read_text(encoding='utf-8')
-    seg = src.split('def _purge(')[1][:400]
+    seg = _func_src(os.path.join(BASE, 'voice_io.py'), '_purge')
     assert 'SND_PURGE' in seg and 'MCI_ALIAS' in seg
     v = vio.VoiceIO(str(tmp_path), enabled=True)
     assert v.stop() is True
@@ -338,12 +354,12 @@ def test_fallback_reason_is_recorded(tmp_path, monkeypatch):
 def test_offline_subprocess_has_no_console_window(tmp_path):
     """离线合成不再闪控制台：子进程必须带 CREATE_NO_WINDOW"""
     src = Path(os.path.join(BASE, 'voice_io.py')).read_text(encoding='utf-8')
-    seg = src.split('def _synth_offline(')[1][:1200]
-    assert 'creationflags=_win_flags()' in seg
+    seg = _func_src(os.path.join(BASE, 'voice_io.py'), '_synth_offline')
+    assert 'creationflags=_win_flags()' in seg, '离线合成子进程必须不闪窗'
     assert 'CREATE_NO_WINDOW' in src
     # 列举声线同样不能闪窗
-    seg2 = src.split('def list_system_voices(')[1][:800]
-    assert 'creationflags=_win_flags()' in seg2
+    seg2 = _func_src(os.path.join(BASE, 'voice_io.py'), 'list_system_voices')
+    assert 'creationflags=_win_flags()' in seg2, '列举声线子进程必须不闪窗'
 
 
 def test_list_system_voices_parses_helper(monkeypatch):

@@ -184,6 +184,23 @@ def is_night(now=None, start=NIGHT_START_HOUR, end=NIGHT_END_HOUR):
         return False
 
 
+def _decode_out(raw):
+    """解 ps1 输出（GBK 兜底）
+
+    为什么不能只用 utf-8：调用方用 CREATE_NO_WINDOW 启动 ps1（没有控制台），
+    PowerShell 5.1 此时按系统 ANSI 代码页输出 —— 本机是 GBK。
+    实测 2026-10-25：WARN 里的中文声线名按 utf-8 解出来是乱码。
+    ps1 已强制 UTF-8 输出；这里再留一层兜底，防旧脚本或环境差异。
+    """
+    if isinstance(raw, str):
+        return raw
+    b = raw or b''
+    try:
+        return b.decode('utf-8')
+    except UnicodeDecodeError:
+        return b.decode('gbk', 'replace')
+
+
 def _win_flags():
     """Windows 下启动子进程的 CREATE_NO_WINDOW（消除控制台闪窗，v6.64）"""
     try:
@@ -335,7 +352,7 @@ class VoiceIO:
     def __init__(self, base_dir, enabled=False, engine='auto', voice='',
                  night_quiet=True, max_chars=DEFAULT_MAX_CHARS, timeout=DEFAULT_TIMEOUT,
                  runner=None, local_url='', local_ref='', local_prompt='', local_lang='zh',
-                 local_timeout=20, rate=''):
+                 local_timeout=20, rate='', fallback_voice=''):
         self.base_dir = base_dir
         self.ps1 = os.path.join(base_dir, 'tts_helper.ps1')
         self.enabled = bool(enabled)
@@ -353,6 +370,14 @@ class VoiceIO:
         self.last_error = ''
         self.last_engine = ''
         self.fell_back = False                  # 上一次是否从在线降级到离线
+        #: 离线兜底声线（降级时用谁）。空 = 系统默认。
+        #: 2026-10-25 新增：原先降级时把在线声线名直接清空、交给系统挑，
+        #: 于是配了晓晓却听到 Huihui，而且毫无提示。
+        self.fallback_voice = fallback_voice or ''
+        #: 上一次**实际**用的声线名（由 tts_helper.ps1 报回来）
+        self.actual_voice = ''
+        #: 上一次实际用的引擎（'edge' / 'offline' / 'local'）
+        self.actual_engine = ''
         self.spoken_count = 0
         self._runner = runner                   # 测试注入用；None → 用真实链路
         self._q = queue.Queue()
@@ -365,7 +390,8 @@ class VoiceIO:
 
     # ---------- 对外接口 ----------
     def set_config(self, enabled=None, engine=None, voice=None, night_quiet=None,
-                   local_url=None, local_ref=None, local_prompt=None, rate=None):
+                   local_url=None, local_ref=None, local_prompt=None, rate=None,
+                   fallback_voice=None):
         with self._lock:
             if enabled is not None:
                 self.enabled = bool(enabled)
@@ -383,6 +409,8 @@ class VoiceIO:
                 self.local_ref = local_ref
             if local_prompt is not None:
                 self.local_prompt = local_prompt
+            if fallback_voice is not None:
+                self.fallback_voice = fallback_voice
 
     def blocked_reason(self, now=None):
         """现在不能朗读的原因（'' = 可以读）—— 供界面如实提示"""
@@ -498,7 +526,13 @@ class VoiceIO:
             return False, 'edge_tts 不可用：%s' % type(e).__name__
         _, vname = parse_voice_spec(self.voice)
         if not vname.startswith('zh-') and not vname.startswith('en-'):
+            # 配置里不是在线声线名（比如填的是离线声线或空的）→ 用默认晓晓，
+            # 但要记下来：这条路径确实"换人了"
+            self._edge_swapped_from = str(vname or '(空)')
             vname = 'zh-CN-XiaoxiaoNeural'
+        else:
+            self._edge_swapped_from = ''
+        self.actual_voice = vname
 
         async def _run():
             # v6.76：语速（'+25%' / '-10%'；'/' → 默认语速）
@@ -563,8 +597,14 @@ class VoiceIO:
             return False, '离线合成脚本缺失：%s' % self.ps1
         try:
             _, vname = parse_voice_spec(self.voice)
+            online_req = ''
             if vname.startswith('zh-') or vname.startswith('en-'):
-                vname = ''                     # 在线声线名不适用于系统声线 → 用默认
+                # 在线声线名（如 zh-CN-XiaoxiaoNeural）在系统里不存在，必须换一个。
+                # ⛔ 原先这里直接 vname='' 交给系统挑默认 —— 于是配了晓晓却听到 Huihui，
+                #    而且没有任何提示（实测 2026-10-25：降级产物与 WinRT 默认声线逐字节相同）。
+                # 现在：优先用使用者指定的兜底声线；没指定才用系统默认，但会记下实际是谁。
+                online_req = vname
+                vname = str(getattr(self, 'fallback_voice', '') or '')
             cmd = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', self.ps1,
                    '-Text', text, '-Out', out_path]
             if self.engine in ('winrt', 'sapi'):
@@ -579,10 +619,22 @@ class VoiceIO:
                                   creationflags=_win_flags())
         except Exception as e:
             return False, '离线合成失败：%s' % str(e)[:100]
+        _out = _decode_out(proc.stdout)
         if not os.path.exists(out_path) or os.path.getsize(out_path) < 128:
-            err = ((proc.stdout or b'').decode('utf-8', 'ignore')[:100] + ' ' +
-                   (proc.stderr or b'').decode('utf-8', 'ignore')[:160]).strip()
+            err = (_out[:100] + ' ' + _decode_out(proc.stderr)[:160]).strip()
             return False, '离线合成失败：%s' % err
+        # 从 "OK engine=winrt voice=Microsoft Huihui bytes=…" 里取出**实际**声线。
+        # ⛔ 别用 split(' ',1)[0]：声线名本身就带空格（"Microsoft Huihui"），
+        #    那样只会拿到 "Microsoft"（第一次就踩了）。
+        self.actual_voice = ''
+        for ln in _out.splitlines():
+            ln = ln.strip()
+            if ln.startswith('OK ') and 'voice=' in ln:
+                seg = ln.split('voice=', 1)[1]
+                self.actual_voice = seg.split(' bytes=')[0].strip()
+            elif ln.startswith('WARN|'):
+                # 指定的声线不存在：必须留痕，不能假装按设置念了
+                self.last_error = ln[5:].strip()
         return True, ''
 
     # ---------- 主链路（默认实现；测试可注入 runner） ----------
@@ -618,11 +670,40 @@ class VoiceIO:
     def _mark_engine(self, idx, engine, last_err):
         """记下实际用的引擎；若是“前一个引擎失败后降级”来的，把原因留着（用户要能看出音色为何变了）"""
         self.last_engine = engine
+        self.actual_engine = engine
         if idx > 0 and last_err:
             self.fell_back = True
             self.last_error = '已降级（%s）' % last_err
         else:
             self.last_error = ''
+
+    def describe_actual(self):
+        """这次到底用的是谁（给界面/日志用的人话）。返回 (描述, 是否与设置不一致)
+
+        为什么要它：降级是**静默**发生的（实测 2026-10-25：配置晓晓、实际 Huihui，
+        界面上完全没提示），使用者只能靠"听出来不一样"，这就是"莫名其妙蹦出其他声线"。
+        """
+        eng = self.actual_engine or self.last_engine or ''
+        voice = self.actual_voice or ''
+        want_eng, want_voice = parse_voice_spec(self.voice)
+        changed = False
+        if eng == 'offline':
+            label = '系统离线声线'
+            if voice:
+                label += '（%s）' % voice
+            if want_eng != 'offline':
+                changed = True
+        elif eng == 'edge':
+            label = '在线声线（%s）' % (voice or '?')
+            if want_voice and voice and voice != want_voice:
+                changed = True
+        elif eng == 'local':
+            label = '本地自建声线'
+            if want_eng != 'local':
+                changed = True
+        else:
+            label = '未知'
+        return label, changed
 
     def _play_kind(self, path, kind):
         return self._play_mp3(path) if kind == 'mp3' else self._play_wav(path)
