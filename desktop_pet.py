@@ -1135,6 +1135,39 @@ class PetWidget(QWidget):
                 self.voice_engine = str(cfg.get('voice_engine', 'auto') or 'auto')
                 self.voice_name = str(cfg.get('voice_name', '') or '')
                 self.voice_night_quiet = bool(cfg.get('voice_night_quiet', True))
+            # ===== 语音输入（asr_*）：与 voice_* 同体例 =====
+            # ⛔ 2026-10-25 修：此前这一整组**从来没被加载过**（只加载 voice_*）。
+            #   而构造参数用的是 getattr(self, 'asr_backend', 'auto') ⇒ 属性不存在时
+            #   永远拿到 'auto'。后果：设置里把后端切到 winh/whisper/http，当次生效、
+            #   也写进了 config.json，**重启后又变回 auto** ——
+            #   使用者感受就是「一会儿行一会儿不行」，这也是"时灵时不灵"的直接成因之一。
+            self.asr_backend = str(cfg.get('asr_backend', 'auto') or 'auto')
+            self.asr_lang = str(cfg.get('asr_lang', 'zh-CN') or 'zh-CN')
+            self.asr_whisper_exe = str(cfg.get('asr_whisper_exe', '') or '')
+            self.asr_whisper_model = str(cfg.get('asr_whisper_model', '') or '')
+            self.asr_http_url = str(cfg.get('asr_http_url', '') or '')
+            self.asr_http_key = str(cfg.get('asr_http_key', '') or '')
+            self.asr_winh_hotkey = str(cfg.get('asr_winh_hotkey', 'win+h') or 'win+h')
+            try:
+                self.asr_record_seconds = max(1, min(30, int(
+                    cfg.get('asr_record_seconds', 6) or 6)))
+            except (TypeError, ValueError) as _exc:
+                _silent_log('_load_ai_config:asr_record_seconds', _exc)
+                self.asr_record_seconds = 6
+            # 热加载时把配置同步到已存在的引擎（构造时也走这里，asr 可能还没建）
+            if getattr(self, 'asr', None) is not None:
+                try:
+                    self.asr.backend_name = self.asr_backend
+                    self.asr.lang = self.asr_lang
+                    self.asr.whisper_exe = self.asr_whisper_exe
+                    self.asr.whisper_model = self.asr_whisper_model
+                    self.asr.asr_http_url = self.asr_http_url
+                    self.asr.asr_http_key = self.asr_http_key
+                    self.asr.winh_hotkey = self.asr_winh_hotkey
+                    self.asr.record_seconds = self.asr_record_seconds
+                    self.asr._avail = None          # 语言可能变了 → 能力缓存作废
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:asr-apply', _exc, user_facing=True)
                 # v6.64：本地自建 TTS 服务（自训练/克隆模型）
                 self.voice_local_url = str(cfg.get('voice_local_url', '') or '')
                 self.voice_local_ref = str(cfg.get('voice_local_ref', '') or '')

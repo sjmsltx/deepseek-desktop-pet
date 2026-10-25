@@ -65,22 +65,33 @@ BATCH2_ADDED_USER_FACING = ('_open_main_area:build',)
 #:   ⛔ 不是随手加：登记在此，与批 2 同一口径（增减都要走这里留痕）。
 V34_ADDED_USER_FACING = ('_open_usage_stats',)
 
+#: 2026-10-25 v3.7 新增第 15 处：`_load_ai_config:asr-apply`
+#:   理由：上一处在同一函数里把 asr_* 配置加载补上了；加载完要同步到 asr 引擎，
+#:         这一步失败 ⇒ 设置里选的后端/语言不生效，用户会遇到「改了设置没反应」，
+#:         属「用户能看懂也能行动」的失败（与同函数的 `_load_ai_config:voice` 同性质）。
+#:   ⛔ 不是随手加：登记在此，与批 2 / v3.4 同一口径（增减都要走这里留痕）。
+V37_ADDED_USER_FACING = ('_load_ai_config:asr-apply',)
+
 
 def test_user_facing_count_within_budget():
-    """v1-B 12 + 批2 1 + v3.4 1 = 14；总数不得超过上限
+    """v1-B 12 + 批2 1 + v3.4 1 + v3.7 1 = 15；总数不得超过上限
 
     （防以后随手加标记刷屏：要么在这个数里明着改，要么别加）
     """
     marked = [t for t, uf, _ in _silent_log_calls() if uf]
-    expected = 12 + len(BATCH2_ADDED_USER_FACING) + len(V34_ADDED_USER_FACING)
+    expected = (12 + len(BATCH2_ADDED_USER_FACING) + len(V34_ADDED_USER_FACING)
+                + len(V37_ADDED_USER_FACING))
     assert len(marked) == expected, \
         (f'应为 {expected} 处（v1-B 12 + 批2 {len(BATCH2_ADDED_USER_FACING)}'
-         f' + v3.4 {len(V34_ADDED_USER_FACING)}），实际 {len(marked)}：{marked}')
+         f' + v3.4 {len(V34_ADDED_USER_FACING)} + v3.7 {len(V37_ADDED_USER_FACING)}），'
+         f'实际 {len(marked)}：{marked}')
     assert len(marked) <= MAX_USER_FACING, f'user_facing 数量超过上限 {MAX_USER_FACING} ✗'
     for t in BATCH2_ADDED_USER_FACING:
         assert t in marked, f'批 2 登记的 {t} 没被标上 user_facing ✗'
     for t in V34_ADDED_USER_FACING:
         assert t in marked, f'v3.4 登记的 {t} 没被标上 user_facing ✗'
+    for t in V37_ADDED_USER_FACING:
+        assert t in marked, f'v3.7 登记的 {t} 没被标上 user_facing ✗'
 
 
 def test_user_facing_covers_expected_tags():

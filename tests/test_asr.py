@@ -195,6 +195,50 @@ def test_run_decodes_gbk_output():
     assert A._decode_out(b'') == ''
 
 
+def test_asr_config_is_loaded_on_start(tmp_path, monkeypatch):
+    """设置里选的后端必须能被读回来
+
+    实测缺陷（2026-10-25）：`_load_ai_config` 只加载 voice_*，asr_* 一个都没加载，
+    而构造参数用 getattr(self, 'asr_backend', 'auto') ⇒ 属性不存在时永远拿到 'auto'。
+    结果：在设置里把后端切成 winh/whisper/http，当次生效、也写进了 config.json，
+    **重启后又变回 auto** —— 这就是使用者说的「时宜时不宜」。
+
+    ⚠ 判据要能证伪：断言「读出来的值等于配置里的值」，而不是「有默认值就行」。
+    """
+    import json as _json
+
+    import desktop_pet as dp
+
+    cfg_path = tmp_path / 'config.json'
+    cfg_path.write_text(_json.dumps({
+        'asr_backend': 'winh',
+        'asr_lang': 'zh-CN',
+        'asr_whisper_exe': 'H:\\w\\main.exe',
+        'asr_http_url': 'https://x/asr',
+        'asr_winh_hotkey': 'ctrl+shift+space',
+        'asr_record_seconds': 9,
+    }, ensure_ascii=False), encoding='utf-8')
+    monkeypatch.setattr(dp, 'CONFIG_PATH', str(cfg_path))
+
+    p = dp.PetWidget()
+    saved = {}
+    p._save_cfg_value = lambda k, v: saved.__setitem__(k, v)
+    try:
+        assert getattr(p, 'asr_backend', None) == 'winh', \
+            '配置里的后端没被读进来（重启就丢）'
+        assert p.asr_whisper_exe == 'H:\\w\\main.exe'
+        assert p.asr_http_url == 'https://x/asr'
+        assert p.asr_winh_hotkey == 'ctrl+shift+space'
+        assert p.asr_record_seconds == 9
+
+        # 构造出来的引擎也要跟着配置走，不能是写死的默认值
+        if getattr(p, 'asr', None) is not None:
+            assert p.asr.backend_name == 'winh', '引擎没拿到配置里的后端'
+            assert p.asr.winh_hotkey == 'ctrl+shift+space'
+    finally:
+        p.deleteLater()
+
+
 def test_menu_has_voice_input_entry():
     src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert "'🎤 语音输入'" in src and 'def _toggle_listen' in src
