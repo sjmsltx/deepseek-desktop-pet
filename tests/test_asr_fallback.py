@@ -84,6 +84,46 @@ def test_available_asks_sapi_when_policy_blocked():
     assert ok2 is False and '在线语音识别' in info2
 
 
+def test_rejected_falls_back_to_sapi():
+    """WinRT 说「听到了但不敢认」时，必须再试一次 SAPI
+
+    ⚠ 判断变过一次，两次依据都记在这里：
+      1) 2026-10-25 上半场：认为「WinRT 质量更好，它都不敢认，SAPI 只会更差」，
+         于是让它直接返回、省掉一轮等待。
+      2) 同日下午实测（本机 Realtek 麦克风阵列，静音峰值约 25%、语音信号偏弱）：
+         WinRT 外放 2 次 + 静音 1 次 **全部 REJECTED（0% 出字）**；
+         SAPI 3 次里 2 次出字。
+         ⇒ 「WinRT 一定更好」这个前提在本机不成立。
+           宁可给一个低可信的猜测，也不要"点了完全没反应"。
+    所以现在钉：REJECTED 必须降级，并且把 SAPI 的结果交出去。
+    """
+    e, calls = _engine([lambda: (0, 'REJECTED|听到了声音但没听准', ''),
+                        lambda: (0, 'OK|0.42|SAPI 兜底结果', '')])
+    e._policy_blocked = False
+    text, conf, err = e.listen()
+    assert text == 'SAPI 兜底结果', '没降级到 SAPI：%r' % (text,)
+    assert len(calls) == 2, '应该跑两轮（WinRT + SAPI）：%r' % calls
+    assert e.last_engine == 'sapi'
+
+
+def test_rejected_and_sapi_both_fail_gives_env_hint():
+    """两条都没结果时，提示要指向「麦克风底噪」这个真实原因"""
+    e, _c = _engine([lambda: (0, 'REJECTED|听到了声音但没听准', ''),
+                     lambda: (0, 'ERR|没听清（SAPI 超时）', '')])
+    e._policy_blocked = False
+    text, _conf, err = e.listen()
+    assert text == ''
+    assert '没听准' in err and '底噪' in err, err
+
+
+def test_rejected_parsed_as_error_not_empty_success():
+    """REJECTED 必须当成「没听准」，不能被当成「识别成功但文本为空」"""
+    from asr import parse_result
+    text, conf, err = parse_result("REJECTED|听到了声音但没听准" + chr(10))
+    assert text == "" and conf == "Rejected"
+    assert err, "REJECTED 必须带原因，否则界面只能说「没听到内容」"
+
+
 def test_sapi_only_error_still_returned():
     e, _calls = _engine([lambda: (0, 'ERR|something weird but not policy', ''),
                          lambda: (0, 'ERR|SAPI 识别失败：Timeout', '')])

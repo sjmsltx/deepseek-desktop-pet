@@ -47,8 +47,10 @@ function Invoke-SapiRecognize($Lang) {
         }
         $rec.SetInputToDefaultAudioDevice()
         $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
-        $rec.InitialSilenceTimeout = [TimeSpan]::FromSeconds(6)
-        $rec.BabbleTimeout = [TimeSpan]::FromSeconds(6)
+        # 与 WinRT 对齐：4 秒。两条路各 4 秒，总时长从约 13 秒降到约 8 秒
+        # （实测一次点击太久，使用者会以为按钮坏了）
+        $rec.InitialSilenceTimeout = [TimeSpan]::FromSeconds(4)
+        $rec.BabbleTimeout = [TimeSpan]::FromSeconds(4)
         # 注意：桌面 SAPI（System.Speech）的同步方法就叫 Recognize()
         # （没有 RecognizeOnce / RecognizeOnceAsync 这两个名字 —— 实测列方法确认）
         $res = $rec.Recognize()
@@ -85,6 +87,30 @@ if ($Engine -eq 'sapi') {
     Invoke-SapiRecognize $Lang
 }
 
+# ---------- 编译识别约束（少了这一步 RecognizeAsync 必抛 0x80131509）----------
+# 实测 2026-10-25 三组对照：
+#   直接 RecognizeAsync          → InvalidOperationException 0x80131509
+#   先 CompileConstraintsAsync   → CompilationResult.Status = Success，识别正常返回
+#   ⇒ 过去每一次都死在这一步，于是全部降级到 SAPI（中文 5 句只对 2 句、慢 5~7 秒），
+#     使用者体感就是「时灵时不灵」。
+# 把异常压成一行，并**带上 HRESULT** —— 中文系统上 .NET 常只给本地化文案
+# （「无法找到与此错误代码关联的文本」），不带错误码就只能靠文案猜类型。
+# 我 2026-10-21 就是这么猜错的：把 0x80131509 猜成隐私策略，白折腾四天。
+function Describe-Exception($ErrorRecord) {
+    $e = $ErrorRecord.Exception
+    while ($e.InnerException) { $e = $e.InnerException }
+    $msg = ($e.Message -replace "`r?`n", ' ').Trim()
+    $hr = '0x' + ('{0:X8}' -f $e.HResult)
+    return "$msg [$hr]"
+}
+
+function Initialize-WinRtRecognizer($Recognizer) {
+    $op = $Recognizer.CompileConstraintsAsync()
+    $res = Await-WinRt $op ([Windows.Media.SpeechRecognition.SpeechRecognitionCompilationResult])
+    if ($null -eq $res) { return 'null' }
+    return [string]$res.Status
+}
+
 function Await-WinRt($WinRtTask, $ResultType) {
     try { Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction Stop } catch { }
     $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -119,17 +145,43 @@ try {
 if ($Check) {
     try {
         $cur = $rec.CurrentLanguage.LanguageTag
-        $topic = ([Windows.Media.SpeechRecognition.SpeechRecognizer]::SupportedTopicLanguages |
-                  ForEach-Object { $_.LanguageTag }) -join ','
-        Write-Output "OK|$cur|$topic"
+        # 2026-10-25：旧版只读 CurrentLanguage 就报 OK —— 那只证明「能创建对象」，
+        # 证明不了「能识别」。实测旧 -Check 返回 OK 的同时，识别每次都抛 0x80131509。
+        # 现在把约束编译状态一并报出，能力检测才反映真实可用性。
+        $st = Initialize-WinRtRecognizer $rec
+        Write-Output "OK|$cur|$cur|compile=$st"
         exit 0
     } catch {
-        Write-Output "ERR|$($_.Exception.Message)"
+        Write-Output ("ERR|" + (Describe-Exception $_))
         exit 5
     }
 }
 
 try {
+    # 关掉系统自带的那套 UI 提示（我们只要文本，不要它的确认框）
+    try {
+        $rec.UIOptions.AudiblePrompt = ''
+        $rec.UIOptions.DisplayText = ''
+        $rec.UIOptions.IsReadBackEnabled = $false
+        $rec.UIOptions.ShowConfirmation = $false
+    } catch { }
+
+    # 放宽三个超时（默认很紧，人还没开口就结束了 —— 这是"点了没反应"的一半原因）
+    #   InitialSilenceTimeout：开始等多久。3 秒太短，改成 6 秒，给"按下后想一下再说"留余量
+    #   BabbleTimeout：听到噪音时最多再等多久
+    #   EndSilenceTimeout：句尾静音判定。0.15 秒会把句子中间的停顿当成说完
+    try {
+        $rec.Timeouts.InitialSilenceTimeout = [TimeSpan]::FromSeconds(4)
+        $rec.Timeouts.BabbleTimeout = [TimeSpan]::FromSeconds(8)
+        $rec.Timeouts.EndSilenceTimeout = [TimeSpan]::FromSeconds(0.9)
+    } catch { }
+
+    $compileStatus = Initialize-WinRtRecognizer $rec
+    if ($compileStatus -ne 'Success') {
+        Write-Output "ERR|识别约束编译未成功（$compileStatus），这条识别路径用不了"
+        exit 7
+    }
+
     # 单句识别：说完停顿即结束
     $op = $rec.RecognizeAsync()
     $result = Await-WinRt $op ([Windows.Media.SpeechRecognition.SpeechRecognitionResult])
@@ -137,9 +189,15 @@ try {
     if ($result) { $txt = [string]$result.Text }
     $conf = ''
     if ($result) { $conf = [string]$result.Confidence }
+    if ([string]::IsNullOrWhiteSpace($txt) -and $conf -eq 'Rejected') {
+        # Rejected = 听到了声音但不敢认（噪音 / 太轻 / 口音）。这与「压根没听到」是两回事，
+        # 分开报，Python 侧才能给出不同提示。
+        Write-Output 'REJECTED|听到了声音但没听准'
+        exit 8
+    }
     Write-Output "OK|$conf|$txt"
     exit 0
 } catch {
-    Write-Output ("ERR|识别失败：" + ($_.Exception.Message -replace "`r?`n", ' '))
+    Write-Output ("ERR|识别失败：" + (Describe-Exception $_))
     exit 6
 }

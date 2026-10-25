@@ -29,9 +29,15 @@ def eng():
      '"The text associated with this error code could not be found."', 'policy'),
     ('The speech privacy policy was not accepted', 'policy'),
     ('0x80045509 privacy', 'policy'),
-    # 中文系统上 HRESULT 文案是本地化的，英文关键字一个都不出现（本机真实报错）
+    # 中文系统上 HRESULT 文案是本地化的。
+    # ⚠ 2026-10-25 更正：这条曾被我判成 'policy'，是错的。
+    #   该错误的真实类型是 InvalidOperationException，HRESULT 0x80131509
+    #   =「没 CompileConstraintsAsync 就调 RecognizeAsync」，与隐私策略无关
+    #   （真隐私错误的 HRESULT 是 0x80045509；本机 OnlineSpeechPrivacy 下 HasAccepted = 1）。
+    #   补上编译约束后实测 COMPILE|Success，同一识别器不再抛这个异常。
     ('识别失败：使用“0”个参数调用“RecognizeAsync”时发生异常:'
-     '“无法找到与此错误代码关联的文本。”', 'policy'),
+     '“无法找到与此错误代码关联的文本。”', 'engine'),
+    ('InvalidOperationException 0x80131509', 'engine'),
     ('Access is denied', 'mic'),
     ('Microphone access denied', 'mic'),
     ('language pack not installed', 'lang'),

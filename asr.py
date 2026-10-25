@@ -65,6 +65,9 @@ def parse_result(stdout):
             conf = parts[1].strip() if len(parts) > 1 else ''
             text = parts[2].strip() if len(parts) > 2 else ''
             return text, conf, ''
+        if line.startswith('REJECTED|'):
+            # 「听到了但没听准」与「没听到」要分开，提示语不同
+            return '', 'Rejected', line.split('|', 1)[1].strip() or '听到了但没听准'
         if line.startswith('ERR|'):
             msg = ' '.join([line.split('|', 1)[1].strip()] + lines[i + 1:])
             return '', '', msg or '识别失败'
@@ -86,6 +89,9 @@ class AsrEngine:
         self.last_engine = ''            # v6.77 上一次成功的识别路径：'winrt' / 'sapi'
         self._policy_blocked = False     # 实测到“语音隐私策略未接受”（一次就够，之后一直提醒）
         self._sapi_cache = None          # SAPI 已装识别器语言（None=还没探测过）
+        self._last_winrt_rejected = False  # 上一轮 WinRT 是否"听到了但不敢认"
+        #: 低于这个置信度就把"可能不准"明确告诉使用者 —— 直接回应"时灵时不灵"
+        self.LOW_CONF = 0.35
 
     # Windows 语音隐私策略未接受时的说明（实测 2026-09-19 / 2026-09-20 两次都是这种状态）
     POLICY_HINT = ('Windows 的「语音识别」隐私策略没真正生效（实测注册表里 '
@@ -96,11 +102,21 @@ class AsrEngine:
     POLICY_MARK = 'privacy policy'
     # v6.75：错误消息取不到（HRESULT 本地化缺失）时，实测就是“策略未接受”——把它也归到策略类
     POLICY_MARKS_EXTRA = ('could not be found', 'text associated with this error code',
-                          '0x8004', 'not accepted', 'privacy',
-                          # 中文系统上 HRESULT 文案是本地化的，英文关键字一个都不出现。
-                          # 实测本机报：「无法找到与此错误代码关联的文本」（2026-10-21）
-                          '无法找到与此错误代码', '找不到与此错误代码',
-                          '与此错误代码关联的文本', '隐私策略', '隐私声明')
+                          'not accepted', 'privacy',
+                          # 真正表示「策略未接受」的 HRESULT（SPERR_SPEECH_PRIVACY_POLICY_NOT_ACCEPTED）
+                          '0x80045509',
+                          # 中文系统上 HRESULT 文案是本地化的
+                          '隐私策略', '隐私声明')
+    # ⛔ 2026-10-25 从上面撤掉了三条：'could not be found' / 'text associated with this
+    #   error code' / '无法找到与此错误代码'。
+    #   它们命中的是本机那个「无法找到与此错误代码关联的文本」，而该错误的真实来源是
+    #   InvalidOperationException **0x80131509** = 「没编译识别约束就调识别」，
+    #   与隐私策略毫无关系。旧版靠这三条把它归成 policy，于是：
+    #     ① 永久封杀 WinRT（_policy_blocked=True）
+    #     ② 每次点 🎤 都白跑一轮必然失败的识别
+    #     ③ 提示把使用者引向"去开隐私开关"—— 而那个开关本来就开着
+    #        （实测 HKCU\...\Speech_OneCore\Settings\OnlineSpeechPrivacy\HasAccepted = 1）
+    #   教训：按文案猜错误类型会猜错，要看 HRESULT。
     MIC_MARKS = ('denied', 'access', 'microphone', '麦克风', 'denied by')
     LANG_MARKS = ('language', '语言', 'not installed', 'language pack')
 
@@ -114,6 +130,16 @@ class AsrEngine:
         low = str(err or '').lower()
         if self.POLICY_MARK in low or any(m in low for m in self.POLICY_MARKS_EXTRA):
             return 'policy', self.POLICY_HINT
+        # 0x80131509 / InvalidOperationException = 识别器状态不对（典型是没编译约束）。
+        # 这是程序自身问题，不该让使用者跑去改系统设置。
+        if '0x80131509' in low or 'invalidoperationexception' in low:
+            return 'engine', ('识别器状态异常（多半是约束没编译）。已记录；'
+                              '若持续出现请把这条提示报给作者')
+        # 本地化文案缺失（只有「无法找到与此错误代码关联的文本」、没有错误码）：
+        # 这类问题使用者无从下手，也绝不是隐私开关的事 —— 归 engine 并说清是程序侧
+        if '无法找到与此错误代码' in low or '找不到与此错误代码' in low:
+            return 'engine', ('识别器返回了一个没有本地化文案的错误（程序侧问题，'
+                              '与麦克风和隐私设置无关）。已记录；若持续出现请报给作者')
         if any(m in low for m in self.MIC_MARKS):
             return 'mic', ('麦克风权限被拒 —— 去 设置 → 隐私和安全性 → 麦克风 → '
                            '允许桌面应用访问后重试')
@@ -401,9 +427,14 @@ class AsrEngine:
     def _listen_local(self):
         """听一句。返回 (text, confidence, error)
 
-        v6.77：**双路径** —— 先试 WinRT（OneCore，识别质量好）；失败则自动降级到 SAPI
-        （System.Speech，走另一套识别栈，**不依赖那个一直卡人的 OneCore 隐私策略**）。
-        两条都失败时，把可操作提示优先返回（而不是一句无意义的原始报错）。
+        路径：先 WinRT（OneCore，真正的中文识别模型）；它**不可用/抛异常**时降级 SAPI
+        （System.Speech，质量明显差，仅作兜底）。
+
+        2026-10-25 更正：旧注释说「WinRT 常被 OneCore 隐私策略挡住」——**那是误判**。
+        真实原因是没有 CompileConstraintsAsync 就调 RecognizeAsync，会抛
+        InvalidOperationException 0x80131509；而注册表里
+        OnlineSpeechPrivacy 下的 HasAccepted 一直是 1。修好编译之后 WinRT 才第一次真正被用上。
+        这也解释了为什么以前"时灵时不灵"：一直在用质量最差的 SAPI。
         """
         if not os.path.exists(self.ps1):
             return '', '', '缺少 asr_helper.ps1'
@@ -423,8 +454,17 @@ class AsrEngine:
                 if kind == 'policy':
                     # 系统隐私策略没接受：不是 bug，也不该我们默默改注册表
                     self._policy_blocked = True
-                winrt_err = error
-                winrt_hint = hint or ''
+                if (conf or '').strip().lower() == 'rejected':
+                    # WinRT 听到了声音但不敢认（本机实测：外放与静音都 Rejected）。
+                    # 这时仍要降级 SAPI —— 宁可给一个低可信的猜测，也不要"点了完全没反应"。
+                    # （原先为了省时间直接返回，依据是"WinRT 一定更好"；但本机实测
+                    #   WinRT 0% 出字、SAPI 约 2/3 能出字，那个依据不成立。）
+                    self._last_winrt_rejected = True
+                    winrt_err = '识别器听到了声音但不敢确认'
+                    winrt_hint = ''
+                else:
+                    winrt_err = error
+                    winrt_hint = hint or ''
             except subprocess.TimeoutExpired:
                 self.cancel()
                 return '', '', '超时（没听到声音？）—— 也可以试试系统自带的 Win+H 语音输入'
@@ -444,6 +484,11 @@ class AsrEngine:
         except Exception as e:
             sapi_hint = '%s: %s' % (type(e).__name__, str(e)[:80])
 
+        if getattr(self, '_last_winrt_rejected', False):
+            self._last_winrt_rejected = False
+            return '', '', ('没听准 —— 备用识别也没给出结果。'
+                            '本机麦克风底噪较大（实测静音峰值约 25%），'
+                            '建议靠近麦克风、在安静处说，或换用在线识别接口')
         tail = '；已自动尝试备用识别（SAPI）也没成：%s' % str(sapi_hint)[:120]
         return '', '', (winrt_hint or winrt_err or '识别失败') + tail
 

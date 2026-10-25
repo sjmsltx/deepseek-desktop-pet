@@ -8157,6 +8157,16 @@ class PetWidget(QWidget):
                 if not _txt:
                     self._notify('😶 没听到内容，再试一次？')
                     return
+                # 置信度低的猜测要点明：本机 SAPI 常在 0.1~0.3 之间瞎猜，
+                # 不说清楚，使用者只会觉得"时灵时不灵"
+                _conf_txt = ''
+                try:
+                    _cv = float(conf)
+                    if _cv < getattr(self.asr, 'LOW_CONF', 0.35):
+                        _conf_txt = '（识别可信度低 %.0f%%，请核对该句）' % (_cv * 100)
+                except (TypeError, ValueError) as _exc:
+                    # 落痕：静默护栏要求 handler 里不能只放过（conf 可能是 'Rejected' 之类）
+                    _silent_log('_toggle_listen:conf', _exc)
                 try:
                     # 注意：聊天输入框是 QTextEdit 子类（_DropChatEdit）—— 没有 text()/setText()
                     if hasattr(self.chat_input, 'toPlainText'):
@@ -8168,7 +8178,7 @@ class PetWidget(QWidget):
                     self.chat_input.setFocus()
                 except Exception as _exc:
                     _silent_log('_toggle_listen:fill', _exc)
-                self._notify('🎤 已填入输入框（确认后按回车发送）')
+                self._notify('🎤 已填入输入框（确认后按回车发送）%s' % _conf_txt)
             self._run_on_ui(done)
         threading.Thread(target=work, daemon=True).start()
 
