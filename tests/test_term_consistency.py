@@ -217,12 +217,19 @@ def test_contract_appendix_e11_write_layers_in_place():
     srv = io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8').read()
     for p in ('/api/step', '/api/interrupt', '/api/resume'):
         assert p in srv, '%s 不存在 ✗' % p
-    assert 'if not ACTIONS_ALLOWED' in srv, '遗留动作面的 403 闸门必须还在 ✗'
+    # ⛔ 2026-10-25：不再钉 `if not ACTIONS_ALLOWED` 这个**具体写法**
+    #    （开关已从模块级全局改为处理器实例属性，写法变了但契约没变）。
+    #    改钉语义锚点「动作端点未开启」—— 403 文案，只在闸门处出现。
+    GATE = '动作端点未开启'
+    assert GATE in srv, '遗留动作面的 403 闸门必须还在 ✗'
+    assert 'enable_actions' in srv, '开关必须来自 create_server 的 enable_actions 参数 ✗'
     # ⭐ 而窄写端点必须在闸门**之前** ✓（承 E1 ✓）
     seg = srv[srv.index('def do_POST'):srv.index('def _post_pending')]
-    assert "'/api/pending'" in seg and 'not ACTIONS_ALLOWED' in seg, \
+    assert "'/api/pending'" in seg and '动作端点未开启' in seg, \
         '⛔ 窄写端点必须排在 403 闸门之前 ✗'
-    assert seg.index("'/api/pending'") < seg.index('not ACTIONS_ALLOWED'), \
+    # ⛔ 2026-10-25：锚点从 `not ACTIONS_ALLOWED` 换成语义锚点「动作端点未开启」
+    #    （闸门写法变了；这个文案稳定，且只在闸门处出现）
+    assert seg.index("'/api/pending'") < seg.index('动作端点未开启'), \
         '⛔ 顺序反了：窄写端点会受 --enable-actions 影响 ✗'
 
 
@@ -243,7 +250,11 @@ def test_contract_appendix_e13_e14_in_place():
     srv = io.open(os.path.join(ROOT, 'collab', 'relay_server.py'), encoding='utf-8').read()
     for p in ('/api/interrupt', '/api/step', '/api/resume'):
         assert p in srv
-    assert 'if not ACTIONS_ALLOWED' in srv, '⭐ 动作面 403 闸门必须还在 ✗'
+    # ⛔ 2026-10-25：同 2.1，钉语义锚点而不是具体写法
+    assert '动作端点未开启' in srv, '动作面 403 闸门必须还在 ✗'
+    _gate_i = srv.find('动作端点未开启')
+    _step_i = srv.find("path == '/api/step'")
+    assert 0 < _gate_i < _step_i, '闸门没有在 /api/step 之前（动作面可能被放开）✗'
 
 
 # ── ⭐ E15／E16／E14.9 钉（契约与实现必须一致 ✓）──

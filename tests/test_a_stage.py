@@ -31,6 +31,27 @@ def _fn(path, name):
 
 
 # ── A5 ⭐ 启动预算 ≠ 失败判定（两参独立 ✓ 契约下限 ✓）──────────────────
+def _wait_http_ready(port, timeout=5.0):
+    """等本文件启动的 relay 服务真的能连上（替代「sleep 0.3 赌它起来了」）
+
+    2026-10-25：本文件原有 9 处 `time.sleep(0.3)`，都是
+        create_server(...) → Thread(serve_forever).start() → sleep(0.3)
+    机器一忙就不够 ⇒ 连接被中止 ⇒ 全量偶发红 ⇒「全绿」这个口径不可信。
+    """
+    import socket as _s
+    import time as _t
+    t0 = _t.time()
+    last = None
+    while _t.time() - t0 < timeout:
+        try:
+            with _s.create_connection(('127.0.0.1', port), timeout=0.25):
+                return
+        except OSError as exc:
+            last = exc
+            _t.sleep(0.02)
+    raise TimeoutError('端口 %d 在 %.1f 秒内没就绪（最后错误：%s）' % (port, timeout, last))
+
+
 def test_a5_budget_split_from_probe_timeout():
     import inspect
     import dsh_panel
@@ -241,7 +262,7 @@ def test_health_exposes_actions_flag(monkeypatch):
         httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='',
                                                  enable_actions=flag)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
-        time.sleep(0.3)
+        _wait_http_ready(port)
         with urllib.request.urlopen('http://127.0.0.1:%d/api/health' % port, timeout=3) as fh:
             d = json.loads(fh.read().decode('utf-8'))
         httpd.shutdown()
@@ -253,9 +274,20 @@ def test_health_actions_is_read_only_field():
     s = io.open(os.path.join(REPO, 'collab', 'relay_server.py'), encoding='utf-8').read()
     # ⚠️ 坑（本用例第一版踩过 ✗）：`s.index("/api/health")` 命中的是**文档字符串**里的那行 ✗
     #    → 段落里当然有 `os.` ✓ → 断言假红 ✓ ⇒ ⭐ 必须定位 **handler**（`if path == …`）✓
+    # ⛔ 2026-10-25：原版用 `s[i:i+420]` 这个**字符窗口**。
+    #    开关改成 `getattr(self,'actions_allowed', ACTIONS_ALLOWED)`（跨两行）后，
+    #    后半截被挤出 420 字符 ⇒ 假红。窗口假设这一天已经栽过一次（见日志 §判据）。
+    #    改成按 `if path == '/api/health'` 到下一个 `if path ==` 之间的**整段**，
+    #    与字符数无关。
     i = s.index("if path == '/api/health'")
-    seg = s[i:i + 420]
-    assert 'ACTIONS_ALLOWED' in seg, '⭐ 必须由全局开关派生 ✓'
+    _nxt = s.find("if path ==", i + 10)
+    seg = s[i:_nxt] if _nxt > 0 else s[i:i + 900]
+    assert 'actions' in seg, '⭐ health 必须报 actions 字段 ✓'
+    assert ('actions_allowed' in seg) or ('ACTIONS_ALLOWED' in seg), \
+        '⭐ actions 必须由动作面开关派生（实例属性或全局）✓'
+    # 只读契约不变：这段里不得出现写操作
+    for _w in ('do_POST', '.write(', 'os.remove', 'unlink'):
+        assert _w not in seg, '⛔ health 段落里不得有写操作（只读契约）✗：%s' % _w
     assert 'write' not in seg.lower() and 'os.' not in seg, '⛔ health 不得写盘 ✗'
 
 
@@ -300,7 +332,7 @@ def _boot(tmp, enable_actions=False):
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='',
                                              enable_actions=enable_actions)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     return lg, httpd, port
 
 
@@ -405,7 +437,7 @@ def test_b7_error_entries_readable_via_history(tmp_path):
     lg.error('缩略图生成失败', raw='OSError: cannot identify image file')
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         with urllib.request.urlopen('http://127.0.0.1:%d/api/history' % port, timeout=3) as fh:
             h = _json.loads(fh.read().decode('utf-8'))
@@ -492,7 +524,7 @@ def test_e15_queue_endpoints_are_read_only(tmp_path):
     n0 = len(lg.replay())
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         with urllib.request.urlopen('http://127.0.0.1:%d/api/queue' % port, timeout=3) as fh:
             q = _json.loads(fh.read().decode('utf-8'))
@@ -702,7 +734,7 @@ def test_p03_log_jsonl_is_limited(tmp_path):
         lg.error('第 %d 条' % k, raw='x')
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         with urllib.request.urlopen('http://127.0.0.1:%d/api/log.jsonl' % port, timeout=5) as fh:
             body = fh.read().decode('utf-8')
@@ -731,7 +763,7 @@ def test_p03_log_jsonl_still_read_only(tmp_path):
     n0 = len(lg.replay())
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         for u in ('/api/log.jsonl', '/api/log.jsonl?limit=3'):
             urllib.request.urlopen('http://127.0.0.1:%d%s' % (port, u), timeout=5).read()
@@ -861,7 +893,7 @@ def test_c2_config_endpoint_is_read_only(tmp_path):
     n0 = len(lg.replay())
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         with urllib.request.urlopen('http://127.0.0.1:%d/api/config' % port, timeout=4) as fh:
             got = __import__('json').loads(fh.read().decode('utf-8'))
@@ -882,7 +914,7 @@ def test_c2_config_endpoint_hides_secret_values(tmp_path):
     lg = relay_log.RelayLog(str(tmp_path / 'c2.jsonl'))
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         with urllib.request.urlopen('http://127.0.0.1:%d/api/config' % port, timeout=4) as fh:
             raw = fh.read().decode('utf-8')
@@ -935,7 +967,7 @@ def test_c5_err_appends_err_code_keeps_old_fields(tmp_path):
     lg = relay_log.RelayLog(str(tmp_path / 'c5.jsonl'))
     httpd, port = relay_server.create_server(lg, '127.0.0.1', 0, ui_path='')
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    time.sleep(0.3)
+    _wait_http_ready(port)
     try:
         req = urllib.request.Request('http://127.0.0.1:%d/api/step' % port, data=b'{}',
                                      headers={'Content-Type': 'application/json'})

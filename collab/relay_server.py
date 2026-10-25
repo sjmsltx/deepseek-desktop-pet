@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """3.0 · M2 协作台后端（只读导出面）—— 依《3.0-M2-UI导出契约-冻结v1.md》。
 
 职责：把内核（relay_log.RelayLog）的投影**原样**暴露成 JSON，供前端渲染 + 供复核脚本做
@@ -539,7 +539,12 @@ class Handler(BaseHTTPRequestHandler):
         #    必须在下面那个 403 闸门**之前** ✓（它是契约特批通道 ✓ 与 --enable-actions 无关 ✓）
         if path == '/api/pending':
             return self._post_pending()
-        if not ACTIONS_ALLOWED:
+        # ⛔ 2026-10-25：原先直接读模块级 ACTIONS_ALLOWED。
+        #    create_server() 每次都会改写那个全局 ⇒ 同一进程里跑两个服务时，
+        #    后启动的会把前一个的开关改掉，前一个的 403 闸门就错了
+        #    （实测：并发压力下 test 偶发红在 `assert ACTIONS_ALLOWED is False`）。
+        #    改为读本服务自己的开关；没有（老用法/直接 new Handler）才回落到全局。
+        if not getattr(self, 'actions_allowed', ACTIONS_ALLOWED):
             return self._err(403, '动作端点未开启（需服务端 --enable-actions）')
         body = self._json_body()
         try:
@@ -637,7 +642,9 @@ class Handler(BaseHTTPRequestHandler):
                                'msgs': len(self.log.replay()),
                                # ⭐ E13.3 完全体：⭐ **只读**告知动作面开没开 ✓
                                #    ⇒ 界面可据此**事先置灰** ✗ 不必"调了才发现" ✓
-                               'actions': bool(ACTIONS_ALLOWED)})
+                               # 报的是**本服务**的开关，不是进程里的最后赋值
+                               'actions': bool(getattr(self, 'actions_allowed',
+                                                       ACTIONS_ALLOWED))})
 
         # ⭐ C2／`D5-2`（2026-10-05 ✓）：⭐ **只读**配置面 ✓ —— ⭐ 守 C1：**只增只读** ✗
         #   ⭐ 三条硬约束（`PC-…-165` §2.1 ✓）：⭐ 纯读 ✓ ／ ⭐ **敏感值不出现** ✗（只列键名 ✓）／
@@ -813,8 +820,16 @@ def create_server(log: relay.RelayLog, host: str = '127.0.0.1', port: int = 0,
                   ui_path: str = '', enable_actions: bool = False):
     """返回 (httpd, port)。**host 默认且仅建议 127.0.0.1**。"""
     global ACTIONS_ALLOWED
+    # 保留全局赋值：现有测试与外部代码（含 /api/health 的回落分支）仍在读它，
+    # 语义是"本进程最后一次 create_server 的设置"。
+    # ⛔ 但**请求处理不再依赖它** —— 见 do_POST 与 /api/health。
     ACTIONS_ALLOWED = bool(enable_actions)
-    cls = type('BoundHandler', (Handler,), {'log': log, 'ui_path': ui_path})
+    cls = type('BoundHandler', (Handler,), {
+        'log': log,
+        'ui_path': ui_path,
+        # 每个服务自己的开关：同一进程里多个实例互不影响
+        'actions_allowed': bool(enable_actions),
+    })
     httpd = ThreadingHTTPServer((host, port), cls)
     return httpd, httpd.server_address[1]
 

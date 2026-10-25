@@ -42,6 +42,35 @@ def _cleanup_office_orphans():
         pass
 
 
+def wait_port_ready(port, timeout=5.0, host='127.0.0.1', interval=0.02):
+    """等某个端口真的能连上（替代「启动后 sleep 固定秒数」）
+
+    为什么需要它（2026-10-25）：
+        test_a_stage.py 里有 9 处 `time.sleep(0.3)`，都是
+            create_server(...) → Thread(serve_forever).start() → sleep(0.3)
+        「赌它 0.3 秒内已经开始监听」。机器一忙就不够 ⇒ 连接被中止 ⇒ 偶发红。
+        test_write_endpoints 的 fixture 更彻底，连 sleep 都没有。
+
+    后果不是"一个测试不稳"，而是**「全量绿」这个口径不可信**。
+
+    返回: 实际等待秒数
+    抛出: TimeoutError（带端口与已等时长，便于定位）
+    """
+    import socket as _s
+    import time as _t
+    t0 = _t.time()
+    last = None
+    while _t.time() - t0 < timeout:
+        try:
+            with _s.create_connection((host, port), timeout=0.25):
+                return _t.time() - t0
+        except OSError as exc:
+            last = exc
+            _t.sleep(interval)
+    raise TimeoutError(
+        '端口 %s:%d 在 %.1f 秒内没就绪（最后一次错误：%s）' % (host, port, timeout, last))
+
+
 @pytest.fixture(scope='session', autouse=True)
 def _isolate_config_file(tmp_path_factory):
     """把 config.json 指到临时目录 —— 测试**不得**改动 Owner 的真实配置

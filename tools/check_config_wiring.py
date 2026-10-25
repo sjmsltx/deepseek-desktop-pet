@@ -61,7 +61,10 @@ ALLOW_UNUSED = {
 
 
 def _read(p):
-    return io.open(p, encoding='utf-8-sig').read()
+    # ⛔ 不要改成「一行式读取」的写法：产品代码规则禁止未关闭的 open
+    #    （长驻进程里是真实资源泄漏，tests/test_product_open_hygiene.py 守着）。
+    with io.open(p, encoding='utf-8-sig') as fh:
+        return fh.read()
 
 
 def load_config_keys():
@@ -98,7 +101,8 @@ def find_key_readers(key):
                 continue
             p = os.path.join(root, f)
             try:
-                txt = io.open(p, encoding='utf-8-sig', errors='ignore').read()
+                with io.open(p, encoding='utf-8-sig', errors='ignore') as fh:
+                    txt = fh.read()
             except Exception:
                 continue
             for i, l in enumerate(txt.splitlines(), 1):

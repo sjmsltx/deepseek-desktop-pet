@@ -39,6 +39,10 @@ def srv(tmp_path, monkeypatch):
     httpd.daemon_threads = True
     th = threading.Thread(target=httpd.serve_forever, daemon=True)
     th.start()
+    # 2026-10-25：原版这里**直接 yield**，没有任何就绪等待 ——
+    #   机器忙时第一个请求会撞上 "WinError 10053 你的主机中的软件中止了一个已建立的连接"。
+    #   改成真去连一次 TCP，连上才算就绪。
+    _wait_ready(port)
     try:
         yield port, tmp_path
     finally:
@@ -46,6 +50,21 @@ def srv(tmp_path, monkeypatch):
         httpd.server_close()          # ⭐ 关掉监听 socket（防漏 ✓）
         th.join(timeout=5)
 
+
+def _wait_ready(port, timeout=5.0):
+    """等服务端口真的能连上（替代「启动后盲等」）"""
+    import socket as _s
+    import time as _t
+    t0 = _t.time()
+    last = None
+    while _t.time() - t0 < timeout:
+        try:
+            with _s.create_connection(('127.0.0.1', port), timeout=0.25):
+                return
+        except OSError as exc:
+            last = exc
+            _t.sleep(0.02)
+    raise TimeoutError('端口 %d 在 %.1f 秒内没就绪（最后错误：%s）' % (port, timeout, last))
 
 def _post(port, path, body):
     c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
