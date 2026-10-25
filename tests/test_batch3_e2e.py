@@ -257,11 +257,17 @@ def test_third_party_mcp_server_end_to_end(tmp_path):
         assert br.needs_confirm('mcp_fs_write_file')[0] is True
     finally:
         br.remove_server('fs')
-        time.sleep(4)
-        procs = subprocess.run(
-            ['powershell', '-NoProfile', '-Command',
-             "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*"
-             + str(data_dir) + "*' -and $_.Name -ne 'powershell.exe' } | "
-             'Select-Object -ExpandProperty ProcessId'],
-            capture_output=True, text=True, timeout=60)
+        # 2026-10-25（WX-119 §5）：sleep(4) 盲等等子进程死 → 轮询到清空，上限 30 秒。
+        #   盲等在满载下会假红；判据（断开后不得残留）不变。
+        _t0 = time.time()
+        while True:
+            procs = subprocess.run(
+                ['powershell', '-NoProfile', '-Command',
+                 "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*"
+                 + str(data_dir) + "*' -and $_.Name -ne 'powershell.exe' } | "
+                 'Select-Object -ExpandProperty ProcessId'],
+                capture_output=True, text=True, timeout=60)
+            if not procs.stdout.strip() or time.time() - _t0 > 30:
+                break
+            time.sleep(0.3)
         assert not procs.stdout.strip(), f'断开后残留子进程：{procs.stdout}'

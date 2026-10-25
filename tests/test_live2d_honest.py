@@ -239,3 +239,46 @@ def test_switch_model_success_still_reports():
     w._set_live2d_model('other')
     assert '已切换 Live2D 模型' in ' | '.join(w.msgs)
     assert w.display_mode == 'live2d'
+
+# ---------------- 5. 降级必须落配置，否则热加载会把它翻回去 ----------------
+
+def test_startup_fallback_persists_to_config():
+    """降级后必须把 display_mode 写回 config —— 否则第 4 条静默路径
+
+    2026-10-25 第四条路径（微信侧 WX-119 §3.5 报；本条锁它）：
+
+      _apply_display_mode 降级时只改内存 `self.display_mode = 'static'`，
+      **不写 config**（函数体内 _save_cfg_value 出现 0 次）。
+      而 _load_ai_config 每次都无条件
+          self.display_mode = cfg.get('display_mode', 'static')
+      并且它有 8 个调用点，含 `ask_ai` —— **每次聊天前都跑一次**。
+
+    ⇒ 便携版（Live2D 包不完整）上的真实时间线：
+        启动 → 老实降级 + 警告一次（第 1 条修的就是这个）
+        用户说第一句话 → _load_ai_config 把 display_mode 从 config 读回 'live2d'
+        从此 display_mode 恒为 'live2d'，而模型根本没有
+
+    ⇒ 后果不是「状态不一致」而是**画面没了**：
+        _show_idle   L5460  if display_mode == 'live2d': return   → 待机立绘不画
+        _show_peek   L5505  if display_mode == 'live2d': return   → 扒边立绘不画
+        pet_anim      L87   if display_mode == 'live2d': return   → 状态动画不播
+
+    ⛔ 判据必须能证伪：
+        只断言 `display_mode == 'static'` 是**测不出**这个 bug 的 ——
+        内存里本来就是 static（降级那一刻改的）。必须断言**配置被改写**，
+        再模拟下一次 _load_ai_config 的读取口径，看它会不会翻回去。
+    """
+    w = _Boot(False)
+    w._apply_display_mode()
+    assert w.display_mode == 'static', '降级后内存值应在 static'
+    assert ('display_mode', 'static') in w.saved, (
+        '降级没写回配置 —— 下一次 _load_ai_config 会把它翻回 live2d：saved=%r'
+        % (w.saved,))
+
+    # 跨路径：按下一次 _load_ai_config 的口径重算一遍（cfg.get('display_mode')）
+    cfg_value = 'live2d'          # 用户原本选的
+    for k, v in w.saved:
+        if k == 'display_mode':
+            cfg_value = v
+    assert cfg_value == 'static', (
+        '热加载会把 display_mode 翻回 %r —— 降级只活到用户说的第一句话' % cfg_value)

@@ -4704,10 +4704,23 @@ class PetWidget(QWidget):
             return
         # 建不出来：退回静态 + 说清楚为什么
         self.display_mode = 'static'
-        _why = (getattr(self, '_l2d_fail_msg', '') or '未知原因')
-        log.warning('Live2D 启动降级为静态立绘：%s', _why)
+        # 2026-10-25 第四条静默路径（WX-119 §3.5）：**必须把配置也改掉**。
+        #   只改内存的话，_load_ai_config（8 个调用点，含 ask_ai 每次聊天前）
+        #   会无条件 `self.display_mode = cfg.get('display_mode','static')`
+        #   把它翻回 'live2d' ⇒ 降级只活到用户说的第一句话，之后
+        #   _show_idle / _show_peek / pet_anim 三个渲染入口全都 return，
+        #   待机立绘与扒边立绘都不画（比"显示静态图"严重）。
+        #   另两条降级路径（_set_display_mode / _set_live2d_model）本来就是
+        #   这么做的，这里补齐口径一致性。
         try:
-            self._notify('Live2D 未能启用，已显示静态立绘：%s' % _why)
+            self._save_cfg_value('display_mode', 'static')
+        except Exception as _exc:
+            _silent_log('_apply_display_mode:save', _exc)
+        _why = (getattr(self, '_l2d_fail_msg', '') or '未知原因')
+        log.warning('Live2D 启动降级为静态立绘（已把配置改回 static）：%s', _why)
+        try:
+            self._notify('Live2D 未能启用，已显示静态立绘，'
+                         '并把显示模式改回「静态」以免下次启动再报：%s' % _why)
         except Exception as _exc:
             _silent_log('_apply_display_mode', _exc)
 

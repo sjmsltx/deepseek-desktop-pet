@@ -118,10 +118,17 @@ def test_a7_kill_parent_recycles_child(tmp_path):
         except ValueError:
             return -1
 
-    time.sleep(2.0)
+    # 2026-10-25（WX-119 §5）：原来是 sleep(2.0) 盲等子进程出生、sleep(3.0) 盲等它死。
+    #   n_sleep() 本身就是可轮询的探针，盲等在满载下会假红（等出生的 2 秒尤甚）。
+    #   改为轮询到条件成立为止，上限 30 秒 —— 判据不变，只是不再赌时间。
+    _t0 = time.time()
+    while time.time() - _t0 < 30 and n_sleep() < 1:
+        time.sleep(0.2)
     assert n_sleep() >= 1, '⭐ 探针：父在时应有子进程 ✓'
     subprocess.run(['taskkill', '/F', '/PID', str(proc.pid)], capture_output=True)
-    time.sleep(3.0)
+    _t0 = time.time()
+    while time.time() - _t0 < 30 and n_sleep() != 0:
+        time.sleep(0.2)
     assert n_sleep() == 0, '⛔ 强杀父后子进程必须被回收 ✗（A7 判据 ✗）'
 
 
@@ -215,7 +222,14 @@ def test_a4_ready_marker_written_and_cleared(tmp_path):
         assert cp.ready_info(REPO).get('port') == 8892
     finally:
         p.terminate()
-        time.sleep(2.0)
+        # 2026-10-25（WX-119 §5）：sleep(2.0) 盲等等它死 → 轮询 p.poll()。
+        #   原来满载下 terminate 要几秒才生效，后续 is_ready 会拿到"服务其实还活着"。
+        _t0 = time.time()
+        while time.time() - _t0 < 30 and p.poll() is None:
+            time.sleep(0.05)
+        if p.poll() is None:      # 还活着就强杀，不让它污染后面的断言
+            p.kill()
+            p.wait(timeout=30)
     # ⭐ 强杀后：标记可能残留 ✓，但 **is_ready 必须 False** ✓（双确认的意义 ✓）
     import collab_panel as cp
     assert cp.is_ready(8892, REPO) is False, '⛔ 服务已死时 is_ready 必须 False ✗（陈旧标记不得撒谎 ✗）'

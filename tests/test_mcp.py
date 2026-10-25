@@ -185,9 +185,15 @@ def test_stop_terminates_child_process(tmp_path):
                            text=True).stdout
     assert str(pid) in alive, '子进程没起来？'
     conn.stop()
-    time.sleep(2)
-    gone = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid], capture_output=True,
-                          text=True).stdout
+    # 2026-10-25（WX-119 §5）：sleep(2) 盲等等子进程死 → 轮询 tasklist，上限 30 秒。
+    #   盲等在满载下会假红；判据（断开后进程必须没了）不变。
+    _t0 = time.time()
+    while True:
+        gone = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid], capture_output=True,
+                              text=True).stdout
+        if str(pid) not in gone or time.time() - _t0 > 30:
+            break
+        time.sleep(0.2)
     assert str(pid) not in gone, '断开后子进程还在：%s' % gone[-200:]
 
 

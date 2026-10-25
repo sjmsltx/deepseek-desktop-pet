@@ -543,8 +543,12 @@ class Handler(BaseHTTPRequestHandler):
         #    create_server() 每次都会改写那个全局 ⇒ 同一进程里跑两个服务时，
         #    后启动的会把前一个的开关改掉，前一个的 403 闸门就错了
         #    （实测：并发压力下 test 偶发红在 `assert ACTIONS_ALLOWED is False`）。
-        #    改为读本服务自己的开关；没有（老用法/直接 new Handler）才回落到全局。
-        if not getattr(self, 'actions_allowed', ACTIONS_ALLOWED):
+        #    改为读本服务自己的开关。
+        # 2026-10-25（WX-119 §3.1）：**兜底必须是『关』，不能是全局** ——
+        #   原来回落到 ACTIONS_ALLOWED，而它的语义是「本进程最后一次
+        #   create_server 的值」＝ **别人留下的状态**；实测裸 Handler 会
+        #   直接放行（POST /api/step → 200）。安全闸门的兜底只能是 fail-closed。
+        if not getattr(self, 'actions_allowed', False):
             return self._err(403, '动作端点未开启（需服务端 --enable-actions）')
         body = self._json_body()
         try:
@@ -644,7 +648,7 @@ class Handler(BaseHTTPRequestHandler):
                                #    ⇒ 界面可据此**事先置灰** ✗ 不必"调了才发现" ✓
                                # 报的是**本服务**的开关，不是进程里的最后赋值
                                'actions': bool(getattr(self, 'actions_allowed',
-                                                       ACTIONS_ALLOWED))})
+                                                       False))})
 
         # ⭐ C2／`D5-2`（2026-10-05 ✓）：⭐ **只读**配置面 ✓ —— ⭐ 守 C1：**只增只读** ✗
         #   ⭐ 三条硬约束（`PC-…-165` §2.1 ✓）：⭐ 纯读 ✓ ／ ⭐ **敏感值不出现** ✗（只列键名 ✓）／
@@ -820,9 +824,11 @@ def create_server(log: relay.RelayLog, host: str = '127.0.0.1', port: int = 0,
                   ui_path: str = '', enable_actions: bool = False):
     """返回 (httpd, port)。**host 默认且仅建议 127.0.0.1**。"""
     global ACTIONS_ALLOWED
-    # 保留全局赋值：现有测试与外部代码（含 /api/health 的回落分支）仍在读它，
-    # 语义是"本进程最后一次 create_server 的设置"。
-    # ⛔ 但**请求处理不再依赖它** —— 见 do_POST 与 /api/health。
+    # 保留全局赋值：现有测试与外部代码仍在读它（conftest 的
+    # _guard_actions_allowed_global 在守它别被留在 True），
+    # 语义是"本进程最后一次 create_server 的设置"= **只当镜像用**。
+    # ⛔ 请求处理与 /api/health 的兜底都**不再读它**（2026-10-25 改 fail-closed）
+    #   —— 之前这句话写着但代码是回落到全局的，实测裸 Handler 会放行。
     ACTIONS_ALLOWED = bool(enable_actions)
     cls = type('BoundHandler', (Handler,), {
         'log': log,

@@ -126,3 +126,52 @@ def test_single_server_switch_matches_argument(enable, monkeypatch):
         httpd.shutdown()
         httpd.server_close()
         th.join(timeout=5)
+
+# ---------------- ③ 兜底必须 fail-closed（2026-10-25 WX-119 §3.1） ----------------
+
+def test_bare_handler_without_switch_attribute_is_closed(monkeypatch):
+    """不带 `actions_allowed` 属性的处理器，闸门必须**关**，不许读模块级全局
+
+    背景（微信侧 WX-119 §3.1 实测）：修完实例属性之后，闸门写的是
+        if not getattr(self, 'actions_allowed', ACTIONS_ALLOWED):
+    兜底仍然回落到模块级全局 —— 而那个全局的语义是
+    「**本进程最后一次 create_server 的值**」＝ 别人留下的状态。
+    实测：裸 Handler（无该类属性）起服务后 `POST /api/step` **返回 200 放行**。
+
+    ⇒ 安全闸门的兜底只能是 fail-closed。本条锁的就是这个方向。
+
+    ⛔ 判据必须能证伪：先把全局置成 True（模拟"另一个服务刚把它改真了"），
+      再让裸 Handler 收到请求 —— 修之前会 200，修之后必须 403。
+      只断言"带开关的服务能正常关"是测不出这个 bug 的。
+    """
+    from http.server import ThreadingHTTPServer
+
+    # 模拟：本进程里刚有别的 create_server(enable_actions=True) 跑过
+    monkeypatch.setattr(relay_server, 'ACTIONS_ALLOWED', True, raising=False)
+    assert relay_server.ACTIONS_ALLOWED is True
+
+    tmp = tempfile.mkdtemp(prefix='iso_bare_')
+    lg = relay_log.RelayLog(os.path.join(tmp, 'log.jsonl'))
+    # 关键：这个类**不带** actions_allowed（老用法 / 直接继承 Handler）
+    Cls = type('BareHandler', (relay_server.Handler,), {'log': lg, 'ui_path': ''})
+    httpd = ThreadingHTTPServer(('127.0.0.1', 0), Cls)
+    httpd.daemon_threads = True
+    port = httpd.server_address[1]
+    th = threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    t0 = time.time()
+    while time.time() - t0 < 5:
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=0.25):
+                break
+        except OSError:
+            time.sleep(0.02)
+    try:
+        st, body = _post(port, '/api/step')
+        assert st == 403, (
+            '裸 Handler 兜底读到了模块级全局 True ⇒ 动作端点被放行（%r）：%r'
+            % (st, body[:200]))
+        assert _health_actions(port) is False, \
+            '裸 Handler 的 health 报了 actions=真（应假）'
+    finally:
+        httpd.shutdown()
