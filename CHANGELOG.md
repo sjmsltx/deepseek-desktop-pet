@@ -272,6 +272,48 @@
   判据与它要判断的东西无关）。改用 `ast.get_source_segment` 取整个函数体，
   本文件 3 处同类写法一并改。
 
+#### 修复（在线声线「晓晓」100% 失联 —— 已修好）
+
+- **现象**：设置里选的是 `edge:zh-CN-XiaoxiaoNeural`（晓晓），实际听到的一直是系统离线声线。
+- **根因**：`edge-tts` 7.2.8 的 `Sec-MS-GEC` token 是旧算法
+  （单个 64 位 SHA256），微软已改收 v2（`16hex-64hex`，CS64+SHA256）。
+  版本前缀也从 `1-` 变 `2-`，但**只改前缀无效**（实测 5 组前缀全 403）——
+  签名本身换代了。
+  排除：HTTPS 语音列表接口 200 正常（322 个声线都在）、时钟差 2 秒、
+  无代理残留 ⇒ 不是网络或封禁，是客户端签名被拒。
+- **修法**：升级 edge-tts 7.2.8 → 7.3.1。升级后 3/3 合成成功，
+  端到端 `used=edge`、`kind=mp3`、`actual_voice=zh-CN-XiaoxiaoNeural`。
+  并加 `edge_tts_version_hint()`：token 不是 v2 格式时，403 的错误消息里
+  直接给出 `pip install -U edge-tts`（判据用 token 格式而不是版本号）。
+
+#### 修复（配置加载三处缺陷 —— 都是「真实 config.json 一直在，所以从没被走到」）
+
+- **asr 段缩进错 4 格**：没有 `config.json` 时抛 `UnboundLocalError: cfg`，
+  被外层 except 吞掉 ⇒ **整段配置全不加载**（语音/模型参数/待办…）；
+  且 `voice_local_*` 被裹进 `if getattr(self,'asr')` 里。
+- **`voice_fallback` 漏了 `VoiceIO` 构造参数** ⇒ 首次构造后恒为 `''`，
+  要等下次热加载才生效（"改完配置立刻重启"等于没生效）。
+- **`_saved_theme` / `_theme_widgets` 写在 `if os.path.exists` 里面**
+  ⇒ 首次运行（还没有 `config.json`）时属性不存在，
+  `_restore_saved_theme()` 直接 `AttributeError`。
+- 修法：asr 段整体上移一层；`voice_fallback` 进构造参数；两个结构性默认值提到 `if` 之前。
+
+#### 工程（测试不再改动真实配置）
+
+- 实测两次被害：出图脚本把 6 条测试便签写进真实 `config.json`；
+  跑全量后窗口位置变了（`x` 1353→1365、`y` 290→200、`theme` default→theme_t1）。
+- 根因：conftest 只隔离了日志/聊天历史/用量统计，**`config.json` 一直漏在外面**。
+- 第一版用 function 级隔离 —— **不够**：session 收尾阶段（Qt 对象析构、deleteLater
+  队列处理）仍有对象写 config，那时 monkeypatch 已恢复真实路径。
+  证据：给每个测试挂"前后哈希对比"监控一次都没抓到，但跑完 x/y 确实变了。
+- 改成 **session 级隔离**。改后跑全量前后 `config.json` 哈希完全一致。
+
+#### 环境变更（可回退）
+
+- `edge-tts` 7.2.8 → 7.3.1（`pip install --upgrade edge-tts`；
+  回退 `pip install edge-tts==7.2.8`）。项目依赖文件未改（本就没有 edge_tts，
+  它是可选运行时依赖）。
+
 #### 已知 flaky（会让「全量绿」这个口径不可信）
 
 - `test_a_stage::test_c5_err_appends_err_code_keeps_old_fields`：
