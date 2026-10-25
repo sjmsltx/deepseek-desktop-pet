@@ -106,6 +106,25 @@ class PanelShell(QWidget):
         """已经真正建出来的面板 key（懒建的证据，测试用）"""
         return sorted(self._built.keys())
 
+    def refresh_panel(self, key):
+        """只刷某一个已建面板（外部数据变了时用）。返回是否刷到。
+
+        为什么不直接用 refresh_all：便签面板的 refresh 会重读正文，
+        连带刷它等于给"正在打字"多一次被覆盖的机会。
+        """
+        w = self._built.get(str(key or ''))
+        fn = getattr(w, 'refresh', None)
+        if not callable(fn):
+            return False
+        try:
+            fn()
+            return True
+        except Exception as _exc:
+            # 与 refresh_all 同口径：不许静默，也不能拖垮容器
+            _log.warning('面板 %s 的 refresh 失败：%s',
+                         getattr(w, '__class__', type(w)).__name__, _exc)
+            return False
+
     def refresh_all(self):
         """把已建出来的面板都刷一遍（外部数据变了时用）。返回刷了几个。"""
         n = 0

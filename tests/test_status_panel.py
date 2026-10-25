@@ -173,13 +173,20 @@ def test_shell_shows_both_panels():
 # ==================== WX-098 §五：两个面板各自独立 try ====================
 
 def test_two_panels_have_separate_try_blocks():
-    """状态面板的注册不得与待办面板共用 try（共用会把失败记到错的模块上）
+    """todo 与 note 两个面板的注册必须各用各的 try（共用会把失败记到错的模块上）
+
+    2026-10-25 改动说明（Owner 选了主区 B 方案）：
+      · 原先锁的是「todo try 与 **status** try 分开」；
+      · B 方案下状态面板**不再注册进主区**（它是侧栏「◎ 状态」页的复制品，
+        装进 720×480 没有新信息，正是 Owner 说的「内容有些鸡肋」）；
+      · 主区改注册「便签长文」面板，所以这条测试改成锁 todo / note。
+    ⚠ 这是产品行为变了而同步判据，**不是**为了让红的变绿去删断言 ——
+      status_panel.py 本身与它的 5 条行为测试都还在。
 
     做法：ast 找 _register_builtin_panels 里所有 Try 节点，看
-      · 含 TodoPanel 的那个 Try 里不许出现 status_panel
-      · 含 import status_panel 的那个 Try 里不许出现 TodoPanel
-      · 两个 handler 的日志标签必须各指各的（:todo / :status）
-    ⛔ 不用字符串 grep：注释里写 'status_panel' 会误命中。
+      · 含 TodoPanel 的那个 Try 里不许出现 note 面板注册
+      · 含便签注册的那个 Try 里不许出现 TodoPanel
+      · 两个 handler 的日志标签必须各指各的（:todo / :note）
     """
     import ast
     src = io.open(os.path.join(REPO, 'desktop_pet.py'), encoding='utf-8').read()
@@ -192,7 +199,7 @@ def test_two_panels_have_separate_try_blocks():
     assert fn is not None, '找不到 _register_builtin_panels'
 
     seg = lambda n: ast.get_source_segment(src, n) or ''
-    todo_try = status_try = None
+    todo_try = note_try = None
     for node in ast.walk(fn):
         if not isinstance(node, ast.Try):
             continue
@@ -201,12 +208,12 @@ def test_two_panels_have_separate_try_blocks():
         code = '\n'.join(l for l in s.splitlines() if not l.strip().startswith('#'))
         if 'TodoPanel' in code:
             todo_try = code
-        if 'import status_panel' in code:
-            status_try = code
+        if "register_panel('note'" in code:
+            note_try = code
 
     assert todo_try is not None, '找不到待办面板的 try'
-    assert status_try is not None, '找不到状态面板的 try'
-    assert 'status_panel' not in todo_try, '待办 try 里不该有状态面板（共用了同一个 try）'
-    assert 'TodoPanel' not in status_try, '状态 try 里不该有待办面板（共用会连坐）'
+    assert note_try is not None, '找不到便签面板的 try'
+    assert "register_panel('note'" not in todo_try, '待办 try 里不该有便签注册（共用会连坐）'
+    assert 'TodoPanel' not in note_try, '便签 try 里不该有待办面板'
     assert ':todo' in todo_try, '待办 try 的日志标签丢了'
-    assert ':status' in status_try, '状态 try 的日志标签必须指自己的模块，不能写死 :todo'
+    assert ':note' in note_try, '便签 try 的日志标签必须指自己的模块，不能写死 :todo'

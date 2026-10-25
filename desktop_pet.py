@@ -330,8 +330,13 @@ UI_ZH = {
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
     'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
     'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
-    'main_area': '🗂 主区', 'main_area_hint': '这是可选打开的主区；关掉不影响桌面宠物。',
+    'main_area': '🗂 主区', 'main_area_hint': '主区只装侧栏放不下的东西：便签长文、待办管理。关掉不影响桌面宠物。',
     'main_area_empty': '还没有注册任何面板',
+    'main_note': '📝 便签长文',
+    'main_note_hint': '侧栏便签只有 186px 宽，长文在这里写；与侧栏同一份数据，改哪边都一样。',
+    'main_note_new': '＋ 新建便签',
+    'main_note_empty': '还没有便签 —— 点「＋ 新建便签」开始',
+    'main_note_chars': '%d / %d 字',
     'todo_menu': '📋 待办管理', 'todo_status': '状态', 'todo_time': '时间', 'todo_add': '➕ 添加',
     'todo_done': '✅ 完成选中', 'todo_del': '🗑 删除选中', 'todo_clear_done': '🧹 清空已完成',
     'todo_placeholder': '输入待办事项，回车添加…', 'todo_empty': '暂无待办',
@@ -378,8 +383,13 @@ UI_EN = {
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
     'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
     'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
-    'main_area': '🗂 Main Area', 'main_area_hint': 'Optional main area; closing it does not affect the pet.',
+    'main_area': '🗂 Main Area', 'main_area_hint': 'Only what the sidebar cannot hold: long notes, todo manager. Closing it does not affect the pet.',
     'main_area_empty': 'No panels registered yet',
+    'main_note': '📝 Long Note',
+    'main_note_hint': 'The sidebar note is only 186px wide; write long text here. Same data as the sidebar.',
+    'main_note_new': '＋ New Note',
+    'main_note_empty': 'No notes yet — click “＋ New Note” to start',
+    'main_note_chars': '%d / %d chars',
     'todo_menu': '📋 Todo Manager', 'todo_status': 'Status', 'todo_time': 'Time', 'todo_add': '➕ Add',
     'todo_done': '✅ Done', 'todo_del': '🗑 Delete', 'todo_clear_done': '🧹 Clear Done',
     'todo_placeholder': 'Enter todo, press Enter to add…', 'todo_empty': 'No todos',
@@ -846,13 +856,9 @@ class PetWidget(QWidget):
         chat_body.addWidget(self.chat_task_sidebar, 0)
         chat_layout.addLayout(chat_body, 1)
 
-        # 3.0 主区入口（可选，批 2）：不点就永远不出现；关掉不影响桌宠。
-        #    ⛔ 独立按钮，不塞进 SidePanel 内部布局，side_panel.py 一行不动。
-        self._main_area_row = QHBoxLayout()
-        self._main_area_row.setContentsMargins(0, 0, 0, 0)
-        self._main_area_row.addStretch(1)
-        self._main_area_row.addWidget(self._make_main_area_button(self.chat_panel), 0)
-        chat_layout.addLayout(self._main_area_row)
+        # 3.0 主区入口：2026-10-25 B 方案 —— 从「独占一整行」挪进输入行。
+        #   原先这里是一整行 22px、行内只有一个靠右按钮，白占聊天面板约 9% 高度
+        #   （Owner：「单独占一行太浪费了」）。按钮改到 input_row，见 _make_main_area_button。
 
         # 输入框（多行自适应：内容多自动增高，超上限内部滚动）
         self.chat_input = _DropChatEdit(self._insert_dropped_paths, self.chat_panel)
@@ -894,6 +900,8 @@ class PetWidget(QWidget):
         self.mic_btn.clicked.connect(self._toggle_listen)
         input_row.addWidget(self.mic_btn)
         input_row.addWidget(self.chat_attach_btn)
+        # 主区入口：与输入框/🎤/📎 同一行，不再单独占一行
+        input_row.addWidget(self._make_main_area_button(self.chat_panel))
         chat_layout.addLayout(input_row)
 
         self.layout.addWidget(self.chat_panel, 0, Qt.AlignHCenter)
@@ -2553,16 +2561,32 @@ class PetWidget(QWidget):
         if getattr(self, '_todo_syncing', False):
             return
         panel = getattr(self, '_todo_panel', None)
-        if panel is None:
+        shell = getattr(self, '_main_area', None)
+        if panel is None and shell is None:
             return
         self._todo_syncing = True
         try:
-            panel.refresh()
+            if panel is not None:
+                panel.refresh()
+            # 2026-10-25 B 方案：待办面板现在活在主区里，同样要跟着 todos 走
+            if shell is not None and self._main_area_alive(shell):
+                shell.refresh_panel('todo')
         except RuntimeError as exc:
             # 面板已随对话框销毁（Qt 对象没了），不是数据问题，留痕即可
             _silent_log('_sync_todo_panel', exc)
         finally:
             self._todo_syncing = False
+
+    @staticmethod
+    def _main_area_alive(shell):
+        """主区控件还在不在（Qt 对象可能已随窗口销毁）"""
+        try:
+            from shiboken6 import isValid
+            return bool(isValid(shell))
+        except Exception as _exc:
+            # 落痕：静默护栏不许 except 里只 return 一个默认值（tests/test_silent_guard.py）
+            _silent_log('_main_area_alive', _exc)
+            return False
 
     def _todo_block(self):
         """生成注入 prompt 的待办清单块（拆至 prompt_builder.build_todo_block）"""
@@ -2637,6 +2661,55 @@ class PetWidget(QWidget):
                 return t
         return None
 
+    # ============ 3.0 主区：便签长文（B 方案，2026-10-25）============
+
+    def _make_note_panel(self, host):
+        """造主区「便签长文」面板。
+
+        为什么需要它：侧栏便签页签只有 186px 宽，写长文等于在夹缝里打字。
+        为什么放在这里定义、而不是塞进 _register_builtin_panels：
+           那个函数只做注册（判据 3 有测试锁着，里面不许出现面板装配代码）。
+        """
+        from note_panel import NotePanel
+        T = self._t
+        return NotePanel(
+            host._main_area_note_list,
+            host._main_area_note_save,
+            host._main_area_note_add,
+            labels={
+                'title': T('main_note'), 'hint': T('main_note_hint'),
+                'new': T('main_note_new'), 'empty': T('main_note_empty'),
+                'chars': T('main_note_chars'),
+            })
+
+    def _main_area_note_list(self):
+        """主区便签用的清单 —— 与侧栏是**同一份**数据（侧栏页签里的 note 页签）。
+
+        ⛔ 不另存一份：侧栏便签与主区便签必须是同一条，否则又是"两个副本各自为政"。
+        """
+        try:
+            return self.side_panel.note_tabs()
+        except Exception as _exc:
+            _silent_log('_main_area_note_list', _exc)
+            return []
+
+    def _main_area_note_save(self, note_id, text):
+        """主区改完便签 → 写回侧栏那份页签（并落盘）"""
+        try:
+            return self.side_panel.set_note_text(note_id, text)
+        except Exception as _exc:
+            _silent_log('_main_area_note_save', _exc)
+            return False
+
+    def _main_area_note_add(self):
+        """主区新建便签 → 建在侧栏页签里（返回新 id）"""
+        try:
+            tab = self.side_panel.add_tab('note')
+            return (tab or {}).get('id')
+        except Exception as _exc:
+            _silent_log('_main_area_note_add', _exc)
+            return None
+
     # ============ 3.0 主区（批 2）============
     def _register_builtin_panels(self):
         """把已实现的面板注册到 panel_registry（幂等：重复调用不报错）。
@@ -2673,12 +2746,16 @@ class PetWidget(QWidget):
             #   排查时被引到错模块。拆开后谁失败谁留痕，互不牵连。
             _silent_log('_register_builtin_panels:todo', _exc)
         try:
-            import status_panel as _sp
-            _pr.register_panel('status', '状态', lambda host: _sp.StatusPanel(host._side_panel_data),
-                               order=20, hint='今日用量、余额、模型与好感饱食度', replace=True)
+            # 2026-10-25 B 方案：主区只装「侧栏装不下的」。
+            # 状态面板不再注册进主区 —— 它就是侧栏「◎ 状态」页的复制品
+            # （status_panel.py 自己写着「与侧栏口径必须一致」），装进 720×480 也没有
+            # 任何新信息，这正是 Owner 说的「内容有些鸡肋」。状态页在侧栏照旧可用。
+            T2 = self._t
+            _pr.register_panel('note', T2('main_note'), self._make_note_panel,
+                               order=20, hint=T2('main_note_hint'), replace=True)
             n += 1
         except Exception as _exc:
-            _silent_log('_register_builtin_panels:status', _exc)
+            _silent_log('_register_builtin_panels:note', _exc)
         return n
 
     def _open_main_area(self):
@@ -2693,6 +2770,11 @@ class PetWidget(QWidget):
             dlg.show()
             dlg.raise_()
             dlg.activateWindow()
+            # 关着这段时间数据可能变了（AI 改过 todos、侧栏改过便签）→ 重开先刷一遍
+            try:
+                dlg.refresh_all()
+            except Exception as _exc:
+                _silent_log('_open_main_area:refresh', _exc)
             return dlg
         self._register_builtin_panels()
         try:
@@ -2710,68 +2792,45 @@ class PetWidget(QWidget):
         return w
 
     def _make_main_area_button(self, parent):
-        """造「主区」入口按钮（可选入口的可见落点）。
+        """造「主区」入口按钮（并入输入行，2026-10-25 B 方案）
 
-        ⛔ 不塞进 SidePanel 内部布局：那要改它的表头行，牵动页签排布；
-           这里做成独立按钮，side_panel.py 一行不动。
+        Owner 原话：「主区位置可以调整一下，不然单独占一行太浪费了」。
+        原先它独占 chat_layout 的一整行（22px，约聊天面板 9% 的高度），行里只有一个靠右
+        按钮；现在做成 30×30 图标钮，与 🎤/📎 同一行 —— 不新增任何高度。
+
+        ⛔ 仍不塞进 SidePanel 内部布局：那要改它的表头行，牵动页签排布。
         """
         from PySide6.QtWidgets import QPushButton
-        b = QPushButton(self._t('main_area'), parent)
-        b.setToolTip(self._t('main_area_hint'))
+        b = QPushButton('🗂', parent)
+        b.setFixedSize(30, 30)
         b.setCursor(Qt.PointingHandCursor)
-        b.setFixedHeight(22)
+        b.setToolTip('%s\n%s' % (self._t('main_area'), self._t('main_area_hint')))
+        self._set_themed_qss(b, lambda: (
+            'QPushButton{background:%s;color:%s;border:none;border-radius:6px;font-size:13px;}'
+            'QPushButton:hover{background:%s;}'
+            % (self._tk('ui_popup_btn_bg'), self._tk('ui_text_soft'), self._tk('ui_popup_btn_hover'))))
         b.clicked.connect(self._open_main_area)
         self._main_area_btn = b
         return b
 
     def _open_todo_manager(self):
-        """待办管理窗口（非模态，可长期开着）
+        """待办管理入口 —— 2026-10-25 B 方案：不再是独立弹窗，改指主区的「待办」页
 
-        2026-10-17 改造（Owner 批准，见 WX-89）：
-          1. exec() 模态 -> show() 非模态：大界面要把这个面板装进停靠区，模态会锁死主界面
-          2. 行号定位 -> id 定位：常驻面板存在「外部改动窗口」（AI 在别处改 todos
-             而面板没收到通知），用行号会静默勾错条目
-        面板控件在 todo_panel.TodoPanel，与本方法解耦，可直接装进大界面的停靠区。
+        原先它是 540×420 独立窗（非模态），和主区并存 ⇒ 同一份 todos 两个入口、
+        两个面板实例：一处的勾选另一处不跟，刷新也各刷各的。现在统一收进主区。
+
+        · 设置菜单「📋 待办管理」仍走这里（旧入口不毁）
+        · _todo_panel / _todo_dlg 不再由宿主创建；_sync_todo_panel 仍兼容旧属性，
+          并额外刷主区那个 todo 页
         """
-        T = self._t
-        from shiboken6 import isValid
-
-        dlg = getattr(self, '_todo_dlg', None)
-        if dlg is not None and isValid(dlg):
-            if dlg.isVisible():
-                dlg.raise_()
-                dlg.activateWindow()
-                return
-            # 复用前先刷新：面板关着这段时间里，AI 可能改过 todos
-            self._todo_panel.refresh()
-            dlg.show()
-            return
-
-        from PySide6.QtWidgets import QDialog, QVBoxLayout
-        from todo_panel import TodoPanel
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(T('todo_menu'))
-        dlg.resize(540, 420)
-        lay = QVBoxLayout(dlg)
-        # P3（2026-10-21）：面板自己存盘 ⇒ 不再回刷面板。
-        #   原先传裸方法（默认 from_panel=False），导致用户点一下复选框
-        #   ⇒ todo_panel 先 refresh 一次、宿主又 refresh 一次（实测 2 次），
-        #   选中行与滚动位置被重建抹掉。
-        #   ⛔ 用 lambda 不用 functools.partial：_todo_panel 被替换时
-        #     partial 会抓住旧的 bound method，lambda 每次现取。
-        self._todo_panel = TodoPanel(
-            self.todos, lambda: self._save_todos(from_panel=True),
-            labels={
-                'status': T('todo_status'), 'content': T('mem_content'),
-                'time': T('todo_time'), 'placeholder': T('todo_placeholder'),
-                'add': T('todo_add'), 'done': T('todo_done'),
-                'del': T('todo_del'), 'clear': T('todo_clear_done'),
-            },
-            parent=dlg)
-        lay.addWidget(self._todo_panel)
-        self._todo_dlg = dlg
-        dlg.show()          # 非模态：不阻塞主界面
+        w = self._open_main_area()
+        if w is None:
+            return None
+        try:
+            w.show_panel('todo')
+        except Exception as _exc:
+            _silent_log('_open_todo_manager:show', _exc)
+        return w
 
     # ============ AI 状态预判（v6.19） ============
     @staticmethod

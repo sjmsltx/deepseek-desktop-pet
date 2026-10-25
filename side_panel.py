@@ -52,6 +52,12 @@ CORE_KINDS = ('tasks',)          # 不可删除
 COLLAPSED_W = 24                 # 折叠后的宽度（只留一个把手）
 
 
+def _silent_note(msg):
+    """side_panel 内的落痕出口（与主程序 _silent_log 同义；本文件要能独立导入）"""
+    import logging
+    logging.getLogger('side_panel').warning(msg)
+
+
 def tab_text(tab):
     """页签上显示什么：内置类型只显示图标（186px 里放不下四个字）；自定义名字保留"""
     title = str(tab.get('title') or '').strip()
@@ -110,6 +116,7 @@ class SidePanel(QFrame):
         self._data_cb = data_cb or (lambda: {})      # 返回动态数据 dict（给状态/花费/待办/系统页）
         self._task_hooks = {'dblclick': None, 'reorder': None}
         self._note_save = None                       # note 页编辑后的回存回调
+        self._note_editors = {}                      # note id -> 编辑框（主区改便签时要同步这里）
         self._width = 186
         self.setFixedWidth(self._width)
         if theme_qss:
@@ -184,6 +191,7 @@ class SidePanel(QFrame):
             self.stack.removeWidget(w)
             w.deleteLater()
         self._tasks_list = None
+        self._note_editors = {}
         for i, tab in enumerate(self._tabs):
             w = self._make_widget(tab)
             self.stack.addWidget(w)
@@ -218,6 +226,7 @@ class SidePanel(QFrame):
             ed.setPlaceholderText('随手记…（自动保存）')
             ed.setPlainText(str(tab.get('text') or ''))
             ed.textChanged.connect(lambda t=tab, e=ed: self._on_note_changed(t, e))
+            self._note_editors[tab.get('id')] = ed
             lay = QVBoxLayout(w_)
             lay.setContentsMargins(0, 0, 0, 0)
             lay.addWidget(ed, 1)
@@ -258,6 +267,16 @@ class SidePanel(QFrame):
         if kind not in KIND_LABEL:
             return None
         tab = {'id': '%s%d' % (kind, int(time.time() * 1000) % 100000), 'kind': kind}
+        # 撞号防护：上面这个 id 是「毫秒数 % 100000」——100 秒一循环。
+        # 同一进程里连建两个便签、或历史页签恰好同余，就会撞。
+        # 撞了之后 _note_editors 只能记住一个编辑框，另一个永远同步不到
+        # （实测见过 "Internal C++ object already deleted"，2026-10-25）。
+        _used = {str(t.get('id')) for t in self._tabs}
+        if tab['id'] in _used:
+            _i = 2
+            while '%s-%d' % (tab['id'], _i) in _used:
+                _i += 1
+            tab['id'] = '%s-%d' % (tab['id'], _i)
         if kind in CORE_KINDS and self._has_kind(kind):
             return None
         # v6.66 fix：除便签外不允许重复 —— “状态/花费/待办/系统”是全局同一份信息，
@@ -409,6 +428,43 @@ class SidePanel(QFrame):
                 self._tasks_list.addItem(it)
         except Exception:
             pass
+
+    # ---------------- 便签（供 3.0 主区「便签长文」用）----------------
+
+    def note_tabs(self):
+        """便签页签的副本（主区便签面板读这里）
+
+        ⛔ 主区不另存一份 —— 两端必须是同一条数据，否则侧栏改了主区看不见。
+        """
+        return [dict(t) for t in self._tabs if t.get('kind') == 'note']
+
+    def set_note_text(self, note_id, text):
+        """改便签正文（主区编辑后回写）。返回是否命中。
+
+        ⛔ 不调 _build_all 重建：那会丢掉使用者正在输入的焦点与滚动位置。
+        这里只把 tab['text'] 改掉，并同步侧栏那个编辑框（顺带屏蔽信号，
+        否则 textChanged 又回调 _on_note_changed，来回多存一次盘）。
+        """
+        body = str(text or '')[:4000]
+        for t in self._tabs:
+            if t.get('id') == note_id and t.get('kind') == 'note':
+                t['text'] = body
+                ed = self._note_editors.get(note_id)
+                if ed is not None:
+                    try:
+                        if ed.toPlainText() != body:
+                            ed.blockSignals(True)
+                            ed.setPlainText(body)
+                            ed.blockSignals(False)
+                    except RuntimeError as exc:
+                        # 控件已随页签销毁（Qt 对象没了）：数据已改好，把死引用清掉，
+                        # 否则每次 set 都白报一遍，而那条便签的侧栏编辑框永远不同步。
+                        self._note_editors.pop(note_id, None)
+                        _silent_note('set_note_text 同步编辑框失败（已清掉死引用）：%r %s'
+                                     % (note_id, exc))
+                self._persist()
+                return True
+        return False
 
     def refresh_dynamic(self, force=False):
         """刷新状态/花费/待办/系统页

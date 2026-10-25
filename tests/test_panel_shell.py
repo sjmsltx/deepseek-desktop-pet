@@ -191,10 +191,19 @@ def test_contract_checker_ignores_comments(tmp_path):
 # ==================== P3：面板自己存盘不回刷 ====================
 
 def test_from_panel_true_wired_in_host():
-    """静态钉：宿主接线必须传 from_panel=True（P3 的落点）"""
+    """静态钉：待办面板的 save_cb 必须传 from_panel=True（P3 的落点）
+
+    2026-10-25 主区 B 方案：待办面板从「独立弹窗里 new」改成「panel_registry 的 factory 造」，
+    接收者名字随之从 self 变成 host（host 就是 PetWidget，语义不变）：
+        return _TP(host.todos, lambda: host._save_todos(from_panel=True), labels=_labels)
+    所以钉的形态从 `self._save_todos(...)` 放宽到 `_save_todos(...)`；
+    判别力没降 —— 谁把 from_panel=True 去掉，这条仍然红。
+    """
     src = io.open(os.path.join(REPO, 'desktop_pet.py'), encoding='utf-8').read()
-    assert 'lambda: self._save_todos(from_panel=True)' in src, \
-        'P3：TodoPanel 的 save_cb 必须是 lambda: self._save_todos(from_panel=True)'
+    assert '_save_todos(from_panel=True)' in src, \
+        'P3：TodoPanel 的 save_cb 必须带 from_panel=True（面板自己存盘后宿主不再回刷）'
+    # 不许改回默认（from_panel=False 会让宿主再 refresh 一次，勾选位置被抹掉）
+    assert 'lambda: self._save_todos()' not in src
     # 不许再用 partial（会抓旧 bound method）
     assert 'partial(self._save_todos' not in src
 
