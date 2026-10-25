@@ -12,10 +12,19 @@
 param(
     [string]$Lang = 'zh-CN',
     [string]$Engine = 'winrt',
-    [switch]$Check
+    [switch]$Check,
+    [switch]$List
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ---------- 输出编码：必须固定 UTF-8 ----------
+# 调用方（asr.py）用 CREATE_NO_WINDOW 启动本脚本 —— 没有控制台时，
+# PowerShell 5.1 按系统 ANSI 代码页输出（本机 GBK），而 Python 侧按 UTF-8 解码
+# ⇒ 中文全成乱码：错误提示读不出、识别成功的文本填进输入框也是乱码。
+# 实测 2026-10-21 对照：有控制台时是 UTF-8，CREATE_NO_WINDOW 时变成 GBK。
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+try { $OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 
 # ---------- SAPI 备用路径（System.Speech，不依赖 OneCore 隐私策略）----------
 function Invoke-SapiRecognize($Lang) {
@@ -24,15 +33,20 @@ function Invoke-SapiRecognize($Lang) {
         exit 21
     }
     try {
-        $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine
-        $rec.SetInputToDefaultAudioDevice()
-        try {
-            $ci = [System.Globalization.CultureInfo]::GetCultureInfo($Lang)
-            $rec.RecognizerInfo.Culture.Name | Out-Null
-            $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
-        } catch {
-            $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+        # 旧版这里创建了 $ci 却从未使用 —— 识别器其实一直是"默认那个"。
+        # 现在按 $Lang 明确挑一个已装识别器；挑不到就用默认，保证不至于更差。
+        $rec = $null
+        foreach ($ri in [System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()) {
+            if ($ri.Culture.Name -like "$Lang*") {
+                $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine($ri)
+                break
+            }
         }
+        if ($null -eq $rec) {
+            $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+        }
+        $rec.SetInputToDefaultAudioDevice()
+        $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
         $rec.InitialSilenceTimeout = [TimeSpan]::FromSeconds(6)
         $rec.BabbleTimeout = [TimeSpan]::FromSeconds(6)
         # 注意：桌面 SAPI（System.Speech）的同步方法就叫 Recognize()
@@ -48,6 +62,23 @@ function Invoke-SapiRecognize($Lang) {
         Write-Output ("ERR|SAPI 识别失败：" + ($_.Exception.Message -replace "`r?`n", ' '))
         exit 23
     }
+}
+
+# ---------- 只列举识别器（给 asr.py 判断"还能不能用"用）----------
+if ($List) {
+    try { Add-Type -AssemblyName System.Speech -ErrorAction Stop } catch {
+        Write-Output "ERR|System.Speech 不可用：$($_.Exception.Message)"
+        exit 21
+    }
+    try {
+        $names = @([System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers() |
+                   ForEach-Object { $_.Culture.Name })
+    } catch {
+        Write-Output "ERR|枚举识别器失败：$($_.Exception.Message)"
+        exit 24
+    }
+    Write-Output ("LIST|" + ($names -join ','))
+    exit 0
 }
 
 if ($Engine -eq 'sapi') {

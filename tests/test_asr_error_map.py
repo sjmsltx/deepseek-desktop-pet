@@ -29,6 +29,9 @@ def eng():
      '"The text associated with this error code could not be found."', 'policy'),
     ('The speech privacy policy was not accepted', 'policy'),
     ('0x80045509 privacy', 'policy'),
+    # 中文系统上 HRESULT 文案是本地化的，英文关键字一个都不出现（本机真实报错）
+    ('识别失败：使用“0”个参数调用“RecognizeAsync”时发生异常:'
+     '“无法找到与此错误代码关联的文本。”', 'policy'),
     ('Access is denied', 'mic'),
     ('Microphone access denied', 'mic'),
     ('language pack not installed', 'lang'),

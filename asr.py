@@ -33,6 +33,25 @@ def _win_flags():
         return 0
 
 
+def _decode_out(raw):
+    """解子进程输出（GBK 兜底）
+
+    为什么不能只用 utf-8：调用方用 CREATE_NO_WINDOW 启动 ps1（没有控制台），
+    PowerShell 5.1 此时按系统 ANSI 代码页输出 —— 本机是 GBK。
+    实测 2026-10-21：固定按 utf-8 解码，中文全成乱码，连带两个后果：
+      ① _classify_error 匹配不到关键字，真因被吞成「识别失败」
+      ② 识别成功的文本填进输入框也是乱码
+    ps1 已强制 UTF-8 输出；这里再留一层兜底，防旧脚本或环境差异。
+    """
+    if isinstance(raw, str):
+        return raw
+    b = raw or b''
+    try:
+        return b.decode('utf-8')
+    except UnicodeDecodeError:
+        return b.decode('gbk', 'replace')
+
+
 def parse_result(stdout):
     """解析 asr_helper.ps1 的输出。返回 (text, confidence, error)
 
@@ -66,6 +85,7 @@ class AsrEngine:
         self._avail = None               # 能力检测结果缓存
         self.last_engine = ''            # v6.77 上一次成功的识别路径：'winrt' / 'sapi'
         self._policy_blocked = False     # 实测到“语音隐私策略未接受”（一次就够，之后一直提醒）
+        self._sapi_cache = None          # SAPI 已装识别器语言（None=还没探测过）
 
     # Windows 语音隐私策略未接受时的说明（实测 2026-09-19 / 2026-09-20 两次都是这种状态）
     POLICY_HINT = ('Windows 的「语音识别」隐私策略没真正生效（实测注册表里 '
@@ -76,7 +96,11 @@ class AsrEngine:
     POLICY_MARK = 'privacy policy'
     # v6.75：错误消息取不到（HRESULT 本地化缺失）时，实测就是“策略未接受”——把它也归到策略类
     POLICY_MARKS_EXTRA = ('could not be found', 'text associated with this error code',
-                          '0x8004', 'not accepted', 'privacy')
+                          '0x8004', 'not accepted', 'privacy',
+                          # 中文系统上 HRESULT 文案是本地化的，英文关键字一个都不出现。
+                          # 实测本机报：「无法找到与此错误代码关联的文本」（2026-10-21）
+                          '无法找到与此错误代码', '找不到与此错误代码',
+                          '与此错误代码关联的文本', '隐私策略', '隐私声明')
     MIC_MARKS = ('denied', 'access', 'microphone', '麦克风', 'denied by')
     LANG_MARKS = ('language', '语言', 'not installed', 'language pack')
 
@@ -102,10 +126,20 @@ class AsrEngine:
     def available(self, refresh=False):
         """本机能不能做语音识别。返回 (bool, 说明)"""
         with self._lock:
-            if self._policy_blocked:
-                return (False, self.POLICY_HINT)
-            if self._avail is not None and not refresh:
+            blocked = self._policy_blocked
+            if not blocked and self._avail is not None and not refresh:
                 return self._avail
+        if blocked:
+            # WinRT 被 OneCore 语音隐私策略挡住 ≠ 整个语音输入不能用：
+            # System.Speech（SAPI）是另一套识别栈，不受那条策略约束。
+            # 实测本机 SAPI 装了 zh-CN 识别器，且能把合成的中文语音原样识别出来（2026-10-21）。
+            # 旧版在这里直接 return False —— 于是 _toggle_listen 在 listen() 之前就退出，
+            # SAPI 永远得不到尝试机会；而只有 SAPI 成功才能复位这个标志 ⇒ 自己把路锁死。
+            cults = self._sapi_cultures()
+            if cults:
+                return (True, '备用识别可用（System.Speech：%s）；WinRT 被隐私策略挡住，将直接走备用'
+                        % ','.join(cults[:3]))
+            return (False, self.POLICY_HINT)
         if not os.path.exists(self.ps1):
             res = (False, '缺少 asr_helper.ps1')
             with self._lock:
@@ -120,6 +154,38 @@ class AsrEngine:
         with self._lock:
             self._avail = res
         return res
+
+    def _sapi_cultures(self):
+        """SAPI（System.Speech）已装的识别器语言列表；探测一次就缓存。
+
+        为什么要它：判断「还能不能用」必须问 SAPI，而不是拿 WinRT 的失败当整机结论。
+        返回 [] 表示 SAPI 也没有可用识别器。
+        """
+        with self._lock:
+            if self._sapi_cache is not None:
+                return self._sapi_cache
+        if not os.path.exists(self.ps1):
+            return []
+        try:
+            _rc, out, _err = self._run(['-List'], timeout=20)
+        except Exception as e:
+            _log.warning('枚举 SAPI 识别器失败：%s' % e)
+            return []
+        # 输出契约：LIST|zh-CN,en-US（**不能用** parse_result —— 它认的是 OK|<置信度>|<文本>，
+        # 会把 "OK|zh-CN" 里的 zh-CN 当成置信度、文本读成空，导致这里永远返回 []）
+        payload = ''
+        for ln in str(out or '').splitlines():
+            s = ln.strip()
+            if s.startswith('LIST|'):
+                payload = s[5:]
+                break
+            if s.startswith('ERR|'):
+                _log.warning('枚举 SAPI 识别器失败：%s' % s[4:])
+                return []
+        cults = [c.strip() for c in payload.split(',') if c.strip()]
+        with self._lock:
+            self._sapi_cache = cults
+        return cults
 
     # ---------- 后端分发（v6.77）----------
     #   auto   —— 先 WinRT，失败自动降级 SAPI（默认）
@@ -342,23 +408,28 @@ class AsrEngine:
         if not os.path.exists(self.ps1):
             return '', '', '缺少 asr_helper.ps1'
         winrt_err, winrt_hint = '', ''
-        try:
-            rc, out, err = self._run(['-Lang', self.lang], timeout=self.timeout)
-            text, conf, error = parse_result(out)
-            if not error:
-                self.last_engine = 'winrt'
-                return text, conf, ''
-            kind, hint = self._classify_error(error)
-            if kind == 'policy':
-                # 系统隐私策略没接受：不是 bug，也不该我们默默改注册表
-                self._policy_blocked = True
-            winrt_err = error
-            winrt_hint = hint or ''
-        except subprocess.TimeoutExpired:
-            self.cancel()
-            return '', '', '超时（没听到声音？）—— 也可以试试系统自带的 Win+H 语音输入'
-        except Exception as e:
-            winrt_err = '%s: %s' % (type(e).__name__, str(e)[:80])
+        if self._policy_blocked:
+            # 上一轮已实测过 WinRT 被 OneCore 隐私策略挡住：别再白等一轮必然失败的识别
+            # （那一轮最长 25 秒，使用者会以为按钮坏了），直接进下面的 SAPI 降级。
+            winrt_err = 'WinRT 已被系统语音隐私策略挡住，直接走备用识别'
+        else:
+            try:
+                rc, out, err = self._run(['-Lang', self.lang], timeout=self.timeout)
+                text, conf, error = parse_result(out)
+                if not error:
+                    self.last_engine = 'winrt'
+                    return text, conf, ''
+                kind, hint = self._classify_error(error)
+                if kind == 'policy':
+                    # 系统隐私策略没接受：不是 bug，也不该我们默默改注册表
+                    self._policy_blocked = True
+                winrt_err = error
+                winrt_hint = hint or ''
+            except subprocess.TimeoutExpired:
+                self.cancel()
+                return '', '', '超时（没听到声音？）—— 也可以试试系统自带的 Win+H 语音输入'
+            except Exception as e:
+                winrt_err = '%s: %s' % (type(e).__name__, str(e)[:80])
 
         # —— 降级：SAPI（System.Speech）——
         try:
@@ -412,4 +483,4 @@ class AsrEngine:
         finally:
             with self._lock:
                 self._proc = None
-        return proc.returncode, (out or b'').decode('utf-8', 'ignore'), (err or b'').decode('utf-8', 'ignore')
+        return proc.returncode, _decode_out(out), _decode_out(err)

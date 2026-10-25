@@ -59,6 +59,31 @@ def test_both_fail_reports_actionable_hint():
     assert e._policy_blocked is True
 
 
+def test_policy_blocked_skips_winrt():
+    """已知 WinRT 被策略挡住 → 下一轮别先白等一轮必然失败的识别（最长 25 秒）
+
+    使用者体感就是"点了没反应"，所以这条要锁死。
+    """
+    e, calls = _engine([lambda: (0, 'OK|0.9|WinRT 结果', ''),
+                        lambda: (0, 'OK|0.9|SAPI 结果', '')])
+    e._policy_blocked = True
+    text, _c, err = e.listen()
+    assert text == 'SAPI 结果' and err == '' and e.last_engine == 'sapi'
+    assert len(calls) == 1 and '-Engine' in calls[0], calls
+
+
+def test_available_asks_sapi_when_policy_blocked():
+    """被策略挡住不等于整机不能用：要问 SAPI，而不是直接否决"""
+    e = asr.AsrEngine(BASE)
+    e._policy_blocked = True
+    e._sapi_cache = ['zh-CN']
+    ok, info = e.available()
+    assert ok is True and '备用' in info
+    e._sapi_cache = []
+    ok2, info2 = e.available()
+    assert ok2 is False and '在线语音识别' in info2
+
+
 def test_sapi_only_error_still_returned():
     e, _calls = _engine([lambda: (0, 'ERR|something weird but not policy', ''),
                          lambda: (0, 'ERR|SAPI 识别失败：Timeout', '')])

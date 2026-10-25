@@ -183,6 +183,18 @@ def test_cancel_while_listening():
     assert p.mic_btn.text() == '🎤'
 
 
+def test_run_decodes_gbk_output():
+    """实测坑（2026-10-21）：调用方用 CREATE_NO_WINDOW 起 ps1，没有控制台时
+    PowerShell 5.1 按系统 ANSI 代码页（本机 GBK）输出，而旧代码固定按 utf-8 解码
+    ⇒ 中文全成乱码，连识别成功的文本填进输入框也是乱码。
+    ps1 已强制 UTF-8；_decode_out 再兜一层。这里锁死两种编码都能还原。
+    """
+    for enc in ('utf-8', 'gbk'):
+        assert A._decode_out('识别失败：没听到声音'.encode(enc)) == '识别失败：没听到声音'
+    assert A._decode_out('已是字符串') == '已是字符串'
+    assert A._decode_out(b'') == ''
+
+
 def test_menu_has_voice_input_entry():
     src = Path(os.path.join(BASE, 'desktop_pet.py')).read_text(encoding='utf-8')
     assert "'🎤 语音输入'" in src and 'def _toggle_listen' in src
@@ -197,8 +209,19 @@ def test_privacy_policy_error_is_explained():
         6, 'ERR|The speech privacy policy was not accepted prior to attempting a speech recognition.', ''))
     text, conf, err = e.listen()
     assert '在线语音识别' in err and '隐私' in err and 'Win+H' in err
+
+    # 2026-10-21 修正：旧断言是 ok is False，即「WinRT 被策略挡 = 整机不能用」。
+    # 实测本机 SAPI（System.Speech）装了 zh-CN 识别器，且能把合成的中文语音
+    # 「今天天气怎么样」原样识别出来 —— 说明整机明明能用。
+    # 旧逻辑的后果：available() 一返 False，_toggle_listen 在 listen() 前就 return，
+    # SAPI 永远得不到机会；而只有 SAPI 成功才能复位该标志 ⇒ 自己把路锁死。
+    e._sapi_cache = ['zh-CN']            # 注入：SAPI 有中文识别器
     ok, info = e.available()
-    assert ok is False and '在线语音识别' in info, '之后每次点按钮都该直接给出指引（不再跑一轮）'
+    assert ok is True and '备用' in info, '有 SAPI 就该照实说还能用，而不是整机否决'
+
+    e._sapi_cache = []                   # 注入：SAPI 也没有可用识别器
+    ok2, info2 = e.available()
+    assert ok2 is False and '在线语音识别' in info2, '两条路都不行时，才该直接给出指引'
 
 
 if __name__ == '__main__':
