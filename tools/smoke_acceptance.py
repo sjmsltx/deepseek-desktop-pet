@@ -29,6 +29,10 @@ import urllib.error
 import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 2026-10-25：本工具恒打 127.0.0.1，一律绕代理。
+#   ⛔ 内联而不 import net_local：脚本方式运行时 sys.path 只有 tools/，
+#     加 sys.path 又会让"能跑"依赖调用方式。
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 STEPS = []
 
 
@@ -44,7 +48,7 @@ def port_in_use(port):
 
 
 def get(port, path, timeout=8):
-    with urllib.request.urlopen('http://127.0.0.1:%d%s' % (port, path), timeout=timeout) as r:
+    with _OPENER.open('http://127.0.0.1:%d%s' % (port, path), timeout=timeout) as r:
         return json.loads(r.read().decode('utf-8'))
 
 
@@ -52,7 +56,7 @@ def post(port, path, payload, timeout=15):
     req = urllib.request.Request('http://127.0.0.1:%d%s' % (port, path),
                                  data=json.dumps(payload).encode('utf-8'),
                                  headers={'Content-Type': 'application/json'}, method='POST')
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with _OPENER.open(req, timeout=timeout) as r:
         return json.loads(r.read().decode('utf-8'))
 
 

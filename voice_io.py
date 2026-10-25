@@ -28,6 +28,8 @@ import queue
 import re
 import subprocess
 import threading
+
+import net_local  # 环回地址绕代理（2026-10-25；见该模块文档的实测表）
 import time
 import wave
 
@@ -353,7 +355,9 @@ def probe_local_service(url, timeout=3):
         return False, '未填地址'
     try:
         req = urllib.request.Request(base + '/', method='GET')
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        # 2026-10-25：本地服务一律绕代理。设了 http_proxy 环境变量时，
+        #   Python 会忽略注册表里的 ProxyOverride，把 127.0.0.1 也送进代理 ⇒ 502。
+        with net_local.urlopen(req, timeout=timeout) as r:
             return True, 'HTTP %s' % r.status
     except urllib.error.HTTPError as e:
         return True, 'HTTP %s（服务在跑）' % e.code
@@ -603,7 +607,9 @@ class VoiceIO:
             req = urllib.request.Request(
                 url + '/tts', data=_json.dumps(payload).encode('utf-8'),
                 headers={'Content-Type': 'application/json'})
-            with urllib.request.urlopen(req, timeout=self.local_timeout) as r:
+            # 2026-10-25：这是**真正发合成请求**那条路（POST 到本地 TTS），
+            #   一旦被代理接管就是 502 / 501，整条本地语音直接不可用。
+            with net_local.urlopen(req, timeout=self.local_timeout) as r:
                 ctype = (r.headers.get('Content-Type') or '').lower()
                 data = r.read()
         except Exception as e:

@@ -32,6 +32,7 @@ import re
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -118,7 +119,15 @@ def scan_html(path=DEFAULT_HTML):
 # ───────────────────────── HTTP 工具 ─────────────────────────
 def http_get(base, path, timeout=10):
     url = base.rstrip('/') + path
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    # 2026-10-25：本工具验的是本机协作台，`--base` 恒为 127.0.0.1，绕代理。
+    #   ⛔ 判 uloopback 而不是无条件绕：万一有人拿它验远端，行为不该被改。
+    host = (urllib.parse.urlsplit(url).hostname or '')
+    _local = (host in ('127.0.0.1', 'localhost', '::1')
+              or (host.startswith('127.') and len(host.split('.')) == 4))
+    _opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}))
+               if _local else urllib.request)
+    _open = _opener.open if _local else _opener.urlopen
+    with _open(url, timeout=timeout) as r:
         raw = r.read()
     return raw
 

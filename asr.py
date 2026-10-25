@@ -408,7 +408,10 @@ class AsrEngine:
                                        .decode('ascii'), 'lang': self.lang}).encode('utf-8'),
                 headers={'Content-Type': 'application/json',
                          **({'Authorization': 'Bearer ' + key} if key else {})})
-            with urllib.request.urlopen(req, timeout=60) as r:
+            # 2026-10-25：asr_http_url 可能是本地 whisper 服务，也可能在云端。
+            #   net_local 只在 host 是环回地址时绕代理，云端行为不变。
+            import net_local
+            with net_local.urlopen(req, timeout=60) as r:
                 data = _json.loads(r.read().decode('utf-8', 'replace'))
             text = str(data.get('text') or '').strip()
             if not text:

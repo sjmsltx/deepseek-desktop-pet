@@ -27,8 +27,11 @@ HEALTH = '/api/health'             # 只读探针（该端点恒在 ✓ 不需 -
 def _probe(port: int, timeout: float = 1.0) -> bool:
     """探协作台是否在跑（只读 ✓ 失败不抛 ✗）。"""
     try:
-        import urllib.request
-        with urllib.request.urlopen('http://127.0.0.1:%d%s' % (port, HEALTH), timeout=timeout) as fh:
+        # 2026-10-25：探的是 127.0.0.1，必须绕代理
+        #   （设了 http_proxy 环境变量时，Python 会忽略注册表 ProxyOverride）
+        import net_local
+        with net_local.urlopen('http://127.0.0.1:%d%s' % (port, HEALTH),
+                               timeout=timeout) as fh:
             return fh.status == 200
     except Exception:
         return False

@@ -29,6 +29,15 @@ DSH_HOME = os.environ.get('DSH_HOME') or os.path.join(os.path.expanduser('~'), '
 DEFAULT_PORT = int(os.environ.get('DSH_PORT') or 3080)
 HTTP_TIMEOUT = 8
 
+# 2026-10-25：DSH 恒在 127.0.0.1，请求一律绕代理。
+#   ⛔ 为什么不 import net_local：本文件声明"仅标准库、可单独复制/单测"，
+#     多一个第一方依赖就破坏了这个性质（见模块 docstring）。
+#   ⛔ 为什么不写在函数里：会往函数体的 try 块加行，把下面既有的
+#     `except Exception as exc` 推离基线行号 ⇒ 静默护栏按行号比对时假报"新增"。
+import urllib.request as _urllib_request          # noqa: E402  (仅标准库)
+
+_NO_PROXY_OPENER = _urllib_request.build_opener(_urllib_request.ProxyHandler({}))
+
 # 启动日志的候选位置（启动器写第一个，手工启动可能写临时目录）
 LOG_CANDIDATES = [
     os.path.join(DSH_ROOT, 'dsh-web.log'),
@@ -269,7 +278,7 @@ def _http_status_urllib(url: str, timeout: int = HTTP_TIMEOUT):
     try:
         import urllib.request
         req = urllib.request.Request(url, headers={'User-Agent': 'DeepSeekPet/3.0 (dsh_adapter)'})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _NO_PROXY_OPENER.open(req, timeout=timeout) as resp:
             return resp.status, len(resp.read()), ''
     except Exception as exc:
         return None, 0, repr(exc)
