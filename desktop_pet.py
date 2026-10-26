@@ -63,7 +63,8 @@ from vision_helper import build_vision_content  # v6.62 图片直送模型（视
 from side_panel import SidePanel            # v6.65 右侧信息栏（多页签，可增删）
 from asr import AsrEngine                   # v6.66 离线语音输入（WinRT）
 from files_api import FilesCache, build_content_via_files  # v6.62 图片走 Files API 复用
-from voice_io import VoiceIO, VOICE_CHOICES as _VOICE_CHOICES, DEFAULT_VOICE  # v6.63/6.64 语音
+from voice_io import (VoiceIO, VOICE_CHOICES as _VOICE_CHOICES, DEFAULT_VOICE,  # v6.63/6.64 语音
+                       DEFAULT_MAX_CHARS as _VOICE_MAX_CHARS_DEFAULT)
 from settings_ui import SettingsDialog  # Phase 5 统一设置窗口
 from tools_registry import AI_TOOLS, TOOL_STATUS, tools_for_mode, strict_tools
 from tools_executor import get_time_str, calculate_expr, lock_screen_now, query_weather, parse_choices
@@ -690,6 +691,8 @@ class PetWidget(QWidget):
                              fallback_voice=str(getattr(self, 'voice_fallback', '') or ''))
         # v6.76：「朗读内容」策略（summary 要点优先 / full 全文 / manual 只念选中的）
         self._voice_summary = ''
+        # 2026-10-26（WX-125）：上一轮「原 N 字 → 实际念 M 字」的实况，下一轮对话回灌给模型
+        self._spoken_report = ''
         self.voice_content_mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
         # v6.62：峰谷计价要认法定节假日（表内置，可从公共静态 JSON 年度更新，不花搜索额度）
         ApiStats.HOLIDAYS_CACHE = os.path.join(BASE_DIR, 'holidays_cache.json')
@@ -1180,6 +1183,24 @@ class PetWidget(QWidget):
                 #   构造 VoiceIO 时用 getattr 兜底 ⇒ 重启后语速回到默认。
                 #   与 asr_backend 同一个形态（配置有键、_load_ai_config 不读）。
                 self.voice_rate = str(cfg.get('voice_rate', '') or '')
+                # 朗读字数上限（2026-10-26 补）：原先全文件只有 L686 一处
+                #   getattr(self, 'voice_max_chars', 1200)，而 self.voice_max_chars
+                #   **从未被赋值** ⇒ 改配置等于没改；voice_io 的截断日志还明写
+                #   「可在 config.json 改 voice_max_chars」，而那个键当时根本不存在。
+                #   ⇒ 用户照提示去改，改完发现没生效，比不给提示更糟。
+                try:
+                    self.voice_max_chars = max(200, min(6000, int(
+                        cfg.get('voice_max_chars', _VOICE_MAX_CHARS_DEFAULT)
+                        or _VOICE_MAX_CHARS_DEFAULT)))
+                except Exception as _exc:
+                    self.voice_max_chars = _VOICE_MAX_CHARS_DEFAULT
+                    _silent_log('_load_ai_config:voice_max_chars', _exc)
+                # 朗读内容策略（同一形态，2026-10-26 一并修）：
+                #   _set_voice_content_mode 会写进 config，但这里从来没读回
+                #   ⇒ 用户选「全文」，重启后静默退回「要点优先」，选了个寂寞。
+                #   这条直接卡住「念长文」：不修它，用户把模式改成 full 也白改。
+                _vcm = str(cfg.get('voice_content_mode', 'summary') or 'summary').strip().lower()
+                self.voice_content_mode = _vcm if _vcm in ('summary', 'full', 'manual') else 'summary'
                 try:
                     if getattr(self, 'voice', None) is not None:
                         self.voice.set_config(enabled=self.voice_enabled, engine=self.voice_engine,
@@ -1188,7 +1209,8 @@ class PetWidget(QWidget):
                                               local_ref=self.voice_local_ref,
                                               local_prompt=self.voice_local_prompt,
                                               fallback_voice=getattr(self, 'voice_fallback', ''),
-                                      rate=str(getattr(self, 'voice_rate', '') or ''))
+                                      rate=str(getattr(self, 'voice_rate', '') or ''),
+                                      max_chars=int(getattr(self, 'voice_max_chars', 1200) or 1200))
                 except Exception as _exc:
                     _silent_log('_load_ai_config:voice', _exc, user_facing=True)   # v1-B：配置读坏→用户要重设
         except Exception as _exc:
@@ -3706,6 +3728,15 @@ class PetWidget(QWidget):
                     CHARACTERS[self.current]['name'], self.current, cur_model, self.personality,
                     style_hint, lang_hint, mem_hint, todo_hint, mem_rule, plugin_rules_hint, affection_hint)},
             ] + ctx
+            # 2026-10-26（WX-125）：把「上一轮语音实际念了多少字」回灌给模型。
+            #   只回灌一次（_take_spoken_report 会清空），且只在明显少念时才有内容。
+            #   放在 system 之后、对话之前，避免污染用户/助手的对话轮次。
+            try:
+                _spoken_note = self._take_spoken_report()
+                if _spoken_note:
+                    messages.insert(1, {'role': 'system', 'content': _spoken_note})
+            except Exception as _exc:
+                _silent_log('_ai_worker.spoken_report', _exc)
 
             # 最多 5 轮工具调用；空回复自动重试（防截断/空content）
             final_reply = None
@@ -8061,6 +8092,13 @@ class PetWidget(QWidget):
             ok = bool(v and v.speak(picked))
             if ok:
                 self._voice_note_actual()
+                # 2026-10-26（WX-125）：记下「原 N 字 → 实际念 M 字」，下一轮告诉模型。
+                #   只有明显少念时才留（见 _record_spoken_report 的阈值），否则是纯噪声。
+                try:
+                    self._record_spoken_report(
+                        text, picked, clean_for_speech(picked, getattr(v, 'max_chars', 1200)))
+                except Exception as _exc:
+                    _silent_log('_speak_reply.spoken_report', _exc)
             return ok
         except Exception as _exc:
             _silent_log('_speak_reply', _exc)
@@ -8193,6 +8231,74 @@ class PetWidget(QWidget):
         except Exception:
             pass
         return val
+
+    def _set_voice_max_chars(self, chars):
+        """设置朗读字数上限（2026-10-26 新增）：写配置 + 立即生效
+
+        为什么要有它：`voice_io` 截断时会提示「可在 config.json 改 voice_max_chars」，
+        但那个键既不在 config 里、也没有任何界面入口 ⇒ 用户被指去改一个不存在的东西。
+        念长文（如整篇《过秦论》1400+ 字）会被 1200 硬顶截断，且用户无从下手。
+        """
+        try:
+            val = max(200, min(6000, int(chars)))
+        except Exception as _exc:
+            _silent_log('_set_voice_max_chars.parse', _exc)
+            return int(getattr(self, 'voice_max_chars', _VOICE_MAX_CHARS_DEFAULT)
+                       or _VOICE_MAX_CHARS_DEFAULT)
+        self.voice_max_chars = val
+        try:
+            self._save_cfg_value('voice_max_chars', val)
+        except Exception as e:
+            _silent_log('_set_voice_max_chars.save', e)
+        try:
+            self.voice.set_config(max_chars=val)
+        except Exception as e:
+            _silent_log('_set_voice_max_chars.apply', e)
+        return val
+
+    def _record_spoken_report(self, source_text, picked, spoken_text):
+        """记下「原 N 字 → 实际念 M 字」，供下一轮回灌给模型（2026-10-26，WX-125）
+
+        起因（Owner 实测）：让它念《过秦论》，它写了 1419 字、最后说「念下来两千字出头，
+        我这边读完确实费了点劲」，而**实际只念了开头的「好，那我开念」和结尾的
+        「要不要再来一遍」共 70 字，正文五段一个字都没出声**。
+
+        从模型的视角它没撒谎 —— 它的上下文里只有自己打的 1419 个字，
+        语音层念了多少、截了多少，**从来没有信号回传**（`_speak_reply` 只返回 True/False）。
+        ⇒ 策略会写错，反馈不会：把实况告诉它，它自己就会说「我只念了开头结尾」。
+
+        ⚠ 只在**明显少念**（< 原文 80%）时记，否则每轮塞一句「你念全了」是噪声。
+        """
+        try:
+            n_all = len(str(source_text or ''))
+            n_spoken = len(str(spoken_text or ''))
+            if n_all <= 0 or n_spoken >= n_all * 0.8:
+                self._spoken_report = ''      # 念得够全 ⇒ 不留噪声
+                return
+            mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
+            mode_lab = {'summary': '要点优先', 'full': '全文',
+                        'manual': '只念选中'}.get(mode, mode)
+            self._spoken_report = (
+                '【朗读实况·系统自动记录，不是用户说的话】你上一轮回复共 %d 字，'
+                '语音实际只念出了其中 %d 字（朗读内容策略＝%s，字数上限＝%d 字）。'
+                '如果用户要求你朗读/背诵长文，**不要把这种「只念了一部分」说成念完了**：'
+                '要么直接说明实际只念了开头和结尾、问要不要念全文；'
+                '要么先调 set_voice_summary 给一段朗读摘要，再念摘要。'
+                % (n_all, n_spoken, mode_lab,
+                   int(getattr(self, 'voice_max_chars', 1200) or 1200)))
+            log.info('朗读实况：原 %d 字 → 实际念 %d 字（策略 %s）', n_all, n_spoken, mode_lab)
+        except Exception as _exc:
+            _silent_log('_record_spoken_report', _exc)
+
+    def _take_spoken_report(self):
+        """取出并清空「上一轮朗读实况」（只回灌一次，防每轮重复塞同一句）"""
+        try:
+            note = str(getattr(self, '_spoken_report', '') or '')
+            self._spoken_report = ''
+            return note
+        except Exception as _exc:
+            _silent_log('_take_spoken_report', _exc)
+            return ''
 
     def _voice_note_actual(self):
         """朗读之后检查「实际用的声线」是否与设置一致；不一致就明确说一次。

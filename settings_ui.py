@@ -21,9 +21,12 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMessageBox, QPushButton, QStackedWidget, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QSpinBox, QStackedWidget, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 import pet_foreground as fgwin  # v6.59 前台程序感知（只读进程名，隐私边界见模块头部）
+from pet_log import get_logger
+
+_log = get_logger('settings_ui')   # 2026-10-26：本文件原先没有日志出口，静默护栏会拦
 import platform_layer as pl  # v6.73 批次3：平台能力统一门面
 from pet_theme import DEFAULT_THEME  # v6.57 主题 token 唯一源（消除本模块里的"第二套配色"）
 
@@ -479,7 +482,30 @@ class SettingsDialog(QDialog):
             lambda *_: not self._building and self.host._set_voice_content_mode(self.cb_voice_content.currentData()))
         self.cb_voice_content.setToolTip('「要点优先」：模型长回复时会额外给一句朗读摘要；没给就念“首段+末段”，\n'
                                          '跳过代码块/表格/长列表。「只念我选中的」则完全靠你在气泡里选中后右键朗读。')
-        f.addRow('朗读内容', self.cb_voice_content)
+
+        # 2026-10-26：朗读字数上限。原先只有代码里的 1200 硬顶、界面无处可调，
+        #   而截断日志还写着「可在 config.json 改 voice_max_chars」（那个键不存在）
+        #   ⇒ 想让它念完整篇长文时，用户被指去改一个不存在的东西。
+        # ⚠ 与「朗读内容」并成一行：语音页有「单页 ≤14 行」护栏
+        #   （tests/test_side_panel.py::test_settings_split_into_pages），
+        #   而且这两项本就是一回事 —— 一个管「念什么」，一个管「最多念多少」。
+        self.sp_voice_chars = QSpinBox()
+        self.sp_voice_chars.setRange(200, 6000)
+        self.sp_voice_chars.setSingleStep(100)
+        self.sp_voice_chars.setSuffix(' 字')
+        self.sp_voice_chars.valueChanged.connect(
+            lambda *_: not self._building and self.host._set_voice_max_chars(
+                self.sp_voice_chars.value()))
+        self.sp_voice_chars.setToolTip('一次最多念多少字；超出的部分会截断并在末尾加「（后略）」。'
+                                       '\n默认 1200。要它念完整篇长文（整篇《过秦论》约 1400 字），'
+                                       '调到 3000~6000。')
+        self._voice_content_row = QWidget()
+        _vc_lay = QHBoxLayout(self._voice_content_row)
+        _vc_lay.setContentsMargins(0, 0, 0, 0)
+        _vc_lay.setSpacing(6)
+        _vc_lay.addWidget(self.cb_voice_content, 1)
+        _vc_lay.addWidget(self.sp_voice_chars, 0)
+        f.addRow('朗读内容', self._voice_content_row)
         # v6.77：语音输入后端 + 插口（whisper/http）—— 共 5 个控件，
         # 为了不让语音页涨到 18 行（撞“单页 ≤14 行”护栏），收进一个子对话框
         self._buttons(f, '语音输入', [
@@ -1229,6 +1255,12 @@ class SettingsDialog(QDialog):
             _cm = str(getattr(h, 'voice_content_mode', 'summary') or 'summary')
             _ci = self.cb_voice_content.findData(_cm)
             self.cb_voice_content.setCurrentIndex(_ci if _ci >= 0 else 0)
+            # 2026-10-26：朗读字数上限回填
+            try:
+                self.sp_voice_chars.setValue(int(getattr(h, 'voice_max_chars', 1200) or 1200))
+            except Exception as _exc:
+                _log.debug('回填朗读字数上限失败，用默认 1200（%s）', _exc)
+                self.sp_voice_chars.setValue(1200)
             # v6.77：语音输入后端与插口回填
             # v6.77：语音输入后端在子对话框里 —— 开着就刷一下它的值
             if getattr(self, '_asr_sub', None) is not None:

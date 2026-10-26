@@ -421,8 +421,15 @@ class VoiceIO:
     # ---------- 对外接口 ----------
     def set_config(self, enabled=None, engine=None, voice=None, night_quiet=None,
                    local_url=None, local_ref=None, local_prompt=None, rate=None,
-                   fallback_voice=None):
+                   fallback_voice=None, max_chars=None):
         with self._lock:
+            if max_chars is not None:
+                # 2026-10-26：朗读字数上限要能在设置里改（原先前端从没传过它，
+                # config 里也没有这个键，日志却写着「可在 config.json 改」）
+                try:
+                    self.max_chars = max(200, min(6000, int(max_chars)))
+                except Exception as _exc:
+                    _log.debug('set_config:max_chars 忽略坏值 %r（%s）', max_chars, _exc)
             if enabled is not None:
                 self.enabled = bool(enabled)
             if engine:
