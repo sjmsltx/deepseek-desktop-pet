@@ -114,7 +114,14 @@ def bubble_text_label(html_text, theme, is_user=False):
     lbl.setTextFormat(Qt.TextFormat.RichText)
     lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     lbl.setCursor(Qt.IBeamCursor)  # 显式文本选择光标（不被面板边缘拖拽光标覆盖）
-    lbl.setAlignment((Qt.AlignRight | Qt.AlignVCenter) if is_user else (Qt.AlignLeft | Qt.AlignVCenter))
+    # 2026-10-26 修：原先用户消息用 AlignRight ⇒ **正文也跟着右对齐**。
+    #   多行中文会每行顶到右边、换行后更乱（Owner 实测：一整段教学文本贴进来像被排版坏了）。
+    #   判定它是"对齐"而不是"原文缩进"的证据：原文 `相关知识` 那行**零缩进、仅 4 字**，
+    #   左对齐只可能出现在最左边，而截图里它在最右边。
+    #   注意：气泡容器本身并没有右对齐（`_new_bubble` 只把"名字+时间"那行靠右，
+    #   正文标签撑满整行宽度）⇒ 原先的"靠右"其实全靠这句 AlignRight 冒充。
+    #   改成正文一律左对齐后，用户/AI 仍靠「名字行位置 + 背景色 token」区分。
+    lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     lbl.setStyleSheet(message_label_qss(theme, is_user))
     return lbl
 
