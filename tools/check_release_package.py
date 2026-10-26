@@ -6,14 +6,16 @@
     # 例：python tools/check_release_package.py release_build\\dist\\DeepSeekPet
     #     python tools/check_release_package.py release_build\\DeepSeekPet_v2.9.1_portable.zip
 
-校验三类：
+校验四类：
     ① 必须有的运行时资产（与开发目录动态对齐：assets 子目录、plugins 包数）
     ② 必需 Qt 运行时（含图片格式插件，qwebp.dll 必须在——立绘/图片靠它）
-    ③ 禁止入包的东西（本地运行状态 / 密钥 / 缓存 / __pycache__）
+    ③ 包内关键第三方库版本（edge_tts 等；见 REQ_PKG_MIN 的注释）
+    ④ 禁止入包的东西（本地运行状态 / 密钥 / 缓存 / __pycache__）
 
 退出码：0 = 全部通过；1 = 有缺项
 """
 import os
+import re
 import sys
 import zipfile
 
@@ -35,6 +37,19 @@ REQ_IMAGEFORMAT_JPG = 'qjpeg.dll'   # 立绘是 jpg，必须能解（配合 qt.c
 FORBID = ['logs/', 'memories.json', 'models.json', 'config.json', 'files_cache.json',
           'plugins/_registry.json', 'plugins/_uninstalled', 'plugins/_tmp',
           '__pycache__', '.pytest_cache', '.git/']
+
+# ★ 包内第三方库最低版本（2026-10-26 加，起因是一次真实事故）
+#   edge_tts 7.2.8 对上 Bing 的接口**恒返回 403**（WSServerHandshakeError），
+#   ⇒ 所有在线声线全部失败 ⇒ 降级到系统默认「Microsoft Kangkang」
+#   ⇒ 用户听到的是「不管切哪个声线，声音都一样」。
+#   ⚠ 而当时的 check_release_package.py 只查资产/Qt/禁止入包，**从不看库版本**，
+#     所以 10-22 那次出包一路绿灯，把一个「语音永久坏掉」的包放了出去。
+#   用「最低版本」而不是「与开发环境一致」：开发环境的包可能被
+#   PYTHONUSERBASE 之类的机制换掉（这次正是被它坑的），拿会被环境影响的数
+#   当基准，判据本身不可信。写死下限，任何人可复核。
+REQ_PKG_MIN = {
+    'edge_tts': (7, 3, 1),
+}
 
 
 def load_source(target):
@@ -59,6 +74,35 @@ def load_source(target):
         if a.startswith('_internal/'):
             norm.add(a[len('_internal/'):].rstrip('/'))
     return norm, is_zip
+
+
+def read_pkg_version(target, pkg):
+    """读包内某个第三方库的 __version__（zip 和目录两种形态都支持）
+
+    返回 (版本字符串, 来源说明)；读不到返回 (None, 原因)。
+    ⚠ 读不到**不当作通过** —— 由调用方判红。
+    """
+    rel = '_internal/%s/version.py' % pkg
+    text = None
+    if target.lower().endswith('.zip'):
+        with zipfile.ZipFile(target) as z:
+            cands = [n for n in z.namelist()
+                     if n.replace('\\', '/').endswith(rel)]
+            if cands:
+                text = z.read(cands[0]).decode('utf-8', 'replace')
+                src = cands[0]
+    else:
+        p = os.path.join(target, '_internal', pkg, 'version.py')
+        if os.path.isfile(p):
+            with open(p, encoding='utf-8', errors='replace') as fh:
+                text = fh.read()
+            src = p
+    if text is None:
+        return None, '包内找不到 %s（%s 没打进去？）' % (rel, pkg)
+    m = re.search(r'^__version__\s*=\s*[\'"]([^\'"]+)[\'"]', text, re.M)
+    if not m:
+        return None, '%s 里解析不出 __version__' % src
+    return m.group(1), src
 
 
 def main():
@@ -126,7 +170,24 @@ def main():
     print('  [%s] imageformats/%s  （jpg 立绘必需；要和 qt.conf 一起才真正生效）'
           % ('✓' if jpg_ok else '✗', REQ_IMAGEFORMAT_JPG))
 
-    print('\n③ 禁止入包（作者本地状态 / 密钥 / 缓存）')
+    print('\n③ 包内关键第三方库版本（防「装了旧版还不知道」）')
+    for _pkg, _min in sorted(REQ_PKG_MIN.items()):
+        _ver, _src = read_pkg_version(target, _pkg)
+        if _ver is None:
+            ok_all = False
+            print('  [✗] %-10s %s' % (_pkg, _src))
+            continue
+        def _tup(v):
+            return tuple(int(x) for x in re.findall(r'\d+', v)[:3])
+        _ok = _tup(_ver) >= _min
+        ok_all &= _ok
+        print('  [%s] %-10s 包内 %-8s 要求 >=%s'
+              % ('✓' if _ok else '✗', _pkg, _ver, '.'.join(map(str, _min))))
+        if not _ok:
+            print('       ⚠ 这个版本的 %s 会让在线语音恒 403 → 用户听到「所有声线一个样」'
+                  % _pkg)
+
+    print('\n④ 禁止入包（作者本地状态 / 密钥 / 缓存）')
     bad = []
     for pat in FORBID:
         p = pat.rstrip('/')
