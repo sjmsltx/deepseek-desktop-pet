@@ -168,18 +168,43 @@ def local_server():
 
 
 def test_dead_proxy_env_would_break_plain_urllib(local_server, monkeypatch):
-    """先证明这个配置**真的会让裸 urllib 坏**（否则下面的对照没有意义）"""
+    """先证明这个配置**真的会让裸 urllib 坏**（否则下面的对照没有意义）
+
+    ⛔ 顺序依赖坑（2026-10-26，微信侧 WX-124 §9 报，我已三步实测复现）：
+
+      `urllib.request.urlopen` 第一次调用时把默认 opener 缓存到模块全局
+      `urllib.request._opener`；而 `build_opener()` 里的 `ProxyHandler` 在
+      **构建那一刻**就读 `getproxies()` —— 之后改环境变量，对已缓存的 opener
+      **无效**。
+
+      实测三步：
+        ① 未设 env、首次调用      → OK 200 0.03s
+        ② 设 env 但不重置 opener   → **OK 200 0.02s**（代理被忽略）
+        ③ 重置 _opener=None 后     → **FAIL URLError 2.07s**（代理生效）
+
+      ⇒ 本条只在「本进程第一次 urlopen 之前」成立。全量跑 1500+ 条时前面早有
+        别处调过 urlopen ⇒ opener 已缓存 ⇒ 本条必红。**这就是我 10-25 报的
+        「1588 passed」不可复现的原因。**
+
+      ⚠ 讽刺的是：同一文件里紧邻的那条用例，我很早就写了
+        `net_local._OPENER = None` —— **我防了自己那份缓存，漏了标准库那份。**
+    """
     import urllib.error
     import urllib.request
     monkeypatch.setenv('http_proxy', 'http://127.0.0.1:9')
     monkeypatch.setenv('HTTP_PROXY', 'http://127.0.0.1:9')
+    _saved_opener = urllib.request._opener
+    urllib.request._opener = None      # 让环境变量重新生效
     try:
-        urllib.request.urlopen(local_server + '/', timeout=2).read()
-        ok = True
-    except urllib.error.HTTPError as e:
-        ok = (e.code == 200)
-    except Exception:
-        ok = False
+        try:
+            urllib.request.urlopen(local_server + '/', timeout=2).read()
+            ok = True
+        except urllib.error.HTTPError as e:
+            ok = (e.code == 200)
+        except Exception:
+            ok = False
+    finally:
+        urllib.request._opener = _saved_opener   # ⛔ 不许污染后续用例
     assert ok is False, ('这个环境下裸 urlopen 竟然能成功 —— '
                          '说明"设 http_proxy 会让本地请求走代理"的前提不成立，'
                          '本组测试的对照失去意义，请重查环境')
