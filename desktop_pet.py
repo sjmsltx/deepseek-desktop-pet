@@ -7342,13 +7342,23 @@ class PetWidget(QWidget):
         event.accept()
 
     def _auto_resize_input(self):
-        """输入框高度自适应：内容多自动增高（单行 34px ~ 上限 120px），超上限内部滚动"""
+        """输入框高度自适应：内容多自动增高（单行 34px ~ 上限 120px），超上限内部滚动
+
+        ⚠ 必须**幂等地把 min/max 一起钉死**（2026-10-26 修，Owner 实测的贴边塌陷）：
+          原先只在 `height() != new_h` 时才 setFixedHeight。
+          一旦别处调用过 `setMinimumHeight(34)`（例如贴边拖出时恢复面板），
+          min 就被解开到 34、max 仍是旧值 —— 此时若当前高度恰好等于 new_h，
+          这里会**跳过重设** ⇒ 约束停在「min 小、max 大」的非锁定态
+          ⇒ 紧接着 `_sync_window_to_panel()` 让父布局重算，输入框被压回 min=34
+          ⇒ 表现就是「明明还有五行字，框却塌成一行；再敲一个字又自己变回来」。
+        """
         try:
             doc = self.chat_input.document()
             content_h = int(doc.size().height()) + 10  # 内容高度 + 上下 padding
             new_h = max(34, min(content_h, 120))
-            if self.chat_input.height() != new_h:
-                self.chat_input.setFixedHeight(new_h)
+            ci = self.chat_input
+            if (ci.height(), ci.minimumHeight(), ci.maximumHeight()) != (new_h, new_h, new_h):
+                ci.setFixedHeight(new_h)      # setFixedHeight 同时钉住 min 与 max
         except Exception:
             pass
 
@@ -8752,8 +8762,13 @@ class PetWidget(QWidget):
             self.chat_panel.show()
             self._chat_hidden_for_dock = False
             try:
-                self.chat_input.setFixedHeight(34)
+                # 2026-10-26 修：原先是 setFixedHeight(34) —— 把输入框**硬压回单行**。
+                #   而 _auto_resize_input 只挂在 document().contentsChanged 上，
+                #   内容没变就不会重算 ⇒ 贴边→拖出后，明明里面还有 5 行字，
+                #   框却塌成一行；用户再敲一个字才「自己变回来」。
+                #   改法：恢复下限后**按当前内容重算**，而不是写死单行高度。
                 self.chat_input.setMinimumHeight(34)
+                self._auto_resize_input()
             except Exception:
                 pass
         self._sync_window_to_panel()
@@ -8771,8 +8786,13 @@ class PetWidget(QWidget):
             self.chat_panel.show()
             self._chat_hidden_for_dock = False
             try:
-                self.chat_input.setFixedHeight(34)
+                # 2026-10-26 修：原先是 setFixedHeight(34) —— 把输入框**硬压回单行**。
+                #   而 _auto_resize_input 只挂在 document().contentsChanged 上，
+                #   内容没变就不会重算 ⇒ 贴边→拖出后，明明里面还有 5 行字，
+                #   框却塌成一行；用户再敲一个字才「自己变回来」。
+                #   改法：恢复下限后**按当前内容重算**，而不是写死单行高度。
                 self.chat_input.setMinimumHeight(34)
+                self._auto_resize_input()
             except Exception:
                 pass
         self._sync_window_to_panel()
