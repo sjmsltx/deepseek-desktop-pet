@@ -825,6 +825,9 @@ class PetWidget(QWidget):
         self._chat_follow = True        # 用户是否贴着底部（贴底才自动跟随）
         self._chat_auto_scroll = False  # 正在程序滚动（用于排除自身触发的 valueChanged）
         self.chat_history_scroll.verticalScrollBar().valueChanged.connect(self._on_chat_scrolled)
+        # 2026-10-27：内容变高后把视图补到新底部（修「新消息落地距底 50px」）
+        self.chat_history_scroll.verticalScrollBar().rangeChanged.connect(
+            self._on_chat_range_changed)
 
         # ===== v6.65 右侧信息栏：多页签（任务/状态/花费/待办/便签/系统）+ 可增删改 + 可折叠 =====
         # 原先只放任务队列，空着也占 1/3 宽 —— 改成“一栏多用”，并把页签做成可自定义
@@ -865,6 +868,21 @@ class PetWidget(QWidget):
         chat_body.addWidget(self.chat_history_scroll, 1)
         chat_body.addWidget(self.chat_task_sidebar, 0)
         chat_layout.addLayout(chat_body, 1)
+
+        # 2026-10-27：「↓ N 条新消息」提示条
+        #   用户正在往上翻历史时，新消息**不打断**他，只在这里提示条数；点一下跳到底。
+        #   （Owner 报：翻历史时每次都一有更新就被重置到最底部。）
+        self.chat_new_btn = QLabel('', self.chat_panel)
+        self._set_themed_qss(self.chat_new_btn,
+                             lambda: f"color:{self._tk('accent')}; font-size:11px;"
+                                     f" padding:2px; cursor:pointer;")
+        self.chat_new_btn.setAlignment(Qt.AlignCenter)
+        self.chat_new_btn.setCursor(Qt.PointingHandCursor)
+        self.chat_new_btn.setToolTip('跳到最新（你正在看历史，新消息没有打断你）')
+        self.chat_new_btn.mousePressEvent = lambda e: self._jump_to_latest()
+        self.chat_new_btn.hide()
+        chat_layout.addWidget(self.chat_new_btn)
+        self._pending_new_msgs = 0   # 未读新消息条数（仅用于提示条文案）
 
         # 3.0 主区入口：2026-10-25 B 方案 —— 从「独占一整行」挪进输入行。
         #   原先这里是一整行 22px、行内只有一个靠右按钮，白占聊天面板约 9% 高度
@@ -6728,8 +6746,72 @@ class PetWidget(QWidget):
         try:
             sb = self.chat_history_scroll.verticalScrollBar()
             self._chat_follow = (sb.maximum() - int(value)) <= self.CHAT_FOLLOW_SLACK
+            # 用户自己滚回底部 → 提示条没意义了，清掉
+            if self._chat_follow and int(getattr(self, '_pending_new_msgs', 0) or 0) > 0:
+                self._clear_new_msg_hint()
         except Exception as _exc:
             _silent_log('_on_chat_scrolled', _exc)
+
+    def _on_chat_range_changed(self, _min, _max):
+        """滚动范围变化（内容变高/变矮）→ 用户仍贴底就跟到新底部
+
+        为什么需要它（2026-10-27，修「新消息落地距底 50px」）：
+          `_chat_scroll_bottom` 里 `setValue(sb.maximum())` 执行那一刻，
+          新气泡刚 `insertWidget`、**布局尚未完成** ⇒ `maximum()` 还是旧值，
+          新气泡的高度没算进去。等布局完成后 maximum 变大，value 就落后了 50px。
+
+          ⚠ 我曾以为「布局没完成所以设了旧值」，实验证明不完整：那一刻 value 与 max
+            都还没含新气泡（距底 0）；现象是**布局完成之后**才出现的（max +50、value 没跟）。
+          ⚠ 猜时机再设一次不可靠：`QTimer.singleShot(0)` 实测仍落在布局之前（距底仍是 50）。
+          ⇒ 改由 Qt 通知：maximum 真正变了就跟着走。实测距底 50 → 0。
+        """
+        if getattr(self, '_chat_auto_scroll', False):
+            return
+        if not getattr(self, '_chat_follow', True):
+            return
+        sb = self.chat_history_scroll.verticalScrollBar()
+        self._chat_auto_scroll = True
+        try:
+            sb.setValue(int(_max))
+        finally:
+            self._chat_auto_scroll = False
+
+    def _note_new_message(self):
+        """新消息落地后的滚动策略（2026-10-27）
+
+        用户贴着底部 → 正常跟到底（原行为不变）
+        用户正在翻历史 → **不打扰**，只把「↓ N 条新消息」提示条亮出来
+        """
+        if getattr(self, '_chat_follow', True):
+            self._chat_scroll_bottom()
+            self._clear_new_msg_hint()
+            return
+        self._pending_new_msgs = int(getattr(self, '_pending_new_msgs', 0) or 0) + 1
+        self._show_new_msg_hint()
+
+    def _show_new_msg_hint(self):
+        """刷新提示条文案并显示（条数 >1 才报数字，避免「↓ 1 条」这种啰嗦）"""
+        try:
+            n = int(getattr(self, '_pending_new_msgs', 0) or 0)
+            if n <= 0:
+                self.chat_new_btn.hide()
+                return
+            self.chat_new_btn.setText('↓ %d 条新消息' % n if n > 1 else '↓ 有新消息')
+            self.chat_new_btn.show()
+        except Exception as _exc:
+            _silent_log('_show_new_msg_hint', _exc)
+
+    def _clear_new_msg_hint(self):
+        """清零并隐藏提示条"""
+        self._pending_new_msgs = 0
+        btn = getattr(self, 'chat_new_btn', None)
+        if btn is not None:
+            btn.hide()
+
+    def _jump_to_latest(self):
+        """点「↓ N 条新消息」→ 跳到底部并清除提示"""
+        self._clear_new_msg_hint()
+        self._chat_scroll_bottom()
 
     def _clear_chat_history(self):
         """清空消息流（保留底部弹簧）"""
@@ -6739,6 +6821,7 @@ class PetWidget(QWidget):
             if w is not None:
                 w.deleteLater()
         self._status_widget = None
+        self._clear_new_msg_hint()   # 2026-10-27：历史清空了，未读提示也归零
 
     def _update_more_button(self):
         """有更早历史时显示'显示更多'按钮"""
@@ -6829,7 +6912,8 @@ class PetWidget(QWidget):
         safe = str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
         bubble, content = self._new_bubble(who, ts, is_user=(who == '我'), text=str(text))
         content.addWidget(self._bubble_text_label(safe, is_user=(who == '我')))
-        self._chat_scroll_bottom()
+        # 2026-10-27：贴底才跟到底；用户在翻历史时改为「↓ N 条新消息」提示，不打断
+        self._note_new_message()
 
     def _append_chat_md(self, who, text):
         """追加一条聊天记录（AI 回复用，markdown 分块渲染：代码/表格成卡片）
@@ -6844,7 +6928,8 @@ class PetWidget(QWidget):
             self.display_msgs = self.display_msgs[-300:]
         bubble, content = self._new_bubble(who, ts, is_user=False, text=str(text))
         self._render_md_into(content, str(text))
-        self._chat_scroll_bottom()
+        # 2026-10-27：同 _append_chat —— 不打断正在翻历史的用户
+        self._note_new_message()
 
     def _attach_bubble_actions(self, bubble, text):
         """给消息气泡补复制/存图按钮（hover 显示）。v6.40：流式气泡创建时 text 为空，流式结束后补上"""
