@@ -821,6 +821,10 @@ class PetWidget(QWidget):
         self.chat_history_layout.addStretch(1)  # 底部弹簧：消息从顶部排、滚动贴底
         self.chat_history_scroll.setWidget(self.chat_history_container)
         self._status_widget = None  # 当前状态行（⏳/思考中）
+        # 2026-10-27：滚动跟随状态（见 _chat_scroll_bottom 的说明）
+        self._chat_follow = True        # 用户是否贴着底部（贴底才自动跟随）
+        self._chat_auto_scroll = False  # 正在程序滚动（用于排除自身触发的 valueChanged）
+        self.chat_history_scroll.verticalScrollBar().valueChanged.connect(self._on_chat_scrolled)
 
         # ===== v6.65 右侧信息栏：多页签（任务/状态/花费/待办/便签/系统）+ 可增删改 + 可折叠 =====
         # 原先只放任务队列，空着也占 1/3 宽 —— 改成“一栏多用”，并把页签做成可自定义
@@ -4007,7 +4011,7 @@ class PetWidget(QWidget):
         self._set_themed_qss(self._stream_label,
                              lambda: f'color:{self._tk("bubble_text")}; font-size:14px;')
         self._chat_type_content.addWidget(self._stream_label)
-        self._chat_scroll_bottom()
+        self._chat_scroll_bottom(force=False)   # 2026-10-27：在途刷新不打扰翻阅
         self._stream_active = True
 
     def _strip_emotion_tags(self, combined):
@@ -4047,7 +4051,7 @@ class PetWidget(QWidget):
             self._stream_text += cleaned
             if self._stream_label is not None:
                 self._stream_label.setText(self._stream_text)
-                self._chat_scroll_bottom()
+                self._chat_scroll_bottom(force=False)   # 2026-10-27：每个 chunk 都滚会把用户拉回
             # ★ v6.76 增量 markdown 渲染：不等全文，按“整块+节流”边出边渲染
             self._maybe_incremental_render()
         except Exception as _exc:
@@ -4091,7 +4095,7 @@ class PetWidget(QWidget):
             # 重渲染清掉了所有正文控件 → 重建流式 label 接着接 chunk
             self._stream_label = self._stream_new_label()
             self._stream_label.setText(text.split('\n\n')[-1] if '\n\n' in text else text)
-            self._chat_scroll_bottom()
+            self._chat_scroll_bottom(force=False)   # 2026-10-27：同 _on_stream
         except Exception as _exc:
             _silent_log('_maybe_incremental_render', _exc)
 
@@ -4111,7 +4115,7 @@ class PetWidget(QWidget):
             if not self._thinking_label.isVisible():
                 self._thinking_label.show()
             self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + cleaned)
-            self._chat_scroll_bottom()
+            self._chat_scroll_bottom(force=False)   # 2026-10-27：思考流也不打扰
         except Exception:
             pass
 
@@ -4124,7 +4128,7 @@ class PetWidget(QWidget):
             self._stream_pending = ''
             if self._stream_label is not None:
                 self._stream_label.setText(self._stream_text)
-                self._chat_scroll_bottom()
+                self._chat_scroll_bottom(force=False)   # 2026-10-27：收尾刷新同样按跟随态
         if getattr(self, '_thinking_pending', ''):
             if self._thinking_label is not None:
                 self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + self._thinking_pending)
@@ -4277,7 +4281,7 @@ class PetWidget(QWidget):
         kind, content = self.chat_type_blocks[self.chat_type_index]
         self._render_one_block(self._chat_type_content, kind, content)
         self.chat_type_index += 1
-        self._chat_scroll_bottom()
+        self._chat_scroll_bottom(force=False)   # 2026-10-27：打字机每 tick 不打扰
         if self.chat_type_index >= len(self.chat_type_blocks):
             self.chat_type_timer.stop()
             # v6.30 打字机完成：追加待展示的选项按钮（同气泡）
@@ -6688,10 +6692,44 @@ class PetWidget(QWidget):
         """把纯文本表格块转 HTML（供 _TableCard 使用）
         （实现已搬至 pet_bubble.md_table_from_text）"""
         return pb.md_table_from_text(text)
-    def _chat_scroll_bottom(self):
-        """消息流滚动到底部"""
+    def _chat_scroll_bottom(self, force=True):
+        """消息流滚动到底部
+
+        force=True（默认）：不管用户当前在哪都滚到底。
+            用于「新消息落地」「用户主动点击」这类**用户期待跳到最新**的场景，
+            保持全部既有调用点的行为不变。
+        force=False：只在用户**本来就贴着底部**时才滚。
+            用于「在途刷新」——状态秒表每秒一帧、流式输出每个 chunk、打字机每 tick。
+            2026-10-27 修：原先这些地方无条件滚，导致用户往上翻看历史时
+            每秒被拉回最底部一次（Owner 实测报障）。
+
+        ⚠ 为什么用 `_chat_follow` 状态而不是每次现算 `maximum - value`：
+            内容增长时 `maximum()` 会变大，用户明明停在底部也会被算成「不在底部」，
+            原本该跟随的场景就失效了。必须记「用户有没有主动离开底部」。
+        """
         sb = self.chat_history_scroll.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        if not force and not getattr(self, '_chat_follow', True):
+            return
+        self._chat_auto_scroll = True
+        try:
+            sb.setValue(sb.maximum())
+        finally:
+            self._chat_auto_scroll = False
+        self._chat_follow = True
+
+    def _on_chat_scrolled(self, value):
+        """滚动条变化 → 维护「用户是否还贴着底部」
+
+        程序自己滚的那次（`_chat_auto_scroll`）不算用户意图，直接跳过，
+        否则每次自动滚动都会被当成「用户回到/离开底部」而互相覆盖。
+        """
+        if getattr(self, '_chat_auto_scroll', False):
+            return
+        try:
+            sb = self.chat_history_scroll.verticalScrollBar()
+            self._chat_follow = (sb.maximum() - int(value)) <= self.CHAT_FOLLOW_SLACK
+        except Exception as _exc:
+            _silent_log('_on_chat_scrolled', _exc)
 
     def _clear_chat_history(self):
         """清空消息流（保留底部弹簧）"""
@@ -6989,6 +7027,9 @@ class PetWidget(QWidget):
         return False
 
     AI_STATUS_TICK_MS = 1000      # v6.79 L1：在途状态每秒刷一帧（秒表）
+    # 2026-10-27：判定「用户还贴着底部」的容差（px）。
+    #   小于这个距离就算在底部 —— 自动跟随；超过就算用户主动翻上去了，不再打扰。
+    CHAT_FOLLOW_SLACK = 24
 
     def _update_ai_status(self, text):
         """更新 AI 处理状态（v6.79 L1：**在途状态带秒表**）
@@ -7029,7 +7070,10 @@ class PetWidget(QWidget):
                 self._status_widget.setText(label)
             except Exception:
                 return
-        self._chat_scroll_bottom()
+        # 2026-10-27 修：原先这里**无条件**滚到底，而本函数由 AI_STATUS_TICK_MS(1000ms)
+        #   定时器每秒触发一次刷「已等 Ns」⇒ 用户往上翻看历史时，每秒被拉回最底部。
+        #   改成按跟随态：用户贴着底部才跟随，翻上去了就不打扰。
+        self._chat_scroll_bottom(force=False)
 
     def _panel_qss(self):
         """按当前主题变量生成聊天面板样式（v6.23 主题系统）"""
