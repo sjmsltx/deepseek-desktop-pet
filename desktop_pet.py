@@ -4141,16 +4141,22 @@ class PetWidget(QWidget):
         """主线程槽：流式结束（清状态行；思考区保留在卡片内可折叠）"""
         self._stream_active = False
         # flush 残留 pending（若流结束时仍未凑成标签 → 是普通文本，显示出来）
+        # ⚠ 2026-10-27：残片可能是被扣住的 `<say_bubble>…`（等闭合标签）。
+        #   收尾时若仍不闭合，它就不是正常正文 —— 必须先把标签本身剥掉再显示，
+        #   否则「代码漏在聊天里」会从这条缝里再漏一次。
         if getattr(self, '_stream_pending', ''):
-            self._stream_text += self._stream_pending
+            _flush_tail = pb.strip_say_bubble(self._stream_pending)
             self._stream_pending = ''
-            if self._stream_label is not None:
-                self._stream_label.setText(self._stream_text)
-                self._chat_scroll_bottom(force=False)   # 2026-10-27：收尾刷新同样按跟随态
+            if _flush_tail:
+                self._stream_text += _flush_tail
+                if self._stream_label is not None:
+                    self._stream_label.setText(self._stream_text)
+                    self._chat_scroll_bottom(force=False)   # 2026-10-27：收尾刷新同样按跟随态
         if getattr(self, '_thinking_pending', ''):
-            if self._thinking_label is not None:
-                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + self._thinking_pending)
+            _think_tail = pb.strip_say_bubble(self._thinking_pending)
             self._thinking_pending = ''
+            if _think_tail and self._thinking_label is not None:
+                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + _think_tail)
         self._stream_label = None
         try:
             self._remove_status_line()
@@ -4212,6 +4218,15 @@ class PetWidget(QWidget):
             self._remove_status_line()
         except Exception as _exc:
             _silent_log('_display_ai_reply:2480', _exc)   # v6.54
+        # 2026-10-27：模型偶尔把 say_bubble 写成正文（实测 6 条回复尾部各一个）。
+        #   显示层已剥掉（pet_bubble.strip_say_bubble），这里把它**本来想要的那个气泡**补上
+        #   —— 走 _tool_say_bubble 原有三道闸（长度/频次/开关），不新造接口。
+        try:
+            _said = pb.extract_say_bubbles(reply)
+            if _said:
+                self._tool_say_bubble({'text': _said[0]})
+        except Exception as _exc:
+            _silent_log('_display_ai_reply:say_bubble', _exc)
         # ⭐ 方案 B（Owner 2026-10-23 定）：闸门卡**同因原地替换**，不许一条条追加 ✗
         #   原因：卡片走普通 AI 回复路径 → 进 display_msgs 并落盘 → 被拦一次就多一条，
         #   实测 60 条历史里 43 条是同一张卡（真对话被顶掉）。
@@ -6618,7 +6633,7 @@ class PetWidget(QWidget):
             head.addWidget(name)
             head.addWidget(tl)
             head.addStretch(1)
-        # 操作按钮：一键复制 / 存为图片（hover 消息才显示，v6.19e；不污染对话历史）
+        # 操作按钮：复制文字 / 复制图片到剪贴板 / 另存为图片（hover 消息才显示；不污染对话历史）
         self._attach_bubble_actions(bubble, text)
         v.addLayout(head)
         content = QVBoxLayout()
@@ -6644,29 +6659,104 @@ class PetWidget(QWidget):
         except Exception:
             self.say_plain('复制失败', immediate=True)
 
+    def _render_bubble_pixmap(self, bubble):
+        """把消息气泡渲染成 QPixmap（合成深色背景，与聊天面板风格一致）
+
+        2026-10-27：从 `_save_bubble_image` 抽出来，「复制到剪贴板」与「另存为图片」共用
+        —— 原先这段合成逻辑只活在保存函数里，加个复制功能就得把它复制一遍。
+        返回 None 表示截图失败（调用方各自提示，不在这里静默）。
+        """
+        pm = bubble.grab()
+        if pm.isNull():
+            return None
+        bg = QPixmap(pm.size())
+        bg.fill(QColor(20, 20, 30))
+        painter = QPainter(bg)
+        painter.drawPixmap(0, 0, pm)
+        painter.end()
+        return bg
+
+    def _copy_bubble_image(self, bubble):
+        """把这一条消息渲染成图片放进剪贴板（Owner 2026-10-27 要求）
+
+        Owner 原话：「我之前其实想的是把它整成一个粘贴板，也就是说我点了之后
+        它是存在我的粘贴板里面的，当然它也可以存成图片，不过名字应该叫做另存为图片」。
+        """
+        try:
+            bg = self._render_bubble_pixmap(bubble)
+            if bg is None:
+                self.say_plain('截图失败', immediate=True)
+                return False
+            QApplication.clipboard().setImage(bg.toImage())
+            self.say_plain('✅ 图片已复制到剪贴板（可直接粘贴）', immediate=True)
+            return True
+        except Exception as _exc:
+            _silent_log('_copy_bubble_image', _exc)
+            self.say_plain('复制图片失败（看日志）', immediate=True)
+            return False
+
     def _save_bubble_image(self, bubble):
-        """把消息气泡渲染成 PNG 图片保存（合成深色背景，与聊天面板风格一致）"""
+        """把消息气泡渲染成 PNG **另存为**文件
+
+        2026-10-27：文案由「存为图片」改为「另存为图片」—— 与「复制到剪贴板」区分开，
+        否则两个动作都叫"存"，用户分不清哪个是进剪贴板。
+        """
         from PySide6.QtWidgets import QFileDialog
         try:
             default = os.path.join(os.path.expanduser('~'), 'Desktop', '桌宠消息.png')
-            path, _ = QFileDialog.getSaveFileName(self, '保存消息为图片', default, 'PNG 图片 (*.png)')
+            path, _ = QFileDialog.getSaveFileName(self, '另存为图片', default, 'PNG 图片 (*.png)')
             if not path:
                 return
-            pm = bubble.grab()
-            if pm.isNull():
+            bg = self._render_bubble_pixmap(bubble)
+            if bg is None:
                 self.say_plain('截图失败', immediate=True)
                 return
-            bg = QPixmap(pm.size())
-            bg.fill(QColor(20, 20, 30))
-            p = QPainter(bg)
-            p.drawPixmap(0, 0, pm)
-            p.end()
             if bg.save(path):
                 self.say_plain(f'✅ 已保存：{os.path.basename(path)}', immediate=True)
             else:
                 self.say_plain('保存失败', immediate=True)
         except Exception as e:
             self.say_plain(f'保存失败：{e}', immediate=True)
+
+    def _make_bubble_action_btns(self, bubble, text):
+        """气泡 hover 按钮：复制文字 / 复制图片到剪贴板 / 另存为图片（2026-10-27）
+
+        为什么抽出来：这两个按钮原先在 `_new_bubble`（历史回放）与 `_attach_bubble_actions`
+        （正常渲染）里**各写一遍**，内容几乎一样 —— 加第三个按钮就得改两处，
+        漏一处就是"历史消息没有新按钮"。现在只留一份。
+        """
+        v = bubble.layout()
+        if v is None or v.count() == 0:
+            return []
+        head = v.itemAt(0).layout()
+        if head is None:
+            return []
+        style = (f'color:{self._tk("ui_text_dim")};font-size:11px;'
+                 f'background:transparent;padding:0 2px;')
+        cp = QLabel('⧉')
+        cp.setStyleSheet(style)
+        cp.setCursor(Qt.PointingHandCursor)
+        cp.setToolTip('复制该消息文字（含图）')
+        cp.mousePressEvent = lambda e, t=text: self._copy_rich_text(t)
+        ci = QLabel('🖼')
+        ci.setStyleSheet(style)
+        ci.setCursor(Qt.PointingHandCursor)
+        ci.setToolTip('复制成图片到剪贴板（可直接粘贴）')
+        ci.mousePressEvent = lambda e, b=bubble: self._copy_bubble_image(b)
+        sv = QLabel('💾')
+        sv.setStyleSheet(style)
+        sv.setCursor(Qt.PointingHandCursor)
+        sv.setToolTip('另存为图片…')
+        sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
+        btns = [cp, ci, sv]
+        for b in btns:
+            b.hide()
+            head.addWidget(b)
+        bubble._action_btns = btns
+        bubble._msg_text = text
+        bubble.enterEvent = lambda e, bb=bubble: [x.show() for x in getattr(bb, '_action_btns', [])]
+        bubble.leaveEvent = lambda e, bb=bubble: [x.hide() for x in getattr(bb, '_action_btns', [])]
+        return btns
 
     def _check_code_blocks(self, text):
         """自动检查回复中 Python 代码块语法（拆至 code_checker.check_python_blocks）
@@ -6872,28 +6962,13 @@ class PetWidget(QWidget):
             head.addWidget(name)
             head.addWidget(tl)
             head.addStretch(1)
-        if text:
-            cp = QLabel('⧉')
-            cp.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
-            cp.setCursor(Qt.PointingHandCursor)
-            cp.setToolTip('复制该消息')
-            cp.mousePressEvent = lambda e, t=text: self._copy_message_text(t)
-            cp.hide()
-            head.addWidget(cp)
-            sv = QLabel('🖼')
-            sv.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
-            sv.setCursor(Qt.PointingHandCursor)
-            sv.setToolTip('存为图片')
-            sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
-            sv.hide()
-            head.addWidget(sv)
-            bubble._action_btns = [cp, sv]
-            bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
-            bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
         v.addLayout(head)
         content = QVBoxLayout()
         content.setSpacing(4)
         v.addLayout(content)
+        # 2026-10-27：与正常渲染同源（helper），历史消息也有三个按钮且文案一致
+        if text:
+            self._make_bubble_action_btns(bubble, text)
         self.chat_history_layout.insertWidget(0, bubble)
         return bubble, content
 
@@ -6941,24 +7016,8 @@ class PetWidget(QWidget):
         head = v.itemAt(0).layout()
         if head is None:
             return
-        cp = QLabel('⧉')
-        cp.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
-        cp.setCursor(Qt.PointingHandCursor)
-        cp.setToolTip('复制该消息（含图）')
-        cp.mousePressEvent = lambda e, t=text: self._copy_rich_text(t)   # v6.76：升级为富剪贴板（图不丢）
-        cp.hide()
-        head.addWidget(cp)
-        sv = QLabel('🖼')
-        sv.setStyleSheet(f'color:{self._tk("ui_text_dim")};font-size:11px;background:transparent;padding:0 2px;')
-        sv.setCursor(Qt.PointingHandCursor)
-        sv.setToolTip('存为图片')
-        sv.mousePressEvent = lambda e, b=bubble: self._save_bubble_image(b)
-        sv.hide()
-        head.addWidget(sv)
-        bubble._action_btns = [cp, sv]
-        bubble.enterEvent = lambda e, b=bubble: [x.show() for x in getattr(b, '_action_btns', [])]
-        bubble.leaveEvent = lambda e, b=bubble: [x.hide() for x in getattr(b, '_action_btns', [])]
-        bubble._msg_text = text
+        # 2026-10-27：三个按钮统一由 helper 建（复制文字 / 复制图片 / 另存为图片）
+        self._make_bubble_action_btns(bubble, text)
         # v6.76：气泡右键菜单（**新增**，hover 那两个按钮保留不动 —— 使用者明确要求保留）
         for _w in [bubble] + bubble.findChildren(QWidget):
             try:
@@ -6969,7 +7028,7 @@ class PetWidget(QWidget):
                 _silent_log('_attach_bubble_actions:menu', _exc)
 
     def _bubble_context_menu(self, bubble, text):
-        """气泡右键菜单（v6.76）：朗读选中 / 复制（含图）/ 只复制文字 / 存为图片
+        """气泡右键菜单：朗读选中 / 复制 / 只复制文字 / 复制图片到剪贴板 / 另存为图片
 
         设计取舍：**不替代 hover 按钮**，只是多一个入口（使用者要求保留原交互）。
         """
@@ -6996,7 +7055,9 @@ class PetWidget(QWidget):
                 m.addSeparator()
             m.addAction('📋 复制（含图）', lambda: self._copy_rich_text(text))
             m.addAction('📋 只复制文字', lambda: self._copy_message_text(text))
-            m.addAction('🖼 存为图片', lambda: self._save_bubble_image(bubble))
+            # 2026-10-27（Owner 要求）：图片先进剪贴板；落文件叫「另存为图片」
+            m.addAction('🖼 复制图片到剪贴板', lambda: self._copy_bubble_image(bubble))
+            m.addAction('💾 另存为图片…', lambda: self._save_bubble_image(bubble))
             m.addAction('🔊 朗读这条（按当前策略）', lambda: self._speak_text_now(text))
             m.exec(QCursor.pos())
         except Exception as _exc:

@@ -28,13 +28,100 @@ from code_checker import check_python_blocks
 from pet_theme import DEFAULT_THEME as _THEME  # v6.58 主题唯一源（兜底值也从这里取，不再写死颜色）
 
 
-def strip_emotion_tag(text):
-    """剥离文本中的 [emotion:xxx] / [emotion=xxx] 标签，返回 (剥离后的文本, 情绪名或None)"""
-    m = re.search(r'\[emotion[:=]([a-z_]+)', text or '')
+# ---------------- <say_bubble> 伪标签（2026-10-27） ----------------
+# 模型偶尔不调用 say_bubble 工具，而是把这层标签**直接写进正文**：
+#   "…正文…<say_bubble>列表推导式，一行顶一个循环～</say_bubble>"
+# 实测 chat_memory_flash.json 里有 6 条回复是这样（开/闭标签各 13 处）
+# ⇒ 界面上就是一串「莫名其妙的代码」漏在聊天里。
+# ⚠ 必须有捕获组 (.*?)：第一版漏了组，`m.group(1)` 每次都抛 IndexError，
+#   又被外层 `except: return []` 吞掉 ⇒ 恒返回空。真实 6 条样本全空才暴出来。
+_SAY_BUBBLE_TAG_RE = re.compile(r'<say_bubble[^>]*>(.*?)</say_bubble\s*>', re.S | re.I)
+_SAY_BUBBLE_OPEN_RE = re.compile(r'<say_bubble[^>]*>', re.I)
+_SAY_BUBBLE_CLOSE_RE = re.compile(r'</say_bubble\s*>', re.I)
+
+
+def extract_say_bubbles(text):
+    """取出正文里被误写成文本的 <say_bubble> 内容（**不改文本**）
+
+    供显示层把「它本来就想要的那个气泡」补上，走原有 say_bubble 的三道闸。
+    ⛔ 不用宽 except 吞异常：吞掉只会让「取不到」看起来像「本来就没有」。
+    """
+    s = str(text or '')
+    if 'say_bubble' not in s.lower():
+        return []
+    return [m.group(1).strip() for m in _SAY_BUBBLE_TAG_RE.finditer(s) if m.group(1).strip()]
+
+
+def strip_say_bubble(text, trim=False):
+    """剥掉 <say_bubble>…</say_bubble> 与孤立开/闭标签，返回清理后文本
+
+    未闭合的开标签在这里也直接删（非流式文本已是完整一段，不存在"下一块"）。
+
+    `trim=True`：剥完再把尾部换行清掉 —— 标签前那个空行留着就是气泡底部一块空白。
+    ⛔ 流式路径**不能** trim：逐 chunk 处理会把「hello 」的尾空格吃掉，
+       与下一块的「world」粘成「helloworld」。所以默认 False。
+    """
+    s = str(text or '')
+    if 'say_bubble' not in s.lower():
+        return s
+    before = s
+    s = _SAY_BUBBLE_TAG_RE.sub('', s)
+    s = _SAY_BUBBLE_OPEN_RE.sub('', s)
+    s = _SAY_BUBBLE_CLOSE_RE.sub('', s)
+    if trim and s != before:
+        s = s.rstrip('\n')
+    return s
+
+
+def strip_say_bubble_hold(text):
+    """剥 say 标签；**开标签未闭合时把其后整段扣住**，返回 (可见文本, 待续文本)
+
+    为什么不能简单删掉孤立开标签（第一版就是那样，实测漏）：
+      流式每 3 字一块，"<say_bubble>气泡里的话～" 先到时闭合标签还没来，
+      删掉开标签 ⇒ 里面的字就当成正文显示了（实测输出
+      `'这是一段正文。气泡里的话～</say_bubble>'`）。
+    """
+    s = str(text or '')
+    if 'say_bubble' not in s.lower():
+        return s, ''
+    s = _SAY_BUBBLE_TAG_RE.sub('', s)          # 先剥完整的成对标签
+    m = _SAY_BUBBLE_OPEN_RE.search(s)          # 还剩未闭合的开标签？
     if m:
-        cleaned = re.sub(r'\[emotion[:=][a-z_]+\]?\s*', '', text or '').strip()
+        return s[:m.start()], s[m.start():]    # 其后全部留到下一块
+    s = _SAY_BUBBLE_CLOSE_RE.sub('', s)        # 孤立闭标签直接删
+    return s, ''
+
+
+def _split_partial_say_tag(text):
+    """切出「写到一半的 <say_bubble…」尾片（流式 chunk 可能把标签拦腰截断）
+
+    只认 say_bubble 的前缀，避免把随意结尾的 `<` 也吞掉（那样正常文本会丢字符）。
+    """
+    i = text.rfind('<')
+    if i < 0:
+        return text, ''
+    tail = text[i + 1:]
+    if '>' in tail or '<' in tail:
+        return text, ''
+    body = tail.lstrip('/').lower()
+    if not body:
+        return text, ''                       # 光一个 '<' 当普通字符
+    if 'say_bubble'.startswith(body):
+        return text[:i], text[i:]
+    return text, ''
+
+
+def strip_emotion_tag(text):
+    """剥离文本中的 [emotion:xxx] / [emotion=xxx] 标签，返回 (剥离后的文本, 情绪名或None)
+
+    2026-10-27：顺带剥 <say_bubble> 伪标签（见上方说明）。
+    """
+    m = re.search(r'\[emotion[:=]([a-z_]+)', text or '')
+    cleaned_text = strip_say_bubble(text or '', trim=True)   # 最终文本：清掉尾部空行
+    if m:
+        cleaned = re.sub(r'\[emotion[:=][a-z_]+\]?\s*', '', cleaned_text).strip()
         return (cleaned, m.group(1))
-    return (text, None)
+    return (cleaned_text, None)
 
 
 def strip_emotion_tags(combined):
@@ -43,6 +130,15 @@ def strip_emotion_tags(combined):
     for m in re.finditer(r'\[emotion:([^\]]+)\]', combined):
         emotions.append(m.group(1).strip())
     cleaned = re.sub(r'\[emotion:[^\]]*\]', '', combined)
+    # 2026-10-27：剥模型误写成正文的 <say_bubble> 伪标签（否则会显示成「代码」）
+    #   未闭合的开标签要整段扣住，否则里面的字会冒充正文
+    cleaned, say_hold = strip_say_bubble_hold(cleaned)
+    if say_hold:
+        return cleaned, say_hold, emotions
+    # 再兜「写到一半的 <say_bub…」尾片（比 emotion 尾片优先：它在更后面）
+    cleaned, say_tail = _split_partial_say_tag(cleaned)
+    if say_tail:
+        return cleaned, say_tail, emotions
     # 缓存可能是 emotion 标签开头的尾部（标签被切碎成任意 chunk 也能兜住）
     # 模式：[ 开头 + 字母/冒号/等号/下划线/连字符 到行尾
     tail = re.search(r'\[[a-z_:=\-]*$', cleaned)
