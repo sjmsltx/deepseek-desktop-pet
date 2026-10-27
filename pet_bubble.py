@@ -62,12 +62,18 @@ def strip_say_bubble(text, trim=False):
        与下一块的「world」粘成「helloworld」。所以默认 False。
     """
     s = str(text or '')
-    if 'say_bubble' not in s.lower():
+    # ⚠ 门槛不能只认「含完整 say_bubble」：残片（`<say_bub`）天然不含完整标签名，
+    #   那样会把要处理的东西全挡在门外（实测就是这样漏的）。有 '<' 就走下去，
+    #   `_split_partial_say_tag` 自带严格判定，普通尖括号不会被误伤。
+    if '<' not in s and 'say_bubble' not in s.lower():
         return s
     before = s
     s = _SAY_BUBBLE_TAG_RE.sub('', s)
     s = _SAY_BUBBLE_OPEN_RE.sub('', s)
     s = _SAY_BUBBLE_CLOSE_RE.sub('', s)
+    # ⚠ 光删「带 > 的完整标签」不够：实测 `'正文<say_bub'` 原样漏出来（流在标签中途断掉）。
+    #   这里再切一次残片尾巴 —— 本函数只服务最终文本，切掉不留后患。
+    s, _frag = _split_partial_say_tag(s)
     if trim and s != before:
         s = s.rstrip('\n')
     return s
@@ -106,7 +112,10 @@ def _split_partial_say_tag(text):
     body = tail.lstrip('/').lower()
     if not body:
         return text, ''                       # 光一个 '<' 当普通字符
-    if 'say_bubble'.startswith(body):
+    # 两个方向都算「说到一半的标签」：
+    #   `<say_bub`      → body 是标签名前缀（被切短）
+    #   `<say_bubble x` → body 已含完整标签名但没有 '>'（带属性却没写完）
+    if 'say_bubble'.startswith(body) or body.startswith('say_bubble'):
         return text[:i], text[i:]
     return text, ''
 

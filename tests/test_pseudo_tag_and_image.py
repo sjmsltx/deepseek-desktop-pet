@@ -73,6 +73,46 @@ def test_streaming_holds_unclosed_tag():
     assert buf == '', '收尾仍有残留缓冲：%r' % buf
 
 
+def test_stream_end_unclosed_keeps_inner_text():
+    """★ Owner 2026-10-27 裁定：流结束仍不闭合 → 剥标签、**保留里面的字**当正文
+
+    取舍理由（我给的、Owner 采纳）：宁可多显示一句，也不静默吞字。
+    反面方案是整段丢弃，那会让「模型写到一半断了」变成用户什么都看不到。
+    """
+    pb = _pb()
+    cleaned, pending, _ = pb.strip_emotion_tags('正文<say_bubble>半句话')
+    assert cleaned == '正文'
+    assert pending == '<say_bubble>半句话', '未闭合段应被扣住等闭合'
+    final = cleaned + pb.strip_say_bubble(pending)      # 收尾 flush 的动作
+    assert final == '正文半句话', '收尾后应保留里面的字：%r' % final
+    assert 'say_bubble' not in final and '<' not in final
+
+
+def test_stream_end_truncated_tag_not_leaked():
+    """★ 实测抓到的漏：流在 `<say_bub` 处断掉，收尾会把残片原样显示出来
+
+    第一版 `strip_say_bubble` 只删带 `>` 的完整标签 ⇒ `'正文<say_bub'` 原样留下；
+    补丁 1d 加了残片切割，但**函数开头的快速返回**又把残片挡在门外
+    （`'say_bubble' not in s.lower()` —— 残片天然不含完整标签名）⇒ 补丁 1e 放宽门槛。
+    """
+    pb = _pb()
+    for frag in ('正文<say_bub', '正文<say', '正文<s', '正文<say_bubble', '正文<say_bubble x'):
+        got = pb.strip_say_bubble(frag)
+        assert got == '正文', '残片漏出来了：%r → %r' % (frag, got)
+
+
+def test_lone_trailing_angle_kept():
+    """⚠ 已知取舍：孤立的尾部 '<' 保留不删
+
+    理由：`'正文<'` 与「数学文本 a < b」在字符串层面无法区分，删掉会吃掉合法内容。
+    代价：流恰好在 '<' 之后断开时，界面上会多一个 '<'（1 个字符，比删错正文划算）。
+    """
+    pb = _pb()
+    assert pb.strip_say_bubble('正文<') == '正文<'
+    assert pb.strip_say_bubble('正常文本 < 尖括号') == '正常文本 < 尖括号'
+    assert pb.strip_say_bubble('正常文本<3') == '正常文本<3'
+
+
 def test_extract_say_bubbles_returns_content():
     """取出的气泡内容必须非空（我第一版正则漏了捕获组 ⇒ 恒返回 []，被 this 抓过）"""
     pb = _pb()
