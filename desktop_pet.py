@@ -6397,6 +6397,8 @@ class PetWidget(QWidget):
             + "QLabel { color: %s; font-size: 11px; background: transparent; }" % self._tk('ui_text')
             + "QLabel#t { color: %s; font-size: 12px; font-weight: bold; }" % self._tk('ui_accent')
             + "QLabel#v { color: %s; font-size: 11px; }" % self._tk('ui_green')
+            # 账户级（余额）用橙色：与堆叠图里「账户里别处」同色，语义一致
+            + "QLabel#vb { color: %s; font-size: 11px; }" % self._tk('ui_orange')
             + "QLabel#d { color: %s; font-size: 10px; }" % self._tk('ui_text_dim')
             + "QProgressBar { background: %s; border: none; border-radius: 4px;" % self._tk('ui_stats_track')
             + " text-align: center; color: %s; font-size: 10px; }" % self._tk('ui_text')
@@ -6432,7 +6434,9 @@ class PetWidget(QWidget):
         l_today = QLabel('今日: —'); l_today.setObjectName('v')
         l_total = QLabel('累计: —'); l_total.setObjectName('v')
         l_app = QLabel('来源: —'); l_app.setObjectName('d')
-        l_bal = QLabel('余额: 未查询'); l_bal.setObjectName('v')   # v6.61
+        # 2026-10-28：余额是**账户级**（全项目共享，别处也在花），
+        #   与「今日/累计」（桌宠自己算的）同色会误导 ⇒ 单独一个 objectName。
+        l_bal = QLabel('余额: 未查询'); l_bal.setObjectName('vb')   # v6.61
         l_bal.setWordWrap(False)                                   # v6.62：不允许换行撑宽窗口
         lbl_slot = QLabel('时段: —'); lbl_slot.setObjectName('d')   # v6.62：当前是按高峰还是空闲计价
         # v6.62：未配置价格的调用单独一行（不塞进「今日」行 —— 那行会被按像素收口截掉）

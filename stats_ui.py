@@ -269,6 +269,137 @@ class _DualAxisChart(QWidget):
             p.end()
 
 
+class _StackedBarChart(QWidget):
+    """累加柱状图：下段=桌宠自己，上段=账户里别处花的（2026-10-28）
+
+    数据来自 `ApiStats.spend_split_by_day()`，每项：
+        {date, own, other, account, state, note}
+
+    | state | 画法 |
+    |---|---|
+    | ok | 绿段 + 橙段（真正的堆叠）|
+    | recharge / noisy / nodata | **只画绿段** + 灰基线 + 右上角 `?` |
+
+    ⚠ 不可归因的日子不画橙段，是为了避免「0 别处花费」的误读 ——
+      实际是「算不出来」，不是「没有」。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._rows = []       # [(label, own, other, state)]
+        self._empty_text = '暂无数据'
+        self._note = ''
+        self.setMinimumHeight(150)
+
+    def set_data(self, rows, note='', empty_text=None):
+        self._rows = list(rows or [])
+        self._note = str(note or '')
+        if empty_text:
+            self._empty_text = empty_text
+        self.update()
+
+    def paintEvent(self, event):
+        try:
+            self._paint()
+        except Exception as exc:
+            _log.warning('堆叠柱状图绘制失败：%s', exc)
+
+    def _paint(self):
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, True)
+            w, h = self.width(), self.height()
+            p.fillRect(self.rect(), QColor(theme_color('ui_stats_bg')))
+            p.setPen(QPen(QColor(theme_color('ui_border_soft')), 1))
+            p.drawRect(0, 0, w - 1, h - 1)
+
+            def _f(sz, bold=False):
+                fnt = QFont(self.font())
+                fnt.setPointSize(sz)
+                fnt.setBold(bold)
+                return fnt
+
+            dim = QColor(theme_color('ui_text_dim'))
+            fg = QColor(theme_color('ui_text'))
+
+            if not self._rows:
+                p.setPen(dim)
+                p.setFont(_f(9))
+                p.drawText(self.rect(), Qt.AlignCenter, self._empty_text)
+                return
+
+            pad_l, pad_r, pad_t, pad_b = 10, 10, 26, 22
+            inner_w = max(1, w - pad_l - pad_r)
+            inner_h = max(1, h - pad_t - pad_b)
+            base_y = pad_t + inner_h
+
+            # 刻度上限：取「own+other」的最大值（不可归因日只有 own 也比）
+            vmax = 0.0
+            for _lab, own, other, state in self._rows:
+                tot = own + (other if state == 'ok' else 0.0)
+                vmax = max(vmax, tot)
+            vmax = vmax or 1.0
+
+            n = len(self._rows)
+            slot = inner_w / float(n) if n else inner_w
+            bw = max(3.0, min(34.0, slot * 0.62))
+
+            own_col = QColor(theme_color('ui_green'))
+            other_col = QColor(theme_color('ui_orange'))
+            base_col = QColor(theme_color('ui_border_soft'))
+
+            p.setPen(QPen(base_col, 1))
+            p.drawLine(pad_l, base_y, pad_l + inner_w, base_y)
+
+            for i, (label, own, other, state) in enumerate(self._rows):
+                x = pad_l + slot * i + (slot - bw) / 2.0
+                own_h = inner_h * (own / vmax) if vmax else 0
+                # ⚠ 最小可见高度 3px：实测「自己」只占 1.0%（¥0.40 / ¥41.14），
+                #   按真实比例只有 1 像素，用户看不见「自己」那一段 —— 那就失去了
+                #   「区分开来」的意义。3px 是**视觉下限**，不改比例、不改数字。
+                own_h_draw = max(own_h, 3.0) if own > 0 else 0.0
+                y_own = base_y - own_h_draw
+                if own_h_draw > 0:
+                    p.fillRect(int(x), int(y_own), int(bw), int(max(1, own_h_draw)), own_col)
+                # 橙段堆在绿段上（只有 ok 才画）
+                if state == 'ok' and other > 0:
+                    o_h = inner_h * (other / vmax)
+                    y_o = y_own - o_h
+                    p.fillRect(int(x), int(y_o), int(bw), int(max(1, o_h)), other_col)
+                # 不可归因：柱顶画一条灰线 + 问号（不画橙段，避免误读成 0）
+                elif state != 'ok' and own_h_draw > 0:
+                    p.setPen(QPen(base_col, 2))
+                    p.drawLine(int(x) - 1, int(y_own) - 2, int(x + bw) + 1, int(y_own) - 2)
+                    p.setPen(QColor(theme_color('ui_warn')))
+                    p.setFont(_f(8, True))
+                    p.drawText(int(x) - 4, int(y_own) - 15, int(bw) + 8, 12,
+                               Qt.AlignHCenter, '?')
+
+                # X 轴标签（只显示"日"两位）
+                p.setPen(dim)
+                p.setFont(_f(7))
+                txt = label[-2:] if len(label) >= 2 else label
+                p.drawText(int(pad_l + slot * i), h - pad_b + 3, int(slot), 13,
+                           Qt.AlignHCenter, txt)
+
+            # 顶部：图例 + 峰值 + 说明
+            p.setFont(_f(8, True))
+            p.setPen(own_col)
+            p.drawText(pad_l, 3, inner_w // 2, 12, Qt.AlignLeft, '■ 桌宠自己')
+            p.setPen(other_col)
+            p.drawText(pad_l + inner_w // 2, 3, inner_w // 2, 12,
+                       Qt.AlignLeft, '■ 账户里别处（绿段有 3px 最小高度）')
+            p.setPen(fg)
+            p.setFont(_f(8, False))
+            p.drawText(pad_l, 3, inner_w, 12, Qt.AlignRight, '峰值 ¥%.4f' % vmax)
+            if self._note:
+                p.setPen(dim)
+                p.setFont(_f(7))
+                p.drawText(pad_l, 14, inner_w, 11, Qt.AlignLeft, self._note)
+        finally:
+            p.end()
+
+
 class UsageStatsDialog(QDialog):
     """用量分析：按天表格 + 柱状趋势 + 用途占比
 
@@ -324,6 +455,15 @@ class UsageStatsDialog(QDialog):
         root.addWidget(QLabel('按天花费趋势'))
         self.chart = _BarChart()
         root.addWidget(self.chart, 2)
+
+        # 2026-10-28（Owner 要「桌宠自己的花费和那个总的区分开，整成累加柱状图」）
+        #   下面这张是**账户级**：绿=桌宠自己，橙=账户里别处（同一账户的其他项目）
+        root.addWidget(QLabel('花费构成（累加：绿=桌宠自己，橙=账户里别处）'))
+        self.chart_stack = _StackedBarChart()
+        root.addWidget(self.chart_stack, 2)
+        self.lb_stack = QLabel('构成：—')
+        self.lb_stack.setWordWrap(True)
+        root.addWidget(self.lb_stack)
 
         # 2026-10-28（Owner 要「时间与花费两个维度建 XY 轴看时间活跃度」）
         #   上面那张是**按天**，这张是**按小时** —— 两个不同尺度，不重复。
@@ -468,6 +608,7 @@ class UsageStatsDialog(QDialog):
         # 2026-10-28：时间活跃度（放在上面的 try **之外** —— 它内部自带三块 try/except，
         #   塞进外层会把它的异常误算成「效率指标刷新失败」，失败归属会变模糊）
         self._fill_activity()
+        self._fill_spend_split(rows)
 
     def _fill_cache_insight(self, rows):
         """缓存命中率 + 省下多少钱
@@ -573,6 +714,58 @@ class UsageStatsDialog(QDialog):
         except Exception as exc:
             _log.warning('时段统计失败：%s', exc)
             self.lb_hour.setText('时段：统计失败')
+
+    def _fill_spend_split(self, rows):
+        """花费构成：桌宠自己 vs 账户里别处（2026-10-28）
+
+        Owner 原话：「把桌面宠物自己的API调用花费和那个总的给它区分开来…
+        相当于顺手给他整成那个累加柱状图」
+
+        ⚠ 三件事必须如实说，不能为了图好看而模糊：
+          ① 橙段是**账户级**差额推出来的（余额掉的 − 本机花的），不是接口报的明细
+          ② 充值日/无基线日**不拆**（接口无流水，充值消费混一起分不开）
+          ③ 余额 2 位小数，本机日花费常在 ¥0.03~0.15 ⇒ 量化误差可达 30%
+        """
+        try:
+            _days = self.cb_range.currentData()   # 0/None = 全部
+            split = list(self.host.api_stats.spend_split_by_day(
+                int(_days) if _days else None) or [])
+        except Exception as exc:
+            _log.warning('花费构成：拆分失败：%s', exc)
+            self.chart_stack.set_data([], empty_text='拆分失败')
+            self.lb_stack.setText('构成：拆分失败')
+            return
+
+        if not split:
+            self.chart_stack.set_data([], empty_text='暂无按天数据')
+            self.lb_stack.setText('构成：暂无按天数据（by_day 从 2026-10-24 起记录）')
+            return
+
+        data = [(r['date'], float(r['own'] or 0), float(r['other'] or 0), r['state'])
+                for r in split]
+        ok_days = [r for r in split if r['state'] == 'ok']
+        bad_days = [r for r in split if r['state'] != 'ok']
+        note = ('%d 天可拆（橙段 = 账户扣费 − 本机）；%d 天不可拆（充值/无基线）'
+                '；余额仅 2 位小数，误差可达约 30%%'
+                % (len(ok_days), len(bad_days)))
+        self.chart_stack.set_data(data, note=note,
+                                  empty_text='暂无账户余额记录')
+
+        own_sum = sum(float(r['own'] or 0) for r in split)
+        other_sum = sum(float(r['other'] or 0) for r in ok_days)
+        tot = own_sum + other_sum
+        pct = (100.0 * own_sum / tot) if tot else 0.0
+        reasons = {}
+        for r in bad_days:
+            reasons[r['state']] = reasons.get(r['state'], 0) + 1
+        reason_txt = '，'.join('%s×%d' % (
+            {'recharge': '充值日', 'noisy': '本机>扣费', 'nodata': '无基线'}.get(k, k), v)
+            for k, v in sorted(reasons.items()))
+        self.lb_stack.setText(
+            '构成：桌宠自己 ¥%.4f ＋ 账户里别处 ¥%.4f ＝ 合计 ¥%.4f'
+            '（自己占 %.1f%%）%s'
+            % (own_sum, other_sum, tot, pct,
+               ('　⚠ %d 天不可拆：%s' % (len(bad_days), reason_txt)) if bad_days else ''))
 
     def _fill_activity(self):
         """时间活跃度 + 成本效率（2026-10-28 Owner 需求）

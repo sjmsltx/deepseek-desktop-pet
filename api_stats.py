@@ -116,6 +116,9 @@ class ApiStats:
 
     # v3.2：按天存档保留天数（够看季度趋势；文件不会无限涨）
     KEEP_DAYS = 120
+    # 2026-10-28：余额历史保留点数上限（只存变化点，所以远小于「每 5 分钟一条」）
+    #   实测 10 天 588 次查询 → 变化点几十条；留 3000 点够 120 天用
+    KEEP_BALANCE_POINTS = 3000
 
     def __init__(self, path, config_path=None, registry=None):
         self.path = path
@@ -130,6 +133,19 @@ class ApiStats:
         self.calls = []  # 最近调用明细（上限 200）
         self.by_model = {}  # 按模型累计（终身口径：次数/token/费用/价格未知次数）
         self.balance = None  # v6.61：最近一次余额查询结果（缓存，落盘）
+        # 2026-10-28：余额历史（只记**变化点**）—— 用来拆「本机花费 / 别处花费」
+        #   为什么必须有：`balance` 只有一个快照，算不出「这段时间账户掉了多少」。
+        #   为什么不每条都记：每 5 分钟一条 × 120 天 = 3.4 万条 ≈ 2 MB，没必要；
+        #   余额不变说明没花钱，末值沿用上一条即可。
+        self.balance_history = []
+        # ⚠ 余额历史**单独存一个文件**，理由有二：
+        #   ① 在跑的旧版进程每次 save 都重写 api_stats.json（它的字典里没有这个键）
+        #      ⇒ 放一起会被静默覆盖掉。独立文件旧版根本不碰。
+        #   ② 本需求就是「区分桌宠自己的花费 vs 账户级的钱」，两者不同源，
+        #      物理上分开（api_stats.json=自己算的 / balance_history.json=账户快照）
+        self.balance_hist_path = os.path.join(
+            os.path.dirname(os.path.abspath(path)), 'balance_history.json')
+        self._load_balance_history()
         self.by_day = {}     # v3.2：按天存档 {ISO日期: {count/cost/.../by_purpose}}
         self.day_legacy = False   # 旧档无 by_day → True（界面据此提示"历史未留存"）
         self._load()
@@ -235,6 +251,35 @@ class ApiStats:
                           ensure_ascii=False, indent=2)
         except Exception as e:
             _log.error('用量统计保存失败：%s', e)
+
+    # ---- 2026-10-28：余额历史（独立文件） ----
+
+    def _load_balance_history(self):
+        """读 balance_history.json；损坏/不存在都当空，不影响主流程"""
+        try:
+            if not os.path.exists(self.balance_hist_path):
+                return
+            with open(self.balance_hist_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            hist = data.get('points') if isinstance(data, dict) else data
+            if isinstance(hist, list):
+                self.balance_history = [
+                    x for x in hist
+                    if isinstance(x, dict) and x.get('at') and x.get('total') is not None
+                ][-self.KEEP_BALANCE_POINTS:]
+        except Exception as e:
+            _log.warning('余额历史读取失败（按空处理，不影响余额本身）：%s', e)
+
+    def _save_balance_history(self):
+        """写 balance_history.json（失败只记日志，不影响余额主流程）"""
+        try:
+            with open(self.balance_hist_path, 'w', encoding='utf-8') as f:
+                json.dump({'version': 1,
+                           'note': '只记余额「变化点」。账户级数据，与桌宠自己算的花费不同源。',
+                           'points': self.balance_history[-self.KEEP_BALANCE_POINTS:]},
+                          f, ensure_ascii=False, indent=1)
+        except Exception as e:
+            _log.warning('余额历史保存失败（余额本身已更新）：%s', e)
 
     def _price_for(self, model, now=None):
         """查价格：优先模型档案（模型身份的唯一来源），退回内置表。
@@ -529,7 +574,100 @@ class ApiStats:
         with self.lock:
             self.balance = dict(info)
             self.balance.pop('_manual', None)
+            # 2026-10-28：追加余额变化点（余额没变就不记，见类注释）
+            _changed = False
+            try:
+                _tot = self.balance.get('total')
+                _at = self.balance.get('at')
+                if _tot is not None and _at:
+                    _tot = float(_tot)
+                    _last = self.balance_history[-1] if self.balance_history else None
+                    if _last is None or abs(float(_last.get('total') or 0) - _tot) >= 0.005:
+                        self.balance_history.append({'at': str(_at), 'total': _tot})
+                        if len(self.balance_history) > self.KEEP_BALANCE_POINTS:
+                            self.balance_history = \
+                                self.balance_history[-self.KEEP_BALANCE_POINTS:]
+                        _changed = True
+            except Exception as _exc:
+                # 不让历史记账失败影响「余额已更新」这个主结果
+                _log.warning('余额历史追加失败（余额本身已更新）：%s', _exc)
         self._save()
+        if _changed:
+            self._save_balance_history()
+
+    # ---- 2026-10-28：按天拆「本机 / 别处」花费 ----
+
+    def _balance_at_day_end(self, day):
+        """某天最后一次余额点的值；当天无点 → None
+
+        ⚠ 只找**当天**的记录，不向前沿用。理由：沿用会让「连续多天没查余额」
+          被当成「多天都没花钱」，而实际情况是不知道 —— 那必须报 nodata 而不是 0。
+        """
+        hit = None
+        for rec in self.balance_history:
+            at = str(rec.get('at') or '')
+            if at[:10] == str(day):
+                hit = rec
+        return None if hit is None else float(hit.get('total') or 0)
+
+    def spend_split_by_day(self, days=None):
+        """按天拆开「本机花费」与「别处花费」
+
+        返回 [{date, own, other, account, state, note}]，按日期升序。
+
+        | state | 含义 |
+        |---|---|
+        | `ok` | 有基线、账户扣费 > 0、本机 ≤ 扣费 ⇒ 可拆 |
+        | `recharge` | 账户扣费 ≤ 0 ⇒ 有充值/退款，本段不归因 |
+        | `noisy` | 本机 > 账户扣费 ⇒ 计价延迟或小数误差，不拆 |
+        | `nodata` | 前一天或当天没有余额点 ⇒ 无基线 |
+
+        ⚠ 精度说明：余额 2 位小数，本机日花费常在 ¥0.03~0.15，
+          量化误差可达 30%（¥0.01 / ¥0.03）。所以 `other` 只作量级参考。
+        """
+        try:
+            import datetime as _dt
+            dates = sorted(self.by_day.keys())
+        except Exception as _exc:
+            _log.warning('按天拆分：读取 by_day 失败：%s', _exc)
+            return []
+        if not dates:
+            return []
+        if days:
+            try:
+                dates = dates[-int(days):]
+            except Exception as _exc:
+                _log.debug('按天拆分：days 参数无效（%r），忽略', _exc)
+
+        rows = []
+        for d in dates:
+            try:
+                cur = _dt.date.fromisoformat(d)
+            except Exception as _exc:
+                _log.debug('按天拆分：日期格式跳过 %r（%s）', d, _exc)
+                continue
+            prev = (cur - _dt.timedelta(days=1)).isoformat()
+            own = float((self.by_day.get(d) or {}).get('cost') or 0)
+            last = self._balance_at_day_end(d)
+            base = self._balance_at_day_end(prev)
+            row = {'date': d, 'own': own, 'other': 0.0,
+                   'account': None, 'state': 'ok', 'note': ''}
+            if last is None or base is None:
+                row['state'] = 'nodata'
+                row['note'] = '无余额基线'
+            else:
+                spend = base - last
+                row['account'] = spend
+                if spend <= 0:
+                    row['state'] = 'recharge'
+                    row['note'] = '充值/退款日，不归因'
+                elif own > spend + 0.005:
+                    row['state'] = 'noisy'
+                    row['note'] = '本机 > 账户扣费（计价延迟或误差）'
+                else:
+                    row['other'] = spend - own
+            rows.append(row)
+        return rows
 
     def balance_age_seconds(self):
         """距上次成功查询的秒数（无缓存 / 时间戳不可解析 → None）"""

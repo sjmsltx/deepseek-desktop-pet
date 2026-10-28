@@ -44,6 +44,8 @@ _pet_tts_*
 # API 自监控运行时数据
 _apistats_debug.log
 api_stats.json
+# 2026-10-28：余额历史（账户级快照，运行时数据；与 api_stats.json 同类）
+balance_history.json
 files_cache.json
 holidays_cache.json
 
