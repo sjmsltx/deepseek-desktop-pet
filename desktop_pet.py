@@ -949,8 +949,52 @@ class PetWidget(QWidget):
         self.chat_panel.mouseReleaseEvent = self._chat_panel_release
 
 
+    _env_logged = False        # 类属性：每进程只打一次（理由见下方 docstring）
+
+    @classmethod
+    def _log_startup_env(cls):
+        """启动时打一行环境信息（2026-10-28，微信侧 WX-127 §5 建议）
+
+        ⚠ **每进程只打一次**（`_env_logged` 类属性）：
+        这条若按「每个实例打一次」，跑一轮全量会往真 `logs/pet.log` 漏 6~7 条
+        （conftest 的 function 级日志隔离不完整，构造期日志仍有泄漏；
+        2026-10-28 基线 5 轮实测漏了 31 条）。
+        语义上「启动环境」本就是**进程级**信息，不是实例级 ⇒ 用类属性而非实例属性。
+
+        为什么要有：2026-10-26「所有声线固定为一个」的根因是 **edge_tts 版本不一致**
+        （pythoncore 里 7.2.8 vs AutoClaw toolchain 7.3.1，后者在 sys.path 里优先）。
+        当时排查绕了很久，而最关键的三个数（python 版本 / edge_tts 版本 / PYTHONUSERBASE）
+        **一个都没进日志**。
+
+        ⚠ 为什么必须在启动时打、不能等语音被用：`config.json` 里 `voice_enabled=False`
+        时语音路径根本不走，但**版本问题依然存在**（哪天打开语音就复发）。
+        启动日志是唯一在「语音关着」时仍有诊断价值的东西。
+
+        ⚠ 用 log.debug 兜底而不是 pass：静默护栏要求任何异常都要留下痕迹。
+        """
+        if cls._env_logged:
+            return
+        cls._env_logged = True
+        try:
+            import importlib.metadata as _md
+            _ett = _md.version('edge_tts')
+            _ett_note = ''
+        except Exception as _exc:      # 读不到版本不是致命：写清原因再继续
+            _ett = '未知'
+            _ett_note = '（%s）' % type(_exc).__name__
+            log.debug('读 edge_tts 版本失败：%s', _exc)
+
+        try:
+            log.info('环境：python=%s | edge_tts=%s%s | PYTHONUSERBASE=%s | sys.path[前3]=%s',
+                     '%d.%d.%d' % sys.version_info[:3], _ett, _ett_note,
+                     os.environ.get('PYTHONUSERBASE') or '（未设）',
+                     ' | '.join(sys.path[:3]))
+        except Exception as _exc:
+            log.debug('启动环境日志失败：%s', _exc)
+
     def _init_finish(self):
         """动画/问候/眨眼/打盹日报/历史回显/显示模式应用"""
+        self._log_startup_env()
         # 动画定时器 ~30fps
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
