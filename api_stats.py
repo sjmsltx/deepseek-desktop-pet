@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 api_stats.py — API 用量自监控（P1 模块化拆分）
 ==============================================
 从 desktop_pet.py 拆出的 ApiStats 类：
 - 解析响应 usage（prompt/completion/cache）
 - 按模型价格表计算费用（每百万 token 单价；价格来源：模型档案 models.json → config.json api_prices → 内置兜底表）
-- 今日/累计统计 + 最近 200 条调用明细
+- 今日/累计统计 + 最近 KEEP_CALLS（2000）条调用明细
 - 价格表支持 config.json api_prices 覆盖
 
 模块化说明：独立类，无 UI 依赖；config 路径与模型档案通过 __init__ 注入。
@@ -119,6 +119,10 @@ class ApiStats:
     # 2026-10-28：余额历史保留点数上限（只存变化点，所以远小于「每 5 分钟一条」）
     #   实测 10 天 588 次查询 → 变化点几十条；留 3000 点够 120 天用
     KEEP_BALANCE_POINTS = 3000
+    # 2026-10-28：逐条调用明细上限（原为散落字面量 200）
+    #   为什么扩到 2000：24 小时桶 × 8 条/桶 = 192，200 条只能看个大概形状，
+    #   按星期（7 桶）更是勉强。2000 条约 360 KB，够撑起时间维度的统计。
+    KEEP_CALLS = 2000
 
     def __init__(self, path, config_path=None, registry=None):
         self.path = path
@@ -130,7 +134,7 @@ class ApiStats:
         self.total = {'count': 0, 'prompt': 0, 'completion': 0, 'total': 0, 'cost': 0.0,
                       'cache_hit': 0, 'cache_miss': 0, 'date': ''}
         self.last = None
-        self.calls = []  # 最近调用明细（上限 200）
+        self.calls = []  # 最近调用明细（上限见 KEEP_CALLS）
         self.by_model = {}  # 按模型累计（终身口径：次数/token/费用/价格未知次数）
         self.balance = None  # v6.61：最近一次余额查询结果（缓存，落盘）
         # 2026-10-28：余额历史（只记**变化点**）—— 用来拆「本机花费 / 别处花费」
@@ -216,7 +220,7 @@ class ApiStats:
                 with open(self.path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 self.total = data.get('total', self.total)
-                self.calls = data.get('calls', [])[-200:]
+                self.calls = data.get('calls', [])[-self.KEEP_CALLS:]
                 self.by_model = data.get('by_model', {})
                 self.balance = data.get('balance') or None   # v6.61
                 by_day = data.get('by_day')
@@ -240,16 +244,32 @@ class ApiStats:
             _log.warning('用量统计文件读取失败，本次从零开始：%s', e)
 
     def _save(self):
+        """落盘（**原子写**，2026-10-28）
+
+        为什么要改：原实现 `open(path,'w')` 会**先把原文件截断成 0 字节**，
+        再写 450 KB。中途崩溃/断电/磁盘满 ⇒ 半截 JSON ⇒ `_load` 从零开始
+        ⇒ by_day 历史、累计、余额缓存全丢。
+        扩到 KEEP_CALLS=2000 后写窗口长了 10 倍、损失也大 10 倍，故配套改成
+        「写 .tmp → os.replace」（同分区替换是原子的）。
+        """
         try:
-            with open(self.path, 'w', encoding='utf-8') as f:
-                json.dump({'date': datetime.date.today().isoformat(),
-                           'today': self.today, 'total': self.total,
-                           'by_model': self.by_model,
-                           'by_day': self.by_day,
-                           'balance': self.balance,
-                           'calls': self.calls[-200:]}, f,
-                          ensure_ascii=False, indent=2)
+            payload = {'date': datetime.date.today().isoformat(),
+                       'today': self.today, 'total': self.total,
+                       'by_model': self.by_model,
+                       'by_day': self.by_day,
+                       'balance': self.balance,
+                       'calls': self.calls[-self.KEEP_CALLS:]}
+            tmp = str(self.path) + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.path)
         except Exception as e:
+            # 失败时清掉半截 .tmp（实测：不清会残留，下次 os.replace 前也被覆盖，但脏）
+            try:
+                if os.path.exists(str(self.path) + '.tmp'):
+                    os.remove(str(self.path) + '.tmp')
+            except Exception as _exc:
+                _log.debug('清理 .tmp 失败（%s）', _exc)
             _log.error('用量统计保存失败：%s', e)
 
     # ---- 2026-10-28：余额历史（独立文件） ----
@@ -273,12 +293,19 @@ class ApiStats:
     def _save_balance_history(self):
         """写 balance_history.json（失败只记日志，不影响余额主流程）"""
         try:
-            with open(self.balance_hist_path, 'w', encoding='utf-8') as f:
-                json.dump({'version': 1,
-                           'note': '只记余额「变化点」。账户级数据，与桌宠自己算的花费不同源。',
-                           'points': self.balance_history[-self.KEEP_BALANCE_POINTS:]},
-                          f, ensure_ascii=False, indent=1)
+            payload = {'version': 1,
+                       'note': '只记余额「变化点」。账户级数据，与桌宠自己算的花费不同源。',
+                       'points': self.balance_history[-self.KEEP_BALANCE_POINTS:]}
+            tmp = str(self.balance_hist_path) + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.balance_hist_path)   # 与 _save 一致：原子替换
         except Exception as e:
+            try:
+                if os.path.exists(str(self.balance_hist_path) + '.tmp'):
+                    os.remove(str(self.balance_hist_path) + '.tmp')
+            except Exception as _exc:
+                _log.debug('清理余额历史 .tmp 失败（%s）', _exc)
             _log.warning('余额历史保存失败（余额本身已更新）：%s', e)
 
     def _price_for(self, model, now=None):
@@ -428,6 +455,10 @@ class ApiStats:
             pb['completion'] += completion
             self.last = entry
             self.calls.append(entry)
+            # 2026-10-28：补裁剪。原实现只在 _load / _save 时切片，
+            #   ⇒ 单次运行内 self.calls 会无限增长（内存与遍历成本都涨）。
+            if len(self.calls) > self.KEEP_CALLS:
+                del self.calls[:-self.KEEP_CALLS]
             # 按模型累计（终身口径）：看哪个模型花了多少、有没有价格未知的
             bkey = model or '?'
             mb = self.by_model.get(bkey)

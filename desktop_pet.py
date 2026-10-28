@@ -2098,12 +2098,25 @@ class PetWidget(QWidget):
                         try:
                             sk = winreg.EnumKey(key, i)
                             skh = winreg.OpenKey(key, sk)
+                            # 2026-10-28：拆开两个取值 —— 原来挤在一个 try 里，
+                            #   缺 DisplayIcon 会连 DisplayName 一起放弃。
+                            #   实测 596 项里 478 项无图标、其中 **378 项有名无图标**
+                            #   （ArcGIS Pro 3.7 Patch / blender / Paradox Launcher …），
+                            #   369 个因此从没进过索引。
                             try:
                                 name, _ = winreg.QueryValueEx(skh, 'DisplayName')
-                                icon, _ = winreg.QueryValueEx(skh, 'DisplayIcon')
-                            except Exception as _exc:
-                                _silent_log('_build_app_index:985', _exc)   # v6.54
+                            except OSError as _exc:
+                                # 无名字的卸载项本来就要跳过；用 debug 落痕，
+                                # 文件 handler 是 INFO 级 ⇒ 不写盘（原来写 478 条 INFO 噪声）
+                                log.debug('注册表项 %s 无 DisplayName，跳过（%s）', sk, _exc)
                                 continue
+                            try:
+                                icon, _ = winreg.QueryValueEx(skh, 'DisplayIcon')
+                            except OSError as _exc:
+                                # 缺图标是**常态不是异常**（实测 478/596），置空继续
+                                log.debug('注册表项 %s 无 DisplayIcon，按无图标处理（%s）',
+                                          sk, _exc)
+                                icon = ''
                             exe = ''
                             if icon:
                                 exe = os.path.basename(icon.split(',')[0]).lower()
