@@ -9,7 +9,7 @@
 ![Last Commit](https://img.shields.io/github/last-commit/sjmsltx/deepseek-desktop-pet)
 
 > [!TIP]
-> **📦 直接下载（Windows 免安装）**：[最新版便携包 ↗](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest) — 解压即用，无需 Python 环境（需自备 DeepSeek API Key）。想从源码运行或自己打包，见 [🚀 快速开始](#-快速开始)。
+> **📦 直接下载（Windows 免安装）**：[最新稳定版便携包 ↗](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest) — 解压即用，无需 Python 环境（需自备 DeepSeek API Key）。想从源码运行或自己打包，见 [🚀 快速开始](#-快速开始)。
 
 一只住在你电脑里的 Q 版桌宠：会陪你聊天、帮你干活、还能主动关心你。
 
@@ -25,7 +25,9 @@
 > 是**内部开发迭代号**（`v6.19` 为开发起点）。两套编号用途不同，不是同一串版本。
 
 > [!NOTE]
-> **3.0.0 已发布（2026-10-21）**
+> **3.0.0 已发布（2026-10-21，预发布）**
+>
+> ⚠️ **这一版标为 pre-release**，因此不在 GitHub「最新版」位置 —— 上面那个「最新稳定版」按钮指向的是 **2.9.1**。想试 3.0.0 请到 [Releases 列表](https://github.com/sjmsltx/deepseek-desktop-pet/releases) 里单独点 `v3.0.0`。
 >
 > - **新增可选的主区**：聊天区底部多一个「🗂 主区」按钮，进去可以把**待办**和**状态**
 >   （今日用量 / 余额 / 模型 / 好感 / 饱食度）放在一个窗口里长期开着，不用反复开关弹窗。
@@ -358,7 +360,7 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 
 ### 方式一：下载便携包（推荐，无需 Python）
 
-到 **[Releases 最新版](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)** 下载 `DeepSeekPet-v*-win64.zip`（约 305 MB），解压后双击启动即可。
+到 **[Releases 最新稳定版](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)** 下载 `DeepSeekPet_v*_portable.zip`（约 220 MB），解压后双击启动即可。
 首次运行在 GUI 里配置 API Key：右键桌宠 → ⚙️ 设置 → 🔑 API 设置。
 
 ### 升级到新版本（不会丢数据）
@@ -600,7 +602,7 @@ python tools\check_release_package.py release_build\DeepSeekPet_v2.9.1_portable.
 ## ❓ 常见问题
 
 **Q：桌宠怎么安装？需要装 Python 吗？**
-A：不需要。到 [最新版 Release](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest) 下载 Windows 便携包，解压后双击运行即可（需自备 DeepSeek API Key）。想从源码运行见 [🚀 快速开始](#-快速开始)。
+A：不需要。到 [最新稳定版 Release](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest) 下载 Windows 便携包，解压后双击运行即可（需自备 DeepSeek API Key）。想从源码运行见 [🚀 快速开始](#-快速开始)。
 
 **Q：DeepSeek API Key 填在哪里？**
 A：编辑仓库根目录的 `config.json`，把 Key 填进 `deepseek_api_key` 字段（字段名由 `models.json` 里的身份定义决定，随模型身份走）。Key 只在本地使用，不会发送给本项目。

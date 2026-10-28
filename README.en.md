@@ -176,7 +176,7 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name DeepSeekPet
 ## ❓ FAQ
 
 **Q: How do I install it? Do I need Python?**
-A: No. Download the portable zip from the [latest release](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest), unzip and run it (bring your own DeepSeek API key). From source, see [🚀 Quick Start](#-quick-start).
+A: No. Download the portable zip from the [latest stable release](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest), unzip and run it (bring your own DeepSeek API key). From source, see [🚀 Quick Start](#-quick-start).
 
 **Q: Where do I put the DeepSeek API key?**
 A: In `config.json` (field `deepseek_api_key`; the exact name is defined by the profile in `models.json`). It stays local and is never sent to this project.
