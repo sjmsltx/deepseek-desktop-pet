@@ -5,7 +5,7 @@ chat_render.py — 聊天渲染·纯文本解析层（P2 模块化拆分）
 从 desktop_pet.py 拆出的 Markdown 解析纯函数（无 Qt widget 依赖）：
 - split_rich_blocks：拆渲染块（text/code/table 三元组）——打字机逐块渲染用
 - split_md_blocks：拆块（表格/代码块整体一块，其余按行）
-- md_to_html：轻量 Markdown → HTML（代码块/表格/标题/粗体/斜体/列表）
+- md_to_html：轻量 Markdown → HTML（代码块/表格/标题/粗体/斜体/删除线/列表）
 - md_table：Markdown 表格块 → HTML table
 - looks_like_table：粗略判断文本是否表格
 
@@ -91,7 +91,7 @@ def split_md_blocks(text):
 
 
 def md_to_html(text):
-    """轻量 Markdown → HTML（代码块/表格/标题/粗体/斜体/列表/换行）
+    """轻量 Markdown → HTML（代码块/表格/标题/粗体/斜体/删除线/列表/换行）
     2026-08-06 修复：代码块/行内代码/表格先占位符保护，粗体/斜体不再误伤代码内 * 与 **
     （原实现 <pre> 内容仍会被斜体正则跨行配对，复制时星号丢失；行内代码/表格同理）"""
     t = str(text)
@@ -114,6 +114,15 @@ def md_to_html(text):
     t = re.sub(r'^#\s+(.+)$', r'<b style="font-size:16px">\1</b>', t, flags=re.M)
     t = re.sub(r'\*\*([^*\n]+)\*\*', r'<b>\1</b>', t)
     t = re.sub(r'\*([^*\n]+)\*', r'<i>\1</i>', t)
+    # 2026-10-28（Owner 选 A）：`~~文字~~` → 删除线
+    #   标签用 <s>：实测 Qt 下 <s>/<del> 的 fontStrikeOut=True（真渲染），
+    #   而 <strike> 是 False（不生效，别用）。
+    #   位置必须在代码块占位之后（否则会误伤代码里的 ~~，如 asr.py 的 `Speech~~~`）、
+    #   且在 `\n`→<br> 之前（不跨行配对）。
+    #   正则不收 `~`：`~~~` 这类连写不会被当成成对标签。
+    #   前后断言 `(?<!~)` / `(?!~)`：实测不加 `~~~a~~~` 会被配成 `~<s>a</s>~`
+    #   （第 1-2 个 `~` 开、第 5-6 个闭合），加断言后整串不动。
+    t = re.sub(r'(?<!~)~~([^~\n]+)~~(?!~)', r'<s>\1</s>', t)
     t = re.sub(r'^[-*]\s+', '• ', t, flags=re.M)
     t = re.sub(r'^\d+\.\s+', lambda m: '&nbsp;&nbsp;' + m.group(0), t, flags=re.M)
     # v6.76：图片语法 → <img>（原先完全没处理 → 回复里的图既不在聊天里显示，
