@@ -100,6 +100,37 @@ def _petlog_dir(tmp_path_factory):
     return tmp_path_factory.mktemp('_petlog')
 
 
+@_pytest.fixture(scope='module', autouse=True)
+def _isolate_log_file_module(request, _petlog_dir):
+    """module 级日志隔离（2026-10-28 补）
+
+    ⚠ 为什么必须有这一层：pytest 会**先初始化高 scope 的 fixture**
+      （session > module > class > function）。
+      而 `_isolate_log_file` 是 function 级 ⇒ 模块级 fixture 里构造 `PetWidget()`
+      时它还没跑 ⇒ 构造日志漏进真 `logs/pet.log`。
+
+    **实测（不是推测）**：逐文件跑全量，数真 pet.log 里「环境：python=」的增量
+    （那句每进程只打一次，正好当探针）⇒ 恰好 5 个文件各漏 1 条，
+    全是 `@pytest.fixture(scope='module')` 里构造的：
+      test_incremental_render / test_md_markup_detect / test_rich_copy /
+      test_text_selection / test_voice_spoken_report
+
+    本层与 function 级 `_isolate_log_file` 用同一套豁免规则（都指向 `_petlog_dir`），
+    只是覆盖的时段不同。
+    """
+    _mod = getattr(getattr(request.node, 'module', None), '__name__', '') or ''
+    if _mod in _LOG_ISOLATION_EXEMPT:
+        yield
+        return
+    try:
+        import pet_log
+    except ImportError as _exc:
+        _pytest.skip('pet_log 不可导入，跳过 module 级日志隔离：%s' % _exc)
+    pet_log.set_log_file(str(_petlog_dir / 'pet.log'))
+    yield
+    pet_log.reset()
+
+
 @_pytest.fixture(autouse=True)
 def _isolate_log_file(request, _petlog_dir):
     """所有用例的日志一律落 tmp（真 logs/pet.log 不受影响）
@@ -116,7 +147,15 @@ def _isolate_log_file(request, _petlog_dir):
         _pytest.skip('pet_log 不可导入，跳过日志隔离：%s' % _exc)
     pet_log.set_log_file(str(_petlog_dir / 'pet.log'))
     yield
-    pet_log.reset()
+    # 2026-10-28：**不能 reset()** —— `reset()` 会回到真 logs/pet.log
+    #   （pet_log.py:92：path=None → 默认路径），于是「上一个用例结束 → 下一个用例 setup」
+    #   这段间隙里日志路径停在真路径上。
+    #   而 module 级 fixture 的初始化时机是「第一个用到它的用例」：
+    #   test_rich_copy.py 前 4 个用例不用 env，第 5 个才初始化 ⇒ 构造 PetWidget 时
+    #   正落在这个真路径窗口里 ⇒ 漏 1 条（探针时序实证）。
+    #   ⇒ 保持指向 tmp：仍做到「真 log 不受影响」，且不留窗口。
+    #     模块整体结束时由 `_isolate_log_file_module` 的 teardown 做 reset。
+    pet_log.set_log_file(str(_petlog_dir / 'pet.log'))
 
 
 # -- 用量统计隔离护栏（2026-10-24 实测发现的真缺陷） --------------------
