@@ -127,6 +127,148 @@ class _BarChart(QWidget):
             p.end()
 
 
+class _DualAxisChart(QWidget):
+    """双轴图：X=小时（0~23），左 Y=调用次数（柱），右 Y=花费（折线）
+
+    为什么这样设计（Owner 要「时间与花费两个维度」）：
+
+    | 维度 | 画法 | 回答什么问题 |
+    |---|---|---|
+    | 次数（左轴，柱） | 绿柱 | **这个钟点用得多不多** —— 即「时间活跃度」 |
+    | 花费（右轴，折线） | 橙线 + 圆点 | **这个钟点烧不烧钱** |
+
+    两条**分开量纲**所以必须双轴：次数是 0~N 整数，花费是 0~¥x 连续值，共用一个轴会让
+    花费被次数压成一条平线（或反过来）。这也是「不画假曲线」的一部分 —— 用对的轴。
+
+    ⚠ 数据来源是 `calls`（最近 200 条环形缓冲），**不是全域**。
+      ⇒ 顶部必须写明样本量与时间跨度，否则用户会当成「终身统计」。
+      （这条与模块头「不拿总数摊到日期」同一原则：说清分母。）
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._bars = []        # [(hour:int, count:int, cost:float)]
+        self._empty_text = '暂无调用明细'
+        self._note = ''
+        self.setMinimumHeight(150)
+
+    def set_data(self, bars, note='', empty_text=None):
+        self._bars = list(bars or [])
+        self._note = str(note or '')
+        if empty_text:
+            self._empty_text = empty_text
+        self.update()
+
+    def paintEvent(self, event):
+        try:
+            self._paint()
+        except Exception as exc:
+            # 自绘失败不该让窗口崩；留痕（静默护栏要求 except 落 reason）
+            _log.warning('双轴图绘制失败：%s', exc)
+
+    def _paint(self):
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, True)
+            w, h = self.width(), self.height()
+            p.fillRect(self.rect(), QColor(theme_color('ui_stats_bg')))
+            p.setPen(QPen(QColor(theme_color('ui_border_soft')), 1))
+            p.drawRect(0, 0, w - 1, h - 1)
+
+            # 字体从控件自身派生 —— QFont('', 9) 在真平台会退化成 MS Sans Serif（见 _BarChart 注释）
+            def _f(sz, bold=False):
+                fnt = QFont(self.font())
+                fnt.setPointSize(sz)
+                fnt.setBold(bold)
+                return fnt
+
+            dim = QColor(theme_color('ui_text_dim'))
+            fg = QColor(theme_color('ui_text'))
+
+            if not self._bars:
+                p.setPen(dim)
+                p.setFont(_f(9))
+                p.drawText(self.rect(), Qt.AlignCenter, self._empty_text)
+                return
+
+            pad_l, pad_r, pad_t, pad_b = 10, 10, 26, 22
+            inner_w = max(1, w - pad_l - pad_r)
+            inner_h = max(1, h - pad_t - pad_b)
+
+            counts = [c for _, c, _ in self._bars]
+            costs = [v for _, _, v in self._bars]
+            cmax = max(counts) if counts else 0
+            vmax = max(costs) if costs else 0.0
+            cmax = cmax or 1
+            vmax = vmax or 1.0
+
+            n = len(self._bars)
+            slot = inner_w / float(n) if n else inner_w
+            bw = max(2.0, min(18.0, slot * 0.66))
+
+            # 基线
+            base_y = pad_t + inner_h
+            p.setPen(QPen(QColor(theme_color('ui_border_soft')), 1))
+            p.drawLine(pad_l, base_y, pad_l + inner_w, base_y)
+
+            bar_col = QColor(theme_color('ui_green'))
+            line_col = QColor(theme_color('ui_orange'))
+
+            # 柱：次数
+            points = []
+            for i, (hour, cnt, cost) in enumerate(self._bars):
+                bh = inner_h * (cnt / float(cmax)) if cmax else 0
+                x = pad_l + slot * i + (slot - bw) / 2.0
+                y = base_y - bh
+                if bh > 0:
+                    p.fillRect(int(x), int(y), int(bw), int(max(1, bh)), bar_col)
+                # 折线点：花费
+                ly = base_y - (inner_h * (cost / vmax) if vmax else 0)
+                cx = pad_l + slot * i + slot / 2.0
+                points.append((cx, ly, cost))
+
+                # X 轴：每 3 小时标一次，避免 24 个数字挤成一团
+                if hour % 3 == 0:
+                    p.setPen(dim)
+                    p.setFont(_f(7))
+                    # ⚠ 必须 6 个参数 (x, y, w, h, flags, text)；
+                    #   只给 5 个会抛 TypeError，而 paintEvent 的 try/except 会把它吞成
+                    #   「图上什么都没有」的纯色空图（我第一次就是这么漏的）
+                    p.drawText(int(pad_l + slot * i), h - pad_b + 3,
+                               int(max(18, slot)), 13, Qt.AlignHCenter, '%d' % hour)
+
+            # 折线：花费（只连有花费的点，避免把「没用过的小时」连成假下降）
+            p.setPen(QPen(line_col, 2))
+            prev = None
+            for cx, ly, cost in points:
+                if cost <= 0:
+                    prev = None
+                    continue
+                if prev is not None:
+                    p.drawLine(int(prev[0]), int(prev[1]), int(cx), int(ly))
+                prev = (cx, ly)
+            p.setBrush(line_col)
+            for cx, ly, cost in points:
+                if cost > 0:
+                    p.drawEllipse(int(cx) - 2, int(ly) - 2, 4, 4)
+            p.setBrush(Qt.NoBrush)
+
+            # 顶部图例 + 极值
+            p.setFont(_f(8, True))
+            p.setPen(fg)
+            p.drawText(pad_l, 3, inner_w, 12, Qt.AlignLeft,
+                       '次数峰值 %d 次' % cmax)
+            p.setPen(line_col)
+            p.drawText(pad_l, 3, inner_w, 12, Qt.AlignRight,
+                       '花费峰值 ¥%.4f' % vmax)
+            if self._note:
+                p.setPen(dim)
+                p.setFont(_f(7))
+                p.drawText(pad_l, 13, inner_w, 11, Qt.AlignLeft, self._note)
+        finally:
+            p.end()
+
+
 class UsageStatsDialog(QDialog):
     """用量分析：按天表格 + 柱状趋势 + 用途占比
 
@@ -178,10 +320,22 @@ class UsageStatsDialog(QDialog):
         hh.setSectionResizeMode(4, QHeaderView.Stretch)
         root.addWidget(self.tbl, 3)
 
-        # 柱状趋势
+        # 柱状趋势（按天：钱花在哪些天）
         root.addWidget(QLabel('按天花费趋势'))
         self.chart = _BarChart()
         root.addWidget(self.chart, 2)
+
+        # 2026-10-28（Owner 要「时间与花费两个维度建 XY 轴看时间活跃度」）
+        #   上面那张是**按天**，这张是**按小时** —— 两个不同尺度，不重复。
+        root.addWidget(QLabel('时间活跃度（按小时：柱=调用次数，折线=花费）'))
+        self.chart_act = _DualAxisChart()
+        root.addWidget(self.chart_act, 2)
+        self.lb_act = QLabel('活跃度：—')
+        self.lb_act.setWordWrap(True)
+        root.addWidget(self.lb_act)
+        self.lb_cost_eff = QLabel('成本效率：—')
+        self.lb_cost_eff.setWordWrap(True)
+        root.addWidget(self.lb_cost_eff)
 
         # 用途占比（今日）
         self.lb_purpose = QLabel('用途：—')
@@ -311,6 +465,9 @@ class UsageStatsDialog(QDialog):
             self.lb_cache.setText('缓存：读取失败')
             self.lb_peak.setText('峰谷：读取失败')
             self.lb_hour.setText('时段：读取失败')
+        # 2026-10-28：时间活跃度（放在上面的 try **之外** —— 它内部自带三块 try/except，
+        #   塞进外层会把它的异常误算成「效率指标刷新失败」，失败归属会变模糊）
+        self._fill_activity()
 
     def _fill_cache_insight(self, rows):
         """缓存命中率 + 省下多少钱
@@ -416,6 +573,116 @@ class UsageStatsDialog(QDialog):
         except Exception as exc:
             _log.warning('时段统计失败：%s', exc)
             self.lb_hour.setText('时段：统计失败')
+
+    def _fill_activity(self):
+        """时间活跃度 + 成本效率（2026-10-28 Owner 需求）
+
+        ⚠ 数据源是 `calls`（最近 200 条环形缓冲），**不是全域** —— 所有数字都标明样本量，
+          否则会被当成「终身统计」。（与模块头「不拿总数摊到日期」同一原则：说清分母）
+
+        算出来的东西与「能回答什么」的对应：
+
+        | 指标 | 回答 |
+        |---|---|
+        | 24 小时柱+折线 | 哪个钟点用得最多、哪个钟点最烧钱 |
+        | 用过 N/24 个钟点 | 作息集中还是全天在用 |
+        | 周三/周几分布 | 一周里的规律 |
+        | 平均 / 最贵一次 | 单次成本量级，找异常贵的那次 |
+        | 缓存命中率 | 省钱效果（缓存单价约是正常 input 的 1/50） |
+        | prompt 占比 | 上下文膨胀程度（占比高 = 每次都在重发长上下文） |
+        | 每千 token 均价 | 横向比「哪类用途更贵」的基准 |
+        """
+        try:
+            calls = list(getattr(self.host.api_stats, 'calls', None) or [])
+        except Exception as exc:
+            _log.warning('活跃度：读取调用明细失败：%s', exc)
+            self.chart_act.set_data([], empty_text='读取失败')
+            self.lb_act.setText('活跃度：读取失败')
+            self.lb_cost_eff.setText('成本效率：读取失败')
+            return
+
+        if not calls:
+            self.chart_act.set_data([], empty_text='暂无调用明细')
+            self.lb_act.setText('活跃度：暂无调用明细（累计统计里没有逐条时间戳）')
+            self.lb_cost_eff.setText('成本效率：—')
+            return
+
+        by_hour = {}
+        by_week = {}
+        days = set()
+        costs = []
+        bad_time = 0
+        tok_p = tok_c = cache_hit = cache_miss = 0
+        for c in calls:
+            cost = float(c.get('cost') or 0)
+            costs.append(cost)
+            tok_p += int(c.get('prompt') or 0)
+            tok_c += int(c.get('completion') or 0)
+            cache_hit += int(c.get('cache_hit') or 0)
+            cache_miss += int(c.get('cache_miss') or 0)
+            dt = None
+            try:
+                dt = datetime.datetime.strptime(str(c.get('time') or '')[:19],
+                                                '%Y-%m-%d %H:%M:%S')
+            except (TypeError, ValueError):
+                bad_time += 1
+            if dt is None:
+                continue
+            days.add(dt.date())
+            cur = by_hour.setdefault(dt.hour, [0, 0.0])
+            cur[0] += 1
+            cur[1] += cost
+            cur2 = by_week.setdefault(dt.weekday(), [0, 0.0])
+            cur2[0] += 1
+            cur2[1] += cost
+
+        # 图：24 小时全覆盖（没数据的小时也画 0，才能看出「哪段是空的」）
+        bars = [(h, by_hour.get(h, [0, 0.0])[0], by_hour.get(h, [0, 0.0])[1])
+                for h in range(24)]
+        span = '%s ~ %s' % (str(calls[0].get('time') or '')[:16],
+                            str(calls[-1].get('time') or '')[:16])
+        note = '样本 %d 条（%s）%s' % (
+            len(calls), span, '，%d 条时间戳无法解析' % bad_time if bad_time else '')
+        self.chart_act.set_data(bars, note=note, empty_text='暂无调用明细')
+
+        # 活跃度文字
+        try:
+            used_hours = sorted([(h, v) for h, v in by_hour.items() if v[0]],
+                                key=lambda kv: -kv[1][0])
+            top_h = ' ｜ '.join('%02d 点 %d 次' % (h, int(v[0])) for h, v in used_hours[:3])
+            wd_names = ('一', '二', '三', '四', '五', '六', '日')
+            used_w = sorted(by_week.items(), key=lambda kv: -kv[1][0])
+            top_w = ' ｜ '.join('周%s %d 次' % (wd_names[wd], int(v[0]))
+                                for wd, v in used_w[:3] if v[0])
+            self.lb_act.setText(
+                '活跃度：样本 %d 次，覆盖 %d 天 ｜ 最常用 %s ｜ 用过 %d/24 个钟点'
+                ' ｜ 最多 %s　⚠ 仅最近 %d 条明细，非终身'
+                % (len(calls), len(days), top_h or '—', len(used_hours),
+                   top_w or '—', len(calls)))
+        except Exception as exc:
+            _log.warning('活跃度：统计失败：%s', exc)
+            self.lb_act.setText('活跃度：统计失败')
+
+        # 成本效率文字
+        try:
+            n = len(costs)
+            tot = sum(costs)
+            avg = tot / n if n else 0.0
+            mx = max(costs) if costs else 0.0
+            mx_i = costs.index(mx) if costs else -1
+            mx_t = str(calls[mx_i].get('time') or '')[:16] if mx_i >= 0 else '—'
+            ctot = cache_hit + cache_miss
+            hit_pct = 100.0 * cache_hit / ctot if ctot else 0.0
+            tt = tok_p + tok_c
+            p_pct = 100.0 * tok_p / tt if tt else 0.0
+            per1k = (tot / (tt / 1000.0)) if tt else 0.0
+            self.lb_cost_eff.setText(
+                '成本效率：合计 ¥%.4f ｜ 平均每次 ¥%.5f ｜ 最贵一次 ¥%.4f（%s）'
+                ' ｜ 缓存命中 %.0f%% ｜ prompt 占 %.0f%% ｜ 每千 token ¥%.5f'
+                % (tot, avg, mx, mx_t, hit_pct, p_pct, per1k))
+        except Exception as exc:
+            _log.warning('成本效率：统计失败：%s', exc)
+            self.lb_cost_eff.setText('成本效率：统计失败')
 
     def _fill_table(self, rows):
         self.tbl.setRowCount(len(rows))

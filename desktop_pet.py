@@ -9878,12 +9878,41 @@ class PetWidget(QWidget):
 
     # ---- v3.1：余额盯梢（别处花费） ----
 
+    def _set_balance_watch_minutes(self, minutes):
+        """设置余额盯梢间隔（分钟，夹 1~60）并立即重排定时器
+
+        2026-10-28（Owner「给它加个设置项吧」）：
+        这个键原本是**死配置** —— `_load_ai_config` 读它（夹 1~60、默认 5），
+        但 `settings_ui.py` 零命中、`config.json` 无此键 ⇒ 用户改不了。
+        而日志那句「每 %d 分钟查一次（balance_watch=false 可关）」只提开关不提间隔，
+        更容易让人以为间隔也能调。
+        """
+        try:
+            val = max(1, min(60, int(minutes)))
+        except Exception as _exc:
+            _silent_log('_set_balance_watch_minutes.parse', _exc)
+            return int(getattr(self, 'balance_watch_minutes', 5) or 5)
+        self.balance_watch_minutes = val
+        try:
+            self._save_cfg_value('balance_watch_minutes', val)
+        except Exception as _exc:
+            _silent_log('_set_balance_watch_minutes.save', _exc)
+        # 立即生效：把已有的周期定时器按新间隔重设（未启动时 timer 未 start，无副作用）
+        try:
+            tmr = getattr(self, 'balance_watch_timer', None)
+            if tmr is not None and tmr.isActive():
+                tmr.start(max(60000, val * 60000))
+        except Exception as _exc:
+            _silent_log('_set_balance_watch_minutes.apply', _exc)
+        return val
+
     def _balance_watch_arm(self):
         """启动盯梢（间隔取自 config；加载时已夹到 1~60 分钟）"""
         try:
             mins = int(getattr(self, 'balance_watch_minutes', 5) or 5)
             self.balance_watch_timer.start(max(60000, mins * 60000))
-            log.info('余额盯梢已启动：每 %d 分钟查一次（balance_watch=false 可关）', mins)
+            log.info('余额盯梢已启动：每 %d 分钟查一次'
+                     '（间隔可在 设置→用量与计费 调；balance_watch=false 可关）', mins)
         except Exception as e:
             log.debug('余额盯梢启动失败：%s', e)
 

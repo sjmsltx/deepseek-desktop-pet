@@ -617,6 +617,20 @@ class SettingsDialog(QDialog):
         f.addRow('', self.lb_rt_note)
         # 缺陷 4（批 B · Owner 2026-09-26）：⭐ 口径**分列两行** ——
         #   「账户余额（全项目共享）」✗ ≠ 「桌宠今日花费」✓（日上限只按后者判 ✓ 不看余额 ✗）
+        # 2026-10-28（Owner「给它加个设置项吧」）：余额盯梢间隔
+        #   原先 balance_watch_minutes 是死配置（代码读、UI 无、config 无），
+        #   而日志文案只提「能关」不提「间隔改不了」⇒ 用户以为能调却找不到入口。
+        #   ⚠ 本页原 10 行，护栏「单页 ≤14 行」，加这 1 行后 11 行。
+        self.sp_bw_min = QSpinBox()
+        self.sp_bw_min.setRange(1, 60)
+        self.sp_bw_min.setSingleStep(1)
+        self.sp_bw_min.setSuffix(' 分钟')
+        self.sp_bw_min.valueChanged.connect(
+            lambda *_: not self._building and self.host._set_balance_watch_minutes(
+                self.sp_bw_min.value()))
+        self.sp_bw_min.setToolTip('多久自动查一次账户余额（1~60 分钟，默认 5）。\n'
+                                  '只影响「主动盯梢」的频率；关掉盯梢请用聊天面板右键菜单里的开关。')
+        f.addRow('余额盯梢间隔', self.sp_bw_min)
         self.lb_bal_shared = QLabel('未查询')
         self.lb_bal_shared.setToolTip('来自上游账户接口（/user/balance）的 total_balance ——\n'
                                       '⚠ 这是**账户级**余额，可能同时被其它项目消耗 ✗ 不等于桌宠专属余额 ✓')
@@ -1261,6 +1275,13 @@ class SettingsDialog(QDialog):
             except Exception as _exc:
                 _log.debug('回填朗读字数上限失败，用默认 1200（%s）', _exc)
                 self.sp_voice_chars.setValue(1200)
+            # 2026-10-28：余额盯梢间隔回填（夹 1~60，与后端 _set_balance_watch_minutes 同口径）
+            try:
+                self.sp_bw_min.setValue(
+                    max(1, min(60, int(getattr(h, 'balance_watch_minutes', 5) or 5))))
+            except Exception as _exc:
+                _log.debug('回填余额盯梢间隔失败，用默认 5（%s）', _exc)
+                self.sp_bw_min.setValue(5)
             # v6.77：语音输入后端与插口回填
             # v6.77：语音输入后端在子对话框里 —— 开着就刷一下它的值
             if getattr(self, '_asr_sub', None) is not None:
