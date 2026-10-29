@@ -2986,17 +2986,47 @@ class PetWidget(QWidget):
         self._register_builtin_panels()
         try:
             from panel_shell import PanelShell
+            _sz, _mx = self._read_main_area_geom()
             w = PanelShell(self, parent=None, labels={
                 'title': self._t('main_area'),
                 'hint': self._t('main_area_hint'),
                 'empty': self._t('main_area_empty'),
-            })
+            }, size_cb=self._main_area_size_cb,
+                initial_size=_sz, initial_maximized=_mx)
         except Exception as _exc:
             _silent_log('_open_main_area:build', _exc, user_facing=True)
             return None
         self._main_area = w
         w.show()
         return w
+
+    def _read_main_area_geom(self):
+        """读上次的主区尺寸（2026-10-29 Owner 选「做成可调大小」）。
+
+        返回 (size 或 None, maximized)。⛔ 读不出来就返回 (None, False)，
+        让 PanelShell 用自己的 DEFAULT_SIZE —— 手改坏的 config 不该让主区打不开。
+        """
+        try:
+            with open(CONFIG_PATH, encoding='utf-8') as _f:
+                _cfg = json.load(_f) or {}
+        except Exception as _exc:
+            _silent_log('_read_main_area_geom', _exc)
+            return None, False
+        _sz = _cfg.get('main_area_size')
+        _mx = bool(_cfg.get('main_area_maximized'))
+        if isinstance(_sz, (list, tuple)) and len(_sz) == 2:
+            return (list(_sz), _mx)
+        return None, False
+
+    def _main_area_size_cb(self, w, h, maximized):
+        """主区尺寸变了 → 落盘（PanelShell 已做 800ms 防抖，这里直接写）。"""
+        try:
+            self._save_cfg_value('main_area_size', [int(w), int(h)])
+            # 最大化标志单独存：只存尺寸的话，最大化后重开会变成一个
+            # 「占满屏但还是普通窗口」的东西（边框在屏外）
+            self._save_cfg_value('main_area_maximized', bool(maximized))
+        except Exception as _exc:
+            _silent_log('_main_area_size_cb', _exc)
 
     def _make_main_area_button(self, parent):
         """造「主区」入口按钮（并入输入行，2026-10-25 B 方案）

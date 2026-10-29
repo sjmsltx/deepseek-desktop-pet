@@ -15,7 +15,7 @@
    这样本文件可以脱离主程序单独测试（判据 3/4 的可复算前提）。
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QStackedWidget,
                                QVBoxLayout, QWidget)
 
@@ -35,15 +35,45 @@ class PanelShell(QWidget):
         labels: i18n 文案，缺省中文
     """
 
-    def __init__(self, host, parent=None, labels=None):
+    #: 最小可用尺寸。实测（2026-10-29）：Qt 默认给的是 418×158，
+    #: 那个高度连「顶部提示 + 左列三个按钮」都放不下。这里按内容反推：
+    #: 宽 = 左列按钮 112 + 间距 8 + 内容区 ≥420 + 边距 16；高 = 提示行 + 三个按钮 + 内容区 ≥220。
+    MIN_SIZE = (560, 340)
+    #: 默认打开尺寸（没用过/配置里没有时）
+    DEFAULT_SIZE = (720, 480)
+    #: 改大小后多久落盘。⛔ 宿主 _save_cfg_value 会热加载配置，
+    #: 拖拽每秒触发几十次 resizeEvent，不防抖等于每秒热加载几十次。
+    SAVE_DELAY_MS = 800
+
+    def __init__(self, host, parent=None, labels=None, size_cb=None,
+                 initial_size=None, initial_maximized=False):
+        """Args:
+            size_cb: (w, h, maximized) -> None，尺寸变了叫一次（防抖后）。
+                     ⛔ 不传就不上报，但仍然可以拖拽改大小。
+            initial_size: (w, h) 上次的尺寸；None 用 DEFAULT_SIZE
+            initial_maximized: 上次是不是最大化
+        """
         super().__init__(parent)
         self._host = host
         self._L = labels or {}
         self._built = {}          # key -> 控件（懒建，用过的才建）
         self._btns = {}
+        self._size_cb = size_cb
+        self._size_ready = False      # 首次 show 之前不上报，免得把配置冲掉
 
         self.setWindowTitle(self._L.get('title', '主区'))
-        self.resize(720, 480)
+        # 可拖拽改大小：不设 fixed size，只给一个合理下限
+        # （实测：Qt 默认下限 418×158，那个高度基本没法用）
+        self.setMinimumSize(*self.MIN_SIZE)
+        w, h = self._norm_size(initial_size)
+        self.resize(w, h)
+        if initial_maximized:
+            self.setWindowState(self.windowState() | Qt.WindowMaximized)
+
+        self._size_timer = QTimer(self)
+        self._size_timer.setSingleShot(True)
+        self._size_timer.setInterval(self.SAVE_DELAY_MS)
+        self._size_timer.timeout.connect(self._report_size)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
@@ -116,6 +146,58 @@ class PanelShell(QWidget):
         if not fresh:
             self.refresh_panel(key)
         return True
+
+    # ================= 尺寸记忆（2026-10-29）=================
+
+    @classmethod
+    def _norm_size(cls, size):
+        """把配置里读出来的尺寸洗成合法值。
+
+        ⛔ 越界不报错、直接夹到可用范围：手改坏的 config 不该让主区打不开。
+        """
+        try:
+            w, h = int(size[0]), int(size[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return cls.DEFAULT_SIZE
+        lo_w, lo_h = cls.MIN_SIZE
+        # 上限按「屏幕可用区」夹：移到小屏上时不至于开出一个够不着的窗口
+        from PySide6.QtWidgets import QApplication
+        scr = QApplication.primaryScreen()
+        max_w = max(lo_w, scr.availableGeometry().width()) if scr else 3840
+        max_h = max(lo_h, scr.availableGeometry().height()) if scr else 2160
+        return (min(max(w, lo_w), max_w), min(max(h, lo_h), max_h))
+
+    def current_size(self):
+        """当前该记下来的尺寸 —— 最大化时记还原后的那个
+
+        ⛔ 不能记 geometry()：最大化时它是整屏，下次打开会变成一个
+          「占满屏但还是普通窗口」的东西（边框在屏外，拖都拖不动）。
+        """
+        if self.isMaximized():
+            g = self.normalGeometry()
+        else:
+            g = self.geometry()
+        return (g.width(), g.height())
+
+    def _report_size(self):
+        if not callable(self._size_cb) or not self._size_ready:
+            return
+        try:
+            w, h = self.current_size()
+            self._size_cb(w, h, bool(self.isMaximized()))
+        except Exception as _exc:
+            _log.warning('上报窗口尺寸失败（不影响使用）：%s', _exc)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        if self._size_ready:
+            self._size_timer.start()
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        # 首帧布局稳定后才允许上报（否则构造期的 resize 会立刻把配置写成默认值）
+        if not self._size_ready:
+            self._size_ready = True
 
     def built_keys(self):
         """已经真正建出来的面板 key（懒建的证据，测试用）"""

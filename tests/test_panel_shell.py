@@ -308,3 +308,103 @@ def test_switching_refresh_failure_does_not_break_switch():
         assert shell.stack.currentWidget() is not None
     finally:
         shell.deleteLater()
+
+
+# ==================== 主区可调大小 + 记忆尺寸（2026-10-30）====================
+
+def test_shell_is_resizable_not_fixed():
+    """主区必须能拖拽改大小（不给 fixed size，只给下限）
+
+    实测过：Qt 默认下限是 418×158，那个高度连「顶部提示 + 三个按钮」都放不下。
+    """
+    shell = PanelShell(host=None)
+    try:
+        assert shell.maximumWidth() > 10000, '被设成固定宽了，拖不动'
+        assert shell.maximumHeight() > 10000, '被设成固定高了，拖不动'
+        shell.resize(900, 640)
+        assert (shell.width(), shell.height()) == (900, 640)
+    finally:
+        shell.deleteLater()
+
+
+def test_min_size_blocks_unusable_shrink():
+    """缩到没法用要挡住（下限按内容反推，不是 Qt 默认的 418×158）"""
+    shell = PanelShell(host=None)
+    try:
+        shell.resize(100, 80)
+        assert shell.width() >= shell.MIN_SIZE[0], shell.width()
+        assert shell.height() >= shell.MIN_SIZE[1], shell.height()
+    finally:
+        shell.deleteLater()
+
+
+def test_norm_size_handles_broken_config():
+    """手改坏的尺寸配置不许让主区打不开 —— 一律夹到合法范围"""
+    for bad in ([10, 10], [99999, 99999], 'oops', None, [1, 2, 3], {}):
+        w, h = PanelShell._norm_size(bad)
+        assert w >= PanelShell.MIN_SIZE[0] and h >= PanelShell.MIN_SIZE[1], (bad, w, h)
+
+
+def test_size_reported_after_resize_not_on_construction():
+    """构造期不上报（否则会把配置冲成默认值），show 之后 resize 才上报"""
+    got = []
+    shell = PanelShell(host=None, size_cb=lambda w, h, m: got.append((w, h, m)),
+                       initial_size=[700, 500])
+    try:
+        shell.resize(820, 560)
+        assert got == [], '构造期就上报了（配置会被默认值冲掉）'
+        shell.show()
+        shell.resize(820, 560)
+        shell._size_timer.stop()
+        shell._report_size()
+        assert got, 'show 之后 resize 没上报'
+        assert got[-1][0] == 820 and got[-1][1] == 560, got[-1]
+        assert got[-1][2] is False
+    finally:
+        shell.deleteLater()
+
+
+def test_initial_size_restored():
+    """打开时用上次记的尺寸"""
+    shell = PanelShell(host=None, initial_size=[680, 520])
+    try:
+        assert (shell.width(), shell.height()) == (680, 520), (shell.width(), shell.height())
+    finally:
+        shell.deleteLater()
+
+
+def test_maximized_saves_normal_geometry_not_fullscreen():
+    """最大化时记的必须是**还原后的尺寸**
+
+    ⛔ 记 geometry() 的话，下次打开会变成一个「占满屏但还是普通窗口」的东西
+      （边框在屏外，拖都拖不动）。
+    """
+    shell = PanelShell(host=None, initial_size=[700, 500])
+    try:
+        shell.show()
+        shell.resize(700, 500)
+        shell.showMaximized()
+        QApplication.processEvents()
+        w, h = shell.current_size()
+        ng = shell.normalGeometry()
+        assert (w, h) == (ng.width(), ng.height()), \
+            '最大化了却按整屏记：(%d,%d) vs normalGeometry (%d,%d)' % (
+                w, h, ng.width(), ng.height())
+    finally:
+        shell.deleteLater()
+
+
+def test_size_cb_failure_does_not_break_resize():
+    """上报失败不许把改大小一起搞坏"""
+    def boom(w, h, m):
+        raise RuntimeError('故意炸')
+
+    shell = PanelShell(host=None, size_cb=boom)
+    try:
+        shell.show()
+        shell.resize(800, 560)
+        shell._size_timer.stop()
+        shell._report_size()          # 不许抛出去
+        assert shell.width() == 800
+    finally:
+        shell.deleteLater()
