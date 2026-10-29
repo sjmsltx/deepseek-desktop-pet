@@ -82,15 +82,21 @@ def test_main_area_button_is_compact_icon():
 
 # ==================== 2 主区只装 todo / note ====================
 
-def test_main_area_registers_todo_and_note_only():
+def test_main_area_registers_three_panels():
+    """主区面板清单：待办 / 便签 / 用量分析
+
+    2026-10-29 契约变更：Owner「感觉现在内容有点少」→ 加「用量分析」。
+    判据没松 —— 仍是「侧栏 186px 装不下」：三张图表 + 按天表格，侧栏放不下。
+    ⛔ 加面板必须同步改这条断言，不许只改代码让测试变绿。
+    """
     import panel_registry as pr
     pr.clear_panels()
     try:
         p = _pet()
         try:
             n = p._register_builtin_panels()
-            assert n == 2, '应该只注册两个面板，实际 %d' % n
-            assert pr.panel_keys() == ['todo', 'note'], pr.panel_keys()
+            assert n == 3, '应该注册三个面板，实际 %d' % n
+            assert pr.panel_keys() == ['todo', 'note', 'stats'], pr.panel_keys()
         finally:
             p.deleteLater()
     finally:
@@ -455,3 +461,108 @@ def test_panel_degrades_without_new_callbacks():
     finally:
         np.deleteLater()
         sp.deleteLater()
+
+
+# ==================== 9 用量分析进主区（2026-10-29）====================
+
+class _FakeHost:
+    """只提供 StatsPanel 需要的东西：.api_stats 与 .theme
+    （与 UsageStatsDialog 的要求一致 —— 包装层没加新依赖）"""
+
+    def __init__(self):
+        from api_stats import ApiStats
+        import pet_theme
+        self.api_stats = ApiStats(os.path.join(BASE, 'api_stats.json'),
+                                  config_path=os.path.join(BASE, 'config.json'))
+        self.theme = dict(pet_theme.DEFAULT_THEME)
+
+
+def test_stats_panel_embeds_as_child_widget():
+    """用量分析要**真嵌进主区**（是子控件，不是又弹一个窗）"""
+    from stats_panel import StatsPanel
+
+    p = StatsPanel(_FakeHost())
+    try:
+        assert not p.inner().isWindow(), '内部还是独立窗口，没嵌进来'
+        assert p._scroll.widget() is p.inner(), '没装进滚动区'
+        assert p._scroll.widgetResizable() is True
+    finally:
+        p.deleteLater()
+
+
+def test_stats_panel_scrolls_because_content_is_tall():
+    """内容比主区高 → 必须能上下滚（实测内容约 900~1050px，主区 480px）"""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from stats_panel import StatsPanel
+
+    box = QWidget()
+    box.resize(720, 480)
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    p = StatsPanel(_FakeHost())
+    lay.addWidget(p)
+    try:
+        box.show()
+        QApplication.processEvents()
+        sb = p._scroll.verticalScrollBar()
+        assert sb.maximum() > 0, '内容没超出却要滚，或滚动区没生效'
+    finally:
+        box.deleteLater()
+
+
+def test_stats_panel_hides_close_button_keeps_refresh():
+    """面板里不该有「关闭」（它归主区容器管），但要有「刷新」"""
+    from PySide6.QtWidgets import QPushButton
+
+    from stats_panel import StatsPanel
+
+    p = StatsPanel(_FakeHost())
+    try:
+        btns = p.inner().findChildren(QPushButton)
+        assert btns, '一个按钮都没有？'
+        assert all(b.isHidden() for b in btns if b.text().strip() == '关闭'), \
+            '「关闭」没藏掉'
+        assert any(not b.isHidden() for b in btns if '刷新' in b.text()), \
+            '「刷新」被误藏了'
+    finally:
+        p.deleteLater()
+
+
+def test_stats_panel_really_fills_data():
+    """内容不是空壳：表格要有行、汇总要有数
+
+    ⛔ 只断言「不抛异常」等于没验 —— 上一版我用假 host，全部填成
+       「刷新失败：no attribute day_breakdown」，界面看着还在、其实一行数据没有。
+    """
+    from stats_panel import StatsPanel
+
+    p = StatsPanel(_FakeHost())
+    try:
+        inner = p.inner()
+        inner.reload()
+        assert '刷新失败' not in inner.lb_sum.text(), inner.lb_sum.text()
+        assert inner.tbl.rowCount() > 0, '按天表格一行都没有'
+        assert '¥' in inner.lb_sum.text(), inner.lb_sum.text()
+    finally:
+        p.deleteLater()
+
+
+def test_stats_panel_refresh_contract():
+    """面板契约：要有 refresh()，且能返回成功"""
+    from stats_panel import StatsPanel
+
+    p = StatsPanel(_FakeHost())
+    try:
+        assert callable(getattr(p, 'refresh', None))
+        assert p.refresh() is True
+    finally:
+        p.deleteLater()
+
+
+def test_stats_panel_does_not_import_host():
+    """面板契约：不 import desktop_pet（否则「可独立验收」是空话）"""
+    from panel_shell import PanelShell
+
+    bad = PanelShell.contract_violations([os.path.join(BASE, 'stats_panel.py')])
+    assert bad == [], bad

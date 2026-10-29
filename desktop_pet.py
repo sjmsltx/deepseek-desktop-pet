@@ -331,8 +331,11 @@ UI_ZH = {
     'mem_backup': '💾 备份记忆', 'mem_import': '📥 导入记忆',
     'l2d_preview': '🔧 Live2D 调试窗口', 'mode_menu': '🎭 显示模式', 'mode_static': '🖼️ 静态立绘', 'mode_live2d': '🎬 Live2D 模式',
     'l2d_model_menu': '🤖 Live2D 模型', 'l2d_no_model': '未找到模型',
-    'main_area': '🗂 主区', 'main_area_hint': '主区只装侧栏放不下的东西：便签长文、待办管理。关掉不影响桌面宠物。',
+    'main_area': '🗂 主区', 'main_area_hint': '主区只装侧栏放不下的东西：待办管理、便签长文、用量分析。关掉不影响桌面宠物。',
     'main_area_empty': '还没有注册任何面板',
+    'main_stats': '📈 用量分析',
+    'main_stats_hint': '按天表格 + 三张趋势图（花费/构成/活跃度）。'
+                       '内容比主区高，上下滚动看全部。',
     'main_note': '📝 便签长文',
     'main_note_hint': '侧栏便签只有 186px 宽，长文在这里写；与侧栏同一份数据，改哪边都一样。',
     'main_note_new': '＋ 新建便签',
@@ -389,8 +392,10 @@ UI_EN = {
     'mem_backup': '💾 Backup Memory', 'mem_import': '📥 Import Memory',
     'l2d_preview': '🔧 Live2D Debug Window', 'mode_menu': '🎭 Display Mode', 'mode_static': '🖼️ Static Art', 'mode_live2d': '🎬 Live2D Mode',
     'l2d_model_menu': '🤖 Live2D Model', 'l2d_no_model': 'No models found',
-    'main_area': '🗂 Main Area', 'main_area_hint': 'Only what the sidebar cannot hold: long notes, todo manager. Closing it does not affect the pet.',
+    'main_area': '🗂 Main Area', 'main_area_hint': 'Only what the sidebar cannot hold: todo manager, long notes, usage stats. Closing it does not affect the pet.',
     'main_area_empty': 'No panels registered yet',
+    'main_stats': '📈 Usage Stats',
+    'main_stats_hint': 'Daily table + three trend charts. Taller than the main area — scroll to see all.',
     'main_note': '📝 Long Note',
     'main_note_hint': 'The sidebar note is only 186px wide; write long text here. Same data as the sidebar.',
     'main_note_new': '＋ New Note',
@@ -2842,6 +2847,16 @@ class PetWidget(QWidget):
                 'unnamed': T('main_note_unnamed'),
             })
 
+    def _make_stats_panel(self, host):
+        """造主区「用量分析」面板。
+
+        为什么是包一层：stats_ui.UsageStatsDialog 已有 18 个方法、三张图表、
+        缓存/峰谷/时段/模型分析；重写等于造第二个副本（本项目反复记过的毛病）。
+        stats_panel.StatsPanel 只负责「变成可嵌控件 + 套滚动 + 藏关闭钮」。
+        """
+        from stats_panel import StatsPanel
+        return StatsPanel(host)
+
     def _main_area_note_list(self):
         """主区便签用的清单 —— 与侧栏是**同一份**数据（侧栏页签里的 note 页签）。
 
@@ -2938,6 +2953,16 @@ class PetWidget(QWidget):
             n += 1
         except Exception as _exc:
             _silent_log('_register_builtin_panels:note', _exc)
+        try:
+            # 2026-10-29（Owner：「感觉现在内容有点少」→ 选「用量分析」）：
+            # 判据仍是「侧栏 186px 装不下」—— 三张图表 + 按天表格，侧栏根本放不下。
+            # 包装层见 stats_panel.py（把现有 UsageStatsDialog 嵌进来，不重写一份）。
+            T3 = self._t
+            _pr.register_panel('stats', T3('main_stats'), self._make_stats_panel,
+                               order=30, hint=T3('main_stats_hint'), replace=True)
+            n += 1
+        except Exception as _exc:
+            _silent_log('_register_builtin_panels:stats', _exc)
         return n
 
     def _open_main_area(self):

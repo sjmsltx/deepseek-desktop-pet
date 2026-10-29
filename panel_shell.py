@@ -64,6 +64,9 @@ class PanelShell(QWidget):
             b = QPushButton(spec.title, self)
             b.setCheckable(True)
             b.setCursor(Qt.PointingHandCursor)
+            # 2026-10-29 实测：左列按钮按 sizeHint（84px）排不下「📋 待办管理」，
+            # Qt 会折成两行。给个下限，够放最长标题。
+            b.setMinimumWidth(112)
             if spec.hint:
                 b.setToolTip(spec.hint)
             b.clicked.connect(lambda _=False, k=spec.key: self.show_panel(k))
