@@ -529,7 +529,7 @@ desktop-pet/
 ### 一条命令出包（推荐）
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 2.9.1
+powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 3.0.0
 ```
 
 它会按顺序做四件事，任何一步不通过就**直接失败、不让你发出半成品**：
@@ -561,8 +561,8 @@ powershell -ExecutionPolicy Bypass -File tools\build_portable.ps1 -Version 2.9.1
 python -m PyInstaller --noconfirm --clean --distpath release_build\dist --workpath release_build\build tools\DeepSeekPet.spec
 # 2) staging → 3) 压包 → 4) 自检
 python tools\stage_portable.py release_build\dist\DeepSeekPet
-python tools\zip_portable.py release_build\dist\DeepSeekPet release_build\DeepSeekPet_v2.9.1_portable.zip
-python tools\check_release_package.py release_build\DeepSeekPet_v2.9.1_portable.zip
+python tools\zip_portable.py release_build\dist\DeepSeekPet release_build\DeepSeekPet_v3.0.0_portable.zip
+python tools\check_release_package.py release_build\DeepSeekPet_v3.0.0_portable.zip
 ```
 
 > 🗣️ `edge_tts` 决定便携包是否带**在线神经声线**（晓晓等）；缺了仍能跑，朗读会自动降级到系统离线声线（偏机械）。

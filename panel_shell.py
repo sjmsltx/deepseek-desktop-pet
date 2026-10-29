@@ -89,12 +89,22 @@ class PanelShell(QWidget):
     # ================= 对外 =================
 
     def show_panel(self, key):
-        """切到某个面板（首次会建）。返回是否成功。"""
+        """切到某个面板（首次会建）。返回是否成功。
+
+        2026-10-29：切回一个**已建过**的面板时刷一次数据。
+          原先只 setCurrentWidget，不刷新 —— 主区开着不动、从「待办」切到
+          「用量分析」，看到的是上次建面板那一刻的数字（用量分析每时都在变，
+          这个缺陷被新面板放大成肉眼可见）。
+          刚建出来的不刷：建的时候读的就是最新。
+        ⚠ 便签不会因此丢字：QStackedWidget 切页会给旧控件发 hideEvent，
+          NotePanel.hideEvent 里就是 flush() + flush_title()。
+        """
         key = str(key or '')
         if key not in self._btns:
             return False
         w = self._built.get(key)
-        if w is None:
+        fresh = w is None
+        if fresh:
             w = panel_registry.build(key, self._host)
             if w is None:
                 return False
@@ -103,6 +113,8 @@ class PanelShell(QWidget):
         self.stack.setCurrentWidget(w)
         for k, b in self._btns.items():
             b.setChecked(k == key)
+        if not fresh:
+            self.refresh_panel(key)
         return True
 
     def built_keys(self):

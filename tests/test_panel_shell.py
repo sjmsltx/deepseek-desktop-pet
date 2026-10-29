@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from PySide6.QtWidgets import QLabel        # noqa: E402
+from PySide6.QtWidgets import QLabel, QWidget  # noqa: E402
 
 QApplication.instance() or QApplication(sys.argv)
 
@@ -253,3 +253,58 @@ def test_panel_self_save_does_not_double_refresh():
     assert todos[0]['done'] is True, '数据必须改对'
     assert n['r'] == 1, '面板自己存盘后不该再被宿主回刷一遍（实际 %d 次）' % n['r']
     panel.deleteLater()
+
+
+# ==================== 切页要刷新（2026-10-29）====================
+
+def test_switching_back_refreshes_panel():
+    """切走再切回来，必须重新读一次数据
+
+    缺陷现场：主区开着不动，从「待办」切到「用量分析」，
+    看到的是上次建面板那一刻的数字（原先只有**重开窗口**才 refresh_all）。
+    """
+    hits = {'a': 0, 'b': 0}
+
+    class CountingPanel(QWidget):
+        def __init__(self, k):
+            super().__init__()
+            self.k = k
+
+        def refresh(self):
+            hits[self.k] += 1
+
+    pr.register_panel('a', 'A', lambda h: CountingPanel('a'), order=10)
+    pr.register_panel('b', 'B', lambda h: CountingPanel('b'), order=20)
+    shell = PanelShell(host=None)
+    try:
+        assert hits == {'a': 0, 'b': 0}, '刚建出来不该刷（建时读的就是最新）'
+
+        shell.show_panel('b')
+        assert hits['b'] == 0, '首次切到 b 是刚建的，不该再刷（会白读一次）'
+
+        shell.show_panel('a')          # 切回已建过的 a
+        assert hits['a'] == 1, '切回已建面板没有刷新（实际 %d 次）' % hits['a']
+
+        shell.show_panel('b')          # 再切回 b
+        assert hits['b'] == 1, '第二次切回 b 也没有刷新（实际 %d 次）' % hits['b']
+    finally:
+        shell.deleteLater()
+
+
+def test_switching_refresh_failure_does_not_break_switch():
+    """某个面板 refresh 抛错，不许把切页一起拖死（容器要能继续用）"""
+
+    class Bad(QWidget):
+        def refresh(self):
+            raise RuntimeError('故意炸')
+
+    pr.register_panel('bad', 'Bad', lambda h: Bad(), order=10)
+    pr.register_panel('ok', 'OK', lambda h: QLabel('ok'), order=20)
+    shell = PanelShell(host=None)
+    try:
+        shell.show_panel('ok')
+        assert shell.show_panel('bad') is True, 'refresh 抛错不该让切页返回失败'
+        assert shell.show_panel('ok') is True
+        assert shell.stack.currentWidget() is not None
+    finally:
+        shell.deleteLater()

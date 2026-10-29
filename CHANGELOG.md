@@ -187,10 +187,14 @@
 
 ### 已知边界（诚实标注）
 
-- 状态面板**不会自动刷新**：面板开着时外部数据变了它不跟着变（与「待办改了看不到」同源）。
-  本版未修，方案待定（定时刷新 vs 订阅数据源）。
+- ~~状态面板**不会自动刷新**：面板开着时外部数据变了它不跟着变（与「待办改了看不到」同源）。
+  本版未修，方案待定（定时刷新 vs 订阅数据源）。~~
+  **2026-10-29 更正：状态面板已于 10-25 删除（与侧栏「◎ 状态」重复），本条作废。**
 - 主区**不做**停靠拖拽、布局记忆、双形态切换（按缩目标的范围外）。
-- 高 DPI 下的主区尺寸未验。
+- ~~高 DPI 下的主区尺寸未验。~~
+  **2026-10-29 已验**：`QT_SCALE_FACTOR` = 100% / 150% / 200% 三档实测，
+  主区仍是 720×480、三个面板都在（待办 / 便签 / 用量分析），
+  左列按钮**不折行**（高度三档恒为 24）、内容区不被裁、中文渲染正常。
 
 ### 10-25 补充（并入本版，**不另立版本号**）
 
@@ -341,13 +345,194 @@
 - `test_write_endpoints::test_pending_endpoint_works_without_enable_actions`：
   fixture 起 server 后**没有等就绪**就 yield，偶发 `WinError 10053 连接被中止`。
 - 两条单独跑都绿。建议统一改成「轮询端口就绪」，待下一轮做。
+- **2026-10-29 更正：两条已于 10-25 修好**（`_wait_http_ready` / `_wait_ready`
+  真连一次 TCP 才返回），原文「待下一轮做」作废。此处仅留档。
 
 #### 遗留（诚实标注）
 
 - `status_panel.py` 现在没有任何地方注册它了（文件与它的 5 条行为测试都还在）。
   删还是留，等 Owner 定。
+- **2026-10-29 更正：已删（Owner 2026-10-25 决定）**，
+  并由 `test_no_status_panel_module_left` 锁住不许回来。此处仅留档。
 - 语音后端 `whisper` / `http` 的插口仍在，但本机没配；SAPI 的中文识别质量取决于
   系统识别器，长句准确率不如在线模型。
+
+### 10-26~10-29 补充（并入本版，**不另立版本号**）
+
+> 本节收 2026-10-26 起 Owner 连续实报的缺陷与按他指定完成的新增。
+> 口径同前：每条写清**现象 / 根因 / 修法**，测试文件列在条目末尾。
+
+#### 修复（聊天渲染与滚动 —— 同一片代码上的五处，Owner 连续实报）
+
+1. **用户消息正文被右对齐，多行中文排版错乱**
+   - 现象（Owner）：「文本输出到聊天面板之后排版就出现错误，指的是我自己输入的文本」
+   - 根因：`pet_bubble.bubble_text_label` 对用户消息用 `AlignRight`，**正文**跟着右对齐；
+     一整段中文贴进来每行顶到右边，换行后更乱
+   - 怎么断定是对齐而不是原文空格：Owner 真实 `chat_memory_flash.json` 里
+     `display[33].text` 第 3 行「相关知识」前导空白 = 0、长度 4 字 ——
+     零缩进短行左对齐时只可能贴最左，而截图里它在最右边
+   - 修法：正文改左对齐；气泡整体靠右改由 `addStretch(1)` 单独负责，两件事分开
+   - `tests/test_bubble_align.py`
+
+2. **翻看历史时被「正在思考」秒表每秒拉回底部**
+   - 根因：`_render_ai_status()` 末尾**无条件** `_chat_scroll_bottom()`，
+     而它由 1000ms 定时器触发刷「已等 Ns」；同样的无条件滚动还在 6 处
+     流式/打字机高频路径里（`_chat_type_stream_begin` / `_on_stream` /
+     `_maybe_incremental_render` / `_on_reasoning` / `_on_stream_done` / `_chat_type_tick`）
+   - 修法：统一成「贴底才跟随」
+   - 复现（修前）：12 条消息、可滚 0~14168；滚到 7084 → 一次 tick → 14168，连 5 秒每次都被拉走
+   - `tests/test_chat_scroll_follow.py`
+
+3. **新消息落地仍强制滚到底** → 补「↓ N 条新消息」提示条 + 修「落地距底 50px」
+   - 距底的真因（我原先的假设被实验推翻）：不是「布局没完成所以 maximum 是旧值」。
+     实测：不 processEvents 时 value 与 max **都还没含新气泡**（距底 0）；
+     现象出现在**布局完成之后**（max +50、value 没跟上）。
+     猜时机再设一次不可靠 —— `QTimer.singleShot(0)` 实测**仍落在布局之前**，反而更差
+   - 修法：按 IM 通行做法 —— 不打扰（不抢滚动）+ 给跳转入口
+   - 同上测试文件
+
+4. **`<say_bubble>` 伪标签漏进聊天正文**
+   - 现象（Owner）：「偶尔还是会有一些莫名其妙的这种代码会漏在聊天里面」，
+     截图是 `<say_bubble>我在这儿，你叫我啦？</say_bubble>` 外加一个多余闭合标签
+   - 实证（不是猜）：`chat_memory_flash.json` 里 **6 条 assistant 回复**尾部各带一对，
+     开/闭标签各 13 处 —— 模型偶尔不调用工具，而是把这层标签**直接写进正文**
+   - 修法：在**唯一显示出口** `pet_bubble.strip_emotion_tag()` 里剥掉
+     → 流式 / 非流式 / 历史回放全部自动覆盖；并用 `extract_say_bubbles`
+     把内容取出走气泡
+   - 补裁定（Owner 2026-10-27）：模型写到一半断了（`<say_bubble>半句话` 再无下文）时
+     **剥标签、保留里面的字**（宁可多显示一句，也不静默吞字）；
+     并有残片泄漏的窄修（`正文<say_bub` 原样漏出）
+   - `tests/test_pseudo_tag_and_image.py`
+
+5. **贴边 → 拖出后聊天输入框塌成一行**
+   - 现象（Owner）：输入一段文本后输入框确实自动变高了，但把桌宠拖到边上贴边、
+     再拖出来，输入框就变回只有一行；再敲一下字又自己变回来
+   - 根因三级（逐级打印 min/max 实测）：
+     ① 恢复聊天面板时写 `setFixedHeight(34)`，把输入框硬压回单行；
+        而 `_auto_resize_input` 只挂在 `document().contentsChanged` 上，内容没变就不重算
+     ② 改成 `setMinimumHeight(34)` 只是**解开下限锁**（min 83→34，max 仍 83）
+     ③ `_auto_resize_input` 又是「`height() != new_h` 才 setFixedHeight」——
+        此刻高度已等于 new_h ⇒ 跳过重设 ⇒ 约束停在 34/83 的非锁定态，
+        紧接 `_sync_window_to_panel()` 让父布局重算 ⇒ 被压回 min=34
+   - `tests/test_dock_input_height.py`
+
+#### 新增（`~~删除线~~`）
+
+- Owner 2026-10-27 回忆「早期版本会把错误文本划一道横杠」。查证结论：
+  **桌宠任何历史版本都没有这个功能** —— `git grep` 五关键词 0 命中、
+  `git log --all -S` 的 StrikeOut / line-through / strikethrough 全空，
+  覆盖 539 提交 / 11 标签 / 4 分支
+- Owner 2026-10-28 选 **A 方案：通用 markdown 删除线**，不绑死 Python 错误块
+- 三处实现要点：标签用 `<s>` 而不是 `<del>` / `<strike>`（实测 Qt 下只有 `<s>`
+  的 `fontStrikeOut` 为真）；位置必须在代码块占位**之后**（否则误伤 `Speech~~~`
+  这种源码片段）；正则前后断言 `(?<!~)` / `(?!~)`（不加会把 `~~~a~~~` 配成 `~<s>a</s>~`）
+- 表格内删除线**不生效**，且这是既有行为、不是删除线独有的缺口：
+  `md_to_html` 里表格整块被占位成 HTML，粗体 / 斜体 / 链接同样跑不到单元格内部，
+  只有行内代码因为占位更早而例外。
+  ⛔ 不为了「表格里也能划」把规则提到表格之前 —— 那会让删除线成为**唯一**
+  能在表格内生效的行内样式，反而制造不一致
+- `tests/test_strikethrough.py`
+
+#### 修复（语音：让它念长文，只念了首末约 70 字）
+
+- Owner 报（经 `WX-125` 复核）：让它念《过秦论》，它写了 1419 字、最后说
+  「念下来两千字出头」，而实际出声的只有开头寒暄和结尾问句共约 70 字，正文一个字没念
+- `voice_max_chars` 是**死配置**：截断日志写着「可在 config.json 改 voice_max_chars」，
+  但这个属性在 `desktop_pet.py` 里**从未被赋值**（全文只有 1 处 `getattr` 读取），
+  `config.json` 里也没这个键、设置界面也没入口 ⇒ 永远 1200。
+  **照提示去改、改完不生效，比不给提示更糟**
+- 同形态的 `voice_content_mode` 一并修（它会写配置，却从没被读回）
+- 补「实际念了多少字」的回灌，让「说了多少 / 念了多少」能对上
+- `tests/test_voice_spoken_report.py`
+
+#### 新增（用量分析三件，Owner 指定）
+
+1. **时间活跃度双轴图 + 成本效率 + `balance_watch_minutes` 设置项**
+   - Owner 要求「把时间与花费作为两个维度建 XY 轴看时间活跃度」
+   - `balance_watch_minutes` 也是死配置（`_load_ai_config` 读它、夹 1~60、默认 5，
+     但 `settings_ui.py` 0 处、`config.json` 无此键 ⇒ 用户改不了）→ 本轮补上界面入口
+   - 按小时看「柱=调用次数、折线=花费」，与已有的按天图是两个尺度，不重复
+   - `tests/test_activity.py`、`tests/test_config_dead_keys.py`（后者专门锁
+     「配置键必须有入口」这一类死配置）
+2. **花费构成：区分「桌宠自己」与「账户里别处」**
+   - 改前三个数（今日 / 累计 / 余额）都是同一个 `ui_green`，一个颜色看不出区别
+   - 改成累加堆叠柱：下段绿 = 桌宠自己、上段橙 = 账户里别处；统计悬浮窗配色同步
+   - `tests/test_spend_split.py`
+3. **应用索引修「缺图标丢应用」+ calls 缓冲 200→2000 + 统计档原子写**
+   - 这不只是日志噪声：596 个注册表卸载项里 495 个有 `DisplayName`、
+     **478 个没有 `DisplayIcon`**，原实现把无图标的整个丢掉
+   - `tests/test_perf_atomic.py`
+
+#### 新增（主区三件，2026-10-29）
+
+1. **便签标题可自己取**（Owner：「你那个标题他怎么不能自己取？」）
+   - 根因：侧栏本来就有 `rename_tab(index)`，但主区只注入了 notes / save / add
+     三个回调，**没接改名通道**；列表显示的一直是 `title or 正文第一行[:18]`，
+     所以看着像「不能取名」
+   - 修法：加 `set_note_title(note_id, title)` 按 id 改名（主区手里只有 id、没有 index）；
+     上限 18 字与 `rename_tab` 同口径（不同步会出现「主区输得进、侧栏少几个字」）；
+     **空串 = 清掉标题**，回到用正文第一行当名字 —— 改错了要能退
+2. **便签可自由删除**（Owner：「新增便签之后不能自由删除」）
+   - 根因：主区只有「＋新建便签」一个按钮；侧栏右键能删（`remove_tab` 存在、
+     `note` 不在 `CORE_KINDS` 里），但主区没有入口
+   - 修法：加 `remove_note(note_id)`，**只认 `kind == 'note'`**（不误删核心页签），
+     转调 `remove_tab` 复用「删光回退默认页签」；删前确认、删完回空态
+3. **用量分析面板进主区**
+   - 判据沿用 10-25 那条「主区只装侧栏 186px 装不下的东西」：
+     按天表格 + 三张图表 + 六段文字分析，侧栏放不下
+   - **不重写界面**（`UsageStatsDialog` 已有 18 个方法、三张图表）：新加一层
+     `stats_panel.StatsPanel` 做包装 —— `setWindowFlags(Qt.Widget)` 变成可嵌入控件、
+     套 `QScrollArea`（实测内容高约 1050px，主区只有 480px）、藏掉「关闭」钮
+     （面板归主区容器管，不该自己关自己）、补一条容器背景色
+     （`QDialog { … }` 选择器在嵌入模式下匹配不到）
+   - 顺带修：主区左列按钮折行（sizeHint 84px 排不下「📋 待办管理」→ 最小宽 112）；
+     顶部提示文案补上用量分析
+   - `tests/test_main_area_notes.py`
+     （含一条「内容真有数据」：⛔ 只断言「不抛异常」等于没验 ——
+     第一版用假宿主测，全部填成「刷新失败」，界面看着还在、一行数据没有）
+
+#### 修复（主区：切回面板时不刷新数据）
+
+- 现场：`_open_main_area()` 只在**重开窗口**时 `refresh_all()`；
+  容器内 `show_panel()` 只做 `setCurrentWidget`，**不刷新**
+  ⇒ 主区开着不动、从「待办」切到「用量分析」，看到的是上次建面板那一刻的数字
+- 为什么现在才暴露：用量分析的数字每时都在变，新面板把这个缺陷放大成肉眼可见
+- 修法：切到一个**已建过**的面板时调一次它的 `refresh()`；
+  刚建出来的不刷（建的时候读的就是最新，再刷是白读一遍）
+- 便签不会因此丢字：`QStackedWidget` 切页会给旧控件发 `hideEvent`，
+  而 `NotePanel.hideEvent` 里就是 `flush()` + `flush_title()` —— 切回来时脏数据已落盘
+- `tests/test_panel_shell.py`（含一条「某个面板 refresh 抛错不许把切页一起拖死」）
+
+#### 工程与测试
+
+- **`test_relay_isolation` 偶发红：先取证、再定修法（不是靠猜）**
+  - 取证：连跑 4 轮全量 —— 1 绿 1725 / 2 绿 1727 / 3 绿 1727 / **4 红**。
+    而早上另一次全量红在**另一条**用例上（`test_two_servers_do_not_share_action_switch`）
+    ⇒ **失败点会漂移**，说明问题在两条用例共用的 `_start()` / `_post()`，不在用例本身
+  - 堆栈：`c.getresponse()` → `ConnectionAbortedError: [WinError 10053]`
+    —— 客户端**一个字节响应都没拿到**，连接就被断了
+  - 顺带查出两处脚手架不一致：本文件的就绪等待是**静默超时**（5 秒连不上就
+    break 出去直接 return），而 `test_write_endpoints.py::_wait_ready`
+    （10-25 修过的那条）会 `raise TimeoutError`。弱的那处就在这里
+  - 修法：① 就绪等待对齐成会 raise（下次红能立刻区分「没就绪」与「连上又被断」）
+    ② `_post` / `_health_actions` 加**传输层**重试（只认
+    `ConnectionAbortedError` / `ConnectionResetError` / `RemoteDisconnected`）
+  - ⛔ 重试不掩盖真问题：403 / 200 是 `getresponse()` **正常返回**的 status，
+    走不到 except 分支 ⇒ 断言失败永远照报。有两条测试钉住这个边界，且**验过有牙**：
+    把 `HTTPException` 塞进重试范围 → `test_retry_scope_is_transport_only` 变红；
+    把 `_wait_ready` 退回静默超时 → `test_wait_ready_raises_...` 变红
+- **日志隔离缺口**：定位到是 **5 个 module 级 fixture**（不是我上轮说的「6 处」）
+- `test_net_local` 顺序依赖：重置 `urllib.request._opener`（采纳 `WX-124` §9）
+- 发布包自检增加「包内第三方库最低版本」检查（`edge_tts >= 7.3.1`）
+- README「最新版」与实际不符：三处措辞 + 资产名 / 体积（Owner 同意）
+
+#### 更正（本节往前那两处记录已过期，2026-10-29 实测核实）
+
+- 「**已知 flaky**」那两条（`test_a_stage` / `test_write_endpoints`）
+  **10-25 就已修好**：改成真连一次 TCP 等就绪，不再靠 `time.sleep(0.3)` /
+  「起服务后直接 yield」。原文「待下一轮做」作废
+- `status_panel.py` **已于 2026-10-25 由 Owner 决定删除**（它与侧栏「◎ 状态」是同一份信息），
+  并有 `test_no_status_panel_module_left` 锁住不许回来。原文「删还是留，等 Owner 定」作废
 
 ## [2.9.1] - 2026-09-21
 

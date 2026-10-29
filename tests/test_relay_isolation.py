@@ -51,33 +51,78 @@ def _start(enable_actions, monkeypatch=None):
     httpd.daemon_threads = True
     th = threading.Thread(target=httpd.serve_forever, daemon=True)
     th.start()
-    t0 = time.time()
-    while time.time() - t0 < 5:
-        try:
-            with socket.create_connection(('127.0.0.1', port), timeout=0.25):
-                break
-        except OSError:
-            time.sleep(0.02)
+    _wait_ready(port)
     return httpd, port, th
 
 
-def _post(port, path, body=None):
-    c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
-    c.request('POST', path, json.dumps(body or {}).encode('utf-8'),
-              headers={'Content-Type': 'application/json'})
-    r = c.getresponse()
-    raw = r.read().decode('utf-8', 'replace')
-    c.close()
-    return r.status, raw
+def _wait_ready(port, timeout=5.0):
+    """等端口真的能连上。
+
+    ⚠ 2026-10-29：原来这里是**静默超时** —— 5 秒连不上就 break 出去直接 return，
+      什么都不报。而 tests/test_write_endpoints.py 的 _wait_ready 会 raise
+      （那条 10-25 修过）。两处脚手架不一致 ⇒ 红的时候分不清是
+      「压根没就绪」还是「连上了又被断」，只能靠猜。这里对齐成会 raise。
+    """
+    last = None
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=0.25):
+                return
+        except OSError as exc:
+            last = exc
+            time.sleep(0.02)
+    raise TimeoutError('端口 %d 在 %.1f 秒内没就绪（最后错误：%s）' % (port, timeout, last))
 
 
-def _health_actions(port):
-    c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
-    c.request('GET', '/api/health')
-    r = c.getresponse()
-    d = json.loads(r.read().decode('utf-8') or '{}')
-    c.close()
-    return d.get('actions')
+#: 只重试这三类**传输层**偶发（握手后立刻被断）。
+#: ⛔ 故意不含 http.client.HTTPException —— 那是协议层（状态行/响应格式）问题，
+#:   拿它重试会把「服务端真的回了错东西」也一并糊过去。
+#:   有 test_retry_scope_is_transport_only 钉住这条边界。
+_TRANSPORT_ERR = (ConnectionAbortedError, ConnectionResetError,
+                  http.client.RemoteDisconnected)
+
+
+def _post(port, path, body=None, attempts=3):
+    """POST 一次。传输层偶发（连上就被断）重试，**HTTP 状态一律不重试**。
+
+    ⛔ 为什么这个重试不掩盖真问题：
+       403 / 200 是 `getresponse()` **正常返回**的 status，根本走不到 except
+       ⇒ 重试只发生在「一个字节响应都没拿到」的情况，断言语义不变。
+    """
+    last = None
+    for i in range(max(1, attempts)):
+        c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+        try:
+            c.request('POST', path, json.dumps(body or {}).encode('utf-8'),
+                      headers={'Content-Type': 'application/json'})
+            r = c.getresponse()
+            raw = r.read().decode('utf-8', 'replace')
+            return r.status, raw
+        except _TRANSPORT_ERR as exc:
+            last = exc
+            time.sleep(0.05 * (i + 1))
+        finally:
+            c.close()
+    raise last
+
+
+def _health_actions(port, attempts=3):
+    """读 /api/health。与 _post 同口径：只重试传输层，不重试 HTTP 状态。"""
+    last = None
+    for i in range(max(1, attempts)):
+        c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+        try:
+            c.request('GET', '/api/health')
+            r = c.getresponse()
+            d = json.loads(r.read().decode('utf-8') or '{}')
+            return d.get('actions')
+        except _TRANSPORT_ERR as exc:
+            last = exc
+            time.sleep(0.05 * (i + 1))
+        finally:
+            c.close()
+    raise last
 
 
 def test_two_servers_do_not_share_action_switch(monkeypatch):
@@ -159,13 +204,7 @@ def test_bare_handler_without_switch_attribute_is_closed(monkeypatch):
     port = httpd.server_address[1]
     th = threading.Thread(target=httpd.serve_forever, daemon=True)
     th.start()
-    t0 = time.time()
-    while time.time() - t0 < 5:
-        try:
-            with socket.create_connection(('127.0.0.1', port), timeout=0.25):
-                break
-        except OSError:
-            time.sleep(0.02)
+    _wait_ready(port)          # 同口径：没就绪就明确报错，不静默继续
     try:
         st, body = _post(port, '/api/step')
         assert st == 403, (
@@ -176,3 +215,59 @@ def test_bare_handler_without_switch_attribute_is_closed(monkeypatch):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+# ---------------- ④ 重试的范围与降级（2026-10-29）----------------
+
+def test_retry_scope_is_transport_only():
+    """重试范围必须只有传输层异常，不许把 HTTP 协议异常也包进来
+
+    判据能证伪：若有人图省事把 `http.client.HTTPException` 加进 `_TRANSPORT_ERR`，
+    这条立刻红 —— 因为那等于「服务端回了不合规响应也当偶发重试」，
+    会把真缺陷糊成"多试几次就好了"。
+    """
+    assert not issubclass(http.client.HTTPException, _TRANSPORT_ERR), \
+        '重试范围太宽：HTTP 协议异常被当成传输层偶发'
+    for t in _TRANSPORT_ERR:
+        assert issubclass(t, OSError) or t is http.client.RemoteDisconnected, \
+            '意外的重试类型：%r' % (t,)
+
+
+def test_403_is_returned_as_is_without_retry(monkeypatch):
+    """动作面关着时，403 必须**原样一次返回**（不许被重试改成别的结果）
+
+    这是上面那个重试的护栏：403 走的是 getresponse() 正常返回，
+    永远进不到 except 分支。
+    """
+    calls = {'n': 0}
+    real_post = http.client.HTTPConnection.request
+
+    def counted(self, method, url, *a, **kw):
+        calls['n'] += 1
+        return real_post(self, method, url, *a, **kw)
+
+    monkeypatch.setattr(http.client.HTTPConnection, 'request', counted)
+
+    hd, port, th = _start(enable_actions=False, monkeypatch=monkeypatch)
+    try:
+        st, body = _post(port, '/api/step')
+        assert st == 403, '动作面关着却没回 403（实际 %s）' % st
+        assert calls['n'] == 1, '403 被重试了（实际发了 %d 次请求）' % calls['n']
+    finally:
+        hd.shutdown()
+        hd.server_close()
+        th.join(timeout=5)
+
+
+def test_wait_ready_raises_instead_of_silently_continuing():
+    """没被监听的端口必须**明确报错**，不许静默返回
+
+    这是 2026-10-29 修的那处：原来 5 秒连不上就 break 出去直接 return，
+    后续请求撞上 WinError 10053，看着像"服务有问题"，其实是"根本没起来"。
+    """
+    s = socket.socket()
+    s.bind(('127.0.0.1', 0))
+    port = s.getsockname()[1]
+    s.close()                      # 立刻释放：该端口上没有服务在听
+    with pytest.raises(TimeoutError):
+        _wait_ready(port, timeout=0.6)
