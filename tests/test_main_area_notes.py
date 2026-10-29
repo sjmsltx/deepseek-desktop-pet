@@ -275,3 +275,183 @@ def test_todo_manager_opens_main_area_not_dialog():
         assert getattr(p, '_todo_dlg', None) is None, '还在造独立弹窗'
     finally:
         p.deleteLater()
+
+
+# ==================== 6 标题可自己取（2026-10-29）====================
+
+def _pair(notes=None):
+    """照 desktop_pet._make_note_panel 的接法造一套（含新加的两个回调）"""
+    from note_panel import NotePanel
+    from side_panel import SidePanel
+
+    sp = SidePanel(tabs=notes or [{'id': 'n1', 'kind': 'note', 'text': '正文第一行'}],
+                   save_cb=lambda *a: None)
+    np = NotePanel(sp.note_tabs, sp.set_note_text, lambda: sp.add_tab('note')['id'],
+                   title_cb=sp.set_note_title, del_cb=sp.remove_note)
+    np._confirm_delete = lambda name: True        # 跳过模态框（离屏会卡住）
+    return sp, np
+
+
+def test_note_title_can_be_set_from_main_area():
+    """主区能自己取标题 —— 写进侧栏那一份，侧栏页签也立刻变"""
+    sp, np = _pair()
+    try:
+        np.ed_title.setText('十月会议纪要')
+        assert np.flush_title() is True, '标题没写进去'
+        tab = [t for t in sp.dump_tabs() if t['id'] == 'n1'][0]
+        assert tab.get('title') == '十月会议纪要', tab
+        i = [k for k, t in enumerate(sp._tabs) if t['id'] == 'n1'][0]
+        assert sp.tabbar.tabText(i) == '十月会议纪要', '侧栏页签没跟着改'
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_note_title_shows_in_list_immediately():
+    """改名后主区左边列表要立刻显示新名字（不能非等到 refresh）"""
+    sp, np = _pair()
+    try:
+        np.ed_title.setText('会议纪要')
+        np.flush_title()
+        assert np.lst.item(0).text() == '会议纪要', np.lst.item(0).text()
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_note_title_cleared_falls_back_to_first_line():
+    """清空标题 = 回到「用正文第一行当名字」（改错了要能退回去）"""
+    sp, np = _pair([{'id': 'n1', 'kind': 'note', 'text': '原第一行\n第二行'}])
+    try:
+        np.ed_title.setText('先取个名')
+        np.flush_title()
+        assert [t for t in sp.dump_tabs() if t['id'] == 'n1'][0]['title'] == '先取个名'
+        np.ed_title.setText('')
+        assert np.flush_title() is True
+        tab = [t for t in sp.dump_tabs() if t['id'] == 'n1'][0]
+        assert not tab.get('title'), '标题没清掉：%r' % tab.get('title')
+        assert np.lst.item(0).text() == '原第一行', np.lst.item(0).text()
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_note_title_cap_matches_sidebar():
+    """上限 18 字与 side_panel.rename_tab 同口径（不同步会出现「主区输得进、侧栏少几个字」）"""
+    from note_panel import NotePanel
+    assert NotePanel.MAX_TITLE == 18
+    sp, np = _pair()
+    try:
+        np.ed_title.setText('x' * 40)
+        # setMaxLength 先挡一层
+        assert len(np.ed_title.text()) <= 18
+        np.flush_title()
+        assert len([t for t in sp.dump_tabs() if t['id'] == 'n1'][0]['title']) <= 18
+        # 直接调侧栏那个接口也要截（防有人绕过输入框）
+        assert sp.set_note_title('n1', 'y' * 40) is True
+        assert len([t for t in sp.dump_tabs() if t['id'] == 'n1'][0]['title']) == 18
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_title_only_edit_does_not_rewrite_body():
+    """只改标题不该顺带写一遍正文（否则每次改名都白写一次 4000 字）"""
+    from note_panel import NotePanel
+    from side_panel import SidePanel
+
+    calls = []
+    sp = SidePanel(tabs=[{'id': 'n1', 'kind': 'note', 'text': '原文'}], save_cb=lambda *a: None)
+    np = NotePanel(sp.note_tabs,
+                   lambda i, t: (calls.append(('body', t)) or True),
+                   None,
+                   title_cb=lambda i, t: (calls.append(('title', t)) or True))
+    try:
+        np.ed_title.setText('只改标题')
+        np.flush_title()
+        np.flush()
+        assert calls == [('title', '只改标题')], calls
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+# ==================== 7 便签可自由删除（2026-10-29）====================
+
+def test_note_can_be_deleted_from_main_area():
+    """主区能把便签删掉 —— 侧栏那份也要跟着没"""
+    sp, np = _pair([{'id': 'n1', 'kind': 'note', 'text': 'a'},
+                    {'id': 'n2', 'kind': 'note', 'text': 'b'}])
+    try:
+        np._cur_id = 'n2'
+        np.refresh()
+        assert np._on_delete() is True, '没删掉'
+        assert [t['id'] for t in sp.note_tabs()] == ['n1'], sp.note_tabs()
+        assert np.lst.count() == 1, '主区列表没同步'
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_delete_cancelled_keeps_note():
+    """确认框点「否」就不许删（防误点）"""
+    sp, np = _pair()
+    try:
+        np._confirm_delete = lambda name: False
+        assert np._on_delete() is False
+        assert len(sp.note_tabs()) == 1, '点了取消还是删了'
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_delete_last_note_keeps_sidebar_alive():
+    """删到一条不剩：主区显示空态，侧栏不能塌成空面板"""
+    sp, np = _pair()
+    try:
+        np._cur_id = 'n1'
+        np.refresh()
+        assert np._on_delete() is True
+        assert sp.note_tabs() == [], '便签没删干净'
+        assert np.lst.count() == 0
+        assert np.ed.isReadOnly(), '没便签了正文框还能打字'
+        assert np.ed_title.isReadOnly(), '没便签了标题框还能打字'
+        assert '还没有便签' in np.lb_info.text()
+        assert sp._tabs, '侧栏把页签删空了（DEFAULT_TABS 兜底失效）'
+    finally:
+        np.deleteLater()
+        sp.deleteLater()
+
+
+def test_remove_note_never_touches_non_note_tabs():
+    """remove_note 只认便签：不许拿它误删任务/状态等页签"""
+    from side_panel import SidePanel
+
+    sp = SidePanel(tabs=[{'id': 'tasks', 'kind': 'tasks'},
+                         {'id': 'n1', 'kind': 'note', 'text': ''}], save_cb=lambda *a: None)
+    try:
+        assert sp.remove_note('tasks') is False, '把任务页签删了'
+        assert any(t['kind'] == 'tasks' for t in sp._tabs), '任务页签没了'
+        assert sp.remove_note('不存在的id') is False
+    finally:
+        sp.deleteLater()
+
+
+# ==================== 8 没有回调时降级（老调用方不破）====================
+
+def test_panel_degrades_without_new_callbacks():
+    """只传 notes/save/add（老写法）：标题框只读、删除钮不出现，正文照旧能存"""
+    from note_panel import NotePanel
+    from side_panel import SidePanel
+
+    sp = SidePanel(tabs=[{'id': 'n1', 'kind': 'note', 'text': ''}], save_cb=lambda *a: None)
+    np = NotePanel(sp.note_tabs, sp.set_note_text, lambda: None)
+    try:
+        assert np.ed_title.isReadOnly(), '没有 title_cb 却让人以为能改名'
+        assert np.btn_del.isHidden(), '没有 del_cb 却留了个删除钮'
+        np.ed.setPlainText('正文照旧')
+        assert np.flush() is True
+        assert sp.dump_tabs()[0]['text'] == '正文照旧'
+    finally:
+        np.deleteLater()
+        sp.deleteLater()

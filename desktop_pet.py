@@ -338,6 +338,11 @@ UI_ZH = {
     'main_note_new': '＋ 新建便签',
     'main_note_empty': '还没有便签 —— 点「＋ 新建便签」开始',
     'main_note_chars': '%d / %d 字',
+    'main_note_title_hint': '标题（留空则用正文第一行）',
+    'main_note_del': '🗑 删除本便签',
+    'main_note_del_title': '删除便签',
+    'main_note_del_confirm': '确定删掉「{name}」？删了就找不回来了。',
+    'main_note_unnamed': '空便签',
     'todo_menu': '📋 待办管理', 'todo_status': '状态', 'todo_time': '时间', 'todo_add': '➕ 添加',
     'todo_done': '✅ 完成选中', 'todo_del': '🗑 删除选中', 'todo_clear_done': '🧹 清空已完成',
     'todo_placeholder': '输入待办事项，回车添加…', 'todo_empty': '暂无待办',
@@ -391,6 +396,11 @@ UI_EN = {
     'main_note_new': '＋ New Note',
     'main_note_empty': 'No notes yet — click “＋ New Note” to start',
     'main_note_chars': '%d / %d chars',
+    'main_note_title_hint': 'Title (blank = first line of the text)',
+    'main_note_del': '🗑 Delete this note',
+    'main_note_del_title': 'Delete Note',
+    'main_note_del_confirm': 'Delete “{name}”? This cannot be undone.',
+    'main_note_unnamed': 'Empty note',
     'todo_menu': '📋 Todo Manager', 'todo_status': 'Status', 'todo_time': 'Time', 'todo_add': '➕ Add',
     'todo_done': '✅ Done', 'todo_del': '🗑 Delete', 'todo_clear_done': '🧹 Clear Done',
     'todo_placeholder': 'Enter todo, press Enter to add…', 'todo_empty': 'No todos',
@@ -2820,10 +2830,16 @@ class PetWidget(QWidget):
             host._main_area_note_list,
             host._main_area_note_save,
             host._main_area_note_add,
+            title_cb=host._main_area_note_title,      # 2026-10-29：标题可自己取
+            del_cb=host._main_area_note_del,          # 2026-10-29：便签可删
             labels={
                 'title': T('main_note'), 'hint': T('main_note_hint'),
                 'new': T('main_note_new'), 'empty': T('main_note_empty'),
                 'chars': T('main_note_chars'),
+                'title_hint': T('main_note_title_hint'), 'del': T('main_note_del'),
+                'del_title': T('main_note_del_title'),
+                'del_confirm': T('main_note_del_confirm'),
+                'unnamed': T('main_note_unnamed'),
             })
 
     def _main_area_note_list(self):
@@ -2853,6 +2869,28 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_main_area_note_add', _exc)
             return None
+
+    def _main_area_note_title(self, note_id, title):
+        """主区改便签标题 → 写回侧栏那一份（2026-10-29 Owner：「标题他怎么不能自己取」）
+
+        传空字符串 = 清掉标题，回到「用正文第一行当名字」——侧栏与主区都靠这个兜底。
+        """
+        try:
+            return self.side_panel.set_note_title(note_id, title)
+        except Exception as _exc:
+            _silent_log('_main_area_note_title', _exc)
+            return False
+
+    def _main_area_note_del(self, note_id):
+        """主区删便签 → 删侧栏那一份（2026-10-29 Owner：「新增便签之后不能自由删除」）
+
+        ⛔ 删的是便签，不是页签本体之外的东西；side_panel.remove_note 只认 kind=='note'。
+        """
+        try:
+            return self.side_panel.remove_note(note_id)
+        except Exception as _exc:
+            _silent_log('_main_area_note_del', _exc)
+            return False
 
     # ============ 3.0 主区（批 2）============
     def _register_builtin_panels(self):

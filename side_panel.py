@@ -466,6 +466,46 @@ class SidePanel(QFrame):
                 return True
         return False
 
+    def set_note_title(self, note_id, title):
+        """按 id 改便签标题（3.0 主区改名用）。返回是否命中。
+
+        为什么加它：主区 NotePanel 手里只有 note_id，没有 tab index；
+        而侧栏现有的是 rename_tab(index) —— 主区调不了（2026-10-29 实测）。
+
+        - 传空字符串 = **清掉标题**，回到「用正文第一行当名字」
+          （note_panel 的列表就是这么兜底的；清空要能还原，否则改错了没法退）
+        - 上限 18 字，与 rename_tab 同一口径。⛔ 两处不一致会让侧栏页签显示
+          和主区输入框里的字不一样 —— 使用者会以为没存上。
+        """
+        t_ = str(title or '').strip()[:18]
+        for i, t in enumerate(self._tabs):
+            if t.get('id') == note_id and t.get('kind') == 'note':
+                if t_:
+                    t['title'] = t_
+                else:
+                    t.pop('title', None)
+                # 侧栏那个页签要立刻跟着变，否则「主区改了侧栏不认」
+                if 0 <= i < self.tabbar.count():
+                    self.tabbar.setTabText(i, tab_text(t))
+                    self.tabbar.setTabToolTip(
+                        i, '%s —— %s' % (t.get('title') or KIND_LABEL.get('note', ''),
+                                         KIND_TIP.get('note', '')))
+                self._persist()
+                return True
+        return False
+
+    def remove_note(self, note_id):
+        """按 id 删便签（3.0 主区删除用）。返回是否真的删了。
+
+        ⛔ 只认 kind == 'note'：不许用这个方法误删任务/状态等核心页签
+          （CORE_KINDS 里只有 tasks，这里条件更窄，是双保险）。
+        复用 remove_tab，不重复实现「删光回退默认页签」那套逻辑。
+        """
+        for i, t in enumerate(self._tabs):
+            if t.get('id') == note_id and t.get('kind') == 'note':
+                return self.remove_tab(i)
+        return False
+
     def refresh_dynamic(self, force=False):
         """刷新状态/花费/待办/系统页
 
