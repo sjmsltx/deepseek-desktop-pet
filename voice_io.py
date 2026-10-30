@@ -78,8 +78,13 @@ def rate_to_multiplier(rate):
     return 1.0 + int(s.rstrip('%')) / 100.0
 DEFAULT_TIMEOUT = 30
 EDGE_TIMEOUT = 20              # 在线合成超时（秒）；超了转离线
-NIGHT_START_HOUR = 23          # 23:00 起静音
+NIGHT_START_HOUR = 23          # 保留：旧接口 is_night() 的默认值（测试按它钉着）
 NIGHT_END_HOUR = 8             # 至 08:00
+#: 夜间静音的**默认时段**（分钟制：(起, 止)）。跨零点时 起 > 止。
+#: 2026-10-30（Owner 要求可配多时段）：原来这里是两个小时常量写死，
+#: 界面上也写死成「23:00–08:00」，用户改不了。现在改成一份可编辑的时段表，
+#: 默认仍是 23:00→08:00，行为不变。
+DEFAULT_QUIET_RANGES = ((23 * 60, 8 * 60),)
 MCI_ALIAS = 'petvoice'         # MCI 播放句柄别名
 
 # 声线清单：(配置值, 显示名, 引擎)
@@ -173,6 +178,191 @@ def clean_for_speech(text, max_chars=DEFAULT_MAX_CHARS):
     if not re.search(r'[\u4e00-\u9fffA-Za-z0-9]', s):
         return ''
     return s
+
+
+def _point_to_min(v):
+    """把一个时间点解析成「当天第几分钟」（0~1440）。坏值返回 None。
+
+    接受：int/float（当时）、24（仅作终点时合法）、"23"、"23:30"、"23:30:00"、
+          (23, 30) / [23, 30]。
+    ⛔ 不猜「23 是小时还是分钟」—— 一律当时。分钟必须写成 "23:30" 这种形式。
+    """
+    try:
+        if isinstance(v, bool):              # bool 是 int 子类，必须先挡掉
+            return None
+        if isinstance(v, (int, float)):
+            h = int(v)
+            if h < 0 or h > 24:
+                return None
+            return h * 60
+        if isinstance(v, (tuple, list)):
+            if len(v) != 2:
+                return None
+            h, m = int(v[0]), int(v[1])
+            if not (0 <= h <= 24 and 0 <= m <= 59):
+                return None
+            return h * 60 + m
+        s = str(v).strip()
+        if not s:
+            return None
+        parts = s.replace('：', ':').split(':')      # 顺手认全角冒号
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 and parts[1] != '' else 0
+        if not (0 <= h <= 24 and 0 <= m <= 59):
+            return None
+        return h * 60 + m
+    except (TypeError, ValueError, IndexError) as _exc:
+        # 落痕：静默护栏要求「吞之前说一声」（本函数对坏值的处置是明确的：返回 None）
+        _log.debug('_point_to_min: 时间点 %r 无法解析（%s），按无效处理', v, _exc)
+        return None
+
+
+def parse_quiet_ranges(raw):
+    """把配置里的静音时段洗成 [(起分钟, 止分钟), ...]。
+
+    宽进严出（手改 config.json 的人可能写成各种样子）：
+        [["23:00","08:00"]]            ← 界面写出来的规范形式
+        [[23, 8], [12, 13]]            ← 小时数
+        [{"start":"23:00","end":"08:00"}]
+        ["23:00-08:00", "12:00~13:30"] ← 手写一行的形式（- 或 ~ 分隔）
+    坏条目**跳过而不是整份作废** —— 用户写错一条不该把其余几条一起丢掉。
+    返回空列表 = 没有任何有效时段（调用方据此回落默认值，见 DEFAULT_QUIET_RANGES）。
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (str, dict)):
+        raw = [raw]
+    try:
+        items = list(raw)
+    except TypeError:
+        return []
+
+    # 再认两种「人手里最自然的写法」，否则手改 config.json 会静默失效：
+    #   ["23:00", "08:00"]        ← 只写一个时段、没套外层列表
+    #   [[23, 0, 8, 0]]            ← 四元组 (起时, 起分, 止时, 止分)
+    if len(items) == 2 and all(_point_to_min(x) is not None for x in items):
+        items = [items]
+    else:
+        fixed = []
+        for it in items:
+            if isinstance(it, (tuple, list)) and len(it) == 4:
+                fixed.append([[it[0], it[1]], [it[2], it[3]]])
+            else:
+                fixed.append(it)
+        items = fixed
+
+    out = []
+    for it in items:
+        s = e = None
+        try:
+            if isinstance(it, dict):
+                s = _point_to_min(it.get('start', it.get('from')))
+                e = _point_to_min(it.get('end', it.get('to')))
+            elif isinstance(it, str) and ('-' in it or '~' in it):
+                sep = '-' if '-' in it else '~'
+                a, b = it.split(sep, 1)
+                s, e = _point_to_min(a), _point_to_min(b)
+            elif isinstance(it, (tuple, list)) and len(it) == 2:
+                s, e = _point_to_min(it[0]), _point_to_min(it[1])
+        except Exception as _exc:
+            _log.debug('parse_quiet_ranges: 跳过坏条目 %r（%s）', it, _exc)
+            continue
+        if s is None or e is None:
+            continue
+        if s == e:                       # 起止相同 = 长度 0，没有意义
+            continue
+        # 24:00 当终点 = 当天结束；当起点没有意义（等于 00:00）。统一夹到 1440 之内。
+        s, e = min(s, 1440), min(e, 1440)
+        if (s, e) not in out:
+            out.append((s, e))
+    out.sort()
+    return out
+
+
+def to_minute_ranges(ranges):
+    """把任意写法归一成**内部格式** [(起分钟, 止分钟), ...]。
+
+    ⚠ 为什么需要它（2026-10-30 实测踩到）：
+        界面手里是 `[(1350, 480), (720, 810)]`（起止分钟），而
+        `parse_quiet_ranges` 认的是**外部**格式（"23:00" / "23:00-08:00"）。
+        直接拿分钟去 parse，`_point_to_min(1350)` 会判成「1350 时」→ 非法 → 全丢，
+        **用户在界面上一改时段，什么都不会保存，还不报错**。
+
+    判据：元素全是 0~1440 的整数二元组 → 当内部格式直接用；
+          否则回落到 `parse_quiet_ranges`。
+    ⛔ 契约：**内部优先**。`[[23, 8]]` 一律当「第 23 分钟 → 第 8 分钟」；
+       要表达小时必须写 `"23:00"`。
+    """
+    out = []
+    try:
+        items = list(ranges or [])
+    except TypeError:
+        items = []
+    for it in items:
+        try:
+            if isinstance(it, (tuple, list)) and len(it) == 2:
+                s, e = it[0], it[1]
+                if all(isinstance(x, int) and not isinstance(x, bool) for x in (s, e)):
+                    if 0 <= s <= 1440 and 0 <= e <= 1440 and s != e:
+                        if (s, e) not in out:
+                            out.append((s, e))
+                        continue
+            break               # 有一个不是内部格式 → 整份按外部解析
+        except Exception as _exc:
+            _log.debug('to_minute_ranges: 条目 %r 不是内部格式（%s），改走外部解析', it, _exc)
+            break
+    if out and len(out) == len(items):
+        out.sort()
+        return out
+    return parse_quiet_ranges(ranges)
+
+
+def format_quiet_ranges(ranges):
+    """把 [(起, 止)] 格式化成 [["23:00","08:00"], ...]（写进 config 的规范形式）"""
+    def _hm(m):
+        m = int(m)
+        return '%02d:%02d' % (m // 60, m % 60) if m < 1440 else '24:00'
+    return [[_hm(s), _hm(e)] for s, e in (ranges or [])]
+
+
+def describe_quiet_ranges(ranges):
+    """给人看的一句话，如「23:00–08:00、12:00–13:30」；空则「（未设置）」"""
+    try:
+        pairs = format_quiet_ranges(ranges)
+    except Exception as _exc:
+        _log.debug('describe_quiet_ranges: 格式化失败（%s），按未设置显示', _exc)
+        return '（未设置）'
+    return '、'.join('%s–%s' % (a, b) for a, b in pairs) or '（未设置）'
+
+
+def in_quiet_hours(now=None, ranges=None):
+    """现在是否落在**任一**静音时段内（本机本地时间）。
+
+    用**本机本地时间**而不是北京时间：静音看的是人的生活作息，不是计价口径。
+    ranges 为空 → 用 DEFAULT_QUIET_RANGES。
+    跨零点（起 > 止，如 23:00→08:00）必须支持 —— 那正是默认值。
+    """
+    rng = ranges if ranges else DEFAULT_QUIET_RANGES
+    try:
+        if now is None:
+            now = time.localtime()
+        # minute 缺省 0：兼容只给 hour 的对象（既有测试桩就是这种）。
+        # 不这么写的话 getattr 会抛 AttributeError，被下面的 except 吞掉，
+        # 静默返回 False —— 表现成「夜里不静音了」，极难查。
+        cur = int(now.hour) * 60 + int(getattr(now, 'minute', 0) or 0)
+        for s, e in rng:
+            s, e = int(s), int(e)
+            if s <= e:
+                if s <= cur < e:
+                    return True
+            else:
+                if cur >= s or cur < e:      # 跨零点
+                    return True
+        return False
+    except Exception as _exc:
+        # 兜底为「不在静音时段」：宁可多出声，也不要因为判定出错而永久静音
+        _log.debug('in_quiet_hours: 判定失败（%s），按不静音处理', _exc)
+        return False
 
 
 def is_night(now=None, start=NIGHT_START_HOUR, end=NIGHT_END_HOUR):
@@ -381,7 +571,7 @@ class VoiceIO:
 
     def __init__(self, base_dir, enabled=False, engine='auto', voice='',
                  night_quiet=True, max_chars=DEFAULT_MAX_CHARS, timeout=DEFAULT_TIMEOUT,
-                 runner=None, local_url='', local_ref='', local_prompt='', local_lang='zh',
+                 quiet_ranges=None, runner=None, local_url='', local_ref='', local_prompt='', local_lang='zh',
                  local_timeout=20, rate='', fallback_voice=''):
         self.base_dir = base_dir
         self.ps1 = os.path.join(base_dir, 'tts_helper.ps1')
@@ -395,6 +585,11 @@ class VoiceIO:
         self.local_lang = local_lang or 'zh'
         self.local_timeout = int(local_timeout)
         self.night_quiet = bool(night_quiet)
+        #: 静音时段 [(起分钟, 止分钟)]，跨零点时 起 > 止。
+        #: 2026-10-30（Owner 要求可配多时段）：原来是两个写死的小时常量。
+        #: 传空/坏值 → 回落 DEFAULT_QUIET_RANGES（行为与旧版一致）。
+        self.quiet_ranges = (to_minute_ranges(quiet_ranges)
+                             or list(DEFAULT_QUIET_RANGES))
         self.max_chars = int(max_chars)
         self.timeout = int(timeout)
         self.last_error = ''
@@ -421,7 +616,7 @@ class VoiceIO:
     # ---------- 对外接口 ----------
     def set_config(self, enabled=None, engine=None, voice=None, night_quiet=None,
                    local_url=None, local_ref=None, local_prompt=None, rate=None,
-                   fallback_voice=None, max_chars=None):
+                   fallback_voice=None, max_chars=None, quiet_ranges=None):
         with self._lock:
             if max_chars is not None:
                 # 2026-10-26：朗读字数上限要能在设置里改（原先前端从没传过它，
@@ -440,6 +635,11 @@ class VoiceIO:
                 self.rate = normalize_rate(rate)
             if night_quiet is not None:
                 self.night_quiet = bool(night_quiet)
+            if quiet_ranges is not None:
+                # 坏值/空值回落默认，而不是变成「啥时段都不静音」——
+                # 后者会让用户以为「设了没生效」，其实是被静默清空了
+                self.quiet_ranges = (to_minute_ranges(quiet_ranges)
+                                     or list(DEFAULT_QUIET_RANGES))
             if local_url is not None:
                 self.local_url = local_url
             if local_ref is not None:
@@ -453,7 +653,7 @@ class VoiceIO:
         """现在不能朗读的原因（'' = 可以读）—— 供界面如实提示"""
         if not self.enabled:
             return 'off'
-        if self.night_quiet and is_night(now):
+        if self.night_quiet and in_quiet_hours(now, self.quiet_ranges):
             return 'night'
         return ''
 

@@ -696,6 +696,8 @@ class PetWidget(QWidget):
                              engine=str(getattr(self, 'voice_engine', 'auto') or 'auto'),
                              voice=str(getattr(self, 'voice_name', '') or ''),
                              night_quiet=bool(getattr(self, 'voice_night_quiet', True)),
+                             # 2026-10-30（Owner 要求可配多时段）：原先夜里只能 23:00–8:00，写死在常量里
+                             quiet_ranges=getattr(self, 'voice_quiet_ranges', None),
                              local_url=str(getattr(self, 'voice_local_url', '') or ''),
                              local_ref=str(getattr(self, 'voice_local_ref', '') or ''),
                              local_prompt=str(getattr(self, 'voice_local_prompt', '') or ''),
@@ -1220,6 +1222,20 @@ class PetWidget(QWidget):
                 self.voice_engine = str(cfg.get('voice_engine', 'auto') or 'auto')
                 self.voice_name = str(cfg.get('voice_name', '') or '')
                 self.voice_night_quiet = bool(cfg.get('voice_night_quiet', True))
+                # 2026-10-30：静音时段改成可配多时段（默认仍是 23:00–08:00）。
+                # ⚠ 手改 config.json 写坏了不许静默：坏值回落默认 + 留痕，
+                #   否则用户会以为「我设了新时段，怎么还是老时间」。
+                try:
+                    from voice_io import parse_quiet_ranges as _pqr, DEFAULT_QUIET_RANGES as _DQR
+                    _raw_qr = cfg.get('voice_quiet_ranges')
+                    _qr = _pqr(_raw_qr)
+                    if _raw_qr and not _qr:
+                        _silent_log('_load_ai_config:voice_quiet_ranges',
+                    ValueError('配置里的时段一条都解析不出'))
+                    self.voice_quiet_ranges = _qr or list(_DQR)
+                except Exception as _exc:
+                    _silent_log('voice_quiet_ranges', _exc)
+                    self.voice_quiet_ranges = None
                 # ===== 语音输入（asr_*）：与 voice_* 同体例 =====
                 # ⛔ 2026-10-25 修：此前这一整组**从来没被加载过**（只加载 voice_*）。
                 #   而构造参数用的是 getattr(self, 'asr_backend', 'auto') ⇒ 属性不存在时
@@ -1286,6 +1302,7 @@ class PetWidget(QWidget):
                     if getattr(self, 'voice', None) is not None:
                         self.voice.set_config(enabled=self.voice_enabled, engine=self.voice_engine,
                                               voice=self.voice_name, night_quiet=self.voice_night_quiet,
+                                              quiet_ranges=getattr(self, 'voice_quiet_ranges', None),
                                               local_url=self.voice_local_url,
                                               local_ref=self.voice_local_ref,
                                               local_prompt=self.voice_local_prompt,
@@ -8565,7 +8582,45 @@ class PetWidget(QWidget):
         v = getattr(self, 'voice', None)
         if v is not None:
             v.set_config(night_quiet=want)
-        self._notify('🌙 已开启夜间静音（23:00–08:00 不出声）' if want else '已关闭夜间静音')
+        # 2026-10-30：提示按**实际配置的时段**说，不再写死 23:00–08:00
+        try:
+            from voice_io import describe_quiet_ranges as _dqr
+            _desc = _dqr(getattr(self, 'voice_quiet_ranges', None))
+        except Exception as _exc:
+            _silent_log('_toggle_voice_night:describe', _exc)
+            _desc = '23:00–08:00'
+        self._notify('🌙 已开启夜间静音（%s 不出声）' % _desc if want else '已关闭夜间静音')
+
+    def _set_voice_quiet_ranges(self, ranges):
+        """设置静音时段（可多段）。ranges 接受 parse_quiet_ranges 认的任何写法。
+
+        2026-10-30（Owner：「夜间静音设置成可调节时间，可以多时段」）。
+        ⛔ 坏值不写进配置：先解析，解析不出就返回 None、什么都不改 ——
+          免得用户点一下保存就把自己原来的时段清空了。
+        """
+        # ⛔ 用 to_minute_ranges 而不是 parse_quiet_ranges：界面传进来的是
+        #   **内部**分钟格式，交给只认外部字符串的 parse 会全丢（2026-10-30 实测）
+        from voice_io import (to_minute_ranges, format_quiet_ranges,
+                             describe_quiet_ranges)
+        parsed = to_minute_ranges(ranges)
+        if not parsed:
+            _silent_log('_set_voice_quiet_ranges',
+                        ValueError('传入的时段解析不出任何有效值：%r' % (ranges,)))
+            return None
+        self.voice_quiet_ranges = parsed
+        if not self._save_cfg_value('voice_quiet_ranges', format_quiet_ranges(parsed)):
+            return None
+        v = getattr(self, 'voice', None)
+        if v is not None:
+            try:
+                v.set_config(quiet_ranges=parsed)
+            except Exception as _exc:
+                _silent_log('_set_voice_quiet_ranges.apply', _exc)
+        try:
+            self._notify('🌙 静音时段：%s' % describe_quiet_ranges(parsed))
+        except Exception as _exc:
+            _silent_log('_set_voice_quiet_ranges:notify', _exc)
+        return parsed
 
     def _set_voice_rate(self, rate):
         """设置语速（v6.76）：写配置 + 立即生效（在线声线用百分比，离线换算成档位）"""

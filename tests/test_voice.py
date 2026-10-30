@@ -584,3 +584,87 @@ def test_local_fields_wired_in_settings_and_host():
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__, '-q']))
+
+
+# ------------------------------------------------- 多时段静音（2026-10-30）
+
+class _HM:
+    """带 hour + minute 的时刻桩（旧桩只有 hour，见 test_night_quiet_blocks）"""
+
+    def __init__(self, h, m=0):
+        self.hour = h
+        self.minute = m
+
+
+def test_default_quiet_ranges_is_still_23_to_8():
+    """默认行为不许变：不配置时仍是 23:00–08:00"""
+    assert vio.DEFAULT_QUIET_RANGES == ((23 * 60, 8 * 60),)
+    assert vio.in_quiet_hours(_HM(23), None) is True
+    assert vio.in_quiet_hours(_HM(3), None) is True
+    assert vio.in_quiet_hours(_HM(8), None) is False
+    assert vio.in_quiet_hours(_HM(15), None) is False
+
+
+def test_multiple_quiet_ranges_with_cross_midnight():
+    """多时段 + 跨零点：每个端点都要判对"""
+    rng = vio.parse_quiet_ranges([['23:00', '08:00'], ['12:00', '13:30']])
+    cases = [(23, 0, True), (23, 59, True), (0, 0, True), (7, 59, True),
+             (8, 0, False), (12, 0, True), (13, 29, True), (13, 30, False),
+             (11, 59, False), (15, 0, False)]
+    for h, m, want in cases:
+        got = vio.in_quiet_hours(_HM(h, m), rng)
+        assert got is want, '%02d:%02d 期望 %s 实际 %s' % (h, m, want, got)
+
+
+def test_parse_accepts_handwritten_forms():
+    """手改 config.json 的几种自然写法都要认（否则静默失效）"""
+    assert vio.parse_quiet_ranges(['23:00', '08:00']) == [(1380, 480)]
+    assert vio.parse_quiet_ranges([['23:00', '08:00']]) == [(1380, 480)]
+    assert vio.parse_quiet_ranges([{'start': '23:00', 'end': '08:00'}]) == [(1380, 480)]
+    assert vio.parse_quiet_ranges(['23:00-08:00', '12:00~13:30']) == [(720, 810), (1380, 480)]
+    assert vio.parse_quiet_ranges([[23, 0, 8, 0]]) == [(1380, 480)]
+
+
+def test_parse_drops_bad_items_keeps_good():
+    """坏条目跳过，不许整份作废（写错一条不该把其余几条一起丢）"""
+    got = vio.parse_quiet_ranges([['23:00', '08:00'], 'oops', ['25:99', 'x'], [5, 5]])
+    assert got == [(1380, 480)], got
+
+
+def test_to_minute_ranges_prefers_internal_format():
+    """内部分钟格式必须原样通过（否则界面一改就全丢）"""
+    assert vio.to_minute_ranges([(1350, 480), (720, 810)]) == [(720, 810), (1350, 480)]
+    # 外部写法仍能走
+    assert vio.to_minute_ranges([['23:00', '08:00']]) == [(1380, 480)]
+    # 空 → 空（由调用方决定是否回落默认）
+    assert vio.to_minute_ranges([]) == []
+
+
+def test_format_roundtrip():
+    """格式化 → 再解析，必须回到原值（防止两边格式漂移）"""
+    rng = [(12 * 60, 13 * 60 + 30), (23 * 60, 8 * 60)]
+    txt = vio.format_quiet_ranges(rng)
+    assert txt == [['12:00', '13:30'], ['23:00', '08:00']]
+    # parse 会按「起始分钟」排序 —— 这是设计（describe 与界面都按序显示），
+    # 所以这里比较排序后的结果，不假设调用方给的顺序会被保留
+    assert vio.parse_quiet_ranges(txt) == sorted(rng)
+
+
+def test_voiceio_uses_quiet_ranges_not_hardcoded(tmp_path):
+    """VoiceIO 必须按配置的时段判断，而不是写死的 23–8"""
+    rec = _Recorder()
+    v = vio.VoiceIO(str(tmp_path), enabled=True, night_quiet=True,
+                    quiet_ranges=[['12:00', '13:00']], runner=rec)
+    assert v.blocked_reason(now=_HM(12, 30)) == 'night', '正午时段没被静音'
+    assert v.blocked_reason(now=_HM(3, 0)) == '', '3 点不该静音（时段已改成 12–13）'
+    # 总开关仍然管用
+    v.set_config(night_quiet=False)
+    assert v.blocked_reason(now=_HM(12, 30)) == ''
+
+
+def test_voiceio_bad_ranges_fall_back_to_default(tmp_path):
+    """传空/坏值 → 回落默认，而不是变成「啥都不静音」"""
+    rec = _Recorder()
+    v = vio.VoiceIO(str(tmp_path), enabled=True, night_quiet=True,
+                    quiet_ranges=[['25:99', 'x']], runner=rec)
+    assert v.quiet_ranges == list(vio.DEFAULT_QUIET_RANGES)

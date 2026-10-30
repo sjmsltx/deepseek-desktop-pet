@@ -16,13 +16,13 @@ settings_ui.py — 统一设置窗口（Phase 5）
 """
 import os
 import time
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTime, Qt
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QPushButton, QSpinBox, QStackedWidget, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget)
+QTableWidgetItem, QTimeEdit, QVBoxLayout, QWidget)
 import pet_foreground as fgwin  # v6.59 前台程序感知（只读进程名，隐私边界见模块头部）
 from pet_log import get_logger
 
@@ -439,6 +439,129 @@ class SettingsDialog(QDialog):
         return p
 
     # ---------- ④b 语音（v6.64 新拆分） ----------
+    # ---------- 夜间静音：多时段编辑（2026-10-30）----------
+    
+    def _quiet_time(self, minutes):
+        """分钟数 → QTime（1440 夹到 23:59，QTime 不接受 24:00）"""
+        m = max(0, min(1439, int(minutes)))
+        return QTime(m // 60, m % 60)
+    
+    def _quiet_minutes(self, qtime):
+        return int(qtime.hour()) * 60 + int(qtime.minute())
+    
+    def _add_quiet_row(self, start_min=23 * 60, end_min=8 * 60):
+        """加一行时段编辑器。返回该行控件。
+    
+        ⛔ 不加进 self._quiet_rows 才算「没加」—— 收集时只认这个列表，
+          所以测试能靠它的长度判断界面与数据是否一致。
+        """
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        t1 = QTimeEdit()
+        t2 = QTimeEdit()
+        for t in (t1, t2):
+            t.setDisplayFormat('HH:mm')
+        t1.setTime(self._quiet_time(start_min))
+        t2.setTime(self._quiet_time(end_min))
+        h.addWidget(t1)
+        h.addWidget(QLabel('→'))
+        h.addWidget(t2)
+        btn = QPushButton('删')
+        btn.setFixedWidth(40)
+        btn.clicked.connect(lambda _c=False, r=row: self._del_quiet_row(r))
+        h.addWidget(btn)
+        h.addStretch(1)
+        self._quiet_rows_lay.addWidget(row)
+        self._quiet_rows.append((row, t1, t2, btn))
+        self._quiet_empty.setVisible(False)
+        for t in (t1, t2):
+            t.timeChanged.connect(lambda *_: self._apply_quiet_rows())
+        return row
+    
+    def _del_quiet_row(self, row):
+        """删一行。⛔ 至少留一行 —— 全删光会让用户看到空界面还不知道怎么救。"""
+        if len(self._quiet_rows) <= 1:
+            self.host._notify('至少保留一个时段；不想要夜间静音请取消左边勾选')
+            return
+        for item in list(self._quiet_rows):
+            if item[0] is row:
+                self._quiet_rows.remove(item)
+                row.setParent(None)
+                row.deleteLater()
+                break
+        self._quiet_empty.setVisible(not self._quiet_rows)
+        self._apply_quiet_rows()
+    
+    def _fill_quiet_rows(self, ranges):
+        """把配置里的时段铺进编辑区（先清空，避免重复叠加）"""
+        for item in list(self._quiet_rows):
+            item[0].setParent(None)
+            item[0].deleteLater()
+        self._quiet_rows = []
+        # 2026-10-30：这里**不能再调 parse_quiet_ranges** ——
+        #   宿主给的是**内部格式** [(起分钟, 止分钟)]，而 parse 认的是外部格式
+        #   [["23:00","08:00"]]。之前二次解析把 (1380,480) 当成「1380 时」→ 非法 →
+        #   全丢掉 → 回落默认单时段，用户配的三段打开设置只剩一段（静默丢失）。
+        from voice_io import DEFAULT_QUIET_RANGES
+        parsed = []
+        try:
+            for it in (ranges or []):
+                s, e = int(it[0]), int(it[1])
+                if 0 <= s <= 1440 and 0 <= e <= 1440 and s != e:
+                    parsed.append((s, e))
+        except (TypeError, ValueError, IndexError) as _exc:
+            _log.debug('回填静音时段时跳过坏条目（%s）', _exc)
+        if not parsed:
+            parsed = list(DEFAULT_QUIET_RANGES)
+        for s, e in parsed:
+            self._add_quiet_row(s, e)
+        self._quiet_empty.setVisible(False)
+    
+    def _apply_quiet_rows(self):
+        """把界面上的时段收起来交给宿主保存。正在构建界面时不动（防来回写）。"""
+        if getattr(self, '_building', False):
+            return None
+        pairs = []
+        for _row, t1, t2, _btn in self._quiet_rows:
+            pairs.append([self._quiet_minutes(t1.time()),
+                          self._quiet_minutes(t2.time())])
+        return self.host._set_voice_quiet_ranges(pairs)
+    
+    def _build_quiet_editor(self, form):
+        """构建「夜间静音 → 时段表」这块界面（2026-10-30）。
+    
+        ⛔ 单独抽出来的理由：`test_page_structure_ratchet` 按语句数盯着 `_page_voice`
+          （原基线 48）。把这块塞回去会让它涨到 80 多 —— 那时候该做的是拆，
+          不是上调基线（上调等于让护栏自我安慰）。
+        """
+        wrap = QWidget()
+        _qw = QVBoxLayout(wrap)
+        _qw.setContentsMargins(0, 0, 0, 0)
+        _qw.setSpacing(4)
+        _qw.addWidget(self.ck_voice_night)
+    
+        self._quiet_box = QWidget()
+        self._quiet_lay = QVBoxLayout(self._quiet_box)
+        self._quiet_lay.setContentsMargins(0, 0, 0, 0)
+        self._quiet_lay.setSpacing(4)
+        self._quiet_rows = []      # [(QWidget, QTimeEdit, QTimeEdit, QPushButton)]
+        self._quiet_rows_lay = QVBoxLayout()
+        self._quiet_rows_lay.setContentsMargins(0, 0, 0, 0)
+        self._quiet_rows_lay.setSpacing(4)
+        self._quiet_lay.addLayout(self._quiet_rows_lay)
+        self._quiet_empty = QLabel('（还没有时段，点下面「＋ 添加时段」）')
+        self._quiet_empty.setStyleSheet(STYLE_HINT)
+        self._quiet_lay.addWidget(self._quiet_empty)
+        btn_add_quiet = QPushButton('＋ 添加时段')
+        btn_add_quiet.clicked.connect(lambda: self._add_quiet_row())
+        self._quiet_lay.addWidget(btn_add_quiet)
+    
+        _qw.addWidget(self._quiet_box)
+        form.addRow('夜间静音', wrap)
+        return wrap
+    
     def _page_voice(self):
         p = self._page('语音',
                        'AI 回复可自动念出来：默认走在线神经声线（音质最好、不需 Key 且不计费，需联网），'
@@ -551,11 +674,14 @@ class SettingsDialog(QDialog):
             and self.host._set_voice_local(prompt=self.ed_voice_prompt.text()))
         f.addRow('参考文本', self.ed_voice_prompt)
 
-        self.ck_voice_night = QCheckBox('夜间静音（23:00–08:00 不出声）')
+        # 2026-10-30（Owner：「夜间静音设置成可调节时间，可以多时段」）
+        #   原来这里是一个写死「23:00–08:00」的勾选框，时段改不了。
+        #   现在：勾选框只当**总开关**，下面挂一个可增删的时段表。
+        self.ck_voice_night = QCheckBox('启用夜间静音（时段见下）')
         self.ck_voice_night.toggled.connect(
             lambda *_: not self._building and self.host._toggle_voice_night())
-        self.ck_voice_night.setToolTip('按**本机本地时间**判断夜里（与计价用北京时间无关）')
-        f.addRow('夜间静音', self.ck_voice_night)
+        self.ck_voice_night.setToolTip('按**本机本地时间**判断（与计价用北京时间无关）')
+        self._build_quiet_editor(f)
         self._buttons(f, '语音', [('🔊 试听一句', self.host._test_voice),
                                   ('🔌 测试本地服务', self.host._test_local_tts)])
         self._buttons(f, '文档', [('❓ 怎么填自己的模型 / 自己的声音', self.host._show_model_help)])
@@ -1260,6 +1386,8 @@ class SettingsDialog(QDialog):
             _i = self.cb_voice_name.findData('%s:%s' % (_eng, _vn))
             self.cb_voice_name.setCurrentIndex(_i if _i >= 0 else 0)
             self.ck_voice_night.setChecked(bool(getattr(h, 'voice_night_quiet', True)))
+            # 2026-10-30：把实际时段铺进编辑区（默认 23:00–08:00）
+            self._fill_quiet_rows(getattr(h, 'voice_quiet_ranges', None))
             # v6.76：语速回填
             from voice_io import normalize_rate as _nr
             _rv = _nr(getattr(h, 'voice_rate', '') or '')
