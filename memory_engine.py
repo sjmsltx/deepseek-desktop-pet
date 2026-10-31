@@ -180,7 +180,8 @@ EXTRACT_PROMPT = """你是记忆抽取器。从下面的对话中，提炼值得
 4. 与已有记忆重复或冲突的 → 在 update_facts 里给 id 和新内容；
 5. 输出格式（严格 JSON）：
 {{"facts": [{{"content": "...", "importance": 1-5}}],
-  "events": [{{"title": "简短标题", "detail": "描述"}}],
+  "events": [{{"title": "简短标题", "detail": "描述",
+               "emotion": "这段对话的主导情绪，1-2个词，如 开心/心疼/惊讶/温柔/平静"}}],
   "update_facts": [{{"id": "已有id", "content": "更新后内容"}}]}}
 
 已有记忆：
@@ -225,7 +226,74 @@ def score_recency(updated_at, now=None, half_life_days=30.0):
     return 0.5 ** (max(days, 0) / half_life_days)
 
 
+# 身份判据（2026-10-31 加）：只有这几类才算「人格卡」内容。
+# 审核 WX 侧指出：原来 L0 没有任何身份判据，实质只是「重要度前 N 条」，
+# 把普通偏好当永久设定，名不副实。这里给显式判据，而不是靠 importance 冒充。
+_IDENTITY_PATTERNS = (
+    '我的名字叫', '我叫', '名字叫', '用户叫', '称呼为',
+    '角色叫', '模型姐姐叫', '的姐姐叫', '是我',
+)
+_IDENTITY_MAX = 6          # 身份条目上限（防判据过宽把整库吸进来）
+
+
+def _is_identity(text):
+    """这条事实是不是「身份/命名」类（该进人格卡、每次必注入）"""
+    t = (text or '').strip()
+    if not t or len(t) > 80:
+        return False
+    return any(p in t for p in _IDENTITY_PATTERNS)
+
+
+def build_l0_block(facts, current, budget=320):
+    """核心记忆块：身份类必进 + 其余高重要度按预算填充。
+
+    返回 (block_text, used_objects)。
+      · used_objects 是**对象列表**（不是 id 字段）—— memory.json 里存在
+        3 组重复 id（同一次抽取同毫秒写入），按 id 剔除会连带删掉同名 id 的另一条。
+      · 身份类不受 budget 限制（身份是极少数短条目，且必须每轮在）；
+        其余按重要度降序、**超预算即 break**（原用 continue，会造成长的高重要度
+        被跳过、短的低的入选 —— 实测倒挂）。
+      · 预算按实际字符计（含「★n 」前缀与换行）。
+    """
+    fs = [f for f in facts
+          if f.get('status') == 'active'
+          and (f.get('roles', 'both') == 'both' or f.get('roles') == current)]
+    fs.sort(key=lambda x: (-float(x.get('importance', 3)), -score_recency(x.get('updated_at'))))
+
+    ident, rest = [], []
+    for f in fs:
+        text = (f.get('content') or '').strip()
+        if not text:
+            continue
+        if _is_identity(text):
+            if len(ident) < _IDENTITY_MAX:
+                ident.append(f)
+            continue
+        rest.append(f)
+
+    lines, used_objs, used_chars = [], [], 0
+    for f in ident:                      # 身份：必进，不占普通预算
+        line = '★%s %s' % (f.get('importance', 3), (f.get('content') or '').strip())
+        lines.append(line)
+        used_objs.append(f)
+        used_chars += len(line) + 1
+    for f in rest:                       # 其余：按预算，超了就停
+        line = '★%s %s' % (f.get('importance', 3), (f.get('content') or '').strip())
+        if used_chars + len(line) + 1 > budget:
+            break
+        lines.append(line)
+        used_objs.append(f)
+        used_chars += len(line) + 1
+    return '\n'.join(lines), used_objs
+
+
 def build_core_block(facts, current, budget=400):
+    """【已弃用，请用 build_l0_block】核心记忆块的旧实现。
+
+    保留它只为兼容 regression_test.py；**生产路径零调用**（WX-155 §4.1 复核）。
+    它没有身份特判、按 importance+recency 纯排序，与 build_l0_block 语义不同 ——
+    ⛔ 改「核心记忆」时请改 build_l0_block，改这里不会生效。
+    """
     """core 记忆块：角色匹配 + 高重要度常驻（≤budget 字符）"""
     lines = []
     used = 0
