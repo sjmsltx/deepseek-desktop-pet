@@ -110,6 +110,65 @@ _EMOJI_RE = re.compile(
     '[\U0001F300-\U0001FAFF\U0001F000-\U0001F2FF\u2600-\u27BF\uFE0F\u2B00-\u2BFF]')
 
 
+#: 开场寒暄/过渡句的常见起头（2026-10-31，配「背诵原文」那一族需求）
+_PREAMBLE_LEADS = (
+    '好', '嗯', '行', '那', '现在', '接下来', '下面', '那么', '当然', '没问题',
+    '我这就', '我开始', '让我', '深呼吸', '注意听', '你听好', '听好了', '起',
+)
+
+
+def _strip_preamble(s):
+    """剥掉**开头连续的**寒暄/过渡行，不动正文。
+
+    Owner 要求原话：「全部都读的话又会读出来用户不想要的其他的那些什么问候语之类的其他话」。
+    所以背原文时要剥掉「深呼吸，我开始背啦」这类。
+
+    只剥开头，且必须同时满足：
+      · 该行长度 ≤ 18 字
+      · 以 `_PREAMBLE_LEADS` 里的词开头
+      · 该行**不含**句号/问号/叹号结尾的完整陈述（避免误删第一句诗）
+    最多剥 3 行。
+    """
+    lines = s.split('\n')
+    i = 0
+    while i < len(lines) and i < 3:
+        ln = lines[i].strip()
+        if not ln:
+            i += 1
+            continue
+        if len(ln) <= 18 and any(ln.startswith(k) for k in _PREAMBLE_LEADS):
+            i += 1
+            continue
+        break
+    # ⚠ 只剥**开头**的行，不许顺手 strip 整串 —— 那样会吃掉结尾换行，
+    #   让原本「逐字节相等」的调用方（如 mode=full 的既有契约）出现无意义差异。
+    #   （2026-10-31 实测踩到：test_full_mode_returns_full_text 就红在这个尾换行）
+    out = '\n'.join(lines[i:])
+    out = out.lstrip('\n')          # 去掉剥掉开头后残留的空行
+    return out if out.strip() else s
+
+
+def _looks_like_verse(s):
+    """这段像不像「该整篇念出来」的韵文（诗词/曲/短句成段）？
+
+    判据（宁可漏判，不可误伤普通长回复）：
+      · 有效行 ≥ 6
+      · 短行（≤ 24 字）占 ≥ 60%
+      · 行末带中文标点的行占 ≥ 50%
+    """
+    try:
+        lines = [l.strip() for l in str(s or '').splitlines() if l.strip()]
+        if len(lines) < 6:
+            return False
+        short = sum(1 for l in lines if len(l) <= 24)
+        punct = sum(1 for l in lines if l and l[-1] in '，。？！；、…—·')
+        n = len(lines)
+        return (short / n) >= 0.6 and (punct / n) >= 0.5
+    except Exception as _exc:
+        _log.debug('_looks_like_verse 判定失败（%s），按否处理', _exc)
+        return False
+
+
 def choose_speech_text(text, mode='summary', summary=''):
     """按「朗读内容」策略挑出要念的文本（v6.76）。返回 (要念的文本, 备注)
 
@@ -126,10 +185,23 @@ def choose_speech_text(text, mode='summary', summary=''):
     if m == 'manual':
         return '', 'manual：不自动念'
     if m == 'full':
-        return s, ''
+        # ⚠ 2026-10-31（Owner）：「全部都读会读出那些问候语」⇒ full 也剥开场寒暄，
+        #   否则「深呼吸，我开始背啦」会被一起念出来。
+        body = _strip_preamble(s)
+        return body, ('full：全文（已剥开场寒暄）' if body != s else 'full：全文')
     sm = str(summary or '').strip()
     if sm:
+        # ⚠ 2026-10-31（Owner 实测：让它背 1360 字的诗，只念了 60 字摘要，日志已证）：
+        #   摘要策略对「要求朗读/背诵原文」是**错误策略** —— 用户要用耳朵接收的是原文。
+        #   ⛔ 不能靠「让模型别调 set_voice_summary」来解决（提示词不保证听话）
+        #   ⇒ 这里做**不依赖模型**的内容兜底：文本本身像韵文就念全文，并剥掉开场寒暄。
+        if _looks_like_verse(s):
+            body = _strip_preamble(s)
+            return body, '内容是韵文/诗词 ⇒ 忽略摘要，念全文（已剥开场寒暄）'
         return sm, '用 AI 摘要'
+    # —— 兜底：先看是不是韵文（同一条理由：韵文该整篇念）——
+    if _looks_like_verse(s):
+        return _strip_preamble(s), '内容是韵文/诗词 ⇒ 念全文（已剥开场寒暄）'
     # —— 兜底：首段 + 末段 ——
     blocks = [b.strip() for b in re.split(r'\n\s*\n', s) if b.strip()]
     keep = []
@@ -343,13 +415,30 @@ def in_quiet_hours(now=None, ranges=None):
     跨零点（起 > 止，如 23:00→08:00）必须支持 —— 那正是默认值。
     """
     rng = ranges if ranges else DEFAULT_QUIET_RANGES
+    # ⚠ 2026-10-31 加固：本函数只认**内部**分钟格式 [(起, 止)]，但调用方可能传
+    #   界面/手改 config 的外部格式（"23:00" / [["23:00","08:00"]]）——
+    #   传字符串会 int("23:00") 抛 ValueError → 被下面 except 吞 → 返回 False
+    #   → 表现成「静音不生效」且不报错。统一过一遍 to_minute_ranges（幂等）。
+    try:
+        rng = to_minute_ranges(rng) or DEFAULT_QUIET_RANGES
+    except Exception as _exc:
+        _log.debug('in_quiet_hours: 归一化时段失败（%r），按传入原样使用', _exc)
     try:
         if now is None:
             now = time.localtime()
-        # minute 缺省 0：兼容只给 hour 的对象（既有测试桩就是这种）。
-        # 不这么写的话 getattr 会抛 AttributeError，被下面的 except 吞掉，
-        # 静默返回 False —— 表现成「夜里不静音了」，极难查。
-        cur = int(now.hour) * 60 + int(getattr(now, 'minute', 0) or 0)
+        # ⚠ 2026-10-31 修（Owner 实测「夜间静音不生效」）：
+        #   `time.localtime()` 返回的是 `struct_time`，它**只有 tm_hour / tm_min，
+        #   没有 hour / minute**。原来直接写 `now.hour` ⇒ AttributeError ⇒ 被下面
+        #   的 except 吞掉 ⇒ **恒返回 False ⇒ 夜间静音彻底失效**。
+        #   （既有测试用带 hour/minute 的自造桩 `_HM()`，所以测试全绿，生产一跑就废。）
+        #   ⇒ 两种形状都认：`hour` 优先，回落 `tm_hour`；`minute` 优先，回落 `tm_min`。
+        _h = getattr(now, 'hour', None)
+        if _h is None:
+            _h = getattr(now, 'tm_hour', 0)
+        _m = getattr(now, 'minute', None)
+        if _m is None:
+            _m = getattr(now, 'tm_min', 0)
+        cur = int(_h) * 60 + int(_m)
         for s, e in rng:
             s, e = int(s), int(e)
             if s <= e:
@@ -360,8 +449,12 @@ def in_quiet_hours(now=None, ranges=None):
                     return True
         return False
     except Exception as _exc:
-        # 兜底为「不在静音时段」：宁可多出声，也不要因为判定出错而永久静音
-        _log.debug('in_quiet_hours: 判定失败（%s），按不静音处理', _exc)
+        # 兜底为「不在静音时段」：宁可多出声，也不要因为判定出错而永久静音。
+        # ⚠ 2026-10-31：从 debug 升到 **warning** —— 这个兜底会让夜间静音**静默失效**
+        #   （曾经就是这样：struct_time 没有 hour 属性 → 恒 False → 用户以为功能坏了，
+        #   日志里却什么都没有）。这类「吞掉就表现为功能失灵」的地方必须显眼。
+        _log.warning('in_quiet_hours: 判定失败（%r），按不静音处理 —— '
+                     '静音将失效，请查 now 的类型（struct_time 用 tm_hour/tm_min）', _exc)
         return False
 
 

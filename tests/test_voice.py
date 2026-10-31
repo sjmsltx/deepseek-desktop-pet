@@ -668,3 +668,89 @@ def test_voiceio_bad_ranges_fall_back_to_default(tmp_path):
     v = vio.VoiceIO(str(tmp_path), enabled=True, night_quiet=True,
                     quiet_ranges=[['25:99', 'x']], runner=rec)
     assert v.quiet_ranges == list(vio.DEFAULT_QUIET_RANGES)
+
+# ---------- 2026-10-31：真实类型回归（Owner 实测「夜间静音不生效」）----------
+# ⛔ 本组存在的理由：上面 `_HM(h, m)` 那种自造桩**有 hour/minute 属性**，
+#    而生产用的是 `time.localtime()` → `struct_time`，**只有 tm_hour/tm_min**。
+#    曾因此出现：`now.hour` 抛 AttributeError → 被 except 吞 → 恒返回 False
+#    → 夜间静音彻底失效，而上面那些桩测试**全是绿的**。
+#    ⇒ 凡涉及时间类型的判定，测试必须用真实类型（与「夹具要用真实字段集」同一条纪律）。
+
+
+def _struct_now(h, m=0, day=31):
+    """真实 `time.struct_time`（与 `time.localtime()` 同类型，只是时间点可控）"""
+    import time as _t
+    return _t.struct_time((2026, 10, day, h, m, 0, 5, 304, -1))
+
+
+def test_in_quiet_hours_accepts_real_struct_time():
+    """⭐ 默认 23:00–08:00 必须对**真实的 struct_time** 判对
+
+    改前（2026-10-31 之前）：`now.hour` 抛 AttributeError → 恒 False。
+    """
+    default = vio.DEFAULT_QUIET_RANGES
+    cases = [
+        (23, 0, True), (23, 59, True), (0, 0, True), (2, 22, True),
+        (7, 59, True),
+        (8, 0, False), (12, 0, False), (15, 30, False),
+    ]
+    for h, m, want in cases:
+        got = vio.in_quiet_hours(_struct_now(h, m), default)
+        assert got is want, (
+            'struct_time 下 %02d:%02d 期望 %s 实际 %s —— '
+            '注意 struct_time 只有 tm_hour/tm_min' % (h, m, want, got))
+
+
+def test_in_quiet_hours_real_struct_time_with_multiple_ranges():
+    """多时段 + 跨零点，也要对真实 struct_time 判对"""
+    rng = vio.parse_quiet_ranges([['23:00', '08:00'], ['12:00', '13:30']])
+    for h, m, want in [(23, 30, True), (2, 0, True), (7, 59, True),
+                       (8, 0, False), (12, 30, True), (13, 30, False),
+                       (15, 0, False)]:
+        got = vio.in_quiet_hours(_struct_now(h, m), rng)
+        assert got is want, '%02d:%02d 期望 %s 实际 %s' % (h, m, want, got)
+
+
+def test_in_quiet_hours_never_swallows_type_error_silently(monkeypatch):
+    """判定出错时必须留 warning 级痕迹（不许只有 debug）
+
+    这个 except 的兜底结果是「不静音」⇒ 功能静默失效。只有 debug 级时，
+    用户只会看到「夜间不静音了」，日志里什么都没有。
+    """
+    seen = []
+    monkeypatch.setattr(vio._log, 'warning',
+                        lambda *a, **k: seen.append(a), raising=False)
+
+    class _Bad:
+        @property
+        def hour(self):
+            raise RuntimeError('故意炸')
+
+    got = vio.in_quiet_hours(_Bad(), vio.DEFAULT_QUIET_RANGES)
+    assert got is False, '兜底必须是不静音（宁可多出声）'
+    assert seen, '判定失败必须落 warning，否则静音失效无从查起'
+
+
+def test_in_quiet_hours_accepts_external_format():
+    """外部格式（界面/手改 config 的写法）与内部分钟格式必须等效
+
+    ⚠ 曾实测：`in_quiet_hours(None, [['23:00','08:00']])` 返回 False
+      —— 因为该函数期望的是内部分钟二元组，收到字符串就判不了，
+        且不报错，表现成「静音不生效」。
+    """
+    inner = [(1380, 480)]
+    external = [['23:00', '08:00']]
+    # ⛔ 2026-10-31（WX-152 §二 指出）：原来只断言  == b（一致性），
+    #   旧实现下**两边都是 False** ⇒ False == False ⇒ 测试照样通过，
+    #   **抓不到原 bug**。一致性断言必须至少有一条「期望非默认值」的锚点。
+    expect = {(23, 0): True, (2, 30): True, (8, 0): False, (15, 0): False}
+    for h, m in [(23, 0), (2, 30), (8, 0), (15, 0)]:
+        want = expect[(h, m)]
+        a = vio.in_quiet_hours(_struct_now(h, m), inner)
+        b = vio.in_quiet_hours(_struct_now(h, m), external)
+        assert a is want, ('内部格式 %02d:%02d 期望 %s 实际 %s'
+                           % (h, m, want, a))
+        assert b is want, ('外部格式 %02d:%02d 期望 %s 实际 %s'
+                           % (h, m, want, b))
+        assert a == b, ('两者不一致：%02d:%02d 内部=%s 外部=%s'
+                        % (h, m, a, b))
