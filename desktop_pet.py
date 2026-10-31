@@ -1155,7 +1155,8 @@ class PetWidget(QWidget):
             # ⛔ 必须放在这里而不是下面的 cfg 分支 —— 没有 config.json 时
             #   （首次运行 / 测试隔离）cfg 分支不进，属性不存在 ⇒ getattr 兜底成 False，
             #   等于默认关掉了 Owner 要的功能。这个坑本函数注释里已记过一次。
-            self.random_action_when_hidden = True
+            # 2026-10-31 起改成三档时机（always/hidden/off），见 RANDOM_ACTION_MODES。
+            self.random_action_when = self.RANDOM_ACTION_DEFAULT
             self._theme_widgets = []
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -1200,7 +1201,9 @@ class PetWidget(QWidget):
                 #   只由主人在设置界面改。
                 self.affection_mode = str(cfg.get('affection_mode') or 'full').strip().lower()
                 # 2026-10-31（PC-237 Owner 需求）：面板隐藏时随机演动作，默认开
-                self.random_action_when_hidden = bool(cfg.get('random_action_when_hidden', True))
+                # 时机档：always / hidden / off（写错的值回落默认）
+                self.random_action_when = self._normalize_random_action_mode(
+                    cfg.get('random_action_when'))
                 self.ai_bubble = bool(cfg.get('ai_bubble', True))
                 try:
                     self.ai_bubble_max_chars = max(8, min(120, int(
@@ -5171,20 +5174,29 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_apply_display_mode', _exc)
 
-    def _set_random_action(self, on):
-        """开关「隐藏面板后随机演动作」（2026-10-31，PC-237）"""
-        self.random_action_when_hidden = bool(on)
-        self._save_cfg_value('random_action_when_hidden', self.random_action_when_hidden)
-        if self.random_action_when_hidden:
-            self._start_random_action_timer()
-        else:
+    def _set_random_action(self, mode):
+        """设置「什么时候随机演动作」（2026-10-31，PC-237 + Owner 追加时机可选）
+
+        mode: 'always' / 'hidden' / 'off'。写错的名字返回 False 且不改档位 ——
+              不能因为配置里一个字母写错就静默变成某一档。
+        """
+        m = str(mode or '').strip().lower()
+        if m not in self.RANDOM_ACTION_MODES:
+            _silent_log('_set_random_action:bad_mode',
+                        ValueError('未知的演动作时机 %r（保持原档位 %r）'
+                                   % (mode, getattr(self, 'random_action_when', '?'))))
+            return False
+        self.random_action_when = m
+        self._save_cfg_value('random_action_when', m)
+        if m == 'off':
             try:
                 self._random_action_timer.stop()
             except Exception as _exc:
                 _silent_log('_set_random_action:stop', _exc)
+        else:
+            self._start_random_action_timer()
         try:
-            self._append_chat('桌宠', '随机动作：%s'
-                              % ('隐藏面板后随机演' if on else '关闭'))
+            self._append_chat('桌宠', '随机动作：%s' % self._MODE_LABELS.get(m, m))
         except Exception as _exc:
             _silent_log('_set_random_action:chat', _exc)
         return True
@@ -10153,6 +10165,40 @@ class PetWidget(QWidget):
         self.chat_input.setFocus()
 
     # ---------- 随机动作定时器（2026-10-31，PC-237 Owner 需求） ----------
+    #: 演动作的时机（Owner 2026-10-31：「给他做成一个可选项吧，就选择什么时候随机演动作」）
+    #:   always  一直在演（**默认**）—— 面板开着也演
+    #:   hidden  只在聊天面板收起时演（上一版的行为）
+    #:   off     关闭
+    #:
+    #: 为什么默认改成 always（实测依据，不是口味）：
+    #:   面板展开 → 窗口 440x560，立绘区 (90,0,260,320)，聊天面板 (10,320,420,240)
+    #:   面板收起 → 窗口 440x340，立绘区 (90,0,260,340)
+    #:   气泡     → y=6，高约 35
+    #:   ⇒ 立绘、气泡、聊天面板**三者互不重叠**，面板开着时演动作完全看得见。
+    #:   Owner 的原话场景：随机动作冒气泡 → 他去展开面板 → 结果只剩待机图。
+    RANDOM_ACTION_MODES = ('always', 'hidden', 'off')
+    #: 档位的中文说明（设置界面与聊天提示共用，避免两处文案漂移）
+    _MODE_LABELS = {
+        'always': '一直演（面板开着也演）',
+        'hidden': '只在聊天面板收起时演',
+        'off': '关闭',
+    }
+    RANDOM_ACTION_DEFAULT = 'always'
+
+    @staticmethod
+    def _normalize_random_action_mode(value):
+        """把配置值规整成合法档位；不认识的值回落默认（不抛、不静默变成别的档）。
+
+        ⚠ 不做旧 bool 字段 random_action_when_hidden 的兼容：
+          那个键 2026-10-31 21:20 引入、22:30 改名，只活约 1 小时；
+          实测 config.json 里从未出现，也没有默认配置模板会写它
+          ⇒ 没有真实配置需要迁移。
+          为它保留分支的代价是：一条死配置 ＋ 一段零调用代码
+          （见 PC-298 §4.6 对「写了却零调用」的定性）。
+        """
+        s = str(value or '').strip().lower()
+        return s if s in PetWidget.RANDOM_ACTION_MODES else PetWidget.RANDOM_ACTION_DEFAULT
+
     #: 触发间隔区间（毫秒）。下限 40s：太密会显得抽筋；
     #: 上限 150s：太长的话一天看不到几次，Owner 就体会不到。
     RANDOM_ACTION_MIN_MS = 40_000
@@ -10166,7 +10212,10 @@ class PetWidget(QWidget):
     def _start_random_action_timer(self):
         """启动（或重启）随机动作定时器。重复调用不会叠加 —— QTimer 是单实例"""
         try:
-            if not getattr(self, 'random_action_when_hidden', True):
+            if getattr(self, 'random_action_when', self.RANDOM_ACTION_DEFAULT) == 'off':
+                # ⛔ 只 return 不够：之前排好的那一枪还在跑，会照常触发一次。
+                #   关掉就得真停 —— 这也是「把开关做成 bool 但只在启动时判一次」的通病。
+                self._random_action_timer.stop()
                 return
             self._random_action_timer.start(self._next_random_action_ms())
         except Exception as _exc:
@@ -10176,27 +10225,35 @@ class PetWidget(QWidget):
         """到点判定：该不该演一个动作。不该就静默等下轮。
 
         不该演的情形（每条都有理由，不是拍脑袋）：
-            面板还开着      —— Owner 原话是「隐藏之后」，开着时不打扰
-            sleep(睡眠)     —— 睡着还翻身不自然
-            _edge_docked    —— 贴边有专门的贴边动画，不要抢
-            _ai_busy        —— AI 正在说话，别抢它的表情
-            气泡可见        —— 动作图会被气泡压住/换走
-            开关被关掉      —— 主人在设置里关了
+            档位是 off          —— 主人在设置里关了
+            档位是 hidden 且面板开着 —— 这是「仅收起时演」的定义
+            sleep(睡眠)         —— 睡着还翻身不自然
+            _edge_docked        —— 贴边有专门的贴边动画，不要抢
+            _ai_busy            —— AI 正在说话，别抢它的表情
+            气泡可见            —— 动作图会被气泡压住/换走
+
+        ⚠ 2026-10-31 口径变更：原先「面板开着就不演」是硬约束，
+          Owner 追加需求后它只是 hidden 档的定义。默认档 always 下
+          面板开着照演（实测立绘/气泡/聊天面板三者互不重叠，看得见）。
         然后无论演没演，都排下一次（否则一次被挡就永远停摆）。
         """
         try:
-            if not getattr(self, 'random_action_when_hidden', True):
+            mode = getattr(self, 'random_action_when', self.RANDOM_ACTION_DEFAULT)
+            if mode == 'off':
                 return
             ok = True
             try:
                 # ⚠ 用 isHidden() 不用 isVisible()：isVisible() 在父窗口未显示时
                 #   恒为 False（Qt 语义），会把「面板开着」误判成「已隐藏」。
-                if not self.chat_panel.isHidden():
+                # hidden 档才要求面板收起；always 档不关心面板状态。
+                if mode == 'hidden' and not self.chat_panel.isHidden():
                     ok = False
             except Exception as _exc:
-                # 读不到面板状态时按「在显示」处理（宁可不演，别在正聊天时抢动作）
+                # 读不到面板状态时：hidden 档按「在显示」处理（宁可不演，别在正聊天时抢动作）；
+                # always 档本来就无所谓，照演。
                 _silent_log('_random_action_tick:panel_state', _exc)
-                ok = False
+                if mode == 'hidden':
+                    ok = False
             if getattr(self, 'sleeping', False):
                 ok = False
             if getattr(self, '_edge_docked', False):

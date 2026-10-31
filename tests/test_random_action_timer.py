@@ -53,22 +53,34 @@ def _pet():
 def test_timer_exists_and_default_on():
     p = _pet()
     assert hasattr(p, '_random_action_timer'), '没有随机动作定时器'
-    assert getattr(p, 'random_action_when_hidden', False) is True, \
-        '默认应为开（Owner 提的需求，不该默认关掉）'
+    # 2026-10-31 契约变更：bool 开关改成三档时机，默认 'always'
+    #   （Owner：「聊天面板有的时候也应该可以看到那个演动作」）
+    assert getattr(p, 'random_action_when', '') == 'always', \
+        '默认应为 always（面板开着也演），实际 %r' % getattr(p, 'random_action_when', '?')
 
 
 def test_config_key_read_in_loader():
     src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
-    assert "cfg.get('random_action_when_hidden'" in src, '配置读取里没有这个开关'
+    # 2026-10-31：键名从 random_action_when_hidden（bool）改成
+    #   random_action_when（三档），旧键已彻底移除（它只活了约 1 小时且从未落盘）
+    assert "cfg.get('random_action_when'" in src, '配置读取里没有这个开关'
+    assert "cfg.get('random_action_when_hidden'" not in src, \
+        '旧键 random_action_when_hidden 又被读回来了 —— 会变成死配置'
 
 
 # ---------- B. 只在隐藏时 ----------
 def test_does_not_fire_when_panel_visible():
+    """hidden 档下面板显示时不演（always 档的对应行为在 test_random_action_mode.py）
+
+    2026-10-31 契约变更：默认档已是 always，本条显式降到 hidden 档来测这条约束，
+    否则测的就不是「不许演」而是「默认行为」了。
+    """
     p = _pet()
+    p.random_action_when = 'hidden'
     p.chat_panel.show()
     _app.processEvents()
     p._random_action_tick()
-    assert not p._ra_calls, '面板显示着的时候不该自动演动作'
+    assert not p._ra_calls, 'hidden 档下面板显示时不该自动演动作'
 
 
 def test_fires_when_panel_hidden():
@@ -124,12 +136,13 @@ def test_skipped_when_bubble_visible():
 
 
 def test_skipped_when_switch_off():
+    """off 档一律不演（2026-10-31 契约变更：bool False → 'off'）"""
     p = _pet()
-    p.random_action_when_hidden = False
+    p.random_action_when = 'off'
     p.chat_panel.hide()
     _app.processEvents()
     p._random_action_tick()
-    assert not p._ra_calls, '开关关掉后仍在触发'
+    assert not p._ra_calls, 'off 档仍在触发'
 
 
 # ---------- D. 间隔随机 ----------
@@ -155,8 +168,15 @@ def test_timer_not_stacked():
 
 # ---------- E. 复用 random_action ----------
 def test_reuses_existing_random_action():
+    """tick 必须复用现有 random_action()，不许另写一套
+
+    ⛔ 按函数边界切片，不用固定长度：函数会变长，
+       写死 i+1600 会随着代码增长突然取不到（本轮就撞上了）。
+    """
     src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
     i = src.find('def _random_action_tick')
-    body = src[i:i + 1600]
+    assert i > 0, '找不到 _random_action_tick'
+    j = src.find('\n    def ', i + 10)      # 下一个同级方法
+    body = src[i:j if j > 0 else i + 4000]
     assert 'self.random_action()' in body, \
         '没复用现有的 random_action()，另写了一套（会分叉）'
