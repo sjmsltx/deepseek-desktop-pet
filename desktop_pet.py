@@ -49,6 +49,11 @@ from memory_engine import search_memory, search_memory_for_injection, extract_me
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
+from recycle_box import (human_size as _human_size,
+                         recycle_available as _recycle_available,
+                         recycle_paths as _recycle_paths,
+                         refuse_reason as _recycle_reason)
+
 from memory_engine import build_l0_block
 from memory_events import is_recomputable_notice
 from code_checker import check_python_blocks
@@ -78,7 +83,8 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QMenu, QGraphicsOpacityEffect,
     QVBoxLayout, QHBoxLayout, QPushButton, QFrame, QSizePolicy,
     QSystemTrayIcon, QTextBrowser, QTextEdit, QLineEdit, QInputDialog, QScrollArea,
-    QListWidget, QListWidgetItem, QAbstractItemView
+    QListWidget, QListWidgetItem, QAbstractItemView,
+    QMessageBox,
 )
 from mcp_bridge import McpBridge  # v6.20 MCP 桥接（外部 MCP server 工具接入）
 from plugin_manager import PluginManager  # v6.21 插件系统（tool/menu/rules/theme/skill）
@@ -1161,6 +1167,10 @@ class PetWidget(QWidget):
             #   等于默认关掉了 Owner 要的功能。这个坑本函数注释里已记过一次。
             # 2026-10-31 起改成三档时机（always/hidden/off），见 RANDOM_ACTION_MODES。
             self.random_action_when = self.RANDOM_ACTION_DEFAULT
+            # 2026-11-01（Owner 需求第 3 条）：拖文件是否真的送回收站。
+            # ⛔ 结构性默认值必须放这里 —— 只写在 cfg 分支里的话，
+            #   没有 config.json 时属意不存在（这个坑 2026-10-31 已经踩过一次）。
+            self.drag_to_bin = False
             self._theme_widgets = []
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -1208,11 +1218,10 @@ class PetWidget(QWidget):
                 # 时机档：always / hidden / off（写错的值回落默认）
                 self.random_action_when = self._normalize_random_action_mode(
                     cfg.get('random_action_when'))
-                # 2026-10-31：拖文件「真送回收站」是 Owner 需求里的第 3 条，
-                #   属破坏性功能，单独一批做。**这里先不读配置** ——
-                #   读了却没有 UI 入口 = 死配置（test_config_dead_keys 会当场抓）。
-                #   实现时连同「设置里的开关 + 二次确认」一并加。
-                self.drag_to_bin = False
+                # 2026-11-01（Owner 需求第 3 条）：拖文件给桌宠 → **真的**送进回收站。
+                # ⛔ 默认关。破坏性功能，开启后每次仍要二次确认。
+                # 设置入口：记忆与数据 →「拖文件的处理方式」（有 UI，不是死配置）。
+                self.drag_to_bin = bool(cfg.get('drag_to_bin', False))
                 self.ai_bubble = bool(cfg.get('ai_bubble', True))
                 try:
                     self.ai_bubble_max_chars = max(8, min(120, int(
@@ -10796,6 +10805,93 @@ class PetWidget(QWidget):
             _silent_log('_hook_pet_area_drops', _exc)
             self._pet_area_drop_hooked = False
 
+    def _set_drag_to_bin(self, on):
+        """开关「拖文件真的送回收站」（2026-11-01，Owner 需求第 3 条）
+
+        ⛔ 破坏性功能：开启时给一次明确提示（不是弹窗恐吓，是讲清后果与恢复方式）。
+        """
+        self.drag_to_bin = bool(on)
+        self._save_cfg_value('drag_to_bin', self.drag_to_bin)
+        if self.drag_to_bin:
+            self._show_pet_bubble('好，以后拖文件给我就送回收站\n（还能从回收站恢复）')
+        else:
+            self._show_pet_bubble('好，拖文件只假装吃掉\n文件不动')
+        try:
+            self._append_chat('桌宠', '拖文件的处理方式：%s'
+                              % ('真的送进回收站' if on else '假装吃掉（文件不动）'))
+        except Exception as _exc:
+            _silent_log('_set_drag_to_bin:chat', _exc)
+        return True
+
+    def _audit_recycle(self, ok, err):
+        """把一次回收操作写进审计（2026-11-01）
+
+        单独抽出来是为了**可测**：直接 `import governance` 写日志的话，
+        测试既拦不到也断言不了「到底有没有写」。
+        破坏性操作必须可追溯 —— 谁、哪个文件、成功还是被拒、原因是什么。
+        """
+        try:
+            import governance as _gov
+            for _p, _m in ok:
+                _gov.log_event('recycle', 'ui.feed', '送回收站',
+                               str(_p)[:300], allowed=True)
+            for _p, _why in err:
+                _gov.log_event('recycle', 'ui.feed', '送回收站',
+                               ('%s → %s' % (_p, _why))[:300], allowed=False)
+        except Exception as _exc:
+            _silent_log('_audit_recycle', _exc)
+
+    def _confirm_recycle(self, paths):
+        """送回收站前的二次确认。返回 True = 同意。
+
+        ⛔ 确认框必须写清三件事：
+           ① 完整路径（看到具体是哪个文件，不能只写「有 3 个文件」）
+           ② 大小（知道要动多大）
+           ③ 还能从回收站恢复（不要吓人，回收站本来就是可撤销的）
+        默认按钮是「取消」—— 手滑回车不该删掉东西。
+        """
+        try:
+            _n = len(list(paths))
+            _z = ('要把这 %d 个文件送进回收站吗？' % _n) if _n > 1 else '要把这个文件送进回收站吗？'
+            lines = []
+            total = 0
+            for p in list(paths)[:6]:
+                try:
+                    sz = os.path.getsize(p)
+                except Exception as _exc:
+                    # 取不到大小不影响「要不要删」的判断，但确认框会少显示一个数 —— 要留痕
+                    _silent_log('_confirm_recycle:size', _exc)
+                    sz = 0
+                total += sz
+                lines.append('· %s  (%s)' % (p, _human_size(sz)))
+            more = len(list(paths)) - 6
+            if more > 0:
+                lines.append('· …还有 %d 个' % more)
+            body = ('\n'.join(lines)
+                    + '\n\n合计 %s' % _human_size(total)
+                    + '\n\n这些会移入系统回收站，之后可以在回收站里还原。')
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Warning)
+            box.setWindowTitle('送进回收站？')
+            box.setText(_z)
+            box.setInformativeText(body)
+            _ok = box.addButton('送进回收站', QMessageBox.DestructiveRole)
+            _cancel = box.addButton('取消', QMessageBox.RejectRole)
+            box.setDefaultButton(_cancel)      # ⛔ 默认是取消
+            box.exec()
+            agree = box.clickedButton() is _ok
+            try:
+                __import__('governance').log_event(
+                    'confirm', 'ui.feed', '送回收站',
+                    ('同意' if agree else '取消') + '：' + '; '.join(str(x) for x in list(paths)[:6]),
+                    allowed=agree)
+            except Exception as _exc:
+                _silent_log('_confirm_recycle:audit', _exc)
+            return agree
+        except Exception as _exc:
+            _silent_log('_confirm_recycle', _exc)
+            return False          # 出任何问题都按「不删」处理
+
     def _pet_area_drag_enter(self, e):
         """拖到立绘区：只接文件 URL，其他放行（2026-10-31）"""
         try:
@@ -10845,8 +10941,23 @@ class PetWidget(QWidget):
             if not paths:
                 return
             if getattr(self, 'drag_to_bin', False):
-                # 真送回收站属破坏性功能，本批未实现；先明确告知而不是静默降级
-                self._show_pet_bubble('「送回收站」还没做好，这次只是假装吃掉～')
+                # 2026-11-01：开关打开 ⇒ 真的送回收站（先二次确认）
+                _files = [x for x in paths
+                          if os.path.isfile(x) and not _recycle_reason(x)]
+                if _files:
+                    _ok, _err = _recycle_paths(_files, confirm_all=self._confirm_recycle)
+                    self._audit_recycle(_ok, _err)
+                    if _ok:
+                        _names = '、'.join(os.path.basename(p) for p, _m in _ok)
+                        self._feed_pet(self.FOOD_DEFAULT, reaction='eating', quiet=True)
+                        self._show_pet_bubble('啊呜——把「%s」吃掉了\n'
+                                              '（已送进回收站，可以从那里还原）'
+                                              % _names[:20])
+                    if _err:
+                        _why = '；'.join('%s：%s' % (os.path.basename(p), w) for p, w in _err[:2])
+                        if not _ok:
+                            self._show_pet_bubble('没有吃：%s' % _why[:60])
+                    return
 
             fed = 0
             skipped = []

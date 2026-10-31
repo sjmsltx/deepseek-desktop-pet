@@ -844,6 +844,16 @@ class SettingsDialog(QDialog):
                 self.cb_randomaction.currentData()))
         f.addRow('随机动作', self.cb_randomaction)
 
+        # 2026-11-01（Owner 需求第 3 条）：拖文件给桌宠 → 真的送回收站
+        # ⛔ 破坏性功能，默认「假装吃掉」
+        self.cb_bin = QComboBox()
+        for label, val in (('假装吃掉（文件不动）', False), ('真的送进回收站', True)):
+            self.cb_bin.addItem(label, val)
+        self.cb_bin.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_drag_to_bin(
+                self.cb_bin.currentData()))
+        f.addRow('拖文件给我', self.cb_bin)
+
         self._buttons(f, '提醒与待办', [('⏰ 提醒管理', self.host._open_reminder_manager),
                                         ('📋 待办管理', self.host._open_todo_manager)])
         self._buttons(f, '聊天记录', [('📤 导出聊天记录', self.host._export_chat),
@@ -1487,6 +1497,9 @@ class SettingsDialog(QDialog):
             _ra = getattr(h, 'random_action_when', 'always')
             _i = self.cb_randomaction.findData(_ra)
             self.cb_randomaction.setCurrentIndex(_i if _i >= 0 else 0)
+            _bin = bool(getattr(h, 'drag_to_bin', False))
+            _i2 = self.cb_bin.findData(_bin)
+            self.cb_bin.setCurrentIndex(_i2 if _i2 >= 0 else 0)
             # 关系与好感（2026-10-31）
             _am = getattr(getattr(h, 'affection', None), 'mode', None) \
                 or getattr(h, 'affection_mode', 'full')

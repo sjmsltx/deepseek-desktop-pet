@@ -254,12 +254,15 @@ def test_bin_switch_defaults_off(tmp_path):
         '拖文件真送回收站的开关默认必须是关'
 
 
-def test_bin_switch_not_read_yet():
-    """第 3 条（真送回收站）本批**故意不读配置**
+def test_bin_switch_read_only_with_ui_entry():
+    """第 3 条已实现（2026-11-01）：配置读取 **必须** 同时有 UI 入口
 
-    ⛔ 读了却没有 UI 入口 = 死配置（test_config_dead_keys 会抓）。
-      等实现第 3 条时，配置读取 + 设置开关 + 二次确认**一起加**。
+    上一批这条断言是反的（当时故意不读，避免死配置）。
+    现在实现了，判据变成：读了配置就必须有设置入口 ——
+    否则又是死配置（test_config_dead_keys 会抓，但这里先说清楚意图）。
     """
-    src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
-    assert "cfg.get('drag_to_bin'" not in src, \
-        '本批不该读 drag_to_bin —— 还没有 UI 入口，会变成死配置'
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dp_src = open(os.path.join(here, 'desktop_pet.py'), encoding='utf-8').read()
+    su_src = open(os.path.join(here, 'settings_ui.py'), encoding='utf-8').read()
+    assert "cfg.get('drag_to_bin'" in dp_src, '没读 drag_to_bin，第 3 条等于没接'
+    assert 'drag_to_bin' in su_src, '读了配置却没有 UI 入口 ⇒ 死配置'
