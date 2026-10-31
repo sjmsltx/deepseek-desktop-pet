@@ -231,6 +231,32 @@ class MemoryEvents:
             'pinned': False,        # 钉住：不衰减、不被淘汰
         }
         with self._lock:
+            # v3.3（2026-10-31，存量清理暴露）：同一句话反复触达不该攒条目。
+            #   实测删完噪音后剩 26 条，其中 24 条是同一句「记得站起来活动一下」。
+            #   查重：同 role/type/title/detail ⇒ 合并到已有那条，累加计数 + 加权。
+            #   这也正是 Owner 说的「被反复提及的记忆权重上升」的正确落点。
+            _t = (title or '').strip()
+            _d = (detail or '').strip()
+            for _ex in self._memories:
+                if (_ex.get('role') == role and _ex.get('type') == type_
+                        and (_ex.get('title') or '').strip() == _t
+                        and (_ex.get('detail') or '').strip() == _d):
+                    try:
+                        _ex['access_count'] = int(_ex.get('access_count') or 0) + 1
+                    except (TypeError, ValueError):
+                        _ex['access_count'] = 1
+                    _ex['last_access'] = entry['time']
+                    try:
+                        _b = float(_ex.get('weight', WEIGHT_NEW))
+                    except (TypeError, ValueError):
+                        _b = WEIGHT_NEW
+                    _ex['weight'] = min(WEIGHT_MAX, _b + WEIGHT_BUMP)
+                    if emotion and not _ex.get('emotion'):
+                        _ex['emotion'] = emotion
+                    if affection_at is not None:
+                        _ex['affection_at'] = affection_at
+                    self._save()
+                    return _ex
             entry['id'] = _next_id({m.get('id') for m in self._memories})
             self._memories.append(entry)
             if len(self._memories) > MAX_MEMORIES:

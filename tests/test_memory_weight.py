@@ -182,3 +182,51 @@ def test_age_uses_nearest_timestamp():
     e_new = {'title': 'x', 'time': '2026-01-01 00:00'}
     # 前者取 updated_at（更近）=> 年龄更小
     assert me.entry_age_days(e_old) < me.entry_age_days(e_new)
+
+
+# ---------- 写入侧去重（2026-10-31 存量清理暴露）----------
+def test_same_content_merges_instead_of_duplicating(ev):
+    """同一句话反复触达不该攒条目。
+
+    实测背景：删掉 174 条机械播报后剩 26 条，其中 24 条是同一句
+    「主动关心：记得站起来活动一下」—— 每 5~20 分钟写一条。
+    Owner 要的是「记得有这回事」，不是「记得说过 24 次」。
+    """
+    for _ in range(5):
+        ev.add('flash', 'event', '主动关心：记得站起来活动一下', '记得站起来活动一下')
+    items = ev.all('flash')
+    assert len(items) == 1, '同一句攒成了 %d 条' % len(items)
+    it = items[0]
+    assert it['access_count'] == 4, '重复次数没累加：%r' % it['access_count']
+    assert it['weight'] > me.WEIGHT_NEW, '反复出现后权重没上升'
+
+
+def test_merge_updates_last_access_not_first_time(ev):
+    """time 语义是「第一次」，last_access 是「最近一次」"""
+    ev.add('flash', 'event', '记得站起来活动一下', '')
+    t0 = ev.all('flash')[0]['time']
+    ev.add('flash', 'event', '记得站起来活动一下', '')
+    it = ev.all('flash')[0]
+    assert it['time'] == t0, 'time 被改了（它应保持首次时间）'
+    assert it['last_access'], 'last_access 未更新'
+
+
+def test_different_content_stays_separate(ev):
+    ev.add('flash', 'event', '一起看了流星雨', '很冷')
+    ev.add('flash', 'event', '一起看了流星雨', '很暖')
+    assert len(ev.all('flash')) == 2, 'detail 不同却被合并了'
+    ev.add('flash', 'event', '另一件事', '')
+    assert len(ev.all('flash')) == 3
+
+
+def test_merge_respects_role(ev):
+    ev.add('flash', 'event', '同一句话', '')
+    ev.add('pro', 'event', '同一句话', '')
+    assert len(ev.all()) == 2, '不同角色被合并了'
+
+
+def test_merge_keeps_emotion_hint(ev):
+    ev.add('flash', 'event', '记得站起来活动一下', '', emotion='')
+    ev.add('flash', 'event', '记得站起来活动一下', '', emotion='关心')
+    it = ev.all('flash')[0]
+    assert it['emotion'] == '关心', '合并时情绪没补上'
