@@ -833,6 +833,15 @@ class SettingsDialog(QDialog):
                 self.cb_affmode.currentData()))
         f.addRow('好感度档位', self.cb_affmode)
 
+        # 2026-10-31（PC-237 Owner 需求）：隐藏面板后随机演动作
+        self.cb_randomaction = QComboBox()
+        for label, val in (('隐藏面板后随机演动作', True), ('只在待机（不演动作）', False)):
+            self.cb_randomaction.addItem(label, val)
+        self.cb_randomaction.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_random_action(
+                self.cb_randomaction.currentData()))
+        f.addRow('随机动作', self.cb_randomaction)
+
         self._buttons(f, '提醒与待办', [('⏰ 提醒管理', self.host._open_reminder_manager),
                                         ('📋 待办管理', self.host._open_todo_manager)])
         self._buttons(f, '聊天记录', [('📤 导出聊天记录', self.host._export_chat),
@@ -1473,6 +1482,9 @@ class SettingsDialog(QDialog):
             self.ck_bubble.setChecked(bool(getattr(h, 'ai_bubble', True)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()
+            _ra = bool(getattr(h, 'random_action_when_hidden', True))
+            _i = self.cb_randomaction.findData(_ra)
+            self.cb_randomaction.setCurrentIndex(_i if _i >= 0 else 0)
             # 关系与好感（2026-10-31）
             _am = getattr(getattr(h, 'affection', None), 'mode', None) \
                 or getattr(h, 'affection_mode', 'full')

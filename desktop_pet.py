@@ -608,12 +608,21 @@ class PetWidget(QWidget):
         self._pending_choices = None   # v6.30 情感选项
         self._choices_requested = False
         # v6.30 饱食度巡检（每 5 分钟，低饱食提示）
+        # 2026-10-31（PC-237）：隐藏面板后随机演动作。
+        #   237 里我承诺「先用 260 尺寸渲染 12 个动作再定池子」——已兑现：
+        #   12 张动作图全是 1024×1024 正方形，260 方块内不裁切、逐个可辨，
+        #   所以池子用全部 12 个（见 random_action()）。
+        self._random_action_timer = QTimer(self)
+        self._random_action_timer.setSingleShot(True)
+        self._random_action_timer.timeout.connect(self._random_action_tick)
         self._satiety_timer = QTimer(self)
         self._satiety_timer.timeout.connect(self._check_satiety)
 
     def _init_signals_and_hotkeys(self):
         """跨线程信号连接 + 全局快捷键注册"""
         self._satiety_timer.start(5 * 60 * 1000)
+        # 2026-10-31：随机动作定时器（首轮延后，别一启动就演）
+        self._start_random_action_timer()
         self.cost_bubble_signal.connect(self._on_cost_bubble)
         self.balance_signal.connect(self._on_balance_result)   # v6.61 余额查询回主线程
         self._last_satiety_warn = 0.0
@@ -1142,6 +1151,11 @@ class PetWidget(QWidget):
             #    属性根本不存在，`_restore_saved_theme()` 读 self._saved_theme 直接 AttributeError。
             #    同一个性质的问题这一轮共照出三处（asr 段缩进、voice_fallback 构造参数、这里）。
             self._saved_theme = 'default'
+            # 2026-10-31（PC-237）：随机动作开关的**结构性默认值**。
+            # ⛔ 必须放在这里而不是下面的 cfg 分支 —— 没有 config.json 时
+            #   （首次运行 / 测试隔离）cfg 分支不进，属性不存在 ⇒ getattr 兜底成 False，
+            #   等于默认关掉了 Owner 要的功能。这个坑本函数注释里已记过一次。
+            self.random_action_when_hidden = True
             self._theme_widgets = []
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -1185,6 +1199,8 @@ class PetWidget(QWidget):
                 #   模型若能改自己的减分档位，等于让它自己决定要不要被扣分。
                 #   只由主人在设置界面改。
                 self.affection_mode = str(cfg.get('affection_mode') or 'full').strip().lower()
+                # 2026-10-31（PC-237 Owner 需求）：面板隐藏时随机演动作，默认开
+                self.random_action_when_hidden = bool(cfg.get('random_action_when_hidden', True))
                 self.ai_bubble = bool(cfg.get('ai_bubble', True))
                 try:
                     self.ai_bubble_max_chars = max(8, min(120, int(
@@ -5154,6 +5170,24 @@ class PetWidget(QWidget):
                          '并把显示模式改回「静态」以免下次启动再报：%s' % _why)
         except Exception as _exc:
             _silent_log('_apply_display_mode', _exc)
+
+    def _set_random_action(self, on):
+        """开关「隐藏面板后随机演动作」（2026-10-31，PC-237）"""
+        self.random_action_when_hidden = bool(on)
+        self._save_cfg_value('random_action_when_hidden', self.random_action_when_hidden)
+        if self.random_action_when_hidden:
+            self._start_random_action_timer()
+        else:
+            try:
+                self._random_action_timer.stop()
+            except Exception as _exc:
+                _silent_log('_set_random_action:stop', _exc)
+        try:
+            self._append_chat('桌宠', '随机动作：%s'
+                              % ('隐藏面板后随机演' if on else '关闭'))
+        except Exception as _exc:
+            _silent_log('_set_random_action:chat', _exc)
+        return True
 
     def _set_affection_mode(self, mode):
         """切换好感度减分档位（2026-10-31，Owner 拍：三档让主人自己选）
@@ -9857,11 +9891,33 @@ class PetWidget(QWidget):
                 except Exception:
                     interval = None
                 if j.get('act') == 'yes' and j.get('message'):
-                    self.wakeup_signal.emit(j['message'].strip())
+                    # 2026-10-31：把模型给的情绪带上（白名单校验在包装函数里）。
+                    #   不带的话 _display_wakeup 解析出 None ⇒ 回忆里 emotion 恒空。
+                    self.wakeup_signal.emit(self._wrap_wakeup_with_emotion(
+                        j['message'].strip(), j.get('emotion')))
         finally:
             if interval is None:
                 interval = random.uniform(480, 1200)
             self._active_chat_next = time.time() + interval
+
+    def _wrap_wakeup_with_emotion(self, message, emotion):
+        """把唤醒消息和情绪拼成 `[emotion:xxx] 正文`（2026-10-31）
+
+        为什么用拼标签而不是改信号签名：`_display_wakeup` 本来就会
+        `_strip_emotion_tag()` 把标签剥掉并解析，复用现成路径最省改动，
+        也不会影响 wakeup_signal 的其他连接方。
+
+        ⛔ 白名单：只接受 EMOTION_STATE_MAP 里的词。模型给了别的词就丢弃 ——
+           不能让「开心的」「joyful」这种写进回忆，那会让 emotion 字段变成垃圾场。
+        """
+        emo = str(emotion or '').strip().lower()
+        body = str(message or '')
+        if not emo or emo not in self.EMOTION_STATE_MAP:
+            if emo:
+                _silent_log('_wrap_wakeup:bad_emotion',
+                            ValueError('非法情绪词 %r（已丢弃）' % emo))
+            return body
+        return '[emotion:%s] %s' % (emo, body)
 
     def _display_wakeup(self, msg):
         """主线程槽：主动关心以浮动气泡显示，不写入对话历史（v6.19 不再污染聊天记录）"""
@@ -10095,6 +10151,70 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', '还没配置 AI 呢！在 config.json 里加 deepseek_api_key 就能和我聊天了')
             return
         self.chat_input.setFocus()
+
+    # ---------- 随机动作定时器（2026-10-31，PC-237 Owner 需求） ----------
+    #: 触发间隔区间（毫秒）。下限 40s：太密会显得抽筋；
+    #: 上限 150s：太长的话一天看不到几次，Owner 就体会不到。
+    RANDOM_ACTION_MIN_MS = 40_000
+    RANDOM_ACTION_MAX_MS = 150_000
+
+    def _next_random_action_ms(self):
+        """下一个触发间隔（随机）—— 用固定节拍看着像机器，必须随机"""
+        import random as _r
+        return _r.randint(self.RANDOM_ACTION_MIN_MS, self.RANDOM_ACTION_MAX_MS)
+
+    def _start_random_action_timer(self):
+        """启动（或重启）随机动作定时器。重复调用不会叠加 —— QTimer 是单实例"""
+        try:
+            if not getattr(self, 'random_action_when_hidden', True):
+                return
+            self._random_action_timer.start(self._next_random_action_ms())
+        except Exception as _exc:
+            _silent_log('_start_random_action_timer', _exc)
+
+    def _random_action_tick(self):
+        """到点判定：该不该演一个动作。不该就静默等下轮。
+
+        不该演的情形（每条都有理由，不是拍脑袋）：
+            面板还开着      —— Owner 原话是「隐藏之后」，开着时不打扰
+            sleep(睡眠)     —— 睡着还翻身不自然
+            _edge_docked    —— 贴边有专门的贴边动画，不要抢
+            _ai_busy        —— AI 正在说话，别抢它的表情
+            气泡可见        —— 动作图会被气泡压住/换走
+            开关被关掉      —— 主人在设置里关了
+        然后无论演没演，都排下一次（否则一次被挡就永远停摆）。
+        """
+        try:
+            if not getattr(self, 'random_action_when_hidden', True):
+                return
+            ok = True
+            try:
+                # ⚠ 用 isHidden() 不用 isVisible()：isVisible() 在父窗口未显示时
+                #   恒为 False（Qt 语义），会把「面板开着」误判成「已隐藏」。
+                if not self.chat_panel.isHidden():
+                    ok = False
+            except Exception as _exc:
+                # 读不到面板状态时按「在显示」处理（宁可不演，别在正聊天时抢动作）
+                _silent_log('_random_action_tick:panel_state', _exc)
+                ok = False
+            if getattr(self, 'sleeping', False):
+                ok = False
+            if getattr(self, '_edge_docked', False):
+                ok = False
+            if getattr(self, '_ai_busy', False):
+                ok = False
+            try:
+                if self.bubble is not None and not self.bubble.isHidden():
+                    ok = False
+            except Exception as _exc:
+                # 气泡状态读不到不致命：继续按其他条件判断
+                _silent_log('_random_action_tick:bubble_state', _exc)
+            if ok:
+                self.random_action()        # 复用现有实现，不另写一套
+        except Exception as _exc:
+            _silent_log('_random_action_tick', _exc)
+        finally:
+            self._start_random_action_timer()
 
     def random_action(self):
         """随机做一个动作（说话/思考/场景动作），保证与上次不重复"""

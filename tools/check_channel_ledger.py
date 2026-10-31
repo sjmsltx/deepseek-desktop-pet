@@ -43,7 +43,8 @@ RE_FILE = re.compile(r'^(PC-([\u4e00-\u9fa5A-Za-z]+)-(\d{8})-(\d{3}))')
 
 def read_ledger(path):
     """返回 (件行列表, 全部行数)。件行 = 以 | 开头、7 或 8 列、含 PC-* 件号"""
-    txt = io.open(path, encoding='utf-8', newline='').read()
+    with io.open(path, encoding='utf-8', newline='') as _f:
+        txt = _f.read()
     rows = []
     lines = txt.splitlines()
     for i, line in enumerate(lines, 1):
