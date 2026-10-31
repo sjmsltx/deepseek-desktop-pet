@@ -4031,6 +4031,17 @@ class PetWidget(QWidget):
                     affection_hint = '\n\n【关系与回忆（随好感度与性格动态进化）】' + f'\n{_stage_t}' + (_mem_t or '')
             except Exception:
                 affection_hint = ''
+            # 2026-10-31 L3 索引层（设计见通道 297 §2.1）：
+            #   「能查的不进记忆」—— 花费/余额/待办这类会变的数字，告诉它去哪现查，
+            #   而不是从记忆里翻旧值。没命中就是空串，不占 prompt 预算。
+            l3_hint = ''
+            try:
+                import memory_index as _mi
+                l3_hint = _mi.build_l3_block(self, text)
+            except Exception as _exc:
+                _silent_log('_ai_worker.l3_index', _exc)
+            if l3_hint:
+                affection_hint = (affection_hint or '') + '\n\n' + l3_hint
             # 角色身份锚定：名字优先级 系统设定 > 记忆中的角色命名
             char_name = CHARACTERS[self.current]['name']
             role_anchor = f'你是{char_name}（角色：{self.current}，模型：{cur_model}）。回答"你是谁"时先明确你是{char_name}（{self.current}）；如果长期记忆中有用户给你起的名字（如小蓝/大蓝），按角色对应使用（只认与你当前角色匹配的名字），不要混用其他角色的名字。'
