@@ -50,7 +50,8 @@ def test_tool_registered():
     import tools_registry as tr
     names = [t['function']['name'] for t in tr.AI_TOOLS]
     assert 'say_bubble' in names, 'say_bubble 没进 AI_TOOLS'
-    assert len(names) == 33, '工具总数应为 33（v3.6 新增 say_bubble），实际 %d' % len(names)
+    # 2026-10-31：33 → 34（新增 affection_penalty）
+    assert len(names) == 34, '工具总数应为 34（v3.6 新增 say_bubble，10-31 新增 affection_penalty），实际 %d' % len(names)
     assert 'say_bubble' in tr.CORE_TOOLS, '说话是自己的事，应在 core 里'
     assert 'say_bubble' in tr.TOOL_STATUS, '缺状态文案'
 

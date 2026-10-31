@@ -106,7 +106,8 @@ def test_counts_match_docs():
     import tools_registry as tr
     import settings_ui as su
     # v3.6（2026-10-24）：加第 33 个工具 say_bubble（AI 可调用气泡）
-    assert len(tr.AI_TOOLS) == 33, len(tr.AI_TOOLS)
+    # 2026-10-31：33 → 34（新增 affection_penalty，好感度减分档位的情绪判断工具）
+    assert len(tr.AI_TOOLS) == 34, len(tr.AI_TOOLS)
     assert len(su.PAGES) == 10, len(su.PAGES)
     txt = (open(os.path.join(BASE, 'README.md'), encoding='utf-8').read() +
            open(os.path.join(BASE, 'CHANGELOG.md'), encoding='utf-8').read())

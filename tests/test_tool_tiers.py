@@ -29,7 +29,8 @@ def test_mode_switch():
     full = tr.tools_for_mode(True)
     assert len(core) == len(tr.CORE_TOOLS), '默认模式应只给 core：%d' % len(core)
     # v3.6（2026-10-24）：加第 33 个工具 say_bubble
-    assert len(full) == len(tr.AI_TOOLS) == 33, '进阶模式应给全部：%d' % len(full)
+    # 2026-10-31：33 → 34（新增 affection_penalty）
+    assert len(full) == len(tr.AI_TOOLS) == 34, '进阶模式应给全部：%d' % len(full)
     assert {t['function']['name'] for t in core} == set(tr.CORE_TOOLS)
 
 

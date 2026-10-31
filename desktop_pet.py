@@ -599,7 +599,9 @@ class PetWidget(QWidget):
         self._load_ai_config()
         self.app_aliases = self._load_aliases()
         # v6.30 好感度与成长系统（引擎 + 回忆日志）
-        self.affection = AffectionEngine(AFFECTION_PATH)
+        # 2026-10-31：减分三档，档位从 config 读（默认 full，由引擎自己兜底）
+        self.affection = AffectionEngine(
+            AFFECTION_PATH, mode=getattr(self, 'affection_mode', 'full'))
         self.memories = MemoryEvents(MEMORIES_PATH)
         self._relation_dialog = None
         self._game_window = None
@@ -1178,6 +1180,11 @@ class PetWidget(QWidget):
                 self.balance_watch = bool(cfg.get('balance_watch', True))
                 # v3.6（Owner 2026-10-24 需求 5）：AI 可调用气泡
                 #   默认开；关掉则工具直接回「已关闭」，不弹气泡（回退到随机台词行为）
+                # 2026-10-31 好感度减分档位：off 只增不减 / gentle 只收情绪 / full 全开
+                # ⛔ 这一项**故意不在 CONFIG_WHITELIST 里** —— 那个白名单是给 AI 改配置用的，
+                #   模型若能改自己的减分档位，等于让它自己决定要不要被扣分。
+                #   只由主人在设置界面改。
+                self.affection_mode = str(cfg.get('affection_mode') or 'full').strip().lower()
                 self.ai_bubble = bool(cfg.get('ai_bubble', True))
                 try:
                     self.ai_bubble_max_chars = max(8, min(120, int(
@@ -1992,8 +1999,13 @@ class PetWidget(QWidget):
 
     def _stop_ai(self):
         """v6.43：强制停止当前 AI 任务（突发卡死/工具失控时用）。
-        代次 +1 使旧线程失效 → 清理状态 → 闭合悬空任务防复活"""
+        代次 +1 使旧线程失效 → 清理状态 → 闭合悬空任务防复活
+
+        2026-10-31：本方法也是「主人不想听了」的信号来源，但**不是一律扣分** ——
+        见下面 _penalize_interrupt 的判据。
+        """
         try:
+            self._penalize_interrupt()
             self._ai_generation = getattr(self, '_ai_generation', 0) + 1
             self._ai_busy = False
             try:
@@ -2012,6 +2024,23 @@ class PetWidget(QWidget):
                 self._next_task()
         except Exception as _exc:
             _silent_log('_stop_ai:884', _exc)   # v6.54
+
+    def _penalize_interrupt(self):
+        """主人点了「停止」→ 可能扣好感度（2026-10-31）
+
+        判据（不是一律扣）：
+            本轮**已经输出过正文** → 主人看过了才掐掉 → 算「不想听」→ -1
+            还没出字 → 多半是卡住/工具在乱跑 → 停止是正当自救 → **不扣**
+
+        ⛔ 这是 behavior 类别，只有 full 档放行（gentle 档只收情绪判断）。
+        """
+        try:
+            if not getattr(self, '_round_has_content', False):
+                return
+            self.affection.apply_penalty(self.current, '主人看过后中断了这段回复',
+                                         -1, category='behavior')
+        except Exception as _exc:
+            _silent_log('_penalize_interrupt', _exc)
 
     def _close_pending_user_msg(self):
         """v6.43：若历史最后一条是悬空 user（AI 未回复=任务中断），补一条中断说明。
@@ -3393,6 +3422,7 @@ class PetWidget(QWidget):
         'manage_todo': '_tool_manage_todo',
         'memorize': '_tool_memorize',
         'offer_choices': '_tool_offer_choices',
+        'affection_penalty': '_tool_affection_penalty',
         'office_doc': '_tool_office_doc',   # v6.66 办公文档（WPS/Office COM）
         'set_voice_summary': '_tool_set_voice_summary',   # v6.76 朗读摘要（只影响朗读）
         'say_bubble': '_tool_say_bubble',   # v3.6 AI 可调用气泡（三道闸见该方法）
@@ -3734,6 +3764,35 @@ class PetWidget(QWidget):
         pl.lock_screen()
         return '已锁定屏幕'
 
+    def _tool_affection_penalty(self, args):
+        """模型判断「主人真生气」→ 扣好感度（2026-10-31）
+
+        ⛔ 这是 emotion 类别，只有 gentle / full 档放行；off 档一律被引擎拦下。
+        ⛔ 单次最多 -2（引擎闸），这里再自限到 1~2，防止模型想扣 9。
+        """
+        try:
+            reason = str((args or {}).get('reason') or '').strip()[:80]
+            sev = int((args or {}).get('severity') or 1)
+        except Exception as _exc:
+            # 参数畸形（severity 传了字符串之类）当作没写原因处理，但要留痕
+            _silent_log('_tool_affection_penalty:args', _exc)
+            reason, sev = '', 1
+        sev = max(1, min(2, sev))
+        if not reason:
+            return '（没写原因，不扣。扣分必须留下理由）'
+        try:
+            r = self.affection.apply_penalty(self.current, reason, -sev, category='emotion')
+        except Exception as _exc:
+            _silent_log('_tool_affection_penalty', _exc)
+            return '（扣分失败，已忽略）'
+        if r.get('blocked'):
+            _why = {'mode': '当前档位不扣分', 'floor': '已经到地板了',
+                    'daily_limit': '今天扣够了', 'bad_amount': '参数不对',
+                    'bad_category': '类别不对'}.get(r.get('reason'), r.get('reason'))
+            return '（没有扣：%s）' % _why
+        return '好感度 -%d（%d → %d）' % (r['applied'], r['affection_before'],
+                                        r['affection_after'])
+
     def _tool_offer_choices(self, args):
         # v6.30 情感选项：支持字符串或 {text, affect} 对象，返回特殊标记
         raw = args.get('choices') or []
@@ -3947,6 +4006,8 @@ class PetWidget(QWidget):
         try:
             # v6.43：记录本次任务代次（用于强制停止判断）
             self._cur_gen = getattr(self, '_ai_generation', 0)
+            # 2026-10-31：本轮是否已经吐出过正文（供「点停止是否算不想听」判断）
+            self._round_has_content = False
             # v3.6：新一轮 → 允许 AI 再说一次气泡（频次闸按轮次算）
             self._bubble_said_gen = None
             aborted = False          # v6.53：流内被取消标志（避免后续再发请求）
@@ -4095,6 +4156,8 @@ class PetWidget(QWidget):
                     if evt == 'reasoning':
                         self.reasoning_signal.emit(val)
                     elif evt == 'content':
+                        if val:
+                            self._round_has_content = True
                         self.stream_signal.emit(val)
                     elif evt == 'done':
                         full = val
@@ -5091,6 +5154,27 @@ class PetWidget(QWidget):
                          '并把显示模式改回「静态」以免下次启动再报：%s' % _why)
         except Exception as _exc:
             _silent_log('_apply_display_mode', _exc)
+
+    def _set_affection_mode(self, mode):
+        """切换好感度减分档位（2026-10-31，Owner 拍：三档让主人自己选）
+
+        off    只增不减
+        gentle 只接「模型判断主人真生气」
+        full   行为信号 + 情绪判断都接（默认）
+
+        ⛔ 只给主人从设置界面调；AI 的工具白名单里没有这一项。
+        """
+        m = str(mode or '').strip().lower()
+        if not self.affection.set_mode(m):
+            return False
+        self.affection_mode = m
+        self._save_cfg_value('affection_mode', m)
+        _zh = {'off': '只增不减', 'gentle': '只在真生气时扣', 'full': '行为+情绪都算'}
+        try:
+            self._append_chat('桌宠', '好感度档位：%s' % _zh.get(m, m))
+        except Exception as _exc:
+            _silent_log('_set_affection_mode:chat', _exc)
+        return True
 
     def _set_display_mode(self, mode):
         """切换显示模式：static 静态立绘 / live2d 模型"""

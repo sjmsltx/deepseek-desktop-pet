@@ -242,6 +242,21 @@ AI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "affection_penalty",
+            "description": "主人明确表达了对你的不满/被冒犯时，扣一点好感度。⛔ 极度慎用，默认不调。只有三条同时成立才调：①有明确针对你或这段对话的否定（不是吐槽事情本身）②没有玩笑标记（没有笑、梗、玩笑语气）③表达了「别再这样」的意图。任一条不成立就不调。闹着玩、调侃、抱怨天气、说别的 AI 更好——一律不算。宁可漏判，不要误伤。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "一句话说明为什么扣（会写进审计，主人能查）"},
+                    "severity": {"type": "integer", "description": "1=轻微不悦，2=明显生气。默认 1"}
+                },
+                "required": ["reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_weather",
             "description": "查询城市天气。仅当用户明确要求查天气/温度/降雨/空气质量/适不适合出门时才调用；用户问美食/景点/地理等与天气无关的问题时不要调用",
             "parameters": {
@@ -524,6 +539,10 @@ CORE_TOOLS = (
     'memorize', 'offer_choices', 'schedule_followup', 'web_search',
     # v3.6：说话是自己的事，用户说「说一句××」时手上必须有这个工具
     'say_bubble',
+    # 2026-10-31：减分档位 gentle/full 靠它生效 —— 不在 core 里的话，
+    # 默认对话模式下模型根本拿不到，gentle 档等于永远不扣。
+    # 代价约 60 token/轮，可接受。
+    'affection_penalty',
     # v6.58：外观 / 自改 / 插件 / 文件（用户能明确感知的能力，默认必须可用）
     'read_file', 'write_file', 'search_code', 'edit_own_code',
     'install_plugin', 'uninstall_plugin', 'list_plugins', 'set_theme',

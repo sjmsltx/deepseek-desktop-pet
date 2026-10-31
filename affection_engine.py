@@ -50,6 +50,26 @@ PENALTY_MAX_DAILY = 10
 #: 审计日志保留条数（这库要长期跑，不能无限长）
 PENALTY_LOG_KEEP = 100
 
+#: 减分档位（Owner 2026-10-31 拍：做成三档让用户自己选）
+#:   off     只增不减 —— 就是改造前的现状，永不扣分
+#:   gentle  A 保守型 —— 只接「模型判断主人是真生气」，不接客观行为
+#:   full    C 全开  —— 行为信号 + 情绪判断都接（**默认**）
+AFFECTION_MODES = ('off', 'gentle', 'full')
+DEFAULT_MODE = 'full'
+
+#: 减分类别
+#:   emotion  模型判断出来的情绪（「主人这轮是真生气」），主观但贴合语义
+#:   behavior 客观行为信号（点停止 / 关心连续被无视），可复现但不能区分情绪
+PENALTY_CATEGORIES = ('emotion', 'behavior')
+
+#: 每个档位放行哪些类别。⛔ off 必须为空集 —— 空集就是「永不扣分」的实现，
+#:   不靠调用方记得别调（靠调用方自觉的开关，等于没开关）。
+MODE_ALLOWS = {
+    'off': frozenset(),
+    'gentle': frozenset({'emotion'}),
+    'full': frozenset({'emotion', 'behavior'}),
+}
+
 
 def stage_floor_value() -> int:
     """地板阶段对应的好感度下限。
@@ -138,10 +158,25 @@ def _today() -> str:
 class AffectionEngine:
     """好感度引擎：事件驱动纯积累制。线程安全，JSON 持久化。"""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, mode: str = DEFAULT_MODE):
         self.path = path
         self._lock = threading.Lock()
         self._data = self._load()
+        #: 减分档位。默认 full（Owner 拍）；宿主启动时用 config 里的值覆盖。
+        self.mode = mode if mode in AFFECTION_MODES else DEFAULT_MODE
+
+    def set_mode(self, mode) -> bool:
+        """切换减分档位。返回是否被接受（写错的名字一律拒绝，保持原档位）。
+
+        ⛔ 拒绝而不是「回退到默认」：配置里写错一个字母就把档位从 off 悄悄
+           变成 full，等于让用户以为关了其实没关。
+        """
+        m = str(mode or '').strip().lower()
+        if m not in AFFECTION_MODES:
+            _log_aff.warning('未知的好感度档位 %r，保持原档位 %r', mode, self.mode)
+            return False
+        self.mode = m
+        return True
 
     # ---------- 持久化 ----------
     def _load(self) -> dict:
@@ -203,6 +238,7 @@ class AffectionEngine:
                 'stage': stage_from_affection(st['affection'])[0],
                 'stage_role': stage_from_affection(st['affection'])[1],
                 'next_level_xp': xp_for_level(st['level'] + 1) - st['xp'],
+                'mode': self.mode,      # 让 UI 能显示主人现在在哪一档
             }
 
     def stage_prompt(self, role: str) -> str:
@@ -284,7 +320,7 @@ class AffectionEngine:
             }
 
     # ---------- 减分（2026-10-31）----------
-    def apply_penalty(self, role: str, reason: str, amount) -> dict:
+    def apply_penalty(self, role: str, reason: str, amount, category: str = 'emotion') -> dict:
         """扣好感度。三道闸挡着，扣不穿地板。
 
         Args:
@@ -292,6 +328,8 @@ class AffectionEngine:
             reason: 扣分原因（进审计，必须是人能看懂的话）
             amount: 扣分值，**必须是负数**（传正数/0/None 一律拒绝 ——
                     防止调用方以为「传 2 就是加 2」而实际在加分的语义歧义）
+            category: 'emotion'（模型判断的情绪）或 'behavior'（客观行为信号）。
+                    档位决定哪类被放行：off 全拦、gentle 只收 emotion、full 两类都收。
 
         Returns:
             {'blocked': bool, 'reason': str(仅拦截时),
@@ -307,6 +345,16 @@ class AffectionEngine:
         每次扣分都往 st['penalty_log'] 追加 before/after（上限 PENALTY_LOG_KEEP 条）。
         history_max 只增不减：扣分不抹掉「曾经到过多少」。
         """
+        # ---- 闸 0：档位。写在最前面 —— off 档时连入参都不必校验 ----
+        cat = str(category or '').strip().lower()
+        if cat not in PENALTY_CATEGORIES:
+            return {'blocked': True, 'reason': 'bad_category'}
+        if cat not in MODE_ALLOWS.get(self.mode, frozenset()):
+            _log_aff.debug('减分被档位拦下：mode=%s category=%s reason=%s',
+                           self.mode, cat, reason)
+            return {'blocked': True, 'reason': 'mode', 'mode': self.mode,
+                    'category': cat}
+
         # ---- 入参校验：只收负数 ----
         if not isinstance(amount, (int, float)) or isinstance(amount, bool):
             return {'blocked': True, 'reason': 'bad_amount'}
@@ -362,6 +410,7 @@ class AffectionEngine:
             log = st.get('penalty_log') or []
             log.append({'at': time.strftime('%Y-%m-%d %H:%M:%S'),
                         'reason': str(reason or '')[:120],
+                        'category': cat, 'mode': self.mode,
                         'before': before, 'after': after,
                         'applied': applied, 'capped_by': capped})
             if len(log) > PENALTY_LOG_KEEP:

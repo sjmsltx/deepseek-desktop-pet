@@ -821,6 +821,18 @@ class SettingsDialog(QDialog):
                                       ('🗑 删除一条…', self.host._delete_memory_dialog)])
         self._buttons(f, '', [('💾 备份记忆', self.host._export_memory_backup),
                               ('📥 导入记忆', self.host._import_memory_backup)])
+        # 关系与好感（2026-10-31）：减分档位三选一，只给主人调
+        # ⛔ 这一项故意不在 AI 可改的配置白名单里 —— 不能让它自己关掉扣分
+        self.cb_affmode = QComboBox()
+        for label, val in (('只增不减（永不扣分）', 'off'),
+                           ('保守：只在真生气时扣', 'gentle'),
+                           ('全开：行为+情绪都算（默认）', 'full')):
+            self.cb_affmode.addItem(label, val)
+        self.cb_affmode.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_affection_mode(
+                self.cb_affmode.currentData()))
+        f.addRow('好感度档位', self.cb_affmode)
+
         self._buttons(f, '提醒与待办', [('⏰ 提醒管理', self.host._open_reminder_manager),
                                         ('📋 待办管理', self.host._open_todo_manager)])
         self._buttons(f, '聊天记录', [('📤 导出聊天记录', self.host._export_chat),
@@ -1461,6 +1473,12 @@ class SettingsDialog(QDialog):
             self.ck_bubble.setChecked(bool(getattr(h, 'ai_bubble', True)))
             self.ck_fg.setChecked(bool(getattr(h, 'foreground_aware', False)))
             self._update_fg_now()
+            # 关系与好感（2026-10-31）
+            _am = getattr(getattr(h, 'affection', None), 'mode', None) \
+                or getattr(h, 'affection_mode', 'full')
+            _idx = self.cb_affmode.findData(_am)
+            self.cb_affmode.setCurrentIndex(_idx if _idx >= 0 else 0)
+
             # 对话
             idx = self.cb_persona.findData(getattr(h, 'personality', '温柔'))
             self.cb_persona.setCurrentIndex(idx if idx >= 0 else 0)
