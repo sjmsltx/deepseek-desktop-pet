@@ -23,6 +23,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 
 from PySide6.QtCore import QTimer
@@ -67,6 +68,124 @@ def _classify(text, status='active', typ='fact'):
         if any(k in text for k in kws):
             return cat
     return 'human' if typ == 'event' else 'like'
+
+
+# ---------------- 关系判定（2026-10-31，Owner 要求「有关系的连起来」）----------------
+#
+# 口径必须诚实标注：这里的「关系」= **文本词面重叠**，不是语义理解。
+#   · 中文 2-gram + 英文整词（英文不切碎，否则 python 会变成 py/ho/on/yt）
+#   · 去停用词 —— 「用户」「桌宠」这类词出现在几乎每条记忆里，
+#     不滤掉的话所有星点两两相连，图就废了
+#   · Jaccard = 共享词数 / 并集词数
+#
+# 改前（旧实现）：同类别内按极角排序连相邻两颗 —— 纯几何位置，
+#   与「有没有关系」无关。图例写「同类别的相邻经历」是夸大，已一并改掉。
+
+#: 强边阈值。真实数据实测（2026-10-31，23 星点）：
+#:   jac>=0.045 → 9 对，人工看全部成立（日语梗/主动关心/小蓝/过秦论/Python…）
+#:   jac<0.030 开始出现噪音（「桃片」×「爱背古文」共享「户爱」这种）
+STRONG_EDGE_JACCARD = 0.045
+
+#: 每个星点最多连几条强边（防一个中心点辐射成毛球）
+STRONG_EDGES_PER_NODE = 2
+
+#: 停用词：泛词 + 虚词 2-gram。宁可多滤，也别让「用户」把所有星星缝成一坨。
+_STOP = set("""
+用户 桌宠 的 了 是 我 你 他 她 它 不 有 在 和 如 等 就 都 也 还 被 把 让 给 对 从 到 为 以 与 或 但 而 且 并 则 很 更 最 太
+可以 什么 怎么 这个 那个 一下 一些 有点 比较 觉得 认为 会 能 要 说 做 用 时 里 上 下 中 后 前 自己 他们 我们 你们
+用户会 户会 会用 我的 的名 字叫 叫小 叫大 名字 一个 现在 已经 因为 所以 如果 但是 而且 就是 不是 没有 起来 记得
+""".split())
+
+_ENG = re.compile(r'[a-z][a-z0-9_]{2,}')
+
+
+def terms(text):
+    """取可比较的词集合：中文 2-gram（去停用词）+ 英文整词（≥3 字符）
+
+    ⛔ 英文必须整词 —— 逐字符 2-gram 会让任何两个含 Python 的条互相「相关」，
+       看起来像关系，其实是切碎的巧合。
+    """
+    t = text or ''
+    out = set(_ENG.findall(t.lower()))
+    cn = re.sub(r'[^\u4e00-\u9fa5]', '', t)
+    for i in range(len(cn) - 1):
+        g = cn[i:i + 2]
+        if g not in _STOP:
+            out.add(g)
+    return out
+
+
+def jaccard(a, b):
+    """两段文本的词集合 Jaccard 相似度。任一方为空 → 0"""
+    ta, tb = terms(a), terms(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / float(len(ta | tb))
+
+
+def build_edges(stars):
+    """算出星图的两种边。返回 (strong, weak)。
+
+    strong: [(i, j, weight)]  i/j 为 stars 下标，weight = jaccard
+            词面重叠 ≥ STRONG_EDGE_JACCARD 的配对，**可跨星团**；每点最多
+            STRONG_EDGES_PER_NODE 条（按权重从大到小取）。
+    weak:   [(i, j)]          同类别内的最小生成树（Prim），保证同类星点连成
+            一片但不爆炸 —— n 个点只要 n-1 条线。
+
+    ⛔ 只读 stars，不修改任何星点字段。
+    """
+    n = len(stars)
+    if n < 2:
+        return [], []
+
+    # ---- 强边：全配对算词重叠 ----
+    cand = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            w = jaccard(stars[i].get('text', ''), stars[j].get('text', ''))
+            if w >= STRONG_EDGE_JACCARD:
+                cand.append((w, i, j))
+    cand.sort(reverse=True)
+
+    deg = {}
+    strong = []
+    for w, i, j in cand:
+        if deg.get(i, 0) >= STRONG_EDGES_PER_NODE or deg.get(j, 0) >= STRONG_EDGES_PER_NODE:
+            continue
+        strong.append((i, j, w))
+        deg[i] = deg.get(i, 0) + 1
+        deg[j] = deg.get(j, 0) + 1
+
+    # ---- 弱边：同类最小生成树 ----
+    # 权重用「词重叠的相反数」不合适（同类里大量配对重叠为 0 ⇒ 全等权）。
+    # 这里按 age（越相近越先连）排序，让细线倾向连接时间接近的经历。
+    by_cat = {}
+    for idx, s in enumerate(stars):
+        by_cat.setdefault(s.get('cat'), []).append(idx)
+
+    weak = []
+    for cand_idx in by_cat.values():
+        if len(cand_idx) < 2:
+            continue
+        # Prim：起点取最老的（age 最大），逐次连最近的未访问点
+        rest = set(cand_idx)
+        first = max(rest, key=lambda k: stars[k].get('age') or 0.0)
+        rest.discard(first)
+        tree = [first]
+        while rest:
+            best = None
+            for a in tree:
+                for b in rest:
+                    d = abs((stars[a].get('age') or 0.0) - (stars[b].get('age') or 0.0))
+                    if best is None or d < best[0]:
+                        best = (d, a, b)
+            _d, a, b = best
+            weak.append((a, b))
+            tree.append(b)
+            rest.discard(b)
+
+    return strong, weak
+
 
 
 def _try_mktime(value, fmt):
@@ -337,22 +456,50 @@ class MemoryStarMap(QWidget):
             p.setPen(QPen(QColor(46, 52, 84, 150), 1))
             p.drawLine(a, b)
 
-        # 星团内星座连线
-        for cat in ORDER:
-            arr = self._groups.get(cat) or []
-            if len(arr) < 2:
+        # 连线（2026-10-31 重做，Owner：「有关系的连起来，同大类用细线」）
+        #
+        # 改前是「同类别内按极角连相邻两颗」—— 纯几何位置，与关系无关。
+        # 现在分两种：
+        #   强边 = 词面重叠 ≥ STRONG_EDGE_JACCARD，可跨星团，实线，按权重给亮度
+        #   弱边 = 同类别最小生成树，很淡的细线（表示「同类但无显著词面关系」）
+        #
+        # 边只算一次并缓存：星点与布局不变时不必每帧重算
+        #   （词重叠是 O(n²) 次词集合运算，23 点 = 253 对，每帧算会拖慢拖动缩放）
+        if getattr(self, '_edge_cache_key', None) != (id(self.stars), len(self.stars)):
+            self._strong_edges, self._weak_edges = build_edges(self.stars)
+            self._edge_cache_key = (id(self.stars), len(self.stars))
+
+        def _ok(idx):
+            st = self.stars[idx]
+            k = st.get('key') or st['text']
+            return (k in self._layout), k
+
+        # 弱边先画（在底层，避免盖住强边）
+        for i, j in getattr(self, '_weak_edges', []):
+            oki, ki = _ok(i)
+            okj, kj = _ok(j)
+            if not (oki and okj):
                 continue
-            gx, gy = self._centers[cat]
-            pts = sorted(((self._layout[s.get('key') or s['text']], s)
-                          for s in arr if (s.get('key') or s['text']) in self._layout),
-                         key=lambda ps: math.atan2(ps[0][1] - gy, ps[0][0] - gx))
-            col = QColor(*PAL[cat]); col.setAlpha(72)
-            p.setPen(QPen(col, 1.2))
-            for i in range(len(pts) - 1):
-                a, b = pts[i][0], pts[i + 1][0]
-                if math.hypot(a[0] - b[0], a[1] - b[1]) > 150:
-                    continue
-                p.drawLine(self._to_screen(*a), self._to_screen(*b))
+            a, b = self._layout[ki], self._layout[kj]
+            wcol = QColor(*PAL[self.stars[i].get('cat') or 'human'])
+            wcol.setAlpha(28)
+            p.setPen(QPen(wcol, 1.0))
+            p.drawLine(self._to_screen(*a), self._to_screen(*b))
+
+        # 强边后画（亮，压在上面）
+        for i, j, w in getattr(self, '_strong_edges', []):
+            oki, ki = _ok(i)
+            okj, kj = _ok(j)
+            if not (oki and okj):
+                continue
+            a, b = self._layout[ki], self._layout[kj]
+            # 权重越高越亮：0.045 → alpha 90，0.20 → alpha 190
+            t = min(1.0, max(0.0, (w - STRONG_EDGE_JACCARD) / 0.155))
+            alpha = int(90 + 100 * t)
+            col = QColor(*PAL[self.stars[i].get('cat') or 'human'])
+            col.setAlpha(alpha)
+            p.setPen(QPen(col, 1.0 + 0.8 * t))
+            p.drawLine(self._to_screen(*a), self._to_screen(*b))
 
         # 外圈失效星
         p.setPen(Qt.NoPen)
@@ -515,7 +662,7 @@ class MemoryStarMap(QWidget):
         p.setPen(QColor(196, 204, 232))
         p.drawText(rx, ly - 14, '视觉 = 记忆机制')
         for i, m in enumerate(['亮度 = 时间衰减（半衰期 30 天）', '大小 = 重要度 importance',
-                               '团内越靠外 = 越早的经历', '连线 = 同类别的相邻经历',
+                               '团内越靠外 = 越早的经历', '亮线 = 内容词面重合（可跨类）', '淡线 = 同类别（不表关系）',
                                '中心 = L0 人格卡，永不衰减']):
             p.drawText(rx, ly + i * 19, '·  ' + m)
 
