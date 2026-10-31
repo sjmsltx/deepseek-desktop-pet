@@ -232,14 +232,37 @@ def _pet_with_fake(tmp_path, monkeypatch):
     conn.stop()
 
 
+def _find_audit(gov, kind, actor=None, action=None, limit=60):
+    """在最近 limit 条审计里按 kind/actor/action 找第一条（新→旧）。
+
+    ⛔ 为什么不用 read_recent(1)[0]：那是「文件最后一行」。
+       被测代码之后只要还有别的写入，就会取到无关事件，
+       而且失败信息会误导成「工具没写审计」。
+    找不到时把实际有的列出来 —— 让红的原因一眼可见。
+    """
+    recs = gov.read_recent(limit=limit)
+    for e in recs:
+        if e.get('kind') != kind:
+            continue
+        if actor is not None and e.get('actor') != actor:
+            continue
+        if action is not None and e.get('action') != action:
+            continue
+        return e
+    seen = [(e.get('kind'), e.get('actor'), e.get('action')) for e in recs[:8]]
+    raise AssertionError(
+        '最近 %d 条审计里找不到 kind=%r actor=%r action=%r\n实际有的是：%r'
+        % (len(recs), kind, actor, action, seen))
+
+
 def test_execute_tool_writes_audit(_pet_with_fake):
     p, gov, _conn = _pet_with_fake
     p._request_confirm = lambda msg: True
     out = p._execute_tool('mcp_fake_read_note', {'name': 'a'})
     assert '便签' in out
-    e = gov.read_recent(1)[0]
-    assert e['kind'] == 'call' and e['actor'] == 'mcp:fake' and e['allowed'] is True
-    assert 'ms' in e
+    e = _find_audit(gov, 'call', actor='mcp:fake', action='mcp_fake_read_note')
+    assert e['allowed'] is True, '成功调用应记 allowed=True：%r' % (e,)
+    assert 'ms' in e, 'call 审计应带耗时：%r' % (e,)
 
 
 def test_execute_tool_quota_refusal(_pet_with_fake):
@@ -249,7 +272,13 @@ def test_execute_tool_quota_refusal(_pet_with_fake):
     assert '便签' in p._execute_tool('mcp_fake_read_note', {'name': 'a'})
     out2 = p._execute_tool('mcp_fake_read_note', {'name': 'b'})
     assert '已限额' in out2, out2
-    assert gov.read_recent(1)[0]['kind'] == 'deny'
+    e = _find_audit(gov, 'deny', actor='mcp:fake', action='mcp_fake_read_note')
+    assert e['allowed'] is False, '拒绝应记 allowed=False：%r' % (e,)
+    # 实际文案（实测）：'mcp:fake 今天已调用 1 次（上限 1）'
+    #   断言「看得出用了多少次、上限多少」，不锁具体措辞 —— 改文案不该让测试红
+    _d = e.get('detail') or ''
+    assert ('已调用' in _d and '上限' in _d) or '限额' in _d, \
+        '拒绝原因要落进 detail 且看得出次数与上限，实际 %r' % (_d,)
 
 
 def test_execute_tool_denied_confirm_is_audited(_pet_with_fake):
@@ -257,5 +286,7 @@ def test_execute_tool_denied_confirm_is_audited(_pet_with_fake):
     p._request_confirm = lambda msg: False
     out = p._execute_tool('mcp_fake_write_note', {'name': 'a', 'text': 'x'})
     assert '使用者拒绝' in out
-    e = gov.read_recent(1)[0]
-    assert e['kind'] == 'deny' and e['allowed'] is False and 'write' in e['detail']
+    e = _find_audit(gov, 'deny', actor='mcp:fake', action='mcp_fake_write_note')
+    assert e['allowed'] is False, '使用者拒绝应记 allowed=False：%r' % (e,)
+    assert 'write' in (e.get('detail') or ''), \
+        'detail 里要能看出是哪次写入，实际 %r' % (e.get('detail'),)
