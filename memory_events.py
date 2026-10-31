@@ -22,6 +22,15 @@ _log = logging.getLogger('pet.memory_events')
 
 MAX_MEMORIES = 200          # 滚动淘汰上限
 INJECT_COUNT = 3            # prompt 注入最近 N 条
+HALF_LIFE_DAYS = 30.0           # 权重衰减半衰期（天）
+#: 每次被检索命中时权重上升的幅度（Owner：「被反复提及的记忆权重上升」）
+WEIGHT_BUMP = 0.06
+#: 权重上限
+WEIGHT_MAX = 1.0
+#: 新条目的初始权重（还没被用过，不该一上来满分）
+WEIGHT_NEW = 0.55
+#: 每次命中衰减的「保鲜」作用：命中一次把年龄按此折算（天）
+ACCESS_REFRESH_DAYS = 3.0
 
 _TYPES = {'milestone', 'event', 'user_mark', 'memory'}
 
@@ -40,6 +49,54 @@ _MONEY_PATTERNS = (
 )
 
 _ID_LOCK = threading.Lock()
+
+
+def decayed_weight(base: float, age_days: float, pinned: bool = False) -> float:
+    """时间衰减后的权重。半衰期 30 天，与 memory_engine.score_recency 同口径。
+
+    pinned（钉住）不衰减 —— 核心事实（名字 / 忌口 / 雷区）不能因久不提及而消失，
+    这是 Owner 原话「重要的东西会记下来」的落点。
+    """
+    if pinned:
+        return float(base)
+    try:
+        a = max(0.0, float(age_days))
+        b = max(0.0, min(WEIGHT_MAX, float(base)))
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, b * (0.5 ** (a / HALF_LIFE_DAYS)))
+
+
+def entry_age_days(entry, now=None) -> float:
+    """条目年龄（天）。解析不了按 0 天算（当新条目），不猜一个假的旧值。"""
+    import datetime
+    ts = str((entry or {}).get('time') or '').strip()
+    if not ts:
+        return 0.0
+    now = now or datetime.datetime.now()
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            t = datetime.datetime.strptime(ts[:len(fmt) + 6], fmt)
+            return max(0.0, (now - t).total_seconds() / 86400.0)
+        except (ValueError, OverflowError) as _exc:
+            # 逐格式试播：不匹配是预期分支，记 debug 便于排查真格式问题
+            _log.debug('时间格式不匹配（%s）：%s', fmt, _exc)
+            continue
+    _log.debug('条目时间格式不认识（按新条目处理）：%r', ts)
+    return 0.0
+
+
+def effective_weight(entry, now=None) -> float:
+    """有效权重 = 落盘 weight × 时间衰减；pinned 不衰减。
+
+    旧条目没有 weight 字段 ⇒ 按 1.0 起算（不擅自回写用户数据）。
+    """
+    e = entry or {}
+    try:
+        base = float(e.get('weight', WEIGHT_NEW))
+    except (TypeError, ValueError):
+        base = 1.0
+    return decayed_weight(base, entry_age_days(e, now), bool(e.get('pinned')))
 
 
 def _next_id(used):
@@ -130,12 +187,26 @@ class MemoryEvents:
             'detail': detail,
             'emotion': emotion,
             'affection_at': affection_at,
+            # v3.2 权重体系（Owner：「权重引入并且权重本身还会变化」）
+            # 基础权重从 0.55 起（不是 1.0）：新条目还没被用过，不该一上来就是满分；
+            #   被检索命中才涨（每次 +WEIGHT_BUMP），这才叫「权重可变」。
+            'weight': WEIGHT_NEW,
+            'access_count': 0,      # 被检索命中次数
+            'last_access': '',      # 最近一次被命中的时间
+            'pinned': False,        # 钉住：不衰减、不被淘汰
         }
         with self._lock:
             entry['id'] = _next_id({m.get('id') for m in self._memories})
             self._memories.append(entry)
             if len(self._memories) > MAX_MEMORIES:
-                self._memories = self._memories[-MAX_MEMORIES:]
+                # v3.2：钉住的条目不参与淘汰 —— 核心事实不能因条数满被挤掉。
+                #   先占掉 pinned 的位子，剩余名额给其余条目按「旧→新」淘汰。
+                pinned = [m for m in self._memories if m.get('pinned')]
+                others = [m for m in self._memories if not m.get('pinned')]
+                keep = max(0, MAX_MEMORIES - len(pinned))
+                kept = others[-keep:] if keep else []
+                merged = [m for m in self._memories if m in pinned or m in kept]
+                self._memories = merged[-MAX_MEMORIES:] if len(merged) > MAX_MEMORIES else merged
             self._save()
             return entry
 
@@ -160,6 +231,43 @@ class MemoryEvents:
             else:
                 self._memories = [m for m in self._memories if m.get('role') != role]
             self._save()
+
+    # ---------- 钉住 ----------
+    def pin(self, entry_id) -> bool:
+        """钉住一条：不衰减、不被淘汰。返回是否命中。"""
+        with self._lock:
+            for m in self._memories:
+                if m.get('id') == entry_id:
+                    m['pinned'] = True
+                    self._save()
+                    return True
+        return False
+
+    def unpin(self, entry_id) -> bool:
+        """取消钉住。返回是否命中。"""
+        with self._lock:
+            for m in self._memories:
+                if m.get('id') == entry_id:
+                    m['pinned'] = False
+                    self._save()
+                    return True
+        return False
+
+    def _bump(self, pool, idx):
+        """命中加权：在锁内改原条目（pool 里的 dict 就是 self._memories 的元素）"""
+        m = pool[idx]
+        try:
+            m['access_count'] = int(m.get('access_count') or 0) + 1
+        except (TypeError, ValueError):
+            m['access_count'] = 1
+        m['last_access'] = time.strftime('%Y-%m-%d %H:%M')
+        try:
+            base = float(m.get('weight', WEIGHT_NEW))
+        except (TypeError, ValueError):
+            base = 1.0
+        # 命中即加权；同时把「年龄」折算掉一部分（说明它在被用，不该按老算）
+        m['weight'] = min(WEIGHT_MAX, base + WEIGHT_BUMP)
+        return m
 
     # ---------- 按内容检索 ----------
     def search(self, query: str, role=None, top_k: int = 3) -> list:
@@ -223,9 +331,23 @@ class MemoryEvents:
                 seen_ids.add(_id)
             out.append({'title': m.get('title', ''), 'detail': m.get('detail', ''),
                         'time': m.get('time', ''), 'score': d['score'],
-                        'matched': d['matched'], 'coverage': d['coverage']})
+                        'matched': d['matched'], 'coverage': d['coverage'],
+                        'id': _id, 'weight': effective_weight(m)})
             if len(out) >= top_k:
                 break
+        # v3.2 权重可变：被检索命中即计次 + 加权（Owner：「权重本身还会变化」）。
+        #   在锁内改原条目并落盘；只对真正要返回的 top_k 加权，不撒胡椒面。
+        if out:
+            with self._lock:
+                bumped = False
+                for h in out:
+                    for i2, m in enumerate(self._memories):
+                        if h.get('id') is not None and m.get('id') == h.get('id'):
+                            self._bump(self._memories, i2)
+                            bumped = True
+                            break
+                if bumped:
+                    self._save()
         out.sort(key=lambda h: h.get('time', ''))
         return out
 
