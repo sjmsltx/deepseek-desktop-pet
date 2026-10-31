@@ -68,13 +68,29 @@ def decayed_weight(base: float, age_days: float, pinned: bool = False) -> float:
 
 
 def entry_age_days(entry, now=None) -> float:
-    """条目年龄（天）。解析不了按 0 天算（当新条目），不猜一个假的旧值。"""
+    """条目年龄（天）。解析不了按 0 天算（当新条目），不猜一个假的旧值。
+
+    v3.3（2026-10-31，分流报告暴露）：
+      事实侧没有 time 字段，只有 created_at / updated_at。
+      原先只按 created_at 算 ⇒「我的名字叫小蓝」年龄 89.8 天、有效权重 0.069，
+      和「爱吃桃片」一样低 —— 但身份事实每轮都该在。
+      **事实是「状态」不是「事件」**：updated_at 更新过就说明还在被维护，
+      所以年龄取 created_at 与 updated_at 中**更近**的那个。
+    """
     import datetime
-    ts = str((entry or {}).get('time') or '').strip()
-    if not ts:
+    e = entry or {}
+    cands = []
+    for k in ('time', 'last_access', 'updated_at', 'created_at'):
+        v = str(e.get(k) or '').strip()
+        if v:
+            cands.append(v)
+    if not cands:
         return 0.0
+    # 取「最新的那个时间点」= 年龄最小
+    ts = max(cands)
     now = now or datetime.datetime.now()
-    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+    for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
         try:
             t = datetime.datetime.strptime(ts[:len(fmt) + 6], fmt)
             return max(0.0, (now - t).total_seconds() / 86400.0)
@@ -86,17 +102,36 @@ def entry_age_days(entry, now=None) -> float:
     return 0.0
 
 
-def effective_weight(entry, now=None) -> float:
-    """有效权重 = 落盘 weight × 时间衰减；pinned 不衰减。
+#: 身份判据（与 memory_engine._IDENTITY_PATTERNS 同源，避免两套规则漂移）
+_IDENTITY_HINTS = ('我的名字叫', '我叫', '名字叫', '用户叫', '称呼为',
+                   '角色叫', '模型姐姐叫', '的姐姐叫', '是我')
 
-    旧条目没有 weight 字段 ⇒ 按 1.0 起算（不擅自回写用户数据）。
+
+def is_identity_entry(entry) -> bool:
+    """这条是不是「身份/命名」类（永不衰减，不参与降级）"""
+    text = str((entry or {}).get('title') or (entry or {}).get('content') or '').strip()
+    if not text or len(text) > 80:
+        return False
+    return any(p in text for p in _IDENTITY_HINTS)
+
+
+def effective_weight(entry, now=None) -> float:
+    """有效权重 = 落盘 weight x 时间衰减；pinned 与身份类不衰减。
+
+    旧条目没有 weight 字段 => 按 WEIGHT_NEW 起算（不擅自回写用户数据）。
+
+    v3.3（2026-10-31，分流报告暴露）：衰减不能是唯一降级判据。
+      实测「我的名字叫小蓝」created_at == updated_at（从没更新过），
+      年龄 89.8 天 => 权重 0.069，和「爱吃桃片」一样低 —— 但它每轮都必须在。
+      => 身份类一律视为钉住（只在计算时生效，不写盘、不改用户数据）。
     """
     e = entry or {}
     try:
         base = float(e.get('weight', WEIGHT_NEW))
     except (TypeError, ValueError):
-        base = 1.0
-    return decayed_weight(base, entry_age_days(e, now), bool(e.get('pinned')))
+        base = WEIGHT_NEW
+    pinned = bool(e.get('pinned')) or is_identity_entry(e)
+    return decayed_weight(base, entry_age_days(e, now), pinned)
 
 
 def _next_id(used):

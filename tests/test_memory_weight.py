@@ -152,3 +152,33 @@ def test_effective_weight_handles_legacy():
     legacy = {'title': 'x', 'detail': '', 'time': '2026-10-30 10:00'}
     v = me.effective_weight(legacy)
     assert 0.0 <= v <= 1.0
+
+
+# ---------- 分流报告暴露的两个设计缺陷（2026-10-31）----------
+def test_identity_entry_never_decays():
+    """身份事实不能被时间衰减压低。
+
+    实测背景：「我的名字叫小蓝」created_at == updated_at（从没更新过），
+    年龄 89.8 天 => 权重 0.069，和「爱吃桃片」一样低，但它每轮都必须在。
+    """
+    ident = {'title': '我的名字叫小蓝', 'time': '2026-08-02 13:21', 'weight': 0.55,
+             'pinned': False}
+    normal = {'title': '用户爱吃重庆合川桃片', 'time': '2026-08-02 13:21', 'weight': 0.55,
+              'pinned': False}
+    assert me.effective_weight(ident) == 0.55, '身份条目被衰减了'
+    assert me.effective_weight(normal) < 0.2, '普通条目不该免疫衰减'
+
+
+def test_is_identity_entry_recognizes_and_rejects():
+    assert me.is_identity_entry({'title': '我的名字叫小蓝'})
+    assert me.is_identity_entry({'content': 'Pro 模型姐姐的名字叫大蓝'})
+    assert not me.is_identity_entry({'title': '用户爱吃重庆合川桃片'})
+    assert not me.is_identity_entry({'title': ''})
+
+
+def test_age_uses_nearest_timestamp():
+    """事实是「状态」不是「事件」：updated_at 更新过就说明还在维护。"""
+    e_old = {'title': 'x', 'time': '2026-01-01 00:00', 'updated_at': '2026-10-30 00:00'}
+    e_new = {'title': 'x', 'time': '2026-01-01 00:00'}
+    # 前者取 updated_at（更近）=> 年龄更小
+    assert me.entry_age_days(e_old) < me.entry_age_days(e_new)
