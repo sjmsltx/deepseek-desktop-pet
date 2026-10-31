@@ -100,3 +100,71 @@ def _isolate_config_file(tmp_path_factory):
         yield
     finally:
         _dp.CONFIG_PATH = real
+
+#: session 隔离用的临时日志目录（None = 本会话没隔离）
+_TEST_LOG_DIR = None
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _isolate_governance_logs(tmp_path_factory):
+    """把 governance 的日志目录指到临时目录 —— 测试**不得**污染真实审计日志
+
+    背景（WX-154 发现，2026-10-31 实测复现并定位到根因）：
+      实测跑一轮引用 governance 的 21 个测试文件，真实 logs 被写入：
+          logs/audit_<今天>.jsonl  +8 行
+          logs/governance.log      +1 行
+      但**逐个文件单独跑，21 个全部 +0** —— 说明是集合行为。
+
+      二分探针定位到：test_failure_audit.py 里有
+          gov.log_event = lambda ...        （裸赋值）
+          importlib.reload(gov)             （恢复）
+      **reload 会重新执行 governance 模块**，于是 `LOG_DIR = <真实 logs>`
+      被重新赋值 —— 从那之后，同一次 pytest 会话里**所有**测试文件都写真实目录。
+
+      ⇒ 两处修复：
+        1. test_failure_audit.py 改用 monkeypatch.setattr（teardown 自动恢复，
+           不需要 reload）—— 符合项目规则「mock 一律用 monkeypatch，禁止裸赋值」
+        2. 本 fixture 之外再挂一道 function 级防线（见 _guard_governance_logdir），
+           将来谁再 reload / 手动赋值，也不会把测试噪音漏进真实日志
+
+    需要自己日志目录的测试继续用 function 级
+    `monkeypatch.setattr(gov, 'LOG_DIR', ...)` 覆盖 —— 优先级更高，
+    teardown 后回到这里的临时目录，仍碰不到真实 logs/。
+    """
+    global _TEST_LOG_DIR
+    try:
+        import governance as _gov
+    except Exception:
+        yield                       # 该会话不需要 governance
+        return
+    tmp = tmp_path_factory.mktemp('govlogs')
+    _TEST_LOG_DIR = str(tmp)
+    _gov.LOG_DIR = _TEST_LOG_DIR
+    yield                            # 收尾不恢复：进程即将结束，恢复只会留出写入窗口
+
+
+@pytest.fixture(autouse=True)
+def _guard_governance_logdir():
+    """第二道防线：LOG_DIR 被 reload 重置回真实路径时拉回临时目录
+
+    只在「当前值 == 真实 logs 路径」时纠正 —— 测试自己
+    monkeypatch 到各自 tmp_path 的情况不碰。
+    """
+    try:
+        import governance as _gov
+        from governance import BASE_DIR as _base
+    except Exception:
+        yield
+        return
+    if not _TEST_LOG_DIR:
+        yield
+        return
+    real = os.path.abspath(os.path.join(_base, 'logs'))
+    if os.path.abspath(_gov.LOG_DIR) == real:
+        _gov.LOG_DIR = _TEST_LOG_DIR
+    yield
+    # 测试体内若 reload 过，出来再纠一次
+    if os.path.abspath(_gov.LOG_DIR) == real:
+        _gov.LOG_DIR = _TEST_LOG_DIR
+
+

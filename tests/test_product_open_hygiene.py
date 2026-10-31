@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _find_git():
-    """⭐ 解析 git 位置 —— ⛔ **不硬编码盘符** ✗。
+    r"""⭐ 解析 git 位置 —— ⛔ **不硬编码盘符** ✗。
 
     2026-10-07：项目从 `E:\ai工作站\desktop-pet`（E 是**可移动盘/U 盘** ⇒ 拔盘即不可用）
     迁到 `D:\ai工作站\desktop-pet`，⭐ git 也从**E 盘那份**换到 **D 盘** ✗ ⇒

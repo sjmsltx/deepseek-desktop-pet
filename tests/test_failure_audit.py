@@ -31,22 +31,27 @@ def test_audit_failure_writes_error_record(monkeypatch):
     assert '层=' in detail and '未知' in detail
 
 
-def test_audit_failure_maps_auth_error():
-    """401 应被归到「认证」层，并写进审计 detail。"""
+def test_audit_failure_maps_auth_error(monkeypatch):
+    """401 应被归到「认证」层，并写进审计 detail。
+
+    ⛔ 2026-10-31 修：原来用「裸赋值 gov.log_event + importlib.reload(gov) 恢复」，
+       reload 会重新执行 governance 模块 ⇒ **LOG_DIR 被重置成真实路径**，
+       之后**所有**测试文件都往真实 logs/audit_<今天>.jsonl 写（实测 +8 行/轮）。
+       改用 monkeypatch：teardown 自动恢复原函数，不需要 reload。
+       （项目规则：mock 一律用 monkeypatch.setattr，禁止裸赋值模块属性。）
+    """
     import desktop_pet as dp
     import governance as gov
     import urllib.error as ue
 
     captured = []
-    gov.log_event = lambda kind, actor, action, detail='', allowed=True, extra=None, ms=None: \
-        captured.append(detail)
-    try:
-        d = dp._audit_failure(ue.HTTPError('https://x', 401, 'Unauthorized', {}, None), context='对话')
-        assert d.layer == '鉴权'
-        assert '鉴权' in captured[0]
-    finally:
-        import importlib
-        importlib.reload(gov)
+    monkeypatch.setattr(gov, 'log_event',
+                        lambda kind, actor, action, detail='', allowed=True,
+                        extra=None, ms=None: captured.append(detail),
+                        raising=True)
+    d = dp._audit_failure(ue.HTTPError('https://x', 401, 'Unauthorized', {}, None), context='对话')
+    assert d.layer == '鉴权'
+    assert '鉴权' in captured[0]
 
 
 def test_audit_failure_never_raises_when_audit_broken(monkeypatch):
