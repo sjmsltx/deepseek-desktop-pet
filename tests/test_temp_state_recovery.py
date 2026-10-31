@@ -51,7 +51,8 @@ def _wait(ms):
 # ---------- ① 喂食回待机 ----------
 def test_feed_returns_to_idle():
     p = _pet()
-    p.affection.feed = lambda role: {'satiety': 80.0, 'affection': 10}
+    # 2026-10-31：feed() 新增 restore 参数（食物多样化），桩签名必须跟上
+    p.affection.feed = lambda role, restore=None: {'satiety': 80.0, 'affection': 10}
     p.affection.satiety = lambda role: 80.0
     p.state = 'idle'
     p._feed_pet()

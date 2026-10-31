@@ -456,10 +456,14 @@ class AffectionEngine:
             s = st.get('satiety', SATIETY_INIT) - elapsed_min * SATIETY_DECAY_PER_MIN
             return round(max(0.0, min(SATIETY_MAX, s)), 1)
 
-    def feed(self, role: str) -> dict:
+    def feed(self, role: str, restore: int = SATIETY_FEED_RESTORE) -> dict:
         """
-        喂食：恢复饱食度 +40（封顶 100）并触发 feed 事件（好感 +2，冷却 30 分钟）。
+        喂食：恢复饱食度（默认 +40，封顶 100）并触发 feed 事件（好感 +2，冷却 30 分钟）。
         低饱食只提示不惩罚（零惩罚原则）。
+
+        restore：本次恢复量（2026-10-31，Owner 要「食物多样化」）——
+                 不同食物给不同恢复量；好感增量**不按食物区分**，
+                 统一走 feed 事件，避免绕开这里已有的冷却/每日上限。
         """
         with self._lock:
             st = self._state(role)
@@ -469,9 +473,14 @@ class AffectionEngine:
         r = self.trigger(role, 'feed')
         if r.get('blocked'):
             return r
+        try:
+            _restore = int(restore)
+        except (TypeError, ValueError):
+            _restore = SATIETY_FEED_RESTORE
+        _restore = max(1, min(SATIETY_MAX, _restore))
         with self._lock:
             st = self._state(role)
-            st['satiety'] = min(SATIETY_MAX, st.get('satiety', SATIETY_INIT) + SATIETY_FEED_RESTORE)
+            st['satiety'] = min(SATIETY_MAX, st.get('satiety', SATIETY_INIT) + _restore)
             st['last_sat_time'] = time.time()
             self._save()
         r['satiety'] = self.satiety(role)

@@ -828,6 +828,10 @@ class PetWidget(QWidget):
         self.pet_stack = QStackedWidget(self)
         self.pet_stack.addWidget(self.pet_label)
         self.layout.addWidget(self.pet_stack, 0, Qt.AlignHCenter)
+        # 2026-10-31（Owner：「拖一个文件然后他假装把它吃掉了」）：
+        #   立绘区接受拖放 —— 必须在这里（label 已创建）调用。
+        #   QLabel 自身不处理 dropEvent，所以是挂 eventFilter 而不是重写 dropEvent。
+        self._hook_pet_area_drops()
 
         # 聊天窗口（替代原功能按钮栏）
         self.chat_panel = QFrame(self)
@@ -1204,6 +1208,11 @@ class PetWidget(QWidget):
                 # 时机档：always / hidden / off（写错的值回落默认）
                 self.random_action_when = self._normalize_random_action_mode(
                     cfg.get('random_action_when'))
+                # 2026-10-31：拖文件「真送回收站」是 Owner 需求里的第 3 条，
+                #   属破坏性功能，单独一批做。**这里先不读配置** ——
+                #   读了却没有 UI 入口 = 死配置（test_config_dead_keys 会当场抓）。
+                #   实现时连同「设置里的开关 + 二次确认」一并加。
+                self.drag_to_bin = False
                 self.ai_bubble = bool(cfg.get('ai_bubble', True))
                 try:
                     self.ai_bubble_max_chars = max(8, min(120, int(
@@ -6409,6 +6418,24 @@ class PetWidget(QWidget):
     # 使用者反馈「开了主动关心会混在一起、效果不明显」。现关心走独立样式与独立记录。
     _CARE_LABEL = {'care': '主动关心', 'remind': '提醒', 'greet': '问候'}
 
+    # ---------- 喂食：食物表（2026-10-31，Owner：「可以选择一些更多样性的食物」）----------
+    #
+    # ⚠ 设计取舍：素材里只有一张 flash_eating.png，**没有不同食物的立绘**
+    #   ⇒ 食物的差异只能体现在 emoji / 饱食恢复量 / 台词上，立绘统一用 eating。
+    # ⚠ 好感增量**不按食物区分**，统一走 EVENTS 里的 feed 事件（+2，30 分钟冷却）：
+    #   按食物给不同好感会绕开 EVENTS 的防刷设计（冷却 / 每日上限），
+    #   要改那套得动整个事件系统，收益不成比例。
+    FOODS = {
+        'noodle': {'name': '面', 'emoji': '🍜', 'restore': 40, 'line': '这个面好好吃！'},
+        'cake':   {'name': '小蛋糕', 'emoji': '🍰', 'restore': 28, 'line': '甜甜的～谢谢！'},
+        'rice':   {'name': '饭', 'emoji': '🍚', 'restore': 45, 'line': '吃饱啦，有精神了！'},
+        'tea':    {'name': '奶茶', 'emoji': '🧋', 'restore': 20, 'line': '喝一口，暖暖的。'},
+        'apple':  {'name': '苹果', 'emoji': '🍎', 'restore': 22, 'line': '脆脆的，很新鲜！'},
+        'candy':  {'name': '糖', 'emoji': '🍬', 'restore': 12, 'line': '就一颗哦…嘿嘿。'},
+    }
+    #: 默认食物（右键「喂食」不带参数时用）
+    FOOD_DEFAULT = 'noodle'
+
     def _affection_now(self):
         """当前角色好感度快照（写回忆时记「当时关系多深」用）
 
@@ -8037,8 +8064,21 @@ class PetWidget(QWidget):
             pass
 
     def eventFilter(self, obj, event):
-        """输入框事件：Enter 发送（Shift+Enter 换行）；Ctrl+V 粘贴截图自动 OCR"""
+        """输入框事件：Enter 发送（Shift+Enter 换行）；Ctrl+V 粘贴截图自动 OCR
+        立绘区事件：拖放 → 喂食（2026-10-31）
+        """
         from PySide6.QtCore import QEvent
+        # 立绘区拖放（喂食）。放在最前面：pet_label 的 drop 不该走输入框那套。
+        if obj is getattr(self, 'pet_label', None):
+            try:
+                if event.type() == QEvent.Type.DragEnter:
+                    self._pet_area_drag_enter(event)
+                    return True
+                if event.type() == QEvent.Type.Drop:
+                    self._pet_area_drop(event)
+                    return True
+            except Exception as _exc:
+                _silent_log('eventFilter:pet_area', _exc)
         if obj is self.chat_input and event.type() == QEvent.Type.KeyPress:
             # 截图粘贴：剪贴板有图片 → OCR 流程；无图 → 正常文本粘贴
             if event.key() == Qt.Key_V and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
@@ -10700,9 +10740,21 @@ class PetWidget(QWidget):
         except Exception as e:
             log.debug('低余额提醒失败：%s', e)
 
-    def _feed_pet(self):
-        """喂食：恢复饱食度 + 好感（冷却 30 分钟）"""
-        r = self.affection.feed(self.current)
+    def _feed_pet(self, food_key=None, reaction='kiss', quiet=False):
+        """喂食：恢复饱食度 + 好感（冷却 30 分钟）
+
+        food_key：FOODS 里的键。不传 / 传未知值 → 用 FOOD_DEFAULT。
+        不同食物的差异只有「饱食恢复量」与「台词」，好感统一走 feed 事件。
+
+        reaction：喂完的立绘反应。
+            'kiss'   右键喂食（默认，原行为）
+            'eating' 拖文件来「吃」（Owner 要的是看见**吃**的动作，不是亲亲）
+        quiet：True 时不弹自己的气泡（拖文件那条由调用方统一给一条完整消息，
+               否则多行会挤在一个气泡里溢出 —— 实测截图可见）。
+        """
+        food = self.FOODS.get(str(food_key or ''), None) or self.FOODS[self.FOOD_DEFAULT]
+        # 饱食恢复量按食物区分 —— 先于 feed() 把差值记下来，喂完只补差额
+        r = self.affection.feed(self.current, restore=int(food['restore']))
         if r.get('blocked'):
             self._show_pet_bubble('刚喂过啦，过会儿再喂～')
             return
@@ -10711,13 +10763,126 @@ class PetWidget(QWidget):
         try:
             # v6.79 缺陷 74①：补「设 state → 渲染 → 排收尾」三件套。
             # 原先只渲染不设 state → end_state 的 state==st 门槛永远进不去 → 亲亲图回不到待机。
-            self.state = 'kiss'
-            self.phase = 0
-            self._show_state_image('kiss')  # v6.30 喂食成功：撒娇亲亲
-            QTimer.singleShot(2500, lambda s=_sat: self._end_feed_reaction(s))
+            _react = 'eating' if reaction == 'eating' else 'kiss'
+            if _react == 'eating':
+                # 拖文件来「吃」：用场景动作演，而不是亲亲
+                self.play_scene('eating')
+            else:
+                self.state = 'kiss'
+                self.phase = 0
+                self._show_state_image('kiss')  # v6.30 喂食成功：撒娇亲亲
+                QTimer.singleShot(2500, lambda s=_sat: self._end_feed_reaction(s))
         except Exception:
             pass
-        self._show_pet_bubble(f'好吃！饱食度 {_sat:.0f}%，好感 +2')
+        if not quiet:
+            self._show_pet_bubble('%s %s 饱食度 %.0f%%'
+                                  % (food['emoji'], food['line'], _sat))
+        # 让调用方也能拿到结果（quiet 时它需要自己拼消息）
+        r['food'] = food
+        r['satiety_after'] = _sat
+        return r
+
+    def _hook_pet_area_drops(self):
+        """让立绘区接受拖放（2026-10-31）
+
+        ⚠ QLabel 自己**不处理** dropEvent —— 光 setAcceptDrops(True) 收不到事件。
+          必须挂 eventFilter，在 PetWidget.eventFilter 里按 obj is pet_label 分流。
+        """
+        try:
+            self.pet_label.setAcceptDrops(True)
+            self.pet_label.installEventFilter(self)
+            self._pet_area_drop_hooked = True
+        except Exception as _exc:
+            _silent_log('_hook_pet_area_drops', _exc)
+            self._pet_area_drop_hooked = False
+
+    def _pet_area_drag_enter(self, e):
+        """拖到立绘区：只接文件 URL，其他放行（2026-10-31）"""
+        try:
+            if e.mimeData().hasUrls():
+                e.acceptProposedAction()
+                return
+        except Exception as _exc:
+            _silent_log('_pet_area_drag_enter', _exc)
+        e.ignore()
+
+    def _pet_area_drop(self, e):
+        """立绘区的 drop：喂食。
+
+        ⚠ 这与主窗口的 dropEvent（把路径插进输入框）**是两条路**：
+          拖到立绘区 = 喂；拖到聊天区 = 插路径（原行为不动）。
+        """
+        try:
+            urls = e.mimeData().urls()
+            paths = []
+            for u in urls:
+                try:
+                    p = u.toLocalFile() if u.isLocalFile() else ''
+                except Exception as _exc:
+                    _silent_log('_pet_area_drop:url', _exc)
+                    p = ''
+                if p:
+                    paths.append(p)
+            if paths:
+                self._feed_by_drop(paths)
+                e.accept()
+                return
+        except Exception as _exc:
+            _silent_log('_pet_area_drop', _exc)
+        e.ignore()
+
+    def _feed_by_drop(self, paths):
+        """拖文件到立绘区 → 喂食（2026-10-31，Owner：「拖一个文件然后他假装把它吃掉了」）
+
+        ⛔ **绝不改动文件**：本方法只读路径做展示，不 open / 不删 / 不移。
+           有测试对文件取 (size, mtime, sha256) 三元指纹，前后必须完全一致。
+
+        只吃文件，不吃文件夹（Owner 需求记录里的待确认项之一，
+        这里取保守解释：文件夹体积/语义都不适合「吃掉」）。
+        """
+        try:
+            paths = [str(x) for x in (paths or []) if x]
+            if not paths:
+                return
+            if getattr(self, 'drag_to_bin', False):
+                # 真送回收站属破坏性功能，本批未实现；先明确告知而不是静默降级
+                self._show_pet_bubble('「送回收站」还没做好，这次只是假装吃掉～')
+
+            fed = 0
+            skipped = []
+            for pth in paths[:3]:          # 一次最多吃 3 个，多了没意义
+                try:
+                    if not os.path.exists(pth):
+                        skipped.append(os.path.basename(pth) or pth)
+                        continue
+                    if os.path.isdir(pth):
+                        skipped.append(os.path.basename(pth) + '（文件夹）')
+                        continue
+                    fed += 1
+                except Exception as _exc:
+                    _silent_log('_feed_by_drop:check', _exc)
+                    skipped.append(os.path.basename(pth) or pth)
+
+            if not fed:
+                if skipped:
+                    self._show_pet_bubble('我只吃文件哦，文件夹啃不动～（%s）'
+                                          % '、'.join(skipped[:2]))
+                return
+
+            names = '、'.join(os.path.basename(x) for x in paths[:fed])
+            # 走正常喂食（饱食 + 好感，受 30 分钟冷却约束），
+            # 反应动作传 'eating' —— 不能让它被 kiss 顶掉（实测过会顶掉）；
+            # quiet=True：气泡由下面统一给一条，避免多行挤在一起溢出
+            _r = self._feed_pet(self.FOOD_DEFAULT, reaction='eating', quiet=True)
+            if _r and _r.get('blocked'):
+                return          # 冷却中：_feed_pet 已经提示过「刚喂过啦」
+            # ⛔ 这句必须留：不能让用户以为文件真被吃了
+            _sat2 = float((_r or {}).get('satiety_after') or 0)
+            _msg = '啊呜——吃掉「%s」（假装）' % names[:16]
+            _tail = '文件没动 · 饱食 %.0f%%' % _sat2 if _sat2 else '文件没动'
+            self._show_pet_bubble(_msg + chr(10) + _tail)
+        except Exception as _exc:
+            _silent_log('_feed_by_drop', _exc)
 
     def _end_feed_reaction(self, satiety):
         """喂食撒娇收尾（v6.79 缺陷 74①）：重判饱食度 ——
@@ -10991,7 +11156,11 @@ class PetWidget(QWidget):
         imenu.addAction(T('think')).triggered.connect(lambda: self.do_thinking())
         imenu.addAction(T('random')).triggered.connect(lambda: self.random_action())
         imenu.addSeparator()
-        imenu.addAction('🍖 喂食').triggered.connect(self._feed_pet)
+        # 2026-10-31（Owner：「可以选择一些更多样性的食物」）：喂食改成子菜单
+        fmenu = imenu.addMenu('🍖 喂食')
+        for _k, _v in self.FOODS.items():
+            fmenu.addAction('%s %s' % (_v['emoji'], _v['name'])).triggered.connect(
+                lambda _=False, k=_k: self._feed_pet(k))
         imenu.addAction('🎮 小游戏').triggered.connect(self._open_games)
         imenu.addSeparator()
         imenu.addAction(T('sleep')).triggered.connect(lambda: self.toggle_sleep())
