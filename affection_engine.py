@@ -8,9 +8,12 @@ affection_engine.py — 好感度与成长引擎（纯逻辑，无 UI 依赖，�
 - 双轴模型：好感度（情感亲密度，决定人设阶段）+ 等级/XP（陪伴资历，决定称号）
 """
 import json
+import logging
 import os
 import threading
 import time
+
+_log_aff = logging.getLogger('pet.affection')
 
 # ---------- 常量 ----------
 AFFECTION_MAX = 200          # 好感度上限
@@ -35,8 +38,32 @@ def level_from_xp(xp: int) -> int:
     return lv
 
 #: 好感度地板所在的阶段（2026-10-31 Owner 拍：最低掉到「熟悉」）。
-#: ⛔ 减分机制在下一轮实现，这里先把常量和判据立好，避免下次再改一遍 STAGES。
+#: ⛔ 这个常量必须被 stage_floor_value() **真的读**，不能靠「碰巧 80 恰好是熟悉的下限」。
+#:   （PC-桌宠-20261031-298 §4.6 点名要求；有测试改它的值来验地板跟着变。）
 STAGE_FLOOR = '熟悉'
+
+# ---------- 减分（2026-10-31 上线，Owner 拍「不做开关」）----------
+#: 单次最多减多少分（绝对值）
+PENALTY_MAX_SINGLE = 2
+#: 每日累计最多减多少分（绝对值）
+PENALTY_MAX_DAILY = 10
+#: 审计日志保留条数（这库要长期跑，不能无限长）
+PENALTY_LOG_KEEP = 100
+
+
+def stage_floor_value() -> int:
+    """地板阶段对应的好感度下限。
+
+    ⛔ 从 STAGES 里按 **STAGE_FLOOR 的名字** 反查，不写死 80 ——
+       这样以后换地板阶段只改一个常量，不用满仓找数字。
+    """
+    for lo, _hi, name, _role, _text in STAGES:
+        if name == STAGE_FLOOR:
+            return lo
+    # STAGE_FLOOR 写了个不存在的阶段名：按初始好感度兜底，并留痕
+    _log_aff.warning('STAGE_FLOOR=%r 不在 STAGES 里，地板回退到初始值 %d',
+                     STAGE_FLOOR, AFFECTION_INIT)
+    return AFFECTION_INIT
 
 # ---------- 人设阶段（纵向进化，好感度驱动） ----------
 # (下限, 上限, 阶段名, 关系定位, prompt 注入文本)
@@ -255,6 +282,100 @@ class AffectionEngine:
                 'new_stage': new_stage,
                 'unlocked_titles': unlocked,
             }
+
+    # ---------- 减分（2026-10-31）----------
+    def apply_penalty(self, role: str, reason: str, amount) -> dict:
+        """扣好感度。三道闸挡着，扣不穿地板。
+
+        Args:
+            role: 角色
+            reason: 扣分原因（进审计，必须是人能看懂的话）
+            amount: 扣分值，**必须是负数**（传正数/0/None 一律拒绝 ——
+                    防止调用方以为「传 2 就是加 2」而实际在加分的语义歧义）
+
+        Returns:
+            {'blocked': bool, 'reason': str(仅拦截时),
+             'affection_before': int, 'affection_after': int,
+             'applied': int(实际扣掉的绝对值), 'capped_by': str|None,
+             'stage_changed': bool, 'new_stage': str}
+
+        三道闸（按顺序）：
+            1. 单次 |amount| 截到 PENALTY_MAX_SINGLE
+            2. 当日累计 |delta| 截到 PENALTY_MAX_DAILY（跨日自动清零）
+            3. 不跌破 stage_floor_value()（= STAGE_FLOOR 阶段的下限）
+
+        每次扣分都往 st['penalty_log'] 追加 before/after（上限 PENALTY_LOG_KEEP 条）。
+        history_max 只增不减：扣分不抹掉「曾经到过多少」。
+        """
+        # ---- 入参校验：只收负数 ----
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+            return {'blocked': True, 'reason': 'bad_amount'}
+        if amount >= 0:
+            return {'blocked': True, 'reason': 'bad_amount'}
+
+        floor = stage_floor_value()
+        want = min(abs(int(amount)), PENALTY_MAX_SINGLE)   # 闸 1
+
+        with self._lock:
+            st = self._state(role)
+            before = st['affection']
+
+            # ---- 闸 3：地板 ----
+            if before <= floor:
+                return {'blocked': True, 'reason': 'floor',
+                        'affection_before': before, 'affection_after': before}
+
+            # ---- 闸 2：当日累计 ----
+            today = _today()
+            daily = st.get('penalty_daily') or {}
+            if daily.get('date') != today:
+                daily = {'date': today, 'total': 0}
+            used = int(daily.get('total') or 0)
+            remain = max(0, PENALTY_MAX_DAILY - used)
+            if remain <= 0:
+                st['penalty_daily'] = daily
+                self._save()
+                return {'blocked': True, 'reason': 'daily_limit',
+                        'affection_before': before, 'affection_after': before}
+
+            applied = min(want, remain, before - floor)
+            if applied <= 0:
+                return {'blocked': True, 'reason': 'floor',
+                        'affection_before': before, 'affection_after': before}
+
+            capped = None
+            if applied < want:
+                capped = 'daily_limit' if applied == remain else 'floor'
+
+            old_stage = stage_from_affection(before)[0]
+
+            # ---- 落数值 ----
+            after = before - applied
+            st['affection'] = after
+            # history_max 只增不减（老存档没有这个字段时用当前值初始化）
+            st['history_max'] = max(int(st.get('history_max') or 0), before)
+            daily['total'] = used + applied
+            st['penalty_daily'] = daily
+            st['updated'] = time.time()
+
+            # ---- 审计（before/after 都写）----
+            log = st.get('penalty_log') or []
+            log.append({'at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'reason': str(reason or '')[:120],
+                        'before': before, 'after': after,
+                        'applied': applied, 'capped_by': capped})
+            if len(log) > PENALTY_LOG_KEEP:
+                log = log[-PENALTY_LOG_KEEP:]
+            st['penalty_log'] = log
+
+            new_stage = stage_from_affection(after)[0]
+            self._save()
+
+            _log_aff.info('好感度 -%d（%s）：%d → %d%s', applied, reason, before, after,
+                          ('（受限于 %s）' % capped) if capped else '')
+            return {'blocked': False, 'affection_before': before, 'affection_after': after,
+                    'applied': applied, 'capped_by': capped,
+                    'stage_changed': new_stage != old_stage, 'new_stage': new_stage}
 
     # ---------- 高分里程碑（v6.30 PhaseD 收尾） ----------
     # v6.80：小游戏类名改通用表述后的**旧名兼容**（老存档里的最高分继续可用 ✓）
