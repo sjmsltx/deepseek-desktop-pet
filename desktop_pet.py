@@ -9654,8 +9654,14 @@ class PetWidget(QWidget):
         # v6.30 fix：贴边未弹出时完全静止（不做摆头移动，避免与贴边定位冲突导致左右抽动）
         if self._edge_side is not None and not self._edge_popped:
             return
-        # 待机/拖拽/睡眠：完全静止，不重绘不移动（杜绝闪烁）
-        if self.state == 'idle' or self.sleeping or self.dragging:
+        # 待机/拖拽/睡眠/场景动作：完全静止，不重绘不移动（杜绝闪烁）
+        #
+        # ⚠ 2026-10-31 修（Owner 实测：随机动作冒了气泡但立绘不变）：
+        #   'scene' 原先不在这里 ⇒ 走到下面 `_render_frame(_get_state_img(self.state))`
+        #   而 `_get_state_img('scene')` 经 asset() 兜底拿到的其实是 **idle 图**
+        #   ⇒ 动作图在几十毫秒内被重绘回待机。
+        #   场景动作是静态定格 6 秒，本就不该摆头；早退是对的，不是绕过。
+        if self.state in ('idle', 'scene') or self.sleeping or self.dragging:
             return
         # 思考/开心/饥饿等：轻微左右摆头
         # ⭐ D11-5（2026-10-11 修）：原来这里是 `self.move(base_x + dx, base_y)` ✗
@@ -9665,7 +9671,13 @@ class PetWidget(QWidget):
         #   附带：原先靠 move 实现还会让**窗口真实位置**漂移（base_x 记账 ✗），本改一并消除 ✓
         self.phase += 1
         dx = int(3 * math.sin(self.phase * 0.25))
-        self._render_frame(self._get_state_img(self.state), dx=dx)
+        # 2026-10-31 护栏：`_get_state_img` 对没有专属素材的状态会兜底到 idle 图，
+        #   拿它重绘等于把当前立绘换回待机。宁可不动，也别覆盖。
+        _img = self._get_state_img(self.state)
+        _idle = getattr(self, 'full_idle', None)
+        if _img is None or (_idle is not None and _img.cacheKey() == _idle.cacheKey()):
+            return
+        self._render_frame(_img, dx=dx)
 
     # ---------- 睡眠 ----------
     def toggle_sleep(self):
