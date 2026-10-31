@@ -204,7 +204,9 @@ class MemoryStarMap(QWidget):
     def _compute_layout(self):
         w, h = self.width(), self.height()
         cx, cy = w * 0.50, h * 0.50
-        R = min(w, h) * 0.40
+        # 2026-10-31：主区里容器高只有 ~610，若直接用 min(w,h)*0.40 星团名会顶到标题栏。
+        #   留出顶部（标题+副标题约 84px）与底部（图例约 90px）的净空再定半径。
+        R = max(60.0, min(w * 0.46, (h - 84 - 90) * 0.50))
         self._centers = {}
         for cat in ORDER:
             a = math.radians(ANGLES[cat])

@@ -83,7 +83,10 @@ def test_main_area_button_is_compact_icon():
 # ==================== 2 主区只装 todo / note ====================
 
 def test_main_area_registers_three_panels():
-    """主区面板清单：待办 / 便签 / 用量分析
+    """主区面板清单：待办 / 便签 / 用量分析 / 记忆星图
+
+        2026-10-31 契约变更：Owner「主区的东西太少了」→ 加「记忆星图」。
+        判据仍没松 —— 星图要整块画布做缩放/拖动，侧栏 186px 放不下。
 
     2026-10-29 契约变更：Owner「感觉现在内容有点少」→ 加「用量分析」。
     判据没松 —— 仍是「侧栏 186px 装不下」：三张图表 + 按天表格，侧栏放不下。
@@ -95,8 +98,8 @@ def test_main_area_registers_three_panels():
         p = _pet()
         try:
             n = p._register_builtin_panels()
-            assert n == 3, '应该注册三个面板，实际 %d' % n
-            assert pr.panel_keys() == ['todo', 'note', 'stats'], pr.panel_keys()
+            assert n == 4, '应该注册四个面板，实际 %d' % n
+            assert pr.panel_keys() == ['todo', 'note', 'stats', 'starmap'], pr.panel_keys()
         finally:
             p.deleteLater()
     finally:

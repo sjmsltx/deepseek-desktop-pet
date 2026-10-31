@@ -50,6 +50,7 @@ from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
 from memory_engine import build_l0_block
+from memory_events import is_recomputable_notice
 from code_checker import check_python_blocks
 import pet_bubble as pb  # 气泡/Markdown 渲染装配层（批 3）
 import pet_anim as anim  # 状态机与动画（低耦合段，批 4）
@@ -337,6 +338,9 @@ UI_ZH = {
     'main_stats': '📈 用量分析',
     'main_stats_hint': '按天表格 + 三张趋势图（花费/构成/活跃度）。'
                        '内容比主区高，上下滚动看全部。',
+    'main_starmap': '🌌 记忆星图',
+    'main_starmap_hint': '记忆的宏观形状：拖动平移、滚轮缩放、点星看详情。每 3 秒自动同步新记忆。',
+    'main_overview': '概览',
     'main_note': '📝 便签长文',
     'main_note_hint': '侧栏便签只有 186px 宽，长文在这里写；与侧栏同一份数据，改哪边都一样。',
     'main_note_new': '＋ 新建便签',
@@ -397,6 +401,9 @@ UI_EN = {
     'main_area_empty': 'No panels registered yet',
     'main_stats': '📈 Usage Stats',
     'main_stats_hint': 'Daily table + three trend charts. Taller than the main area — scroll to see all.',
+    'main_starmap': '🌌 Memory Star Map',
+    'main_starmap_hint': 'Macro shape of memories: drag to pan, wheel to zoom, click a star for details. Syncs every 3s.',
+    'main_overview': 'Overview',
     'main_note': '📝 Long Note',
     'main_note_hint': 'The sidebar note is only 186px wide; write long text here. Same data as the sidebar.',
     'main_note_new': '＋ New Note',
@@ -3039,7 +3046,59 @@ class PetWidget(QWidget):
             n += 1
         except Exception as _exc:
             _silent_log('_register_builtin_panels:stats', _exc)
+        try:
+            # 2026-10-31（Owner：「主区的东西太少了」→ 选「星图 + 概览卡」）：
+            # 星图天生要大画布，侧栏 186px 绝对放不下 —— 与「只装侧栏放不下的东西」判据一致。
+            # ⛔ 独立弹窗入口（_open_memory_starmap）不删：两个入口共用同一控件。
+            import memory_starmap as _sms
+            T4 = self._t
+
+            def _make_starmap(host, _m=_sms):
+                stars, dead, raw = _m.load_stars()
+                return _m.MemoryStarMap(None, stars=stars, dead=dead, raw_events=raw)
+
+            _pr.register_panel('starmap', T4('main_starmap'), _make_starmap,
+                               order=40, hint=T4('main_starmap_hint'), replace=True)
+            n += 1
+        except Exception as _exc:
+            _silent_log('_register_builtin_panels:starmap', _exc)
         return n
+
+    def _main_area_overview(self):
+        """主区左栏概览卡：4 项状态摘要（全部就地读，不新建任何数据）
+
+        每项独立 try —— 一个数据源坏了只少一行，不能让整张卡消失。
+        取不到的值**不编**：直接不出现在返回列表里（宁可少一行，不给假数字）。
+        """
+        rows = []
+        # 关系
+        try:
+            _s = self.affection.snapshot(self.current)
+            rows.append(('关系', '%s · 好感 %s' % (_s.get('stage'), _s.get('affection'))))
+        except Exception as _exc:
+            _silent_log('_main_area_overview:affection', _exc)
+        # 记忆（事件侧只数真回忆，判据与注入侧同一套）
+        try:
+            items = self.memories.all(self.current) if self.memories else []
+            real = [m for m in items
+                    if not is_recomputable_notice(m.get('title', ''), m.get('detail', ''))]
+            rows.append(('记忆', '%d 条回忆' % len(real)))
+        except Exception as _exc:
+            _silent_log('_main_area_overview:memory', _exc)
+        # 今天花费
+        try:
+            _td = self.api_stats.today
+            rows.append(('今天', '¥%.4f · %d 次'
+                         % (float(_td.get('cost') or 0), int(_td.get('count') or 0))))
+        except Exception as _exc:
+            _silent_log('_main_area_overview:stats', _exc)
+        # 待办
+        try:
+            _t = self.todos or []
+            rows.append(('待办', '%d 条未完成' % sum(1 for x in _t if not x.get('done'))))
+        except Exception as _exc:
+            _silent_log('_main_area_overview:todos', _exc)
+        return rows
 
     def _open_main_area(self):
         """打开主区容器（可选入口，不点永远不会出现）。
@@ -3068,7 +3127,8 @@ class PetWidget(QWidget):
                 'hint': self._t('main_area_hint'),
                 'empty': self._t('main_area_empty'),
             }, size_cb=self._main_area_size_cb,
-                initial_size=_sz, initial_maximized=_mx)
+                initial_size=_sz, initial_maximized=_mx,
+                overview_cb=self._main_area_overview)
         except Exception as _exc:
             _silent_log('_open_main_area:build', _exc, user_facing=True)
             return None

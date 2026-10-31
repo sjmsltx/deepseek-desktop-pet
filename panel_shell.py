@@ -46,7 +46,7 @@ class PanelShell(QWidget):
     SAVE_DELAY_MS = 800
 
     def __init__(self, host, parent=None, labels=None, size_cb=None,
-                 initial_size=None, initial_maximized=False):
+                 initial_size=None, initial_maximized=False, overview_cb=None):
         """Args:
             size_cb: (w, h, maximized) -> None，尺寸变了叫一次（防抖后）。
                      ⛔ 不传就不上报，但仍然可以拖拽改大小。
@@ -60,6 +60,11 @@ class PanelShell(QWidget):
         self._btns = {}
         self._size_cb = size_cb
         self._size_ready = False      # 首次 show 之前不上报，免得把配置冲掉
+        # 概览卡：宿主提供 [(标签, 值)]，本类只负责显示（不读业务数据，保持可独立导入）
+        self._overview_cb = overview_cb
+        self._overview_rows = []
+        self._overview_widget = None
+        self._overview_labels = []
 
         self.setWindowTitle(self._L.get('title', '主区'))
         # 可拖拽改大小：不设 fixed size，只给一个合理下限
@@ -96,7 +101,7 @@ class PanelShell(QWidget):
             b.setCursor(Qt.PointingHandCursor)
             # 2026-10-29 实测：左列按钮按 sizeHint（84px）排不下「📋 待办管理」，
             # Qt 会折成两行。给个下限，够放最长标题。
-            b.setMinimumWidth(112)
+            b.setMinimumWidth(132)   # 2026-10-31：容纳「🌌 记忆星图」不折行
             if spec.hint:
                 b.setToolTip(spec.hint)
             b.clicked.connect(lambda _=False, k=spec.key: self.show_panel(k))
@@ -104,6 +109,8 @@ class PanelShell(QWidget):
             self._btns[spec.key] = b
         if not specs:
             left.addWidget(QLabel(self._L.get('empty', '还没有注册任何面板'), self))
+        # 概览卡：放在按钮下方那片空白里（原来 addStretch 之前全是空的）
+        self._build_overview(left)
         left.addStretch(1)
         body.addLayout(left)
 
@@ -115,6 +122,63 @@ class PanelShell(QWidget):
 
         if specs:
             self.show_panel(specs[0].key)
+
+    # ================= 概览卡 =================
+
+    def _build_overview(self, left_layout):
+        """在左列按钮下方建概览卡（无回调或取不到数据时不建）
+
+        2026-10-31（Owner：「主区的东西太少了」）：左列按钮下方原来是一大片空白。
+        ⛔ 本类不读业务数据 —— 宿主通过 overview_cb 提供 [(标签, 值)]，保持可独立导入。
+        """
+        if not callable(self._overview_cb):
+            return
+        try:
+            rows = self._overview_cb() or []
+        except Exception as _exc:
+            _log.warning('概览卡取数失败（本次不显示）：%s', _exc)
+            rows = []
+        self._overview_rows = list(rows)
+        if not rows:
+            return
+
+        box = QWidget(self)
+        v = QVBoxLayout(box)
+        v.setContentsMargins(8, 10, 8, 10)
+        v.setSpacing(6)
+        title = QLabel(self._L.get('overview', '概览'), box)
+        title.setStyleSheet('font-weight:bold;')
+        v.addWidget(title)
+        self._overview_labels = []
+        for k, val in rows:
+            # 两行式：小字标签 + 值（左列约 132px 宽，一行写不下会折成多行）
+            cap = QLabel(str(k), box)
+            # ⛔ 不写死颜色（主题护栏只减不增）：用系统灰 + 字号表达层级
+            cap.setEnabled(False)
+            cap.setStyleSheet('font-size:11px;')
+            lb = QLabel(str(val), box)
+            lb.setWordWrap(True)
+            lb.setStyleSheet('font-size:12px;')
+            v.addWidget(cap)
+            v.addWidget(lb)
+            self._overview_labels.append((k, lb))
+        left_layout.addWidget(box)
+        self._overview_widget = box
+
+
+    def _refresh_overview(self):
+        """只更新文字，不重建控件（重建会闪，且可能留下已销毁对象）"""
+        if not (callable(self._overview_cb) and self._overview_labels):
+            return
+        try:
+            rows = dict(self._overview_cb() or [])
+        except Exception as _exc:
+            _log.warning('概览卡刷新失败（保留旧值）：%s', _exc)
+            return
+        for k, lb in self._overview_labels:
+            if k in rows:
+                lb.setText('%s：%s' % (k, rows[k]))
+
 
     # ================= 对外 =================
 
@@ -237,6 +301,7 @@ class PanelShell(QWidget):
                     # 不依赖宿主是否有 _silent_log —— 本文件要能独立导入。
                     _log.warning('面板 %s 的 refresh 失败：%s', getattr(w, '__class__', type(w)).__name__, _exc)
                     continue
+        self._refresh_overview()
         return n
 
     @staticmethod
