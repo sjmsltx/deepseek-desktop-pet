@@ -39,6 +39,8 @@ import urllib.request as _urllib_request          # noqa: E402  (仅标准库)
 _NO_PROXY_OPENER = _urllib_request.build_opener(_urllib_request.ProxyHandler({}))
 
 # 启动日志的候选位置（启动器写第一个，手工启动可能写临时目录）
+# ⚠ 这是**静态兜底候选**；真正优先的是发现到的 root 下的 dsh-web.log
+#   （见 _candidate_logs）。改这里不影响"装在别处"的场景。
 LOG_CANDIDATES = [
     os.path.join(DSH_ROOT, 'dsh-web.log'),
     os.path.join(os.environ.get('TEMP', ''), 'dsh_web.log'),
@@ -54,6 +56,17 @@ USER_CONFIG_NAME = 'dsh_config.json'
 USER_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), USER_CONFIG_NAME)
 _DISCOVERY_CACHE = {'ts': 0.0, 'data': None}
 _DISCOVERY_TTL = 30.0
+
+#: `installed()` 的**结果**缓存（2026-10-31）。
+#: ⚠ 为什么单独一层：`installed()` 会走 `resolve_root()` → `discover()` → 扫进程
+#:   （实测 0.28~0.30 秒），而它被**右键菜单在 UI 线程**调用
+#:   （`contextMenuEvent` → `_build_context_menu()`）⇒ 菜单弹出前要等这么久。
+#:   「DSH 装没装/装在哪」是极低频变化的属性，没必要每 30 秒重算。
+#: ⛔ 这不是第二套判据：语义仍是 `_has_marker(resolve_root())`，只是缓存结果。
+#: TTL 与 `_DISCOVERY_TTL` 分开：port 会随 DSH 重启变化（要灵敏），
+#: 而「装没装」几乎不变（可以慢）。
+_INSTALLED_CACHE = {'ts': 0.0, 'val': None}
+_INSTALLED_TTL = 300.0
 
 
 def load_user_config() -> dict:
@@ -108,9 +121,15 @@ def _running_dsh_processes(timeout: int = 15) -> list:
     return found
 
 
-def _port_from_logs():
+# 2026-10-30 修（WX-150 §3.3）：原来只用静态 `LOG_CANDIDATES`，而同一类功能的
+# `read_token_url()` 用 `_candidate_logs()`（先发现值、再静态候选）。
+# ⇒ DSH 装在别处、没配端口、进程没在跑时，会去默认位置读一个可能不存在的旧日志，
+#   拿不到端口 → 回落 3080。改成与 `read_token_url` 同一口径。
+# ⚠ 既有测试 `test_dsh_panel.py` 的 autouse fixture 会 patch `resolve_root`，
+#   所以 `_candidate_logs()` 的发现路径指向不存在的临时目录，不会被本机真实日志污染。
+def _port_from_logs(root: str = None):
     """从启动日志里反推端口（形如 http://127.0.0.1:3081/?token=...）"""
-    for path in LOG_CANDIDATES:
+    for path in _candidate_logs(root):
         try:
             if not path or not os.path.exists(path):
                 continue
@@ -132,7 +151,11 @@ def discover(force: bool = False) -> dict:
         return _DISCOVERY_CACHE['data']
 
     cfg = load_user_config()
-    procs = _running_dsh_processes()
+
+    # 2026-10-30 修：原先无条件先扫进程（真起 PowerShell，0.5 秒），
+    # 即使用户已经配好 root+port 也照扫一遍。改成只有配置里缺哪项才扫。
+    need_scan = not (cfg.get('root') and cfg.get('port'))
+    procs = _running_dsh_processes() if need_scan else []
     proc_root = next((p['root'] for p in procs if p['root']), None)
     proc_port = next((p['port'] for p in procs if p['port']), None)
 
@@ -151,8 +174,13 @@ def discover(force: bool = False) -> dict:
         port, port_src = int(os.environ['DSH_PORT']), '环境变量 DSH_PORT'
     elif proc_port:
         port, port_src = int(proc_port), '运行中进程的 --port'
-    elif _port_from_logs():
-        port, port_src = int(_port_from_logs()), '启动日志'
+    elif _port_from_logs(root):
+        # ⚠ 必须把已算好的 root 传进去：不传的话它会走 resolve_root() → 递归回本函数。
+        # ⚠ 2026-10-31 更正（WX-151 §六 指出）：**这里实际调了两次**
+        #   （elif 判一次、取值再一次），之前注释写「合并成一次」是假的。
+        #   两次都是读本地日志文件，实测代价约 5 毫秒，不值得为它改流程；
+        #   但注释必须说实话，否则下一个人读到这里会算错。
+        port, port_src = int(_port_from_logs(root)), '启动日志'
     else:
         port, port_src = DEFAULT_PORT, '默认值 3080'
 
@@ -174,11 +202,158 @@ def resolve_port() -> int:
     return discover()['port']
 
 
-def _candidate_logs() -> list:
-    """日志候选：先看发现到的安装位置，再看静态候选（去重）。"""
+def installed(force: bool = False) -> bool:
+    """DSH 是否装在本机（**统一判据**，菜单与设置都用它）。
+
+    2026-10-30 加：原先菜单判 `os.path.exists(DSH_ROOT)` —— 那个是模块导入时定死的
+    静态常量，用户把 DSH 装在别处并配好 dsh_config.json 后，菜单仍会显示
+    「⚠️ 未检测到 DSH」。这里统一走发现值。
+
+    判据：发现到的 root 存在，**且**里面有 DSH 的标志之一
+          （`node_modules/@deepseek-ai/dsh` 或 `start-dsh.ps1` 或 `dsh.cmd`）。
+    ⛔ 只判目录存在不够：默认目录可能是个空壳或被别的项目占了。
+
+    ⚠ 口径（2026-10-30 二审后定）：**只有一个定义 —— `_has_marker(resolve_root())`**。
+
+    第一版我写成「按优先级选一个候选，不合格就扫进程兜底」，被 WX-150 §2.1 用实测
+    反例否掉了（我自己也复现过）：配置 root 指向坏路径、而 DSH 正在默认目录跑着时，
+    `resolve_root()` 返回坏路径但 fallback 扫到进程 ⇒ 本函数返回 True
+    ⇒ **菜单说「已检测到」，面板拿坏路径去拉 → 打不开**。
+    那正是本函数要消灭的 bug①，用 fallback 等于把它又造了一遍。
+
+    ⛔ 不许在这里再实现一套"够不够装"的算法：
+      面板用 `resolve_root()` 找启动器，本函数就必须用同一个 root 判。
+      两个函数回答同一个问题，只能一处定义、另一处引用。
+
+    ⚠ 性能取舍（明账）：`resolve_root()` → `discover()` 冷缓存要扫进程（实测 0.53 秒），
+      菜单在 UI 线程调用（`contextMenuEvent`）⇒ **缓存过期后第一次右键最多慢 0.5 秒**。
+      接受理由：0.5 秒延迟 vs「说检测到但打不开」，后者是骗人。
+
+    ⚠ 2026-10-31 优化：结果带 `_INSTALLED_TTL`（300 秒）缓存 ⇒
+      菜单只在「缓存过期后的第一次」付这 0.3 秒，之后都是微秒级（实测 0.10 毫秒）。
+      `force=True` **连下游 discover 缓存一起穿透**（2026-10-31 修：原来只穿本层，
+      因为 `resolve_root()` 不带 force）。设置页「重测 DSH」走这条。
+    """
+    import time as _t
+    if not force and _INSTALLED_CACHE['val'] is not None:
+        if (_t.time() - _INSTALLED_CACHE['ts']) < _INSTALLED_TTL:
+            return _INSTALLED_CACHE['val']
+    try:
+        if force:
+            # ⚠ 2026-10-31（WX-152 §四 指出，我实测确认）：
+            #   `resolve_root()` **没有 force 参数**，它只能吃 `discover()` 的 30 秒缓存
+            #   ⇒ 原来写 `_has_marker(resolve_root())` 时，force 只穿透了「本层缓存」，
+            #     下游 discover 缓存照样命中 ⇒ 签名说「强制重算」，实际重算不到底。
+            #   现在 force 时直接拿 `discover(force=True)` 的 root，连下游一起穿。
+            val = _has_marker(discover(force=True)['root'])
+        else:
+            val = _has_marker(resolve_root())
+    except Exception as exc:
+        _silent_log('installed() 判定失败：%r' % exc)
+        return False
+    _INSTALLED_CACHE.update({'ts': _t.time(), 'val': val})
+    return val
+
+
+def _has_marker(root: str) -> bool:
+    """目录里有 DSH 的标志文件吗（只做 os.path 检查，不起进程）"""
+    try:
+        if not root or not os.path.isdir(root):
+            return False
+        for marker in (os.path.join('node_modules', '@deepseek-ai', 'dsh'),
+                       'start-dsh.ps1', 'dsh.cmd', 'dsh.ps1'):
+            if os.path.exists(os.path.join(root, marker)):
+                return True
+        return False
+    except Exception as exc:
+        # 落痕：路径里有非法字符 / 权限拒绝都可能走到这里，
+        # 静默返回 False 会让人以为"没装"，实际是查不了（两回事）
+        _silent_log('_has_marker(%r) 检查失败：%r' % (root, exc))
+        return False
+
+
+def installed_detail(serving_timeout: float = None, force: bool = False) -> dict:
+    """给界面用的一句话诊断：装没装 / 位置哪来 / 在不在跑。
+
+    serving_timeout 传 None（默认）= **跟随 `is_serving` 的当前默认值**（现为 0.7 秒）；
+    传具体值则覆盖。设置页状态行用的就是默认。
+    ⚠ 实测：本机连 127.0.0.1 的空闲端口返回**超时**而非 ECONNREFUSED
+      ⇒ 每次探活都会吃满整个超时，所以默认值从 2.0 一路降到 0.7。
+    ⛔ 这里**不写死秒数**（原写「默认 0.6 秒」已过期两轮）——
+      要写就写「当前」，否则调 `is_serving` 默认值时这里又落后一遍。
+    """
+    d = discover(force=force)
+    ok = installed(force=force)
+    return {
+        'installed': ok,
+        'root': d['root'],
+        'root_source': d['root_source'],
+        'port': d['port'],
+        'port_source': d['port_source'],
+        'running': d['running'],
+        'serving': (is_serving(d['port'], timeout=serving_timeout)
+                    if serving_timeout is not None else is_serving(d['port'])),
+    }
+
+
+def save_user_config(root: str = None, port: int = None) -> bool:
+    """写桌宠目录下的 `dsh_config.json`（用户显式指定 DSH 位置/端口）。
+
+    2026-10-30 加：原先只能手写这个文件或设环境变量，设置界面没有入口。
+
+    - 传 `None` = 该项保持不变；传空串/0 = **删掉该项**（回到自动发现）
+    - 写完立刻清发现缓存，调用方无需再手动 refresh
+    ⛔ 只写桌宠自己目录下的这个文件，绝不碰 DSH 的任何文件（三铁律第 1 条）。
+    """
+    try:
+        import json
+        cfg = load_user_config()
+        if root is not None:
+            r = str(root).strip()
+            if r:
+                cfg['root'] = r
+            else:
+                cfg.pop('root', None)
+        if port is not None:
+            try:
+                p = int(port)
+            except (TypeError, ValueError):
+                p = 0
+            if p > 0:
+                cfg['port'] = p
+            else:
+                cfg.pop('port', None)
+        if cfg:
+            with open(USER_CONFIG_PATH, 'w', encoding='utf-8') as fh:
+                json.dump(cfg, fh, ensure_ascii=False, indent=1)
+        elif os.path.exists(USER_CONFIG_PATH):
+            # 都清空了 → 删文件，别留个空 {} 让人以为配了东西
+            os.remove(USER_CONFIG_PATH)
+        # 缓存必须清：否则界面点了保存，30 秒内还显示旧状态
+        _DISCOVERY_CACHE.update({'ts': 0.0, 'data': None})
+        # installed() 的结果缓存也要清 —— 否则改了位置，右键菜单 5 分钟不更新
+        _INSTALLED_CACHE.update({'ts': 0.0, 'val': None})
+        return True
+    except Exception as exc:
+        _silent_log('save_user_config 失败：%r' % exc)
+        return False
+
+
+def _candidate_logs(root: str = None) -> list:
+    """日志候选：先看发现到的安装位置，再看静态候选（去重）。
+
+    ⚠ 2026-10-30：加 `root` 参数是为了**打断递归**。
+      本函数默认调 `resolve_root()`，而它 → `discover()`，
+      而 `discover()` 内部又要调 `_port_from_logs()` 读日志 ——
+      若 `_port_from_logs` 也走本函数（root=None），就成了
+        discover → _port_from_logs → _candidate_logs → resolve_root → discover
+      实测直接卡死（>120 秒不返回，整个 DSH 功能挂死）。
+      ⇒ 凡是**在 discover 内部**被调用的，必须把已算好的 root 传进来。
+    """
     paths = []
     try:
-        p = os.path.join(resolve_root(), 'dsh-web.log')
+        r = root if root is not None else resolve_root()
+        p = os.path.join(r, 'dsh-web.log')
         if p not in paths:
             paths.append(p)
     except Exception:
@@ -202,8 +377,23 @@ def _log(msg: str) -> None:
         pass
 
 
-def is_serving(port: int = None, timeout: float = 2.0) -> bool:
-    """端口是否在监听（不发起 HTTP，最便宜的存活判断）。port=None 时用自动发现的端口。"""
+# ⭐ 静默护栏的 `_LOG_NAMES` **不认识 `_log`**（只认 `_silent_log` / `log` / `warning` …）。
+#   本模块的日志函数偏偏叫 `_log` ⇒ 写了日志也会被判"没落痕"。
+#   `dsh_panel.py` 早就踩过这条并留了同样做法：用被识别的名字做同义别名。
+#   ⛔ 不改护栏（那是全项目的口径）✓ 只在本模块加别名 ✓（2026-10-30）
+_silent_log = _log
+
+
+def is_serving(port: int = None, timeout: float = 0.7) -> bool:
+    """端口是否在监听（不发起 HTTP，最便宜的存活判断）。port=None 时用自动发现的端口。
+
+    ⚠ 2026-10-30：默认超时 **2.0 → 0.7**。原因不是"想快"，是本机实测出来的：
+      连一个**空闲**的 127.0.0.1 端口返回的是**超时**而不是 ECONNREFUSED
+      （裸 socket：timeout=0.3/1.0/2.0 分别吃掉 0.31/1.00/2.00 秒），
+      ⇒ 判"服务没跑"每次都要等满整个超时。
+      而连一个**正在监听**的端口是内核几毫秒内完成，0.7 秒已是百倍余量。
+    ⛔ 这里等的是内核握手，不是网络往返 —— 别按"网速慢"的思路往上调。
+    """
     port = port or resolve_port()
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=timeout):
@@ -384,16 +574,23 @@ def stop_local_dsh() -> int:
     killed = 0
     if sys.platform != 'win32':
         return 0
+    # 2026-10-30 修：原来用静态 DSH_ROOT（模块导入时定死）——
+    # 用户把 DSH 装在别处并配好 dsh_config.json 后，这里仍然只去停 D:\dsh 的进程。
     try:
+        _r = resolve_root()
+        # ⛔ 空 root 不许拼进 PowerShell（会变成 -like "**" 匹配一切）
+        if not _r:
+            _log('stop_local_dsh: 解析不到 DSH 位置，拒绝执行（防误杀）')
+            return 0
         ps = ('Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | '
               'Where-Object { $_.CommandLine -and $_.CommandLine -like "*%s*" -and '
               '$_.CommandLine -like \'*bin.js*\' -and $_.CommandLine -like \'*web*\' } | '
-              'ForEach-Object { Stop-Process -Id $_.ProcessId -Force; 1 }' % DSH_ROOT)
+              'ForEach-Object { Stop-Process -Id $_.ProcessId -Force; 1 }' % _r)
         out = platform_layer.safe_spawn(['powershell', '-NoProfile', '-Command', ps],
                                      capture_output=True, text=True, timeout=25)
         killed = len([l for l in (out.stdout or '').splitlines() if l.strip() == '1'])
     except Exception as exc:
-        _log('stop_local_dsh 失败：%r' % exc)
+        _silent_log('stop_local_dsh 失败：%r' % exc)
     return killed
 
 

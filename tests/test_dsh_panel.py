@@ -24,6 +24,12 @@ def _isolate_discovery(monkeypatch, tmp_path):
     monkeypatch.setattr(ad, "resolve_root", lambda: str(tmp_path / "no-real-root"))
     monkeypatch.setattr(ad, "resolve_port", lambda: ad.DEFAULT_PORT)
     monkeypatch.setattr(ad, "_DISCOVERY_CACHE", {"ts": 0.0, "data": None})
+    # 2026-10-31：`installed()` 带结果缓存，不换掉会跨用例串味
+    monkeypatch.setattr(ad, "_INSTALLED_CACHE", {"ts": 0.0, "val": None})
+    # 2026-10-31：`installed()` 带结果缓存，不换掉会跨用例串味
+    monkeypatch.setattr(ad, "_INSTALLED_CACHE", {"ts": 0.0, "val": None})
+    # 2026-10-31：`installed()` 带结果缓存，不换掉会跨用例串味
+    monkeypatch.setattr(ad, "_INSTALLED_CACHE", {"ts": 0.0, "val": None})
 
 
 # ---------- 令牌地址解析 ----------
@@ -119,7 +125,9 @@ def test_panel_reports_when_launcher_missing(monkeypatch, tmp_path):
     """⭐ 语义更新（P0 修复后 ✓）：`open_panel()` 默认**不自动启动** ✗ →
     要走到"找不到启动器"这条，必须显式 `allow_start=True` ✓（＝用户已确认启动 ✓）。"""
     monkeypatch.setattr(panel.ad, "is_serving", lambda *a, **k: False)
-    monkeypatch.setattr(panel, "LAUNCHER", str(tmp_path / "no-launcher.ps1"))
+    # 2026-10-30：LAUNCHER 常量改成函数 _launcher()（原来在 import 那刻定死，
+    # DSH 装在别处就拉不起来）。这里同步改成 patch 函数。
+    monkeypatch.setattr(panel, "_launcher", lambda: str(tmp_path / "no-launcher.ps1"))
     ok, msg = panel.open_panel(allow_start=True)      # ⭐ 显式允许启动 ✓
     assert ok is False and "找不到启动器" in msg
 
@@ -209,7 +217,9 @@ def test_discovery_falls_back_to_default(monkeypatch):
     monkeypatch.delenv("DSH_PORT", raising=False)
     monkeypatch.delenv("DSH_ROOT", raising=False)
     monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [])
-    monkeypatch.setattr(ad, "_port_from_logs", lambda: None)
+    # 2026-10-30：`_port_from_logs` 现在收一个 root 参数（用于打断递归），
+    # 替身要能吃下它 —— 与 L213 的 `lambda *a, **k: []` 同一写法。
+    monkeypatch.setattr(ad, "_port_from_logs", lambda *a, **k: None)
     d = ad.discover(force=True)
     assert d["port"] == 3080 and "默认值" in d["port_source"]
 
@@ -219,6 +229,42 @@ def test_discovery_uses_log_port_when_process_unknown(monkeypatch):
     monkeypatch.setattr(ad, "USER_CONFIG_PATH", "no-such-config.json")
     monkeypatch.delenv("DSH_PORT", raising=False)
     monkeypatch.setattr(ad, "_running_dsh_processes", lambda *a, **k: [])
-    monkeypatch.setattr(ad, "_port_from_logs", lambda: 3210)
+    monkeypatch.setattr(ad, "_port_from_logs", lambda *a, **k: 3210)
     d = ad.discover(force=True)
     assert d["port"] == 3210 and "日志" in d["port_source"]
+
+def test_probe_timeout_is_actually_passed_to_is_serving(monkeypatch):
+    """⭐ `probe_timeout` 必须真的传进 `is_serving()`
+
+    ⛔ 这条是针对一个真实缺陷加的（2026-10-30 实测）：
+       `open_panel(..., probe_timeout=2.0)` 签名里有、docstring 还专门解释它
+       「单次探测最多等多久」，但函数体 3 处调用全是 `ad.is_serving()`，
+       **一次都没传 timeout** ⇒ 改这个参数零效果。
+
+    判据能证伪：把任何一处 `timeout=probe_timeout` 去掉，这条就红。
+    """
+    got = []
+
+    def fake_is_serving(*a, **kw):
+        got.append(kw.get('timeout'))
+        return False                       # 服务没跑
+
+    monkeypatch.setattr(panel.ad, "is_serving", fake_is_serving)
+    ok, msg = panel.open_panel(allow_start=False, probe_timeout=0.25)
+    assert ok is False
+    assert got, '根本没探测'
+    assert all(t == 0.25 for t in got), \
+        'probe_timeout 没传给 is_serving（收到 %r）' % (got,)
+
+
+def test_is_serving_default_timeout_is_short():
+    """`is_serving` 默认超时必须是 0.7 秒这一档（不是 2.0）
+
+    ⛔ 为什么这条重要：本机实测连空闲的 127.0.0.1 端口返回**超时**而不是
+       ECONNREFUSED ⇒ 默认超时多大，"服务没跑"就要等多久。
+       2.0 秒会让一次探测白等 2 秒（点开面板从 0.7 秒变 3.1 秒）。
+    """
+    import inspect
+    sig = inspect.signature(panel.ad.is_serving)
+    d = sig.parameters['timeout'].default
+    assert d <= 1.0, 'is_serving 默认超时太长：%r（应 ≤1.0）' % (d,)

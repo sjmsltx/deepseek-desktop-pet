@@ -31,7 +31,18 @@ BROWSERS = [
                 r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe']),
 ]
 
-LAUNCHER = os.path.join(ad.DSH_ROOT, 'start-dsh.ps1')
+def _launcher():
+    """DSH 启动器路径（每次按**发现到的** root 算）。
+
+    2026-10-30 修：原先是模块级常量 `LAUNCHER = os.path.join(ad.DSH_ROOT, ...)`，
+    在 import 那一刻就定死了 ⇒ 用户把 DSH 装在别处并配好 dsh_config.json 后，
+    这里仍指向默认目录，导致「拉不起来」且提示里的路径也是错的。
+    """
+    try:
+        return os.path.join(ad.resolve_root(), 'start-dsh.ps1')
+    except Exception as _exc:
+        _silent_log('dsh_panel._launcher', _exc)
+        return os.path.join(ad.DSH_ROOT, 'start-dsh.ps1')
 
 # ⭐ 本模块的日志入口：`ad._log` ✓ —— 但静默护栏的 `_LOG_NAMES` 不认识 `_log` ✗
 #    （已请对方补 ✓）；此处用被识别的名字做**同义别名** ✓，跨模块日志也能被判为"已落痕" ✓
@@ -144,13 +155,15 @@ def _spawn(args) -> bool:
 
 
 def open_panel(url: str = None, start_budget: int = 40, poll: float = 0.3,
-               allow_start: bool = False, probe_timeout: float = 2.0,
+               allow_start: bool = False, probe_timeout: float = 0.7,
                timeout_ready: int = None):
     """⭐ A5（D1-2）：**启动预算（`start_budget`）与失败判定（`probe_timeout`）拆开** ✗
     —— 旧实现一个 `timeout_ready` 兼两职 ✗ → 45 → 10 → 40 反复改 ✗（血泪史见 EXP.0108 ✓）。
 
       · `start_budget`：⭐ **等它起来**最多等多久（秒 ✓ 默认 40 ✓ 冷启动实测 ≈19s ✓）
-      · `probe_timeout`：⭐ **单次探测**（`is_serving`）最多等多久（秒 ✓ 默认 2.0 ✓）
+      · `probe_timeout`：⭐ **单次探测**（`is_serving`）最多等多久（秒 ✓ 默认 0.7 ✓）
+        ⚠ 2026-10-30 修：这个参数**原来根本没传给 `is_serving()`**（3 处调用都没传，
+          改它零效果）。现在真接上了。
     `timeout_ready` 保留为**兼容别名** ✗（传了就当 start_budget ✓ 旧调用不破 ✓）。
     """
     if timeout_ready is not None:
@@ -162,16 +175,19 @@ def open_panel(url: str = None, start_budget: int = 40, poll: float = 0.3,
       · ⛔ **默认不自动启动** ✗（`allow_start=False`）—— 服务没跑就**立刻返回** ✓
         由调用方**先问用户** ✓（⛔ 不擅自重启用户正在用的服务 ✗）
       · 超时 45s → ⭐ **10s** ✓；轮询 2s → ⭐ **0.3s** ✓（总时长更短 ✓ 且"起来了"更快被发现 ✓）
+        ⚠ 2026-10-30 实测修正：真正的一轮 = `poll` 睡眠 + 一次探测。
+          改前探测吃满 2.0 秒 ⇒ **2.30 秒/轮**（40 秒预算只探 17 轮，不是注释以为的 133 轮）。
+          现在探测 0.7 秒 ⇒ 约 **1.0 秒/轮**（约 40 轮）。
       · ⚠️ 本函数**可能阻塞** ✗ → ⭐ **调用方必须放到工作线程** ✗
         （此前它被主线程同步调用 ✗ → 最坏 ≈60s → Windows 判"未响应" ✗）
     """
     # 0) 服务没跑
-    if not ad.is_serving():
+    if not ad.is_serving(timeout=probe_timeout):
         if not allow_start:
             return False, ('DSH 服务没在运行 ⛔（未自动启动 ✗）—— 🌟 需要的话先启动 DSH，'
-                           '或用「启动器」跑一次：%s' % LAUNCHER)
-        if os.path.exists(LAUNCHER):
-            _spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', LAUNCHER])
+                           '或用「启动器」跑一次：%s' % _launcher())
+        if os.path.exists(_launcher()):
+            _spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', _launcher()])
             deadline = time.time() + start_budget
             _i = 0                                  # ⭐ B9：⭐ 探测计数（⭐ 必须在 while **外** ✗）
             while time.time() < deadline:
@@ -185,12 +201,12 @@ def open_panel(url: str = None, start_budget: int = 40, poll: float = 0.3,
                     print('  \u2139\ufe0f backoff 不可用 ⇒ 退回固定 %ss ✓：%r' % (poll, _e))
                 time.sleep(_d)
                 _i += 1                             # ⭐ 与 sleep **同级** ✗（⭐ 曾在循环外 ✓）
-                if ad.is_serving():
+                if ad.is_serving(timeout=probe_timeout):
                     break
-            if not ad.is_serving():
-                return False, '已尝试启动 DSH 服务，但 %d 秒内没起来。请双击 %s 看提示。' % (start_budget, LAUNCHER)
+            if not ad.is_serving(timeout=probe_timeout):
+                return False, '已尝试启动 DSH 服务，但 %d 秒内没起来。请双击 %s 看提示。' % (start_budget, _launcher())
         else:
-            return False, 'DSH 服务没在运行，且找不到启动器：%s' % LAUNCHER
+            return False, 'DSH 服务没在运行，且找不到启动器：%s' % _launcher()
 
     # 1) 取带令牌地址
     url = url or ad.read_token_url()
