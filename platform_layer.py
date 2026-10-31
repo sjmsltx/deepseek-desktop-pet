@@ -462,17 +462,48 @@ def program_allowed(argv) -> tuple:
     return False, name, '程序 %r 不在白名单内' % (name,)
 
 
+#: Windows `CREATE_NO_WINDOW`（0x08000000）—— 让子进程**不分配控制台窗口**。
+#: ⚠ 2026-10-31（Owner 实测「右键桌宠弹终端窗口」）：
+#:   本程序打包为 `console=False`（见 tools/DeepSeekPet.spec），是**无控制台的 GUI 进程**。
+#:   Windows 上无控制台的进程调 `subprocess.run([...])` 时，若不带这个 flag，
+#:   子进程会**新建一个控制台窗口并显示出来** ⇒ 用户看到黑框弹出、菜单被拖住。
+#:   ⛔ 与 `capture_output=True` 无关：抓输出不会阻止窗口创建，必须显式关。
+_CREATE_NO_WINDOW = 0x08000000
+
+
+def _no_window_kwargs(kwargs):
+    """给 subprocess 的 kwargs 补上「不弹控制台」。
+
+    规则：
+      · 非 Windows → 原样返回（flag 没意义，且某些平台不认）
+      · Windows → `creationflags |= CREATE_NO_WINDOW`
+      · ⛔ **不覆盖**调用方已传的 creationflags，只 OR 上去
+        （调用方可能还要 CREATE_NEW_PROCESS_GROUP 等）
+    """
+    if sys.platform != 'win32':
+        return kwargs
+    kw = dict(kwargs)
+    try:
+        kw['creationflags'] = int(kw.get('creationflags') or 0) | _CREATE_NO_WINDOW
+    except (TypeError, ValueError):
+        kw['creationflags'] = _CREATE_NO_WINDOW
+    return kw
+
+
 def safe_spawn(argv, **kwargs):
     """⭐ 受控起进程 ✓：⭐ 白名单外的程序**一律拒绝** ✗（⛔ 不静默 ✗ 抛错让人看见 ✓）。
 
     ⭐ 白名单内的命令**行为与原来完全一致** ✓（⭐ 只是**加了一道前置判定** ✓）。
+
+    ⚠ 2026-10-31：额外注入 `CREATE_NO_WINDOW` —— 本程序无控制台，
+      不注入的话每次起 PowerShell 都会弹出终端窗口（Owner 实测反馈）。
     """
     ok, name, why = program_allowed(argv)
     if not ok:
         # ⭐ 落痕 ＋ 抛错（⭐ 让调用方**看得见** ✗ 而不是悄悄不跑 ✓）
         print('  \u26a0\ufe0f P0-3 拒绝起进程：%s（白名单外 ✗）' % (name or '?',))
         raise PermissionError('[SPAWN-403-01] P0-3 子进程白名单：%s' % why)
-    return subprocess.run(argv, **kwargs)
+    return subprocess.run(argv, **_no_window_kwargs(kwargs))
 
 
 def safe_popen(argv, **kwargs):
@@ -483,7 +514,7 @@ def safe_popen(argv, **kwargs):
         # ⭐ 采纳微信侧 `WX-…-20261005-55` §二 ✓：⭐ 此处**曾漏码** ✗（⭐ 我只给 `safe_spawn` 加了 ✓）
         #   ⇒ ⭐ 两处消息**必须一致** ✗（⭐ 否则 `safe_popen` 路径的报错**没有 `SPAWN-403-01`** ✓）
         raise PermissionError('[SPAWN-403-01] P0-3 子进程白名单：%s' % why)
-    return subprocess.Popen(argv, **kwargs)
+    return subprocess.Popen(argv, **_no_window_kwargs(kwargs))
 
 
 def startup_dir():
