@@ -88,6 +88,12 @@ class SettingsDialog(QDialog):
             self.stack.addWidget(fn())
         self._apply_theme()
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        # 2026-10-30：DSH 状态**只在切到「系统」页时**才刷新。
+        #   为什么不放 `_refresh()`：它会让设置窗打开变慢（实测 2.05s → 2.53s）。
+        #   为什么不用 `QTimer.singleShot`：定时器会留在事件队列里跨测试触发 ——
+        #   实测污染 `test_relay_isolation::test_403_is_returned_as_is_without_retry`
+        #   （它按 `HTTPConnection.request` 调用次数断言，被多计一次 ⇒ 2 == 1 红）。
+        self.nav.currentRowChanged.connect(self._on_nav_changed)
         self.nav.setCurrentRow(0)
         self._refresh()
 
@@ -811,6 +817,7 @@ class SettingsDialog(QDialog):
         f = p.form
         self._buttons(f, '长期记忆', [('🧠 管理窗口…', self.host._open_memory_manager),
                                       ('📋 查看记忆', self.host._show_memory),
+                                      ('🌌 记忆星图', self.host._open_memory_starmap),
                                       ('🗑 删除一条…', self.host._delete_memory_dialog)])
         self._buttons(f, '', [('💾 备份记忆', self.host._export_memory_backup),
                               ('📥 导入记忆', self.host._import_memory_backup)])
@@ -1171,6 +1178,10 @@ class SettingsDialog(QDialog):
         self.lb_ver.setStyleSheet('font-family:Consolas,monospace;font-size:12.5px;')
         f.addRow('程序目录', self.lb_ver)
         self._buttons(f, '窗口', [('🏠 最小化到托盘', self.host.hide_to_tray)])
+        # ---- DSH 安装位置（2026-10-30 加）----
+        # 原先只能手写 dsh_config.json 或设 DSH_ROOT 环境变量，界面没有任何入口。
+        # ⛔ 只写桌宠自己目录下的 dsh_config.json，绝不碰 DSH 的任何文件。
+        self._build_dsh_row(f)
         # L4-2：最近错误入口（右键菜单「状态」里也有同款入口 ✓）
         self._buttons(f, '诊断', [('🧯 最近错误', self.host.show_recent_errors)])
         # ---- 平台能力（只读诊断块，v6.74 批次5：直接渲染 platform_layer.report()）----
@@ -1194,6 +1205,129 @@ class SettingsDialog(QDialog):
         vb.addWidget(row)
         f.addRow('平台能力', box)
         return p
+
+    # ---------- DSH 安装位置（2026-10-30）----------
+    def _build_dsh_row(self, form):
+        """「DSH 位置」这一行 + 只读状态行。
+
+        布局：QLineEdit + 📁 浏览 + 🔄 重新检测，下挂一行状态说明。
+        ⛔ 抽成方法不塞进 `_page_system`：那边有「单页 ≤14 行」护栏。
+        """
+        box = QWidget()
+        vb = QVBoxLayout(box)
+        vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(4)
+
+        line = QWidget()
+        hb = QHBoxLayout(line)
+        hb.setContentsMargins(0, 0, 0, 0)
+        hb.setSpacing(6)
+        self.ed_dsh_root = QLineEdit()
+        self.ed_dsh_root.setPlaceholderText('留空 = 自动发现（默认 D:\\dsh）')
+        self.ed_dsh_root.setToolTip(
+            'DSH（DeepSeek Harness）的安装目录。\\n'
+            '留空 = 自动发现：先看运行中的 DSH 进程，再退到默认目录。\\n'
+            '装在别处时填这里，不用再手改 dsh_config.json。')
+        self.ed_dsh_root.editingFinished.connect(self._apply_dsh_root)
+        hb.addWidget(self.ed_dsh_root, 1)
+        bt_browse = QPushButton('📁 浏览')
+        bt_browse.clicked.connect(self._pick_dsh_root)
+        hb.addWidget(bt_browse)
+        # ⚠ 按钮名不许叫「重新检测」：系统页下方「平台能力」已有一个同名按钮，
+        #   既有测试 test_refresh_button_rerenders 按文本取 btns[0] 会抢到这一个
+        #   （2026-10-30 实测踩到：1 failed）。对用户来说两个同名按钮也分不清。
+        bt_probe = QPushButton('🔄 重测 DSH')
+        bt_probe.setToolTip('重新扫描 DSH 的安装位置与服务状态')
+        bt_probe.clicked.connect(lambda *_: self._refresh_dsh_status(force=True))
+        hb.addWidget(bt_probe)
+        vb.addWidget(line)
+
+        self.lb_dsh = QLabel('—')
+        self.lb_dsh.setStyleSheet(STYLE_HINT)
+        self.lb_dsh.setWordWrap(True)
+        self.lb_dsh.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        vb.addWidget(self.lb_dsh)
+
+        form.addRow('DSH 位置', box)
+        return box
+
+    def _on_nav_changed(self, row):
+        """切到「系统」页时刷新 DSH 状态（没看这一页就不去扫进程/探活）
+
+        ⚠ 同步刷新，切页时会卡约 0.6~1.1 秒（探活 0.6s + 冷缓存时扫进程 0.5s）。
+          这是有意的取舍：不用定时器就不会跨测试污染，也不用把状态缓存到别处。
+        """
+        try:
+            if 0 <= row < len(PAGES) and PAGES[row] == '系统':
+                self._refresh_dsh_status()
+        except Exception as e:
+            _log.warning('切页刷新 DSH 状态失败：%s', e)
+
+    def _dsh(self):
+        """惰性 import dsh_adapter（拿不到就返回 None，界面降级为「不可用」）"""
+        try:
+            import dsh_adapter
+            return dsh_adapter
+        except Exception as e:
+            _log.warning('设置页拿不到 dsh_adapter：%s', e)
+            return None
+
+    def _refresh_dsh_status(self, force=False):
+        """回填位置输入框 + 刷新状态行（装没装 / 位置来源 / 端口 / 在不在跑）"""
+        ad = self._dsh()
+        if ad is None:
+            self.lb_dsh.setText('⚠ dsh_adapter 不可用，无法检测')
+            return
+        try:
+            # 2026-10-31：force 要一路传到 installed_detail（它内部会调 installed()，
+            # 而 installed() 现在带 300 秒结果缓存）—— 否则点「重测 DSH」看不出变化。
+            det = ad.installed_detail(force=force)
+            cfg = ad.load_user_config()
+        except Exception as e:
+            # 落痕：护栏只认 _LOG_NAMES 里的名字（setText 不算"有痕"）
+            _log.warning('刷新 DSH 状态失败：%s', e)
+            self.lb_dsh.setText('检测失败：%s' % e)
+            return
+        self._building = True
+        try:
+            self.ed_dsh_root.setText(str(cfg.get('root') or ''))
+        finally:
+            self._building = False
+        bits = []
+        bits.append('✓ 已检测到' if det['installed'] else '✗ 未检测到')
+        bits.append('位置来源：%s' % det['root_source'])
+        bits.append('端口 %s（%s）' % (det['port'], det['port_source']))
+        bits.append('服务在跑' if det['serving'] else '服务未运行')
+        if det['running']:
+            bits.append('发现 %d 个 DSH 进程' % det['running'])
+        self.lb_dsh.setText(' · '.join(bits))
+
+    def _pick_dsh_root(self):
+        """选目录。选完直接保存并重测（省一次点「保存」）。"""
+        d = QFileDialog.getExistingDirectory(self, '选择 DSH 安装目录',
+                                             self.ed_dsh_root.text() or '')
+        if not d:
+            return
+        self.ed_dsh_root.setText(d)
+        self._apply_dsh_root()
+
+    def _apply_dsh_root(self):
+        """写 dsh_config.json（空 = 清掉，回到自动发现）。"""
+        if getattr(self, '_building', False):
+            return
+        ad = self._dsh()
+        if ad is None:
+            return
+        root = (self.ed_dsh_root.text() or '').strip()
+        # 填了但目录不存在 → 明说，别静默存一个错路径
+        if root and not os.path.isdir(root):
+            self.lb_dsh.setText('⚠ 目录不存在，未保存：%s' % root)
+            return
+        ok = ad.save_user_config(root=root)
+        if not ok:
+            self.lb_dsh.setText('⚠ 保存失败（日志里查 dsh_adapter.log）')
+            return
+        self._refresh_dsh_status(force=True)
 
     def _refresh_platform(self):
         """只读平台能力报告（platform_layer 的 13 项能力：经谁实现 / 是否可用）"""
@@ -1374,6 +1508,7 @@ class SettingsDialog(QDialog):
             _ie = self.cb_effort.findData(_e)
             self.cb_effort.setCurrentIndex(_ie if _ie >= 0 else 2)   # 认不出回默认 high
             self.ck_vision.setChecked(bool(getattr(h, 'vision_enabled', False)))
+            # 2026-10-30：DSH 状态**不在这里刷** —— 见下方 nav 连接处的说明。
             # v6.62：三项 API 细节开关
             self.ck_pass_rsn.setChecked(bool(getattr(h, 'pass_reasoning_history', True)))
             self.ck_strict.setChecked(bool(getattr(h, 'strict_tools', False)))

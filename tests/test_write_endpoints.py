@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 import pytest
 
@@ -52,26 +53,80 @@ def srv(tmp_path, monkeypatch):
 
 
 def _wait_ready(port, timeout=5.0):
-    """等服务端口真的能连上（替代「启动后盲等」）"""
-    import socket as _s
-    import time as _t
-    t0 = _t.time()
-    last = None
-    while _t.time() - t0 < timeout:
-        try:
-            with _s.create_connection(('127.0.0.1', port), timeout=0.25):
-                return
-        except OSError as exc:
-            last = exc
-            _t.sleep(0.02)
-    raise TimeoutError('端口 %d 在 %.1f 秒内没就绪（最后错误：%s）' % (port, timeout, last))
+    """等服务**能应答 HTTP**（不只是 TCP 能连）。
 
-def _post(port, path, body):
-    c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
-    c.request('POST', path, body=json.dumps(body).encode('utf-8'),
-              headers={'Content-Type': 'application/json'})
-    r = c.getresponse()
-    return r.status, json.loads(r.read().decode('utf-8') or '{}')
+    ⚠ 2026-10-31：原来只做 TCP 连接就返回，但 TCP 能连 ≠ accept 之后能正常应答。
+      本机 TCP 栈会丢 RST（实测：连一个肯定没监听的端口返回超时而非 ECONNREFUSED），
+      所以「握手成功」不代表服务真就绪 ⇒ 第一个 POST 可能撞 `WinError 10053`。
+      改成用 `GET /api/health`（**幂等**，重试安全）真走一遍 accept→respond。
+      这样把「accept 后不能应答」的窗口在夹具里就消化掉，不必对非幂等写做重试。
+    """
+    t0 = time.time()
+    last = None
+    while time.time() - t0 < timeout:
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', port, timeout=0.5)
+            try:
+                c.request('GET', '/api/health')
+                r = c.getresponse()
+                r.read()
+                if r.status == 200:
+                    return
+                last = RuntimeError('GET /api/health 返回 %s' % r.status)
+            finally:
+                c.close()
+        except Exception as exc:          # 连接/协议/传输层都要继续等
+            last = exc
+        time.sleep(0.02)
+    raise TimeoutError('端口 %d 在 %.1f 秒内没就绪（最后错误：%r）' % (port, timeout, last))
+
+#: 只重试这三类**传输层**偶发（与 test_relay_isolation.py 同一套口径）。
+#: ⛔ 不含 http.client.HTTPException —— 那是协议层，重试会把真缺陷糊过去。
+_TRANSPORT_ERR = (ConnectionAbortedError, ConnectionResetError,
+                  http.client.RemoteDisconnected)
+
+
+def _post(port, path, body, connect_attempts=3):
+    """POST 一次。**只在「连接都没建立」时重试**，发出请求后一律不重发。
+
+    ⚠ 为什么不能像 `test_relay_isolation._post` 那样整体重试（2026-10-31 修正）：
+      `POST /api/pending` 是**非幂等写**。`collab/pending_ops.py:261` 落盘文件名带
+      **秒级**时间戳（`%Y%m%d-%H%M%S`）⇒ 跨秒重发两次会落**两个待办文件**
+      （实测：同一份请求隔 1.1 秒写两次 → 目录里出现 2 个 .json）。
+      那会让 `test_pending_only_queues_never_executes` 以「重复入队」的形态假红，
+      症状看起来像产品真 bug，比原来的 10053 更难查。
+
+    ⇒ 因此**只重试 `c.connect()`**：那一刻一个字节都还没发出去，重发绝对安全。
+      `request()` 可能已经写出去一部分字节，`getresponse()` 之后更不知道服务端处理到哪
+      —— 这两种情况一律不重试，直接抛给断言。
+
+    ⚠ 2026-10-31 二次修正：上一版这里整体 try/except 重试，且**`time` 未导入**
+      ⇒ 重试分支一进去就 `NameError`，从没执行过一次（WX-151 §二 指出，我实测确认）。
+      那次报的「改后 8/8 绿」只是没撞上 10053，不是修复起了作用。
+
+    ⛔ 为什么不掩盖真问题：断言仍是 `st == 202`；服务端真回错状态照样红。
+    """
+    last = None
+    for i in range(max(1, connect_attempts)):
+        c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+        try:
+            # 只把「建立连接」放进可重试区：失败时零字节已发送
+            c.connect()
+        except _TRANSPORT_ERR as exc:
+            last = exc
+            # 留痕：重试是为了容错，不是为了消音（WX-151 §5.3）
+            print('  ⚠ 连接未建立，重试 %d/%d：%r' % (i + 1, connect_attempts, exc))
+            c.close()
+            time.sleep(0.05 * (i + 1))
+            continue
+        try:
+            c.request('POST', path, body=json.dumps(body).encode('utf-8'),
+                      headers={'Content-Type': 'application/json'})
+            r = c.getresponse()
+            return r.status, json.loads(r.read().decode('utf-8') or '{}')
+        finally:
+            c.close()
+    raise last
 
 
 def _get(port, path):

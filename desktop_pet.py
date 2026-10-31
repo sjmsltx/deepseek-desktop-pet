@@ -49,6 +49,7 @@ from memory_engine import search_memory, search_memory_for_injection, extract_me
 from chat_render import split_rich_blocks, split_md_blocks, md_to_html, md_table, looks_like_table
 from chat_cards import CodeCard as _CodeCard, TableCard as _TableCard
 from prompt_builder import guess_status, build_memory_block, build_todo_block, build_system_prompt
+from memory_engine import build_l0_block
 from code_checker import check_python_blocks
 import pet_bubble as pb  # 气泡/Markdown 渲染装配层（批 3）
 import pet_anim as anim  # 状态机与动画（低耦合段，批 4）
@@ -2104,8 +2105,12 @@ class PetWidget(QWidget):
             'Write-Output ($_.BaseName + "`t" + $sc.TargetPath) } } }'
         )
         try:
-            r = _sp.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_code],
-                        capture_output=True, timeout=40)
+            # 2026-10-31（WX-152 §六）：改走 safe_spawn —— 本程序无控制台，
+            # 裸 subprocess 会给子进程新建控制台窗口（用户看到闪一下黑框）。
+            # 白名单已核：powershell 在 ALLOWED_PROGRAMS 里。
+            r = pl.safe_spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                               '-Command', ps_code],
+                              capture_output=True, timeout=40)
             for line in r.stdout.decode('utf-8', errors='ignore').splitlines():
                 if '\t' not in line and chr(9) not in line:
                     continue
@@ -2382,7 +2387,7 @@ class PetWidget(QWidget):
 
         # 4. 尝试 where 查找命令
         try:
-            where_result = subprocess.run(['where', app], capture_output=True, text=True, timeout=5)
+            where_result = pl.safe_spawn(['where', app], capture_output=True, text=True, timeout=5)
             if where_result.returncode == 0:
                 path = where_result.stdout.strip().split('\n')[0]
                 subprocess.Popen([path])
@@ -2538,8 +2543,12 @@ class PetWidget(QWidget):
                 title = str(e.get('title', '')).strip()
                 if title:
                     try:
+                        _emo = e.get('emotion')
+                        _emo = _emo.strip()[:20] if isinstance(_emo, str) else ''
                         self.memories.add(self.current, 'event', title,
-                                          str(e.get('detail', ''))[:200])
+                                          str(e.get('detail', ''))[:200],
+                                          emotion=_emo,
+                                          affection_at=self._affection_now())
                     except Exception as _exc:
                         _silent_log('_extract_worker:1328', _exc)   # v6.54
         except Exception as _exc:
@@ -2552,9 +2561,59 @@ class PetWidget(QWidget):
         self._save_memory()
         return msg
 
+    def _open_memory_starmap(self):
+        """打开记忆星图窗口（只读可视化；不改任何记忆文件）"""
+        try:
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton
+            import memory_starmap as sms
+            stars, dead, raw = sms.load_stars()
+            dlg = QDialog(self)
+            dlg.setWindowTitle('记忆星图')
+            dlg.resize(1280, 820)
+            lay = QVBoxLayout(dlg)
+            lay.setContentsMargins(0, 0, 0, 0)
+            view = sms.MemoryStarMap(dlg, stars=stars, dead=dead, raw_events=raw)
+            lay.addWidget(view, 1)
+            bar = QHBoxLayout()
+            bar.setContentsMargins(12, 6, 12, 10)
+            tip = QPushButton('拖动平移 · 滚轮缩放 · 点星钉住详情 · R 复位')
+            tip.setFlat(True)
+            btn = QPushButton('复位视图')
+            btn.clicked.connect(view.reset_view)
+            bar.addWidget(tip, 1)
+            bar.addWidget(btn)
+            lay.addLayout(bar)
+            dlg.exec()
+        except Exception as _exc:
+            _silent_log('_open_memory_starmap', _exc)
+            try:
+                self._notify('记忆星图打开失败：%s' % _exc, ms=4000)
+            except Exception as _exc2:
+                _silent_log('_open_memory_starmap:notify', _exc2)
+
     def _memory_block(self):
-        """生成注入 system prompt 的记忆块（拆至 prompt_builder.build_memory_block）"""
-        return build_memory_block(self.memory_facts, self.memory_summaries, self.current)
+        """生成注入 system prompt 的记忆块
+
+        v3.2：先出 L0 人格卡（独立预算，身份事实永不被挤出），
+              再用普通记忆块（已排除 L0 用掉的那些，避免同一条占两份预算）。
+        """
+        try:
+            l0, used_objs = build_l0_block(self.memory_facts, self.current)
+        except Exception as _exc:
+            _silent_log('_memory_block:l0', _exc)
+            l0, used_objs = '', []
+        # 按**对象身份**剔除，不按 id 字段：memory.json 有 3 组重复 id，
+        #   按 id 剔会连带删掉同 id 的另一条事实（审核实测真丢 2~3 条）。
+        used_ref = {id(f) for f in used_objs}
+        rest_facts = [f for f in self.memory_facts if id(f) not in used_ref] \
+            if used_ref else self.memory_facts
+        rest = build_memory_block(rest_facts, self.memory_summaries, self.current)
+        if l0 and rest:
+            return ('【身份与核心记忆（每次都注入，不随预算淘汰）】\n%s\n\n'
+                    '【其余长期记忆】\n%s' % (l0, rest))
+        if l0:
+            return '【身份与核心记忆（每次都注入，不随预算淘汰）】\n%s' % l0
+        return rest
 
     def _summarize_old(self):
         """旧消息滚动摘要：chat_history_msgs 超 20 条时，最旧 10 条压成摘要"""
@@ -3903,10 +3962,13 @@ class PetWidget(QWidget):
             # v6.30 好感度：人设阶段 + 最近回忆注入（动态随好感度进化）
             affection_hint = ''
             try:
-                _stage_t = self.affection.stage_prompt(self.current)
-                _mem_t = self.memories.prompt_hint(self.current)
+                # ⚠ 2026-10-31：改用「阶段 × 性格」矩阵 —— 原来只取阶段文本，
+                #   导致温柔/傲娇/吐槽/元气/高冷拿到的注入文本完全一样（性格只拼了个词）。
+                _stage_t = self.affection.matrix_prompt(
+                    self.current, getattr(self, 'personality', ''))
+                _mem_t = self.memories.prompt_hint(self.current, text)
                 if _stage_t or _mem_t:
-                    affection_hint = '\n\n【关系与回忆（随好感度动态进化）】' + f'\n{_stage_t}' + (_mem_t or '')
+                    affection_hint = '\n\n【关系与回忆（随好感度与性格动态进化）】' + f'\n{_stage_t}' + (_mem_t or '')
             except Exception:
                 affection_hint = ''
             # 角色身份锚定：名字优先级 系统设定 > 记忆中的角色命名
@@ -6146,16 +6208,37 @@ class PetWidget(QWidget):
     # 使用者反馈「开了主动关心会混在一起、效果不明显」。现关心走独立样式与独立记录。
     _CARE_LABEL = {'care': '主动关心', 'remind': '提醒', 'greet': '问候'}
 
-    def say_care(self, text, kind='care', mark_purpose=True):
+    def _affection_now(self):
+        """当前角色好感度快照（写回忆时记「当时关系多深」用）
+
+        v3.1：不编数字 —— 取不到就返回 None，回忆里留空，回头能看出这段没采到。
+        """
+        try:
+            return int(self.affection.snapshot(self.current)['affection'])
+        except Exception as _exc:
+            _silent_log('_affection_now', _exc)
+            return None
+
+    def say_care(self, text, kind='care', mark_purpose=True, emotion_hint=''):
         """关心气泡（v6.60 批 3）
 
         - 外观：左侧 accent 色条（与普通说话气泡一眼分开）
         - 鼠标变手型 + tooltip，点一下 → 展开到聊天列表（可接着回）
-        - 留痕：写入回忆日志（memory_events）；**不写聊天列表、不进模型上下文**
+        - 留痕：写入回忆日志（memory_events）；**不写聊天列表**
+          ⚠ 2026-10-31 更正：原文写「不进模型上下文」，与实现相反 —— 
+          关心件会被 memory_events.prompt_hint 注入 system prompt。现仅
+          「余额/花费/问候模板」三类可重算播报被 is_recomputable_notice 排除。
         - 停留：≥8 秒，且悬停暂停（见 _bubble_hold_ms）
         非主线程调用自动转主线程。
         """
-        text = self._strip_emotion_tags(str(text))[0].strip()
+        # v3.1：情绪标签里的情绪**留下来**写进回忆（原先只取 [0]，把情绪丢了）
+        text, _em_pending, _emotions = self._strip_emotion_tags(str(text))
+        text = text.strip()
+        # v3.2：文本里没标签时，用调用方已经解析出的情绪兜底。
+        #   实测：所有 say_care 调用方都不带 [emotion:] 标签 ⇒ 不给兜底，
+        #   这条采集链路等于永远不生效（真实库 200 条 emotion 全空）。
+        if not _emotions and emotion_hint:
+            _emotions = [str(emotion_hint).strip()] if str(emotion_hint).strip() else []
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
@@ -6182,7 +6265,9 @@ class PetWidget(QWidget):
             label = self._CARE_LABEL.get(self._care_kind, '关心')
             self.memories.add(self.current, 'event',
                               '%s：%s' % (label, text[:28]),
-                              text)
+                              text,
+                              emotion=','.join(_emotions)[:20],
+                              affection_at=self._affection_now())
         except Exception as e:
             log.debug('关心入回忆日志失败：%s', e)
         # 一次性提示（本次运行第一条关心）：告知气泡可点（不污染聊天列表）
@@ -6830,21 +6915,42 @@ class PetWidget(QWidget):
         except Exception:
             self.say_plain('复制失败', immediate=True)
 
-    def _render_bubble_pixmap(self, bubble):
+    # 气泡出图倍率（2026-10-31）。Owner 实测「相当之糊」：原来用 bubble.grab()，
+    #   得到的是**逻辑像素**（一条 360x98 的气泡，14px 文字），放大看或贴进文档必糊。
+    #   3x 出 1080x294，实测笔画锐利。
+    #   ⚠ 只能走 render(QPaintDevice)：实测「painter.scale + render(painter)」会让内容
+    #     只画进左上角（非背景占比 3.3% vs 1x 基线 55.7%），「grab 后平滑放大」等于糊图。
+    BUBBLE_IMAGE_SCALE = 3
+
+    def _render_bubble_pixmap(self, bubble, scale=None):
         """把消息气泡渲染成 QPixmap（合成深色背景，与聊天面板风格一致）
 
         2026-10-27：从 `_save_bubble_image` 抽出来，「复制到剪贴板」与「另存为图片」共用
         —— 原先这段合成逻辑只活在保存函数里，加个复制功能就得把它复制一遍。
+        2026-10-31：改为高倍渲染（默认 3x）。原实现 `bubble.grab()` 只出逻辑像素，
+                    文字小、放大即糊。（见 BUBBLE_IMAGE_SCALE 的注释）
         返回 None 表示截图失败（调用方各自提示，不在这里静默）。
         """
-        pm = bubble.grab()
-        if pm.isNull():
+        s = int(scale or self.BUBBLE_IMAGE_SCALE or 1)
+        s = max(1, min(6, s))
+        try:
+            bubble.ensurePolished()
+        except Exception as _exc:
+            _silent_log('_render_bubble_pixmap:polish', _exc)
+        w = max(1, bubble.width())
+        h = max(1, bubble.height())
+        bg = QPixmap(w * s, h * s)
+        if bg.isNull():
             return None
-        bg = QPixmap(pm.size())
+        bg.setDevicePixelRatio(float(s))
         bg.fill(QColor(20, 20, 30))
-        painter = QPainter(bg)
-        painter.drawPixmap(0, 0, pm)
-        painter.end()
+        try:
+            bubble.render(bg)          # 关键：渲染到「已设 dpr 的 QPaintDevice」
+        except Exception as _exc:
+            _silent_log('_render_bubble_pixmap:render', _exc)
+            return None
+        if bg.isNull():
+            return None
         return bg
 
     def _copy_bubble_image(self, bubble):
@@ -6858,8 +6964,11 @@ class PetWidget(QWidget):
             if bg is None:
                 self.say_plain('截图失败', immediate=True)
                 return False
-            QApplication.clipboard().setImage(bg.toImage())
-            self.say_plain('✅ 图片已复制到剪贴板（可直接粘贴）', immediate=True)
+            img = bg.toImage()
+            img.setDevicePixelRatio(bg.devicePixelRatio())   # 保留 dpr，粘贴后不被放大成糊
+            QApplication.clipboard().setImage(img)
+            self.say_plain('✅ 图片已复制到剪贴板（%dx%d，可直接粘贴）'
+                           % (img.width(), img.height()), immediate=True)
             return True
         except Exception as _exc:
             _silent_log('_copy_bubble_image', _exc)
@@ -8690,9 +8799,12 @@ class PetWidget(QWidget):
             self._spoken_report = (
                 '【朗读实况·系统自动记录，不是用户说的话】你上一轮回复共 %d 字，'
                 '语音实际只念出了其中 %d 字（朗读内容策略＝%s，字数上限＝%d 字）。'
-                '如果用户要求你朗读/背诵长文，**不要把这种「只念了一部分」说成念完了**：'
-                '要么直接说明实际只念了开头和结尾、问要不要念全文；'
-                '要么先调 set_voice_summary 给一段朗读摘要，再念摘要。'
+                '如果用户要求你朗读/背诵长文，**不要把这种「只念了一部分」说成念完了**。'
+                '正确做法：**下一轮直接输出完整原文，让它念全文**（若条文很长，先说明「这段较长，我完整念一遍」'
+                '然后一次给全），让朗读能念到全部。'
+                '⛔ 绝不要用 set_voice_summary 把原文压成摘要来「完成」背诵要求 —— '
+                '那等于没背，用户听不到原文。'
+                '⛔ 也不要在原文前后加寒暄式过渡句（「深呼吸」「我开始背啦」会被一起念出来）。'
                 % (n_all, n_spoken, mode_lab,
                    int(getattr(self, 'voice_max_chars', 1200) or 1200)))
             log.info('朗读实况：原 %d 字 → 实际念 %d 字（策略 %s）', n_all, n_spoken, mode_lab)
@@ -9601,7 +9713,11 @@ class PetWidget(QWidget):
         if emotion:
             self._apply_emotion(emotion)
         # v6.60 批 3：主动关心走独立「关心气泡」（左侧色条 + 可点开接话 + 入回忆日志）
-        self.say_care(display, kind='care')
+        # v3.2（2026-10-31，WX-155 §4.3 指出）：这里**已经把 emotion 解析出来了**，
+        #   原先只把 display 传给 say_care ⇒ 回忆里 emotion 永远是空串，
+        #   而真实库实测 200 条 event 全部 emotion='' 正是这个原因。
+        #   say_care 的文本里没有 [emotion:] 标签时，用这个解析结果兜底。
+        self.say_care(display, kind='care', emotion_hint=emotion)
         self._care_mark()   # v6.60 批 4：计入冷却与每日上限
 
     def _ai_followup(self, topic):
@@ -10645,7 +10761,11 @@ class PetWidget(QWidget):
             _dsh_label = T('dsh_panel')
             try:
                 import dsh_adapter as _ad2
-                if not os.path.exists(_ad2.DSH_ROOT):      # ⚠️ 原写 `_os` ✗ 从未定义 → 被 except 吞掉 ✗ 静默失效 ✓
+                # 2026-10-30 修：原判据是 `os.path.exists(_ad2.DSH_ROOT)` ——
+                #   DSH_ROOT 是模块导入时定死的**静态常量**，用户把 DSH 装在别处并
+                #   配好 dsh_config.json 后，这里仍去看默认目录 ⇒ 误报「未检测到」。
+                #   改用 installed()：走发现值，且要求 DSH 标志文件（不只看目录在不在）。
+                if not _ad2.installed():
                     _dsh_label = T('dsh_panel_missing')
             except Exception as _e:
                 _silent_log('tray.dsh_label', _e)

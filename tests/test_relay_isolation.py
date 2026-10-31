@@ -243,7 +243,17 @@ def test_403_is_returned_as_is_without_retry(monkeypatch):
     real_post = http.client.HTTPConnection.request
 
     def counted(self, method, url, *a, **kw):
-        calls['n'] += 1
+        # 2026-10-30 修：**只数打到本测试服务端**的请求。
+        # ⛔ 原实现数进程内全部 HTTP 请求 ⇒ 任何别的线程在这条测试的时间窗内
+        #    发一次请求，`calls['n']` 就变 2，报「403 被重试了」，属**假红**。
+        #    实测复现：起后台线程打另一个本地端口 → 立刻 2 == 1。
+        #    全量里的现实来源（探针日志抓到）：
+        #      thread=Thread-118 (_extract_worker) POST 127.0.0.1:7890
+        #      即 desktop_pet.py:2511 的后台线程经 urllib（走代理）发 API 请求。
+        # ✅ 本测试要断言的是「**这次 403 请求**没被重试」，不是「整个进程没有别的 HTTP」
+        #    ⇒ 按目标端口过滤，语义不变、不再受环境影响。
+        if getattr(self, 'port', None) == port:
+            calls['n'] += 1
         return real_post(self, method, url, *a, **kw)
 
     monkeypatch.setattr(http.client.HTTPConnection, 'request', counted)
