@@ -6422,7 +6422,10 @@ class PetWidget(QWidget):
                               '%s：%s' % (label, text[:28]),
                               text,
                               emotion=','.join(_emotions)[:20],
-                              affection_at=self._affection_now())
+                              affection_at=self._affection_now(),
+                              # v3.4：这是桌宠自己推的（定时/情绪触发），不是主人说的。
+                              #   合并时只记次数不涨权重，否则定时器跑几十次就推满格。
+                              origin='pet')
         except Exception as e:
             log.debug('关心入回忆日志失败：%s', e)
         # 一次性提示（本次运行第一条关心）：告知气泡可点（不污染聊天列表）

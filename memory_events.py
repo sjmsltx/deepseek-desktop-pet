@@ -201,13 +201,24 @@ class MemoryEvents:
 
     # ---------- 写入 ----------
     def add(self, role: str, type_: str, title: str, detail: str = '',
-            emotion: str = '', affection_at=None) -> dict:
+            emotion: str = '', affection_at=None, origin: str = 'user') -> dict:
         """新增一条回忆。超上限滚动淘汰最旧。
 
         v3.1：可重算的机械播报（余额 / 花费）**不入库**，直接返回 {}。
           —— 这类信息随时能查（api_stats.day_breakdown / balance_text），
              留在库里只会把真回忆挤出去，并被注入 prompt 当成旧账说出口。
           调用方若要展示（气泡 / 日志），请自行处理，不要依赖本函数落盘。
+
+        origin（v3.4，2026-10-31，WX-158 指出）：
+            'user' 主人说的 / 从对话里提取的 —— **默认**
+            'pet'  桌宠自己推送的（定时关心、提醒）
+
+            ⚠ 为什么必须区分：合并时给权重加分，本意是「主人反复提到越重要」。
+              但定时关心是一句固定模板，一天触发几十次，照样能把权重推到满格。
+              那不是「被反复提及」，是「定时器跑了很多次」。
+              实测（2026-10-31）：库里那条「记得站起来活动一下」合并 32 次、
+              weight=1.00 满格，而它恰恰是压梗概时「该先压」的那类。
+              ⇒ 'pet' 来源的合并只累加 repeat_count，**不动 weight**。
         """
         if type_ not in _TYPES:
             type_ = 'event'
@@ -229,6 +240,9 @@ class MemoryEvents:
             'access_count': 0,      # 被检索命中次数
             'last_access': '',      # 最近一次被命中的时间
             'pinned': False,        # 钉住：不衰减、不被淘汰
+            # v3.4：来源与重复推送次数（区分「主人反复提及」和「定时器反复触发」）
+            'origin': 'pet' if str(origin or '').strip().lower() == 'pet' else 'user',
+            'repeat_count': 0,
         }
         with self._lock:
             # v3.3（2026-10-31，存量清理暴露）：同一句话反复触达不该攒条目。
@@ -246,11 +260,24 @@ class MemoryEvents:
                     except (TypeError, ValueError):
                         _ex['access_count'] = 1
                     _ex['last_access'] = entry['time']
+                    # v3.4：重复推送次数恒增（这条信息本身有用：能看出是不是机械重复）
                     try:
-                        _b = float(_ex.get('weight', WEIGHT_NEW))
+                        _ex['repeat_count'] = int(_ex.get('repeat_count') or 0) + 1
                     except (TypeError, ValueError):
-                        _b = WEIGHT_NEW
-                    _ex['weight'] = min(WEIGHT_MAX, _b + WEIGHT_BUMP)
+                        _ex['repeat_count'] = 1
+                    # 只有「人说的」才涨权重。桌宠自己推的模板不动权重 ——
+                    # 否则定时器跑几十次就能把一条废话推到满格（WX-158 实测症状）。
+                    _this_origin = 'pet' if str(origin or '').strip().lower() == 'pet' else 'user'
+                    _ex_origin = _ex.get('origin') or 'user'     # 老数据无此字段 ⇒ 按 user
+                    if _this_origin == 'user':
+                        try:
+                            _b = float(_ex.get('weight', WEIGHT_NEW))
+                        except (TypeError, ValueError):
+                            _b = WEIGHT_NEW
+                        _ex['weight'] = min(WEIGHT_MAX, _b + WEIGHT_BUMP)
+                        # 老条目本来没 origin，被主人提了一次就说明它确实是「人说的」
+                        if _ex_origin == 'pet':
+                            _ex['origin'] = 'user'
                     if emotion and not _ex.get('emotion'):
                         _ex['emotion'] = emotion
                     if affection_at is not None:
