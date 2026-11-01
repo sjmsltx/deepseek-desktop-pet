@@ -6445,6 +6445,21 @@ class PetWidget(QWidget):
     #: 默认食物（右键「喂食」不带参数时用）
     FOOD_DEFAULT = 'noodle'
 
+    #: 食物 → 动作图状态（2026-11-01，Owner：「有多样化的食物那么应该有对应的动作图片」）
+    #:
+    #: 素材来源：以 flash_eating.png 作角色参考，逐个生成后抠图（见 tools/… 的处理说明）。
+    #: 实测与基准一致：透明比例 63~65%（基准 64.1%）、角色包围盒 727x935（基准 734x939）
+    #:   ⇒ 同规格同构图，切换动作时角色不会跳。
+    #: ⚠ noodle 复用现有 flash_eating.png（本来就是「吃面」），不重复做素材。
+    FOOD_STATE = {
+        'noodle': 'eating',       # 现有素材：端碗吃面
+        'rice':   'eat_rice',     # 新素材：捧饭碗夹饭
+        'cake':   'eat_cake',     # 新素材：捧小蛋糕咬一口
+        'tea':    'eat_tea',      # 新素材：含着吸管喝珍珠奶茶
+        'apple':  'eat_apple',    # 新素材：抱着红苹果要吃
+        'candy':  'eat_candy',    # 新素材：捏着糖凑到嘴边
+    }
+
     def _affection_now(self):
         """当前角色好感度快照（写回忆时记「当时关系多深」用）
 
@@ -10774,8 +10789,15 @@ class PetWidget(QWidget):
             # 原先只渲染不设 state → end_state 的 state==st 门槛永远进不去 → 亲亲图回不到待机。
             _react = 'eating' if reaction == 'eating' else 'kiss'
             if _react == 'eating':
-                # 拖文件来「吃」：用场景动作演，而不是亲亲
-                self.play_scene('eating')
+                # 2026-11-01：按**食物**取专属动作图（不再是统一一张 eating）
+                _pm = self._feeding_image(food_key)
+                if _pm is not None:
+                    # 用 'scene' 状态：animate() 对 scene 早退，
+                    # 否则高频动画会把这张图重绘成通用图（老 bug 的复发点）
+                    self.state = 'scene'
+                    self.phase = 0
+                    QTimer.singleShot(6000, self._end_scene)
+                    self._render_frame(_pm)
             else:
                 self.state = 'kiss'
                 self.phase = 0
@@ -10822,6 +10844,29 @@ class PetWidget(QWidget):
         except Exception as _exc:
             _silent_log('_set_drag_to_bin:chat', _exc)
         return True
+
+    def _feeding_image(self, food_key):
+        """取某种食物的喂食动作图。取不到 → 退回通用 eating（**不是 idle**）。
+
+        ⚠ 为什么不用 `_get_state_img()`：那个走 asset() 的兜底链，
+          找不到就静默降级到 `{role}_idle.png`。
+          拿 idle 图当动作图重绘正是「场景动作被覆盖」那个老 bug 的成因
+          （2026-10-31 修过一次）。这里显式检查文件存在，找不到就往 eating 退，
+          eating 再找不到才返回 None（调用方据此不演，而不是演错）。
+        """
+        try:
+            state = self.FOOD_STATE.get(str(food_key or '')) or 'eating'
+            for st in (state, 'eating'):
+                p = asset(self.current, st)
+                if os.path.exists(p):
+                    pm = QPixmap(p)
+                    if not pm.isNull():
+                        return pm
+            _silent_log('_feeding_image:not_found',
+                        FileNotFoundError('食物 %r 与 eating 都没有素材' % food_key))
+        except Exception as _exc:
+            _silent_log('_feeding_image', _exc)
+        return None
 
     def _audit_recycle(self, ok, err):
         """把一次回收操作写进审计（2026-11-01）

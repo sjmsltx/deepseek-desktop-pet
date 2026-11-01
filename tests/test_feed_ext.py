@@ -166,16 +166,30 @@ def test_drag_file_is_never_modified(tmp_path):
 
 
 def test_drag_file_plays_eating_scene(tmp_path):
+    """拖文件要演「吃」，不是亲亲
+
+    2026-11-01 契约变更：eating 分支不再走 play_scene('eating')（那会统一用
+    一张图），改成按食物取专属动作图。所以断言从「调了 play_scene」
+    改成「真的画出了一张不是待机的图」—— 后者才是用户看得见的东西。
+    """
     p = _pet(tmp_path)
+    p.show()
+    _app.processEvents()
     f = tmp_path / 'a.txt'
     f.write_text('x', encoding='utf-8')
     p._feed_by_drop([str(f)])
-    assert 'eating' in p._scenes, '拖文件应该演「吃」的动作，实际 %r' % p._scenes
-    # ⚠ 端到端实测过：原先 eating 会被 _feed_pet 里的 kiss 顶掉（state 变 kiss）。
-    #   Owner 要的是「假装把它吃掉了」⇒ 必须看到吃，不是亲。
-    assert not p._kisses, \
-        '拖文件后切成了亲亲（%r）—— 应该只演「吃」，不能被 kiss 顶掉' % (p._kisses,)
-
+    _app.processEvents()
+    assert p.state == 'scene', '拖文件后应处于「在演动作」状态，实际 %r' % p.state
+    assert not p._kisses, (
+        '拖文件后切成了亲亲（%r）—— 应该只演「吃」，不能被 kiss 顶掉' % (p._kisses,))
+    # 画出来的必须不是待机图
+    from desktop_pet import asset
+    from PySide6.QtGui import QPixmap
+    idle = QPixmap(asset(p.current, 'idle'))
+    shown = p.pet_label.pixmap()
+    assert shown is not None and shown.width() > 0, '没有画出任何图'
+    assert bytes(shown.toImage().bits()) != bytes(idle.toImage().bits()), \
+        '拖文件后画的还是待机图 —— 等于没演'
 
 def test_right_click_feed_still_kisses(tmp_path):
     """右键喂食仍保持原行为（撒娇亲亲）—— 别把老体验改掉"""
