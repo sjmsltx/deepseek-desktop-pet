@@ -1329,52 +1329,78 @@ class PetWidget(QWidget):
     def _load_ai_config(self):
         """读取 AI 配置：模型身份（模型 ID/显示名/参数）取自 models.json 档案，其余取自 config.json"""
         global CHARACTERS
+
+        # ══ 结构性默认值区（2026-11-02 从下面的 259 行大 try 里移出）══════════════
+        # ⚠ 起因（WX-167 §6.3，我实测核实）：这段原本写在 `try:` 的**内部**。
+        #   判据 tests/test_structural_defaults.py 指出：5 个默认值的赋值点
+        #   （tray / _guide_inbox / drag_to_bin / screenshot_timer / balance_watch）
+        #   全部落在 try 里 ⇒ try 内任何一句先抛（某个类常量被改名、threading 被误删），
+        #   这些属性就永远不存在，而 except 用 _silent_log 吞掉一切
+        #   ⇒ 35 红那种 bug 会原样复发，且同样不报警。
+        #   今天不出事，只因这几行恰好都是纯赋值、排在 os.path.exists(CONFIG_PATH) 之前
+        #   —— 那是"碰巧安全"，不是"结构安全"。
+        # ⇒ 纪律：结构性默认值一律放在 try 之外，无条件执行。
+        # 结构性默认值：不依赖配置文件内容，没有 config.json 时也必须存在。
+        # ⛔ 2026-10-25：原先这两行写在下面的 if 里 ⇒ 首次运行（还没有 config.json）时
+        #    属性根本不存在，`_restore_saved_theme()` 读 self._saved_theme 直接 AttributeError。
+        #    同一个性质的问题这一轮共照出三处（asr 段缩进、voice_fallback 构造参数、这里）。
+        self._saved_theme = 'default'
+        # 2026-10-31（PC-237）：随机动作开关的**结构性默认值**。
+        # ⛔ 必须放在这里而不是下面的 cfg 分支 —— 没有 config.json 时
+        #   （首次运行 / 测试隔离）cfg 分支不进，属性不存在 ⇒ getattr 兜底成 False，
+        #   等于默认关掉了 Owner 要的功能。这个坑本函数注释里已记过一次。
+        # 2026-10-31 起改成三档时机（always/hidden/off），见 RANDOM_ACTION_MODES。
+        self.random_action_when = self.RANDOM_ACTION_DEFAULT
+        # 2026-11-01（Owner 需求第 3 条）：拖文件是否真的送回收站。
+        # ⛔ 结构性默认值必须放这里 —— 只写在 cfg 分支里的话，
+        #   没有 config.json 时属意不存在（这个坑 2026-10-31 已经踩过一次）。
+        self.drag_to_bin = False
+        # 2026-11-01（Owner 需求：照 AutoClaw 的「引导」）：运行中追加消息的模式。
+        #   queue = 排队，等这一轮结束后再处理（默认，与 AutoClaw 一致）
+        #   guide = 引导，立即并入当前任务，**不打断模型**
+        # ⛔ 结构性默认值必须放这里（只写在 cfg 分支里的话，没有 config.json
+        #   时属性不存在 → getattr 兜底成错的档；这个坑 2026-10-31 踩过一次）
+        self.follow_up_mode = self.FOLLOW_UP_DEFAULT
+        # 已提交但还没注入的引导。主线程写、AI worker 线程取 → 用锁。
+        self._guide_inbox = []
+        self._guide_lock = threading.Lock()
+        # Ctrl+Enter 的「本次临时改用另一种模式」标记，消费一次即清
+        self._followup_alt = False
+        # 2026-11-01（Owner 需求二：读屏截图 → 气泡反馈）
+        # ⛔ 定时截图**默认关**：截图是敏感能力，必须由主人显式打开。
+        self.screenshot_timer = False
+        self.screenshot_interval = 60          # 秒，下限 30
+        self.screenshot_region = 'full'        # full | pet（只截桌宠附近）
+        self.screenshot_hotkey = 'ctrl+alt+d'
+        self.screenshot_feedback = 'bubble'    # bubble（Owner 要的）| chat（老行为）
+        self._shot_timer_obj = None
+        # 2026-11-01：托盘对象的**结构性默认值**。
+        # ⛔ 必须在这里初始化 —— `_ensure_tray()` 加了闸（离屏不建托盘）后会
+        #   提前 return None，那时 `self.tray` 属性根本不存在，而
+        #   `hide_to_tray()` 里写的是 `if self.tray:` ⇒ AttributeError。
+        #   实测量级：一处根因 35 个测试红（都走 closeEvent → hide_to_tray）。
+        #   这是「结构性默认值只写在分支里」这个坑的第五次（前四次：
+        #   random_action_when / drag_to_bin / _cur_task_text / follow_up_mode）。
+        self.tray = None
+        self._shot_last_sig = None
+        self._shot_busy = False
+        self._theme_widgets = []
+
+        # 2026-11-02：v3.1 余额盯梢开关的**结构性默认值**（默认开，与 cfg.get 的默认一致）。
+        # ⛔ 原先只写在下面的 cfg 分支里 ⇒ 没有 config.json 时属性不存在，
+        #   而 `toggle_balance_watch` 里是 `if self.balance_watch:` ⇒ AttributeError。
+        #   这是「结构性默认值只写分支」的第 6 次（前五次见 PC-317/tray 那条注释）。
+        self.balance_watch = True
+        # 2026-11-02：三个**懒路径**默认值（只在 Live2D / 打字动画里赋值）。
+        #   判据 test_structural_defaults 的读点：
+        #     `_look`            → if self._look:            （_create_l2d_embedded / _open_live2d_preview）
+        #     `model`            → if self.model:            （同上）
+        #     `chat_type_blocks` → if self.chat_type_blocks:  （_chat_type_start）
+        #   ⇒ Live2D 没起来时这些属性压根不存在，而读点全在 `if self.X:` 里。
+        self._look = None
+        self.model = None
+        self.chat_type_blocks = None
         try:
-            # 结构性默认值：不依赖配置文件内容，没有 config.json 时也必须存在。
-            # ⛔ 2026-10-25：原先这两行写在下面的 if 里 ⇒ 首次运行（还没有 config.json）时
-            #    属性根本不存在，`_restore_saved_theme()` 读 self._saved_theme 直接 AttributeError。
-            #    同一个性质的问题这一轮共照出三处（asr 段缩进、voice_fallback 构造参数、这里）。
-            self._saved_theme = 'default'
-            # 2026-10-31（PC-237）：随机动作开关的**结构性默认值**。
-            # ⛔ 必须放在这里而不是下面的 cfg 分支 —— 没有 config.json 时
-            #   （首次运行 / 测试隔离）cfg 分支不进，属性不存在 ⇒ getattr 兜底成 False，
-            #   等于默认关掉了 Owner 要的功能。这个坑本函数注释里已记过一次。
-            # 2026-10-31 起改成三档时机（always/hidden/off），见 RANDOM_ACTION_MODES。
-            self.random_action_when = self.RANDOM_ACTION_DEFAULT
-            # 2026-11-01（Owner 需求第 3 条）：拖文件是否真的送回收站。
-            # ⛔ 结构性默认值必须放这里 —— 只写在 cfg 分支里的话，
-            #   没有 config.json 时属意不存在（这个坑 2026-10-31 已经踩过一次）。
-            self.drag_to_bin = False
-            # 2026-11-01（Owner 需求：照 AutoClaw 的「引导」）：运行中追加消息的模式。
-            #   queue = 排队，等这一轮结束后再处理（默认，与 AutoClaw 一致）
-            #   guide = 引导，立即并入当前任务，**不打断模型**
-            # ⛔ 结构性默认值必须放这里（只写在 cfg 分支里的话，没有 config.json
-            #   时属性不存在 → getattr 兜底成错的档；这个坑 2026-10-31 踩过一次）
-            self.follow_up_mode = self.FOLLOW_UP_DEFAULT
-            # 已提交但还没注入的引导。主线程写、AI worker 线程取 → 用锁。
-            self._guide_inbox = []
-            self._guide_lock = threading.Lock()
-            # Ctrl+Enter 的「本次临时改用另一种模式」标记，消费一次即清
-            self._followup_alt = False
-            # 2026-11-01（Owner 需求二：读屏截图 → 气泡反馈）
-            # ⛔ 定时截图**默认关**：截图是敏感能力，必须由主人显式打开。
-            self.screenshot_timer = False
-            self.screenshot_interval = 60          # 秒，下限 30
-            self.screenshot_region = 'full'        # full | pet（只截桌宠附近）
-            self.screenshot_hotkey = 'ctrl+alt+d'
-            self.screenshot_feedback = 'bubble'    # bubble（Owner 要的）| chat（老行为）
-            self._shot_timer_obj = None
-            # 2026-11-01：托盘对象的**结构性默认值**。
-            # ⛔ 必须在这里初始化 —— `_ensure_tray()` 加了闸（离屏不建托盘）后会
-            #   提前 return None，那时 `self.tray` 属性根本不存在，而
-            #   `hide_to_tray()` 里写的是 `if self.tray:` ⇒ AttributeError。
-            #   实测量级：一处根因 35 个测试红（都走 closeEvent → hide_to_tray）。
-            #   这是「结构性默认值只写在分支里」这个坑的第五次（前四次：
-            #   random_action_when / drag_to_bin / _cur_task_text / follow_up_mode）。
-            self.tray = None
-            self._shot_last_sig = None
-            self._shot_busy = False
-            self._theme_widgets = []
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
