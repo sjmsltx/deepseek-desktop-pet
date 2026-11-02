@@ -31,7 +31,12 @@ import os
 import re
 import sys
 
-CHANNEL = r'C:\Users\lby13\AutoClaw\Channel'
+#: 通道根目录。
+#: ⛔ 不写死本机路径 —— 发布前检查（precheck_release ③）会把它判成
+#:    「本机用户名 + 本机绝对路径」两条硬缺陷（2026-11-02 实测报出，9 处里 2 处硬）。
+#: 优先读环境变量，其次按当前用户目录拼；换机器不用改文件。
+CHANNEL = os.environ.get('AUTOCLAW_CHANNEL') or os.path.join(
+    os.path.expanduser('~'), 'AutoClaw', 'Channel')
 DEFAULT_LEDGER = os.path.join(CHANNEL, '00-台账', 'PC-桌宠-收发-202610.md')
 PC_DIR = os.path.join(CHANNEL, '01-PC-to-WX')
 
