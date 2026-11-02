@@ -27,8 +27,18 @@ sys.path.insert(0, BASE)
 
 import api_stats as _as  # noqa: E402
 
-TODAY = datetime.date.today().isoformat()
-YESTERDAY = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+# ⚠ 2026-11-03：原先是模块级常量 today() = date.today()...，**import 那一刻就定死了**。
+#   实测（2026-11-02 23:59:32 → 00:09:28 那次全量）：测试模块在零点前 import
+#   ⇒ today() 是 11-02；而 api_stats.record() 内部用 datetime.date.today()（运行时求值）
+#   ⇒ 记账落到 11-03 的键上 ⇒ 6 条用例全红。
+#   那不是产品 bug，是**测试没有固定时间源**（跨零点跑就假红）。
+#   ⇒ 改成函数，每次用时求值，把窗口从「整个全量 10 分钟」缩到「单条用例毫秒级」。
+def today():
+    return datetime.date.today().isoformat()
+
+
+def yesterday():
+    return (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
 
 
 def _usage(p=100, c=10):
@@ -47,7 +57,7 @@ def test_by_day_matches_today(tmp_path):
     st.record(_usage(), 'deepseek-flash', purpose='chat')
     st.record(_usage(200, 20), 'deepseek-flash', purpose='care')
 
-    d = st.by_day.get(TODAY)
+    d = st.by_day.get(today())
     assert d, '记账后 by_day 里没有今天'
     assert abs(float(d['cost']) - float(st.today['cost'])) < 1e-9, '费用与 today 不一致'
     assert int(d['count']) == int(st.today['count']), '次数与 today 不一致'
@@ -59,7 +69,7 @@ def test_by_day_mirrors_purpose(tmp_path):
     st = _stats(tmp_path)
     st.record(_usage(), 'deepseek-flash', purpose='chat')
     st.record(_usage(), 'deepseek-flash', purpose='tools')
-    bp = (st.by_day.get(TODAY) or {}).get('by_purpose') or {}
+    bp = (st.by_day.get(today()) or {}).get('by_purpose') or {}
     assert set(bp.keys()) == {'chat', 'tools'}, '用途分项没镜像过去：%s' % bp
     assert int(bp['chat']['count']) == 1
 
@@ -68,7 +78,7 @@ def test_by_day_is_a_copy_not_a_reference(tmp_path):
     """必须是拷贝：跨天 today 被整体替换时，历史条目不能跟着变"""
     st = _stats(tmp_path)
     st.record(_usage(), 'deepseek-flash')
-    snapshot = st.by_day[TODAY]
+    snapshot = st.by_day[today()]
     assert snapshot is not st.today, 'by_day 存的是 today 的引用（跨天会变味）'
     assert snapshot.get('by_purpose') is not st.today.get('by_purpose'), \
         'by_purpose 没深拷贝（二层 dict 共享引用）'
@@ -81,11 +91,11 @@ def test_by_day_persisted(tmp_path):
     st = _stats(tmp_path)
     st.record(_usage(), 'deepseek-flash')
     raw = json.load(open(str(tmp_path / 's.json'), encoding='utf-8'))
-    assert isinstance(raw.get('by_day'), dict) and TODAY in raw['by_day'], \
+    assert isinstance(raw.get('by_day'), dict) and today() in raw['by_day'], \
         '落盘文件里没有 by_day'
 
     st2 = _stats(tmp_path)
-    assert TODAY in st2.by_day, '重开后 by_day 丢了'
+    assert today() in st2.by_day, '重开后 by_day 丢了'
     assert st2.day_breakdown(), 'day_breakdown 返回空'
 
 
@@ -93,17 +103,17 @@ def test_by_day_persisted(tmp_path):
 
 def test_cross_day_flushes_old_today(tmp_path):
     """跨天：旧 today 必须先结算进 by_day 再重置（旧实现直接丢）"""
-    legacy = {'date': YESTERDAY,
+    legacy = {'date': yesterday(),
               'today': {'count': 3, 'prompt': 300, 'completion': 30, 'total': 330,
-                        'cost': 0.05, 'cache_hit': 0, 'cache_miss': 300, 'date': YESTERDAY},
+                        'cost': 0.05, 'cache_hit': 0, 'cache_miss': 300, 'date': yesterday()},
               'total': {'count': 3, 'prompt': 300, 'completion': 30, 'total': 330,
                         'cost': 0.05, 'cache_hit': 0, 'cache_miss': 300},
               'calls': []}
     json.dump(legacy, open(str(tmp_path / 's.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 
     st = _stats(tmp_path)
-    assert YESTERDAY in st.by_day, '跨天没把昨天的数据结算进 by_day（会永久丢失）'
-    assert abs(float(st.by_day[YESTERDAY]['cost']) - 0.05) < 1e-9
+    assert yesterday() in st.by_day, '跨天没把昨天的数据结算进 by_day（会永久丢失）'
+    assert abs(float(st.by_day[yesterday()]['cost']) - 0.05) < 1e-9
     assert int(st.today.get('count') or 0) == 0, '今天应归零'
 
 
@@ -113,19 +123,19 @@ def test_record_crosses_midnight_without_losing(tmp_path):
     # 手动把 today 伪造成"昨天有 2 次"
     st.today = {'count': 2, 'prompt': 200, 'completion': 20, 'total': 220,
                 'cost': 0.02, 'cache_hit': 0, 'cache_miss': 200,
-                'date': YESTERDAY, 'unknown': 0, 'by_purpose': {}}
+                'date': yesterday(), 'unknown': 0, 'by_purpose': {}}
     st.record(_usage(), 'deepseek-flash')
-    assert YESTERDAY in st.by_day, '运行中跨天没结算旧 today'
-    assert abs(float(st.by_day[YESTERDAY]['cost']) - 0.02) < 1e-9
-    assert TODAY in st.by_day
+    assert yesterday() in st.by_day, '运行中跨天没结算旧 today'
+    assert abs(float(st.by_day[yesterday()]['cost']) - 0.02) < 1e-9
+    assert today() in st.by_day
 
 
 # ---------- 4. 旧档兼容 ----------
 
 def test_legacy_file_no_crash(tmp_path):
     """旧档无 by_day → 返回 [] + day_legacy，且 today 照旧可读（不丢账）"""
-    json.dump({'date': TODAY,
-               'today': _full_agg(TODAY, count=1, cost=0.01),
+    json.dump({'date': today(),
+               'today': _full_agg(today(), count=1, cost=0.01),
                'total': _full_agg('', count=1, cost=0.01), 'calls': []},
               open(str(tmp_path / 's.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 
@@ -149,7 +159,7 @@ def _full_agg(date, **over):
 
 def test_legacy_flag_clears_after_first_record(tmp_path):
     """记一笔之后 day_legacy 应转 False（已有按天数据了）"""
-    json.dump({'date': TODAY, 'today': _full_agg(TODAY),
+    json.dump({'date': today(), 'today': _full_agg(today()),
                'total': _full_agg(''), 'calls': []},
               open(str(tmp_path / 's.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     st = _stats(tmp_path)
@@ -169,14 +179,14 @@ def test_prune_keeps_recent_days(tmp_path):
                  for i in range(130)}
     st._prune_by_day()
     assert len(st.by_day) == st.KEEP_DAYS, '裁剪后应正好 %d 天，实际 %d' % (st.KEEP_DAYS, len(st.by_day))
-    assert TODAY in st.by_day, '今天被裁掉了'
+    assert today() in st.by_day, '今天被裁掉了'
     assert (base - datetime.timedelta(days=129)).isoformat() not in st.by_day, '最旧的一天没被裁掉'
 
 
 def test_prune_noop_under_limit(tmp_path):
     """没超上限时裁剪不该动数据"""
     st = _stats(tmp_path)
-    st.by_day = {TODAY: {'count': 1, 'cost': 0.001}}
+    st.by_day = {today(): {'count': 1, 'cost': 0.001}}
     st._prune_by_day()
     assert len(st.by_day) == 1
 
