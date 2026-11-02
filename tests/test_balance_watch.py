@@ -20,6 +20,21 @@ def _pet():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication(sys.argv)
     import desktop_pet as dp
+    # ⚠ 2026-11-03：真实 PetWidget 的 `_init_state_and_config` 用模块级 MEMORIES_PATH
+    #   ⇒ 建实例就打开**用户的真实 memories.json**。某些用例会触发记忆写入
+    #   （合并路径：access_count+1 且 _save）⇒ 污染真实库。
+    #
+    #   实测：全量跑一次 access 115→117；单跑本文件 +1（见 收件箱/07-污染定位/find_writer.py）。
+    #   这是既存问题（不是今天引入），但它让「access_count」这个字段彻底不可信 ——
+    #   而 WX-172 发现 C 正要拿它判断「这条记忆是不是真被想起来过」。
+    #
+    #   ⇒ 建实例**之前**把库路径指到临时目录。用模块属性而不是 monkeypatch：
+    #     本函数不是 fixture，拿不到 monkeypatch。
+    if not getattr(dp, '_TEST_MEM_ISOLATED', False):
+        import tempfile
+        _d = tempfile.mkdtemp(prefix='pet_bal_')
+        dp.MEMORIES_PATH = os.path.join(_d, 'memories.json')
+        dp._TEST_MEM_ISOLATED = True
     p = dp.PetWidget()
     p._save_cfg_value = lambda *a, **k: True
     return p
