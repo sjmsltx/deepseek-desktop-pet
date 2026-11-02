@@ -51,25 +51,31 @@ def _isolate_discovery(monkeypatch):
 
 
 @pytest.fixture()
-def fake_dsh(tmp_path):
-    """造一个「装在别处」的 DSH 目录，用完还原 dsh_config.json。"""
-    root = tmp_path / 'my_dsh'
-    (root / 'node_modules' / '@deepseek-ai' / 'dsh').mkdir(parents=True)
-    (root / 'start-dsh.ps1').write_text('# fake\n', encoding='utf-8')
+def fake_dsh(tmp_path, monkeypatch):
+    """造一个「装在别处」的 DSH 目录，配置只写在 tmp 里。
 
-    cfg = ad.USER_CONFIG_PATH
-    bak = cfg + '.bak-test'
-    had = os.path.exists(cfg)
-    if had:
-        os.rename(cfg, bak)
-    try:
-        yield str(root)
-    finally:
-        if os.path.exists(cfg):
-            os.remove(cfg)
-        if had and os.path.exists(bak):
-            os.rename(bak, cfg)
-        ad.discover(force=True)
+    ⚠ 2026-11-02 改（本轮真踩到）：原来是把**产品目录下真的 `dsh_config.json`**
+      改名成 `.bak-test`、用例结束再改回来。实测后果 ——
+      测试进程被强杀（Ctrl+C / 超时 / OOM）时 `finally` 不执行 ⇒
+      真配置里留下 `{"root": "...\\Temp\\chk_real_xxx"}` 这种指向桩目录的值，
+      桌宠从此「✓ 已检测到 DSH」而入口打不开，**且不报警**（WX-166 §三 报的就是这个）。
+
+      ⇒ 改成 `monkeypatch.setattr(ad, 'USER_CONFIG_PATH', <tmp>)`：测试连摸都摸不到真文件。
+        `test_dsh_panel.py` 本来就是这么写的，**本文件是漏的**。
+
+    ⚠ 同时把假安装造成**真安装的形状**（带 `lib/bin.js`）——
+      判据 2026-11-02 已收紧，只有空 `@deepseek-ai/dsh` 目录的桩不再算已安装。
+    """
+    cfgp = tmp_path / 'dsh_config.json'
+    monkeypatch.setattr(ad, 'USER_CONFIG_PATH', str(cfgp))
+
+    root = tmp_path / 'my_dsh'
+    pkg = root / 'node_modules' / '@deepseek-ai' / 'dsh' / 'lib'
+    pkg.mkdir(parents=True)
+    (pkg / 'bin.js').write_text('// fake entry\n', encoding='utf-8')
+    (root / 'start-dsh.ps1').write_text('# fake\n', encoding='utf-8')
+    yield str(root)
+    ad.discover(force=True)
 
 
 def test_installed_uses_discovered_root_not_static(fake_dsh):
@@ -90,22 +96,13 @@ def test_installed_requires_real_marker_not_just_dir(tmp_path, monkeypatch):
       （旧实现有 fallback 扫进程时，用户正用着 DSH 就会把空目录救活 ⇒ 假红）
     """
     monkeypatch.setattr(ad, '_running_dsh_processes', lambda timeout=15: [])
+    # 配置路径也锁到 tmp —— 绝不动产品目录下真的 dsh_config.json（2026-11-02）
+    monkeypatch.setattr(ad, 'USER_CONFIG_PATH', str(tmp_path / 'dsh_config.json'))
     empty = tmp_path / 'empty_dsh'
     empty.mkdir()
-    cfg = ad.USER_CONFIG_PATH
-    had = os.path.exists(cfg)
-    bak = cfg + '.bak-test'
-    if had:
-        os.rename(cfg, bak)
-    try:
-        assert ad.save_user_config(root=str(empty)) is True
-        assert ad.installed() is False, '空目录被当成已安装'
-    finally:
-        if os.path.exists(cfg):
-            os.remove(cfg)
-        if had and os.path.exists(bak):
-            os.rename(bak, cfg)
-        ad.discover(force=True)
+    assert ad.save_user_config(root=str(empty)) is True
+    assert ad.installed() is False, '空目录被当成已安装'
+    ad.discover(force=True)
 
 
 def test_installed_false_when_config_points_to_bad_path_even_if_dsh_running(
@@ -123,32 +120,25 @@ def test_installed_false_when_config_points_to_bad_path_even_if_dsh_running(
     """
     # 造一个真实存在的 DSH（用 tmp_path，带标志文件）
     real = tmp_path / 'real_dsh'
-    (real / 'node_modules' / '@deepseek-ai' / 'dsh').mkdir(parents=True)
+    pkg = real / 'node_modules' / '@deepseek-ai' / 'dsh' / 'lib'
+    pkg.mkdir(parents=True)
+    (pkg / 'bin.js').write_text('// fake entry\n', encoding='utf-8')
     (real / 'start-dsh.ps1').write_text('# fake\n', encoding='utf-8')
     # 进程在跑，且进程报的 root 是那个真实目录
     monkeypatch.setattr(ad, '_running_dsh_processes',
                         lambda timeout=15: [{'pid': 1, 'cmdline': 'node bin.js web',
                                              'root': str(real), 'port': 3080}])
-    cfg = ad.USER_CONFIG_PATH
-    had = os.path.exists(cfg)
-    bak = cfg + '.bak-test'
-    if had:
-        os.rename(cfg, bak)
-    try:
-        # 配置指向一个不存在的路径（用户手滑写错）
-        bad = str(tmp_path / 'typo' / 'dsh')
-        assert ad.save_user_config(root=bad) is True
-        ad.discover(force=True)
-        assert ad.resolve_root() == bad, '前提不成立：resolve_root 没拿到配置值'
-        assert ad.installed() is False, (
-            'installed() 说已检测到，但 resolve_root() 指向不存在的路径 —— '
-            '菜单会骗人（面板拿这个路径找不到启动器）')
-    finally:
-        if os.path.exists(cfg):
-            os.remove(cfg)
-        if had and os.path.exists(bak):
-            os.rename(bak, cfg)
-        ad.discover(force=True)
+    # 配置路径锁到 tmp（2026-11-02：原来会改名真配置，强杀即污染）
+    monkeypatch.setattr(ad, 'USER_CONFIG_PATH', str(tmp_path / 'dsh_config.json'))
+    # 配置指向一个不存在的路径（用户手滑写错）
+    bad = str(tmp_path / 'typo' / 'dsh')
+    assert ad.save_user_config(root=bad) is True
+    ad.discover(force=True)
+    assert ad.resolve_root() == bad, '前提不成立：resolve_root 没拿到配置值'
+    assert ad.installed() is False, (
+        'installed() 说已检测到，但 resolve_root() 指向不存在的路径 —— '
+        '菜单会骗人（面板拿这个路径找不到启动器）')
+    ad.discover(force=True)
 
 
 def test_launcher_follows_discovered_root(fake_dsh):
@@ -193,32 +183,88 @@ def test_save_user_config_clears_cache(fake_dsh):
     assert ad.resolve_root() == fake_dsh, '缓存未清，保存后不立刻生效'
 
 
-def test_save_user_config_empty_means_auto(tmp_path):
+def test_save_user_config_empty_means_auto(tmp_path, monkeypatch):
     """传空 = 删掉该项，回到自动发现（不是存一个空字符串）
 
     ⚠ 用 pytest 的 tmp_path 而不是 tempfile.mkdtemp —— 前者由 pytest 回收，
       后者会留垃圾目录（我第一次就漏了一个 cfgtest_* 在 TEMP 里）。
+    ⚠ 配置路径同样锁到 tmp（2026-11-02），不许碰产品目录下的真文件。
     """
-    cfg = ad.USER_CONFIG_PATH
-    had = os.path.exists(cfg)
-    bak = cfg + '.bak-test'
-    if had:
-        os.rename(cfg, bak)
-    try:
-        fake = str(tmp_path / 'my_dsh')
-        os.makedirs(os.path.join(fake, 'node_modules', '@deepseek-ai', 'dsh'))
-        ad.save_user_config(root=fake)
-        assert os.path.exists(cfg), '没写出配置文件'
-        assert ad.resolve_root() == fake
-        ad.save_user_config(root='')
-        assert not os.path.exists(cfg), '清空后仍留着配置文件'
-        assert ad.resolve_root() != fake
-    finally:
-        if os.path.exists(cfg):
-            os.remove(cfg)
-        if had and os.path.exists(bak):
-            os.rename(bak, cfg)
-        ad.discover(force=True)
+    cfg = str(tmp_path / 'dsh_config.json')
+    monkeypatch.setattr(ad, 'USER_CONFIG_PATH', cfg)
+    fake = str(tmp_path / 'my_dsh')
+    os.makedirs(os.path.join(fake, 'node_modules', '@deepseek-ai', 'dsh', 'lib'))
+    with open(os.path.join(fake, 'node_modules', '@deepseek-ai', 'dsh', 'lib',
+                           'bin.js'), 'w', encoding='utf-8') as fh:
+        fh.write('// fake entry\n')
+    ad.save_user_config(root=fake)
+    assert os.path.exists(cfg), '没写出配置文件'
+    assert ad.resolve_root() == fake
+    ad.save_user_config(root='')
+    assert not os.path.exists(cfg), '清空后仍留着配置文件'
+    assert ad.resolve_root() != fake
+    ad.discover(force=True)
+
+
+def test_stub_dir_is_not_goods(tmp_path, monkeypatch):
+    """⭐ 2026-11-02 回归：桩目录不许算「已安装」（WX-166 §三 报出的真问题）
+
+    实测原样（本机 TEMP 里真躺着一个）：
+
+        node_modules/@deepseek-ai/dsh   1 字节空**文件**
+        start-dsh.ps1                   5 字节
+
+    旧判据 `os.path.exists(...)` 两样都命中 ⇒ `installed()` = True
+    ⇒ 界面「✓ 已检测到 DSH」，点入口打不开，**一句报警都没有**。
+
+    判据能证伪：把 `_has_marker` 改回「存在即算」，这条立刻红。
+    """
+    monkeypatch.setattr(ad, 'USER_CONFIG_PATH', str(tmp_path / 'dsh_config.json'))
+    stub = tmp_path / 'stub_dsh'
+    nm = stub / 'node_modules' / '@deepseek-ai'
+    nm.mkdir(parents=True)
+    (nm / 'dsh').write_bytes(b'\n')            # 空文件，不是目录
+    (stub / 'start-dsh.ps1').write_text('#\n', encoding='utf-8')
+    assert ad.save_user_config(root=str(stub)) is True
+    ad.discover(force=True)
+    assert ad.installed() is False, (
+        '桩目录被判成已安装 —— 界面会显示「已检测到」而入口根本打不开')
+    # 但「缺的是哪一样」要能说出来，不许和「压根没装」混成一句话
+    det = ad.installed_detail()
+    assert det['entry_missing'] is True, '缺入口这件事没被单独标出来'
+    ad.discover(force=True)
+
+
+def test_tests_never_touch_real_product_config():
+    """⭐ 结构钉：测试不许读写产品目录下真的 `dsh_config.json`
+
+    ⚠ 2026-11-02 起因：本文件原来三处 `cfg = ad.USER_CONFIG_PATH` + 改名，
+      强杀测试进程就污染真配置（10-31 11:20 真发生，指向 TEMP 桩目录）。
+      正确写法只有一种：`monkeypatch.setattr(ad, 'USER_CONFIG_PATH', ...)`。
+
+    判据（按 token 判，不按行文本判）：
+      除 `monkeypatch.setattr(ad, 'USER_CONFIG_PATH', ...)` 之外，
+      `USER_CONFIG_PATH` 不许以标识符形式出现在本文件里。
+
+    ⚠ 必须按 token 判 —— 本函数自己的字符串、以及注释里的旧写法都会被文本匹配命中
+      （这条坑本仓库早踩过：结构钉先剥注释/docstring 再匹配）。
+      实测第一次就栽在自己的 `if 'USER_CONFIG_PATH' not in t:` 上：那是字符串，不是代码。
+    """
+    import tokenize
+    p = os.path.join(BASE, 'tests', 'test_dsh_discovery.py')
+    src = io.open(p, encoding='utf-8').read()
+    lines = src.splitlines()
+    bad = []
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        # 只认真标识符：字符串里的文字、注释都不会产生 NAME token
+        if tok.type != tokenize.NAME or tok.string != 'USER_CONFIG_PATH':
+            continue
+        ln = tok.start[0]
+        t = lines[ln - 1].strip() if ln <= len(lines) else ''
+        if 'monkeypatch.setattr' in t:
+            continue
+        bad.append((ln, t[:80]))
+    assert not bad, '测试直接摸了产品配置（会污染用户文件）：%r' % bad
 
 
 def test_menu_predicate_uses_installed_not_static():

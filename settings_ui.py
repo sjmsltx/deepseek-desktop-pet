@@ -198,7 +198,29 @@ class SettingsDialog(QDialog):
         self.cb_edge.addItem('完全消失（彻底离屏）', 'hidden')
         self.cb_edge.currentIndexChanged.connect(self._apply_edge_mode)
         f.addRow('贴边模式', self.cb_edge)
+
         return p
+
+    def _toggle_shot_timer(self, on):
+        """定时截图开关（默认关；落盘与提示由宿主负责）"""
+        if self._building:
+            return
+        self.host._set_screenshot_timer(bool(on))
+
+    def _apply_shot_interval(self, val):
+        if self._building:
+            return
+        self.host._set_screenshot_interval(int(val))
+
+    def _apply_shot_hotkey(self):
+        if self._building:
+            return
+        spec = self.ed_shot_key.text().strip()
+        if not spec:
+            return
+        got = self.host._set_screenshot_hotkey(spec)
+        # 失败时宿主会把配置回滚，这里把输入框同步回真实值（不留下「看起来生效了」）
+        self.ed_shot_key.setText(str(got))
 
     def _toggle_ai_bubble(self, on):
         """AI 气泡开关（落盘 + 提示由宿主负责）"""
@@ -854,6 +876,20 @@ class SettingsDialog(QDialog):
                 self.cb_bin.currentData()))
         f.addRow('拖文件给我', self.cb_bin)
 
+        # 2026-11-01（Owner 需求：照 AutoClaw 的「引导」）：
+        #   任务在跑时你再发消息，是「排队等这一轮结束」还是「立即并入当前任务」。
+        #   ⛔ 故意不在 AI 可改的配置白名单里 —— 不能让它自己决定要不要被打断。
+        self.cb_followup = QComboBox()
+        for label, val in (('排队（等这一轮结束后再处理）', 'queue'),
+                           ('引导（立即并入当前任务，不打断模型）', 'guide')):
+            self.cb_followup.addItem(label, val)
+        self.cb_followup.setToolTip('任务进行中发送的消息怎么处理。\n'
+                                    '输入框里按 Ctrl+Enter 可对这一次临时改用另一种。')
+        self.cb_followup.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_follow_up_mode(
+                self.cb_followup.currentData()))
+        f.addRow('运行中追加消息', self.cb_followup)
+
         self._buttons(f, '提醒与待办', [('⏰ 提醒管理', self.host._open_reminder_manager),
                                         ('📋 待办管理', self.host._open_todo_manager)])
         self._buttons(f, '聊天记录', [('📤 导出聊天记录', self.host._export_chat),
@@ -1201,7 +1237,7 @@ class SettingsDialog(QDialog):
 
     # ---------- ⑥ 系统 ----------
     def _page_system(self):
-        p = self._page('系统', '开机自启与运行信息。')
+        p = self._page('系统', '开机自启、读屏截图与运行信息。')
         f = p.form
         self.ck_boot = QCheckBox('开机后自动启动桌宠')
         self.ck_boot.toggled.connect(
@@ -1217,6 +1253,57 @@ class SettingsDialog(QDialog):
         self._build_dsh_row(f)
         # L4-2：最近错误入口（右键菜单「状态」里也有同款入口 ✓）
         self._buttons(f, '诊断', [('🧯 最近错误', self.host.show_recent_errors)])
+        # ===== 读屏截图（2026-11-01，Owner 需求二）=====
+        # Owner 原话：「加一个选项定时截图或者加快捷键截图……反馈到那个气泡上面」
+        # ⛔ 定时截图默认关：截图是敏感能力，必须显式打开。
+        self.ck_shot_timer = QCheckBox('开启定时截图（默认关）')
+        self.ck_shot_timer.setToolTip(
+            '每隔一段时间截一张屏看一眼，结果只说在气泡里。\n'
+            '画面没有变化时不会去问模型（省 token、也不烦人）；\n'
+            '你正在打字或拖拽桌宠时会自动跳过。')
+        self.ck_shot_timer.toggled.connect(self._toggle_shot_timer)
+        f.addRow('定时截图', self.ck_shot_timer)
+
+        self.sp_shot_interval = QSpinBox()
+        self.sp_shot_interval.setRange(30, 3600)
+        self.sp_shot_interval.setSuffix(' 秒')
+        self.sp_shot_interval.setToolTip('最短 30 秒：再短会明显耗资源、也费 token')
+        self.sp_shot_interval.valueChanged.connect(self._apply_shot_interval)
+        f.addRow('截图间隔', self.sp_shot_interval)
+
+        self.cb_shot_region = QComboBox()
+        self.cb_shot_region.addItem('整屏', 'full')
+        self.cb_shot_region.addItem('只截桌宠周围', 'pet')
+        self.cb_shot_region.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_screenshot_region(
+                self.cb_shot_region.currentData()))
+        f.addRow('截图范围', self.cb_shot_region)
+
+        self.cb_shot_fb = QComboBox()
+        self.cb_shot_fb.addItem('只放在气泡里', 'bubble')
+        self.cb_shot_fb.addItem('放进聊天记录（旧行为）', 'chat')
+        self.cb_shot_fb.currentIndexChanged.connect(
+            lambda *_: not self._building and self.host._set_screenshot_feedback(
+                self.cb_shot_fb.currentData()))
+        f.addRow('截图结果', self.cb_shot_fb)
+
+        self.ed_shot_key = QLineEdit()
+        self.ed_shot_key.setPlaceholderText('ctrl+alt+d')
+        btn_shot_key = QPushButton('应用')
+        btn_shot_key.clicked.connect(self._apply_shot_hotkey)
+        rowk = QWidget()
+        hk = QHBoxLayout(rowk)
+        hk.setContentsMargins(0, 0, 0, 0)
+        hk.setSpacing(8)
+        hk.addWidget(self.ed_shot_key, 1)
+        hk.addWidget(btn_shot_key)
+        f.addRow('截图快捷键', rowk)
+        lb_shot = QLabel('截图快捷键按「修饰键 + 单个字母/数字」写，例如 ctrl+alt+d；'
+                         '至少需要一个修饰键（否则会全局抢走那个键）。')
+        lb_shot.setWordWrap(True)
+        lb_shot.setStyleSheet(STYLE_HINT)
+        f.addRow('', lb_shot)
+
         # ---- 平台能力（只读诊断块，v6.74 批次5：直接渲染 platform_layer.report()）----
         box = QWidget()
         vb = QVBoxLayout(box)
@@ -1328,6 +1415,10 @@ class SettingsDialog(QDialog):
             self._building = False
         bits = []
         bits.append('✓ 已检测到' if det['installed'] else '✗ 未检测到')
+        # ⚠ 2026-11-02：目录在、启动器也在，但没找到 DSH 程序入口 ⇒ 必须说出来。
+        #   WX-166 报的那个桩就落在这个状态：界面原本只报「✓ 已检测到」，一句话都不提醒。
+        if det.get('entry_missing'):
+            bits.append('⚠ 该目录里没有 DSH 程序入口（node_modules/@deepseek-ai/dsh/lib/bin.js）')
         bits.append('位置来源：%s' % det['root_source'])
         bits.append('端口 %s（%s）' % (det['port'], det['port_source']))
         bits.append('服务在跑' if det['serving'] else '服务未运行')
@@ -1505,6 +1596,24 @@ class SettingsDialog(QDialog):
                 or getattr(h, 'affection_mode', 'full')
             _idx = self.cb_affmode.findData(_am)
             self.cb_affmode.setCurrentIndex(_idx if _idx >= 0 else 0)
+            # 运行中追加消息（2026-11-01）：回填当前档位
+            _fm = getattr(h, 'follow_up_mode', 'queue')
+            _ifm = self.cb_followup.findData(_fm)
+            self.cb_followup.setCurrentIndex(_ifm if _ifm >= 0 else 0)
+            # 读屏截图（2026-11-01）
+            self.ck_shot_timer.setChecked(bool(getattr(h, 'screenshot_timer', False)))
+            try:
+                self.sp_shot_interval.setValue(int(getattr(h, 'screenshot_interval', 60) or 60))
+            except Exception as exc:
+                _log.warning('回填截图间隔失败，回退 60 秒：%s', exc)
+                self.sp_shot_interval.setValue(60)
+            _rgd = getattr(h, 'screenshot_region', 'full')
+            _irg = self.cb_shot_region.findData(_rgd)
+            self.cb_shot_region.setCurrentIndex(_irg if _irg >= 0 else 0)
+            _fbd = getattr(h, 'screenshot_feedback', 'bubble')
+            _ifb = self.cb_shot_fb.findData(_fbd)
+            self.cb_shot_fb.setCurrentIndex(_ifb if _ifb >= 0 else 0)
+            self.ed_shot_key.setText(str(getattr(h, 'screenshot_hotkey', 'ctrl+alt+d')))
 
             # 对话
             idx = self.cb_persona.findData(getattr(h, 'personality', '温柔'))

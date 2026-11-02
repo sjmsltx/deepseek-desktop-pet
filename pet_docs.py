@@ -18,6 +18,7 @@ PetWidget 里（那个类已经 5889 行），但它们**完全不依赖 UI 或�
     TEXT_BY_KIND                                  附件 kind → 解析函数
 """
 import os
+from pet_sysutils import is_sensitive_path as _is_sensitive_path
 import re
 import subprocess
 
@@ -125,8 +126,11 @@ def read_own_file(rel_path, base_dir, start_line=None, end_line=None):
             return f'（文件不存在：{rel_path}）'
         # 敏感文件禁止读取（API key/隐私数据，防止泄露给 AI）
         _low = full.lower()
-        if any(_s in _low for _s in ('config.json', 'api_stats.json', 'affection.json',
-                                     'memories.json', 'chat_memory', '.env', 'api_key', 'private_key')):
+        # 2026-11-01（WX-163 §2.1）：改用 pet_sysutils 的**共用**判据。
+        #   原来这里自己写一份清单，漏了 memory.json / balance_history.json
+        #   （实测那两个当天就能读全文），而 shell 路径又完全不知道这份清单。
+        #   ⇒ 现在一条判据、两个入口，不会出现「只修了这扇门」。
+        if _is_sensitive_path(_low):
             return '（敏感文件拒绝读取：包含 API 密钥/隐私数据）'
         if _low.endswith(('.py', '.md', '.txt', '.json', '.bat', '.ps1', '.html')):
             with open(full, encoding='utf-8', errors='ignore') as f:

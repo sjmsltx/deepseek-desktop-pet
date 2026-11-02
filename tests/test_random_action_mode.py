@@ -143,7 +143,9 @@ def test_sleeping_blocks_in_both_modes(mode):
 def test_docked_blocks_in_both_modes(mode):
     p = _pet()
     p.random_action_when = mode
-    p._edge_docked = True
+    # 2026-11-01：_edge_docked 是死标志（真实代码从不为真，已删）。
+    # 改走真实进入贴边的路径 —— 否则测的是一个现实中不存在的状态（假绿）。
+    p._edge_side = 'left'
     _panel(p, False)
     p._random_action_tick()
     assert not p._ra_calls, '%s 档下贴边仍不该演' % mode

@@ -114,7 +114,8 @@ class SidePanel(QFrame):
         self._collapsed = bool(collapsed)
         self._save_cb = save_cb                      # save_cb(tabs, collapsed)
         self._data_cb = data_cb or (lambda: {})      # 返回动态数据 dict（给状态/花费/待办/系统页）
-        self._task_hooks = {'dblclick': None, 'reorder': None}
+        # 2026-11-01：加 'guide' —— 把排队项改成「引导」并入当前任务（照 AutoClaw）
+        self._task_hooks = {'dblclick': None, 'reorder': None, 'guide': None}
         self._note_save = None                       # note 页编辑后的回存回调
         self._note_editors = {}                      # note id -> 编辑框（主区改便签时要同步这里）
         self._width = 186
@@ -219,6 +220,11 @@ class SidePanel(QFrame):
                     lambda *a: self._task_hooks['reorder'] and self._task_hooks['reorder']())
             except Exception:
                 pass
+            # 2026-11-01（照 AutoClaw「运行中追加消息」）：排队项右键 →
+            #   ① 引导到当前任务（只有真在跑时才给，同 AutoClaw 的 guideDeliverable）
+            #   ② 取消排队
+            self._tasks_list.setContextMenuPolicy(Qt.CustomContextMenu)
+            self._tasks_list.customContextMenuRequested.connect(self._tasks_menu)
             lay.addWidget(self._tasks_list, 1)
             return w
         if kind == 'note':
@@ -407,15 +413,67 @@ class SidePanel(QFrame):
                 self.stack.setCurrentIndex(index)
             self.refresh_dynamic(force=True)
 
-    def refresh_tasks(self, cur_text, queue):
-        """宿主刷新任务：首行 = 执行中，其后排队（可拖拽）"""
+    def _tasks_menu(self, pos):
+        """任务列表右键菜单（2026-11-01）：引导 / 取消排队
+
+        为什么用右键而不是给每行塞按钮：列表项是 QListWidgetItem，没有子控件位置，
+        加按钮要改成 setItemWidget 并自己管布局与拖拽 —— 改动面大得多。
+        右键菜单既够用，也不破坏现有的拖拽排序/双击取消。
+        """
+        # ⚠ 这两处原先写 `except Exception: it = None` —— 被 test_silent_guard
+        #   判为「新增静默失败点」。改成落 _log 再走默认值（异常不该被吞掉）：
+        #   真出异常时日志里能看到，用户行为仍然安全（菜单不弹）。
+        try:
+            it = self._tasks_list.itemAt(pos)
+        except Exception as exc:
+            _log.warning('任务列表右键：定位行失败：%s', exc)
+            return
+        if it is None:
+            return
+        try:
+            data = it.data(Qt.UserRole)
+        except Exception as exc:
+            _log.warning('任务列表右键：取行数据失败：%s', exc)
+            return
+        if not isinstance(data, dict):
+            return                     # 执行中那行 / 空占位行：没有可操作对象
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        act_guide = menu.addAction('🧭 引导到当前任务')
+        act_guide.setEnabled(bool(getattr(self, '_guide_ok', False)))
+        if not act_guide.isEnabled():
+            act_guide.setToolTip('当前没有正在跑的任务，没法并入')
+        act_cancel = menu.addAction('✖ 取消排队')
+        chosen = menu.exec(self._tasks_list.mapToGlobal(pos))
+        if chosen is act_guide:
+            hook = self._task_hooks.get('guide')
+            if hook:
+                hook(it)
+        elif chosen is act_cancel:
+            hook = self._task_hooks.get('dblclick')
+            if hook:
+                hook(it)
+
+    def refresh_tasks(self, cur_text, queue, guides=None, guide_ok=False):
+        """宿主刷新任务：首行 = 执行中，其后「待注入的引导」，再其后排队（可拖拽）
+
+        guides / guide_ok（2026-11-01）：待注入的引导单列出来 —— 用户要知道
+        「我插的那句话到底进去了没」，不能和排队混在一起看不出区别。
+        """
         if self._tasks_list is None:
             return
+        self._guide_ok = bool(guide_ok)
         try:
             self._tasks_list.clear()
             if cur_text:
                 it = QListWidgetItem('⏳ ' + str(cur_text)[:13])
                 it.setFlags(it.flags() & ~Qt.ItemIsDropEnabled & ~Qt.ItemIsDragEnabled)
+                self._tasks_list.addItem(it)
+            for g in (guides or []):
+                gtext = str((g or {}).get('text', ''))
+                it = QListWidgetItem('🧭 引导：' + gtext[:11])
+                it.setFlags(Qt.NoItemFlags)      # 已提交的引导不可拖、不可点
+                it.setToolTip('已提交，等下一个回合边界并入当前任务')
                 self._tasks_list.addItem(it)
             for i, t in enumerate(queue or []):
                 it = QListWidgetItem('⏸ %d. %s' % (i + 1, str((t or {}).get('text', ''))[:13]))

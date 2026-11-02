@@ -106,7 +106,9 @@ def test_skipped_when_sleeping(attr, val):
 
 def test_skipped_when_docked():
     p = _pet()
-    p._edge_docked = True
+    # 2026-11-01：_edge_docked 是死标志（真实代码从不为真，已删）。
+    # 改走真实进入贴边的路径 —— 否则测的是一个现实中不存在的状态（假绿）。
+    p._edge_side = 'left'
     p.chat_panel.hide()
     _app.processEvents()
     p._random_action_tick()

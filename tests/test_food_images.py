@@ -144,12 +144,24 @@ def test_food_image_survives_animate(tmp_path):
         p.affection._save()
     p._feed_pet('tea', reaction='eating')
     _app.processEvents()
-    before = bytes(p.pet_label.pixmap().toImage().bits())
+    # ⚠ 必须把 QImage 留在变量里：`bytes(pm.toImage().bits())` 里的 toImage()
+    #   是**临时对象**，bits() 的 memoryview 会指向已释放内存 ⇒ 读到的字节随机
+    #   （实测与参考值 30/30 不一致）。这是本测试此前 flaky 的**真正原因**，
+    #   与产品行为无关 —— 失败时存下来的前后两张 PNG 是完全一样的。
+    _im_before = p.pet_label.pixmap().toImage()
+    _k_before = p.pet_label.pixmap().cacheKey()
+    before = bytes(_im_before.bits())
     for _ in range(10):
         p.animate()
     _app.processEvents()
-    after = bytes(p.pet_label.pixmap().toImage().bits())
-    assert before == after, 'animate() 把食物动作图覆盖了'
+    _im_after = p.pet_label.pixmap().toImage()
+    _k_after = p.pet_label.pixmap().cacheKey()
+    after = bytes(_im_after.bits())
+    assert before == after, (
+        'animate() 把食物动作图覆盖了 —— state=%r _edge_side=%r pos=%s '
+        'beforeKey=%s afterKey=%s dozing=%s'
+        % (p.state, p._edge_side, (p.x(), p.y()), _k_before, _k_after,
+           getattr(p, '_dozing', None)))
 
 
 # ---------- F. 素材规格 ----------

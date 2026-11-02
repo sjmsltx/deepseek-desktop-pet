@@ -154,6 +154,39 @@ def _statement_is_safe(stmt):
     return bool(_SAFE_CMD_RE.match(head.group(1)))
 
 
+#: 敏感文件名（大小写不敏感，路径分隔符统一成 /）
+#: 2026-11-01（WX-163 §2.1 实测）：原黑名单只在 `pet_docs.read_own_file` 里，
+#:   且漏了 `memory.json` / `balance_history.json` —— 那两个**当时就能被读全文**。
+#:   而 shell 路径（`Get-Content`）完全不知道黑名单存在 ⇒ 一句话绕过且免确认。
+#:   ⇒ 判据提到这里，`check_dangerous` 与 `read_own_file` **共用一份**。
+#: ⛔ 不许在两个文件里各写一份（写两份必然只修一份 —— WX-155 那次就是这么漏的）。
+SENSITIVE_NAME_PARTS = (
+    'config.json',          # 含 API key
+    'api_stats.json',       # 用量
+    'affection.json',       # 好感度
+    'memories.json',        # 记忆
+    'memory.json',          # 记忆（另一份，43 条 facts）← WX-163 指出漏掉
+    'balance_history.json', # 余额历史 ← 同上
+    'chat_memory',          # 聊天记录（4 个角色各一份）
+    'dsh_config.json',      # DSH 安装位置
+    '.env',
+    'api_key',
+    'private_key',
+    'id_rsa',               # ← WX-163 实测 .ssh/id_rsa 可免确认读
+    'id_ed25519',
+)
+
+
+def is_sensitive_path(text):
+    """这段文本（路径 / 命令）里是否出现敏感文件名 → bool
+
+    用法：`read_own_file` 判「这个路径能不能读」；`check_dangerous` 判
+    「这条命令要不要先问主人」。**同一份清单，两个入口。**
+    """
+    low = str(text or '').lower().replace('\\', '/')
+    return any(part in low for part in SENSITIVE_NAME_PARTS)
+
+
 def check_dangerous(cmd):
     """返回拦截提示，可放行返回 None（run_ps 与上层确认流程共用）"""
     text = str(cmd or '')
@@ -164,6 +197,11 @@ def check_dangerous(cmd):
         m = rx.search(body)
         if m:
             return f'该命令含破坏性操作（命中"{m.group(0)}"），需要你确认后才执行。'
+    # 2026-11-01（WX-163 §2.2）：敏感文件判定必须在**命令层**也生效。
+    #   否则 `Get-Content config.json` 命中只读白名单 ⇒ 免确认 ⇒ 黑名单形同不存在。
+    #   这里不区分读写：只要碰到这些名字就问一次（保守，多问一次不会出事，漏放会）。
+    if is_sensitive_path(body):
+        return '该命令涉及敏感文件（配置/密钥/记忆/余额），需要你确认后才执行。'
     for stmt in _split_statements(body):
         if not _statement_is_safe(stmt):
             return f'该命令不在只读白名单内（"{stmt[:50]}"），需要你确认后才执行。'

@@ -256,13 +256,36 @@ def installed(force: bool = False) -> bool:
 
 
 def _has_marker(root: str) -> bool:
-    """目录里有 DSH 的标志文件吗（只做 os.path 检查，不起进程）"""
+    """目录里有 DSH 的**真实**标志吗（只做 os.path 检查，不起进程）
+
+    ⚠ 2026-11-02 收紧（WX-166 §三 报出、我核实成立）：
+      原来只要 `node_modules/@deepseek-ai/dsh` **存在**、或根目录有 `start-dsh.ps1`，
+      就算「已安装」。实测反例（本机真发生过）——某次测试在 TEMP 造的桩：
+
+          node_modules/@deepseek-ai/dsh   1 字节空**文件**
+          start-dsh.ps1                   5 字节
+
+      ⇒ `installed()` 返回 True，界面报「✓ 已检测到」，
+        而启动器拉不起来，**且一句报警都没有**，用户根本不会去查。
+        这比「判成未安装」更坏：未安装至少会被发现。
+
+    ⇒ 现在要求**能真跑起来的证据**，不再把上面那两样单独算数：
+      ① npm 包入口 `node_modules/@deepseek-ai/dsh/lib/bin.js`
+         （0.1.5-rc.2 与 0.2.1-rc.5 都有它 —— 微信侧 2026-11-01 实测，跨版本稳定）
+      ② 根目录的 npm bin 垫片 `dsh.cmd` / `dsh.ps1`（只有真装过才会生成）
+
+    ⛔ 别再往回加「目录存在就算」：桩最容易造的就是空目录。
+    """
     try:
         if not root or not os.path.isdir(root):
             return False
-        for marker in (os.path.join('node_modules', '@deepseek-ai', 'dsh'),
-                       'start-dsh.ps1', 'dsh.cmd', 'dsh.ps1'):
-            if os.path.exists(os.path.join(root, marker)):
+        # ① npm 包入口：真装过才有（跨版本稳定的那个文件）
+        if os.path.isfile(os.path.join(root, 'node_modules', '@deepseek-ai', 'dsh',
+                                       'lib', 'bin.js')):
+            return True
+        # ② npm bin 垫片：真装过才会生成
+        for shim in ('dsh.cmd', 'dsh.ps1'):
+            if os.path.isfile(os.path.join(root, shim)):
                 return True
         return False
     except Exception as exc:
@@ -284,8 +307,23 @@ def installed_detail(serving_timeout: float = None, force: bool = False) -> dict
     """
     d = discover(force=force)
     ok = installed(force=force)
+    # ⚠ 2026-11-02：`installed` 收紧成「有真程序入口」。
+    #   但「目录在、启动器在、入口不在」与「压根没装」是两件事，
+    #   一律报「✗ 未检测到」等于把线索藏起来（WX-166 报的那个桩正是这样）。
+    #   ⇒ 单独给个标记，让界面能说清「缺的是哪一样」。
+    entry_missing = False
+    try:
+        r = d.get('root') or ''
+        if r and os.path.isdir(r) and not ok:
+            entry_missing = any(os.path.isfile(os.path.join(r, f))
+                                for f in ('start-dsh.ps1', 'dsh.cmd'))
+    except Exception as exc:
+        # 落痕：查不了 ≠ 不缺（静默返回 False 会让人以为"入口在"）
+        _silent_log('installed_detail 判定 entry_missing 失败：%r' % exc)
+        entry_missing = False
     return {
         'installed': ok,
+        'entry_missing': entry_missing,
         'root': d['root'],
         'root_source': d['root_source'],
         'port': d['port'],

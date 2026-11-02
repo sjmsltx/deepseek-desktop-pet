@@ -45,6 +45,7 @@ D. _get_state_img('scene') 这种兜底不能再被拿来当「当前状态图�
 import hashlib
 import os
 import sys
+import time
 
 import pytest
 
@@ -65,6 +66,28 @@ def _pet():
     p._append_chat = lambda *a, **k: None
     p.show()
     _app.processEvents()
+    return p
+
+
+def _pet_not_hungry(tmp_path):
+    """实例的饱食度固定为「饱」（100）且 last_sat_time=现在
+
+    ⚠ 2026-11-01：`satiety()` 是按 last_sat_time **动态衰减**算的
+      （存档 100，每 0.139 分掉 1 点）。原来这些测试直接用真实 affection.json，
+      一旦距上次喂食超过约 5 小时，实时饱食度就掉到 30 以下，
+      `_end_scene` 会正确地回到 'hungry'（产品设计：饿了常显），
+      于是「场景结束回 idle」这条断言就红 —— 那是**测试依赖真实数据**，不是 bug。
+      实测：2026-11-01 19:50 时衰减到 23.0。
+      这里用临时文件 + 固定饱食度，把前提钉死，跟真实存档解耦。
+    """
+    import affection_engine as ae
+    p = _pet()
+    p.affection = ae.AffectionEngine(str(tmp_path / 'aff.json'))
+    with p.affection._lock:
+        st = p.affection._state(p.current)
+        st['satiety'] = 100
+        st['last_sat_time'] = time.time()
+        p.affection._save()
     return p
 
 
@@ -97,14 +120,34 @@ def test_scene_image_differs_from_idle():
 
 
 # ---------- B. 收尾不能坏 ----------
-def test_scene_ends_back_to_idle():
-    p = _pet()
-    has_anim = True
+def test_scene_ends_back_to_idle(tmp_path):
+    p = _pet_not_hungry(tmp_path)
     p.play_scene('eating')
     _app.processEvents()
     p._end_scene()          # 模拟 6 秒到点
     _app.processEvents()
     assert p.state == 'idle', '场景结束后没回 idle，实际 %r' % p.state
+
+
+def test_scene_ends_to_hungry_when_hungry(tmp_path):
+    """对照：饿的时候场景结束**应该**回 hungry（Owner 2026-09-23 裁定：饿了常显）
+
+    ⛔ 有这一条才不会有人为了「让上一条变绿」去去掉饥饿回退 ——
+       那是产品行为，不该为了测试让步。
+    """
+    import affection_engine as ae
+    p = _pet()
+    p.affection = ae.AffectionEngine(str(tmp_path / 'aff2.json'))
+    with p.affection._lock:
+        st = p.affection._state(p.current)
+        st['satiety'] = 5
+        st['last_sat_time'] = time.time()
+        p.affection._save()
+    p.play_scene('eating')
+    _app.processEvents()
+    p._end_scene()
+    _app.processEvents()
+    assert p.state == 'hungry', '饿着的时候场景结束却没回 hungry，实际 %r' % p.state
 
 
 # ---------- C. 其他状态的摆头不受影响 ----------

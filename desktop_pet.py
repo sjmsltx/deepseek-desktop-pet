@@ -563,6 +563,9 @@ class PetWidget(QWidget):
         self.pet_size = 260
         self.dragging = False
         self.drag_offset = QPoint()
+        # 2026-11-01：原来只在 mousePressEvent 里赋值。若 release 先到
+        #   （press 被别的控件吃掉 / 平台差异），mouseReleaseEvent 会 AttributeError。
+        self._drag_from_dock = False
         self.sleeping = False
         self.state = 'idle'          # idle / thinking / happy
         self.phase = 0
@@ -629,6 +632,31 @@ class PetWidget(QWidget):
         self._satiety_timer.start(5 * 60 * 1000)
         # 2026-10-31：随机动作定时器（首轮延后，别一启动就演）
         self._start_random_action_timer()
+        # 2026-11-01：定时截图（默认关 ⇒ 这里只会把定时器停掉，不会截）
+        self._sync_screenshot_timer()
+        # 2026-11-01（Owner 报「拖出屏幕后关都没法关」）：
+        #   托盘图标**常驻**，不再只在「最小化到托盘」时才创建。
+        #   原来 `_ensure_tray()` 唯一调用点是 `hide_to_tray()` ⇒ 平时没有托盘入口，
+        #   窗口一旦跑到屏幕外就彻底摸不到（窗口是 Qt.Tool，任务栏/Alt+Tab 也不显示）。
+        try:
+            self._ensure_tray()
+        except Exception as _exc:
+            _silent_log('__init__:tray_resident', _exc)
+        # 周期自检：万一还是丢在屏幕外，5 秒内拉回。
+        # ⚠ 离屏（测试）环境不启动 —— 见 _lost_timer_allowed 的实测理由。
+        self._lost_timer = QTimer(self)
+        self._lost_timer.timeout.connect(self._check_lost)
+        # 先 setInterval 再按需 start —— 这样即使没启动，interval() 也是正确值
+        # （start(ms) 只在启动时才设间隔，没启动时 interval() 是 0，会误导排查）
+        self._lost_timer.setInterval(self.LOST_RESCUE_MS)
+        if self._lost_timer_allowed():
+            self._lost_timer.start()
+        # 召回热键：Ctrl+Alt+H（托盘被折叠/隐藏时也能用）
+        try:
+            if pl.register_hotkey(3, pl.MOD_CONTROL | pl.MOD_ALT, 0x48):   # 'H'
+                self._rescue_hotkey_ok = True
+        except Exception as _exc:
+            _silent_log('__init__:rescue_hotkey', _exc)
         self.cost_bubble_signal.connect(self._on_cost_bubble)
         self.balance_signal.connect(self._on_balance_result)   # v6.61 余额查询回主线程
         self._last_satiety_warn = 0.0
@@ -668,17 +696,26 @@ class PetWidget(QWidget):
             _silent_log('remote_wiring', _rc_exc)
         # 全局快捷键 Ctrl+Alt+P 呼出 / Ctrl+Alt+S 截图 OCR
         self._hotkey_installed = False
+        # 2026-11-01：召回热键（Ctrl+Alt+H）是否注册成功 —— 注册失败要能看出来
+        self._rescue_hotkey_ok = False
         try:
             app = QApplication.instance()
             if app is not None:
-                self._hotkey_filter = pl.hotkey_filter({1: self._on_global_hotkey, 2: self._on_screenshot_hotkey})
+                self._hotkey_filter = pl.hotkey_filter({
+                    1: self._on_global_hotkey,
+                    2: self._on_screenshot_hotkey,
+                    3: self._on_rescue_hotkey,
+                })
                 app.installNativeEventFilter(self._hotkey_filter)
                 if pl.register_hotkey(1, pl.MOD_CONTROL | pl.MOD_ALT, 0x50):  # MOD_CONTROL|MOD_ALT, 'P'
                     self._hotkey_installed = True
+                # 2026-11-01：热键改成按配置注册（默认 ctrl+alt+d）。
+                #   ⚠ 旧代码写死 `0x44`，而 docstring 写的是 Ctrl+Alt+S —— 文档与实现不符。
+                #   现在由 _parse_hotkey 统一解析，注册失败能在设置里看出来。
                 try:
-                    pl.register_hotkey(2, pl.MOD_CONTROL | pl.MOD_ALT, 0x44)  # Ctrl+Alt+D 截图 OCR
+                    self._apply_screenshot_hotkey(notify=False)
                 except Exception as _exc:
-                    _silent_log('__init__:386', _exc)   # v6.54
+                    _silent_log('__init__:shot_hotkey', _exc)   # v6.54
         except Exception:
             self._hotkey_installed = False
         # v1-B：注入失败卡片**唯一出口**（user_facing 的 silent 失败 → 四段卡片）✓
@@ -688,6 +725,20 @@ class PetWidget(QWidget):
             _set_fail_card_hook(self._on_user_facing_failure)
         except Exception as _exc:
             _silent_log('__init__:fail_card_hook', _exc)
+
+    def _sync_screenshot_timer(self):
+        """按配置启动/停止定时截图（默认关 ⇒ 什么都不做）
+
+        单独抽出来是为了可测：直接写在 __init__ 里的话，测试只能靠「有没有
+        QTimer 在跑」间接判断，而且会跟真实 config 耦合。
+        """
+        try:
+            if getattr(self, 'screenshot_timer', False):
+                return self._start_screenshot_timer()
+            return self._stop_screenshot_timer()
+        except Exception as _exc:
+            _silent_log('_sync_screenshot_timer', _exc)
+            return False
 
     def _init_services_and_data(self):
         """对话记忆/用量统计/MCP/插件/主题 + 记忆·待办·提醒加载 + 贴边与主动说话"""
@@ -757,6 +808,11 @@ class PetWidget(QWidget):
         self._load_memory()
         self.todos = []             # 待办清单
         self._load_todos()
+        # 2026-11-01：`_cur_task_text` 原先只在 _run_task / _next_task 里赋值。
+        #   而 `_refresh_task_sidebar()` 无条件读它，外层又是 `except Exception: pass`
+        #   ⇒ 第一次跑任务前调用刷新会 AttributeError 并被**静默吞掉**（侧栏不更新、无痕迹）。
+        #   产品注释里对「结构性默认值只写在某个分支里」已经记过一次教训，这里是同型问题。
+        self._cur_task_text = None
         self._task_queue = []       # v6.79 缺陷 76：FCFS 任务队列
                                     # （原先在 __init__ 链路里**从未初始化** ✗ → _enqueue_task 抛 AttributeError、
                                     #   _next_task / _refresh_task_sidebar 全部静默失败 → 队列功能整体失效 ✗）
@@ -767,7 +823,6 @@ class PetWidget(QWidget):
         self.reminder_timer = QTimer(self)
         self.reminder_timer.timeout.connect(self._check_reminders)
         self.reminder_timer.start(1000)
-        self._edge_docked = False
         self._edge_side = None
         self._edge_popped = False
         # 主动说话（v6.17）：随机间隔 8-20 分钟冒泡一句
@@ -904,6 +959,8 @@ class PetWidget(QWidget):
         self.side_panel.collapse_btn.clicked.connect(self._toggle_task_sidebar)
         self.side_panel._task_hooks['dblclick'] = self._cancel_queued_task
         self.side_panel._task_hooks['reorder'] = self._on_task_reorder
+        # 2026-11-01：排队项右键「引导到当前任务」（照 AutoClaw 的运行中追加消息）
+        self.side_panel._task_hooks['guide'] = self._guide_queued_task
         self.side_panel._note_save = lambda: self._save_side_panel(
             self.side_panel.dump_tabs(), self.side_panel.collapsed)
         self._side_start_ts = time.time()
@@ -1080,6 +1137,113 @@ class PetWidget(QWidget):
 
 
     # ---------- 窗口 ----------
+    #: ⚠ 2026-11-01：`MIN_VISIBLE` 已删除。它一度用于「至少留 N 像素可见」的钳制，
+    #:   但那套钳制与贴边吸附范围重叠（底部吸附被挡死 2px），Owner 要求只钳顶部。
+    #:   留着一个没人用的常量 = 让人以为「可见性还在被它保护」，是死配置。
+    #: 离屏判定改由 `_visible_area()`（真实面积占比）+ 救援/自检负责。
+    #: 离屏超过这么久就强制拉回（毫秒）
+    LOST_RESCUE_MS = 5000
+
+    @staticmethod
+    def _nearest_screen(x, y, w=0, h=0):
+        """取「离这个窗口矩形最近」的屏幕；没有任何屏时回主屏（2026-11-01）
+
+        ⚠ 不能用 `QApplication.screenAt(左上角)` 单点判断：窗口被拖到屏幕上方外时
+          左上角落在所有屏之外，`screenAt` 返回 None —— 实测 y=-600 时就是 None。
+          那样就会误判成「没有屏幕可用」，钳制逻辑直接失效。
+        """
+        try:
+            cx, cy = int(x) + int(w) // 2, int(y) + int(h) // 2
+            best = None
+            for s in QApplication.screens():
+                g = s.availableGeometry()
+                dx = cx - max(g.left(), min(cx, g.right()))
+                dy = cy - max(g.top(), min(cy, g.bottom()))
+                d = dx * dx + dy * dy
+                if best is None or d < best[0]:
+                    best = (d, g)
+            if best is not None:
+                return best[1]
+        except Exception as _exc:
+            _silent_log('_nearest_screen', _exc)
+        sc = QApplication.primaryScreen()
+        return sc.availableGeometry() if sc else None
+
+    def _clamp_visible(self, x, y):
+        """**只钳顶部** —— 左/右/底一律不动（2026-11-01 Owner 指示）
+
+        Owner 原话：「解决一下与贴边吸附范围重叠的问题，左右和下边不用搞这个，
+                     只要上面就行」
+
+        ⛔ 为什么左右和底部必须放开（实测证据，不是口味）：
+           屏幕 800×800、窗口 440×560、pet_size=260 时——
+             底吸附需要  y ≥ 521
+             而我原先「留一半窗口」的钳制上界是 y ≤ 519
+           ⇒ **差 2px，底部吸附永远触发不了**。
+           左右虽然理论可达，但钳制把可拖范围收窄了，同样压着吸附区。
+           这三条边是贴边吸附的地盘，钳制与它重叠 = 相互打架。
+
+        ✅ 顶部保留（直接抵住，不留余量）：顶部贴边早已按 Owner 要求移除，
+           所以「窗口跑到屏幕上方之外」没有任何合法用途，只会让用户失联
+           —— 那正是 312 修掉的那个 bug。
+
+        ⚠ 放开左右/底之后仍不会失联：松开救援（可见率<35% 即拉回）与周期自检
+           会接住，且两者都跳过贴边状态，不打扰吸附。
+        """
+        try:
+            g = self._nearest_screen(x, y, self.width(), self.height())
+            if g is None:
+                return int(x), int(y)
+            return int(x), max(g.top(), int(y))
+        except Exception as _exc:
+            _silent_log('_clamp_visible', _exc)
+            return int(x), int(y)
+
+    def _visible_area(self):
+        """窗口当前在各屏上的可见面积占比（0.0~1.0）"""
+        try:
+            geo = self.frameGeometry()
+            w, h = max(1, geo.width()), max(1, geo.height())
+            if w * h <= 0:
+                return 0.0
+            covered = 0
+            for s in QApplication.screens():
+                r = s.availableGeometry().intersected(geo)
+                if r.isValid():
+                    covered += max(0, r.width()) * max(0, r.height())
+            return min(1.0, covered / float(w * h))
+        except Exception as _exc:
+            _silent_log('_visible_area', _exc)
+            return 1.0          # 算不出来时按"可见"处理，避免误拉
+
+    def _rescue_if_lost(self, reason=''):
+        """窗口若已不可见（跑出屏幕 / 拔掉副屏）→ 拉回主屏中央附近
+
+        返回 True 表示做了救援。贴边状态不救：贴边时窗口本来就在边缘外一点，
+        那是设计行为，误拉会把扒边弄坏。
+        """
+        try:
+            if getattr(self, '_edge_side', None) is not None:
+                return False
+            vis = self._visible_area()
+            if vis >= 0.35:
+                return False
+            g = QApplication.primaryScreen().availableGeometry()
+            nx = g.left() + (g.width() - self.width()) // 2
+            ny = g.top() + (g.height() - self.height()) // 2
+            nx, ny = self._clamp_visible(nx, ny)
+            self.move(nx, ny)
+            try:
+                self.base_x, self.base_y = nx, ny
+            except Exception as _exc:
+                _silent_log('_rescue_if_lost:base', _exc)
+            _silent_log('_rescue_if_lost', RuntimeError(
+                '窗口不可见（可见 %.0f%%）已拉回 %s｜原因=%s' % (vis * 100, (nx, ny), reason)))
+            return True
+        except Exception as _exc:
+            _silent_log('_rescue_if_lost', _exc)
+            return False
+
     def _restore_position(self):
         try:
             if os.path.exists(CONFIG_PATH):
@@ -1089,16 +1253,20 @@ class PetWidget(QWidget):
                 if x is not None and y is not None:
                     # v6.51 多显示器修正：原先只拿 primaryScreen 判界、且把 x<0 一律当越界，
                     # 副屏在主屏左侧时（x 恒为负）每次启动都被强行拉回主屏。
-                    # 现在先问"这个坐标落在哪块屏幕"，再在该屏工作区内钳制窗口。
-                    scr = None
-                    try:
-                        scr = QApplication.screenAt(QPoint(int(x), int(y)))
-                    except Exception:
-                        scr = None
-                    if scr is not None:
-                        avail = scr.availableGeometry()
+                    #
+                    # ⛔ 2026-11-01 修（WX-164 §3.3）：这里原来用 `QApplication.screenAt(左上角)`
+                    #   判「落在哪块屏」，而 `_clamp_visible` 已改用 `_nearest_screen`。
+                    #   两处判据并存 = 「写两份必然只修一份」（我自己给敏感名单加 ast 护栏
+                    #   要防的正是这个形状，却在自己刚写的钳制里留了同一份）。
+                    #   实测 `screenAt(300,-600)` 返回 None ⇒ 老版本存下的离屏坐标走到这里，
+                    #   `scr is None` 会跳出 if、落到下面的右下角 fallback，**位置会丢**。
+                    #   现统一走 `_nearest_screen`：屏外坐标也能取到最近那块屏。
+                    avail = self._nearest_screen(int(x), int(y), self.width(), self.height())
+                    if avail is not None:
                         x = max(avail.left() - 4, min(int(x), avail.right() - self.width() + 8))
                         y = max(avail.top() - 4, min(int(y), avail.bottom() - self.height() + 8))
+                        # 顶部仍按 313/314 的口径：不许跑到屏幕上方之外
+                        y = max(avail.top(), y)
                         self.move(x, y)
                         self.base_x, self.base_y = x, y
                         return
@@ -1125,8 +1293,14 @@ class PetWidget(QWidget):
                         cfg = json.load(f)
                     except Exception:
                         cfg = {}
-            cfg['x'] = self.x()
-            cfg['y'] = self.y()
+            # ⛔ 2026-11-01：离屏坐标**绝不写进 config.json**。
+            #   否则下次启动虽然 _restore_position 会把 None 情况拉回，
+            #   但「窗口在屏幕外」的位置本身是脏数据，不该被持久化。
+            _sx, _sy = self.x(), self.y()
+            if getattr(self, '_edge_side', None) is None:
+                _sx, _sy = self._clamp_visible(_sx, _sy)
+            cfg['x'] = int(_sx)
+            cfg['y'] = int(_sy)
             self._atomic_write_json(CONFIG_PATH, cfg)
         except Exception as _exc:
             _silent_log('_save_position:679', _exc, user_facing=True)   # v1-B：位置存不下→“又跑到别处了”
@@ -1171,6 +1345,35 @@ class PetWidget(QWidget):
             # ⛔ 结构性默认值必须放这里 —— 只写在 cfg 分支里的话，
             #   没有 config.json 时属意不存在（这个坑 2026-10-31 已经踩过一次）。
             self.drag_to_bin = False
+            # 2026-11-01（Owner 需求：照 AutoClaw 的「引导」）：运行中追加消息的模式。
+            #   queue = 排队，等这一轮结束后再处理（默认，与 AutoClaw 一致）
+            #   guide = 引导，立即并入当前任务，**不打断模型**
+            # ⛔ 结构性默认值必须放这里（只写在 cfg 分支里的话，没有 config.json
+            #   时属性不存在 → getattr 兜底成错的档；这个坑 2026-10-31 踩过一次）
+            self.follow_up_mode = self.FOLLOW_UP_DEFAULT
+            # 已提交但还没注入的引导。主线程写、AI worker 线程取 → 用锁。
+            self._guide_inbox = []
+            self._guide_lock = threading.Lock()
+            # Ctrl+Enter 的「本次临时改用另一种模式」标记，消费一次即清
+            self._followup_alt = False
+            # 2026-11-01（Owner 需求二：读屏截图 → 气泡反馈）
+            # ⛔ 定时截图**默认关**：截图是敏感能力，必须由主人显式打开。
+            self.screenshot_timer = False
+            self.screenshot_interval = 60          # 秒，下限 30
+            self.screenshot_region = 'full'        # full | pet（只截桌宠附近）
+            self.screenshot_hotkey = 'ctrl+alt+d'
+            self.screenshot_feedback = 'bubble'    # bubble（Owner 要的）| chat（老行为）
+            self._shot_timer_obj = None
+            # 2026-11-01：托盘对象的**结构性默认值**。
+            # ⛔ 必须在这里初始化 —— `_ensure_tray()` 加了闸（离屏不建托盘）后会
+            #   提前 return None，那时 `self.tray` 属性根本不存在，而
+            #   `hide_to_tray()` 里写的是 `if self.tray:` ⇒ AttributeError。
+            #   实测量级：一处根因 35 个测试红（都走 closeEvent → hide_to_tray）。
+            #   这是「结构性默认值只写在分支里」这个坑的第五次（前四次：
+            #   random_action_when / drag_to_bin / _cur_task_text / follow_up_mode）。
+            self.tray = None
+            self._shot_last_sig = None
+            self._shot_busy = False
             self._theme_widgets = []
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -1222,6 +1425,26 @@ class PetWidget(QWidget):
                 # ⛔ 默认关。破坏性功能，开启后每次仍要二次确认。
                 # 设置入口：记忆与数据 →「拖文件的处理方式」（有 UI，不是死配置）。
                 self.drag_to_bin = bool(cfg.get('drag_to_bin', False))
+                # 2026-11-01：运行中追加消息的模式（queue / guide）。
+                # ⛔ 故意不进 CONFIG_WHITELIST —— 同 affection_mode 的理由：
+                #   模型能改自己的交互模式，等于自己决定要不要被打断。
+                #   只由主人在设置界面改（设置 → 记忆与数据）。
+                self.follow_up_mode = self._normalize_follow_up_mode(
+                    cfg.get('follow_up_mode'))
+                # 2026-11-01：读屏截图（定时/快捷键 → 气泡反馈）
+                self.screenshot_timer = bool(cfg.get('screenshot_timer', False))
+                try:
+                    self.screenshot_interval = max(30, min(3600, int(
+                        cfg.get('screenshot_interval', 60) or 60)))
+                except Exception as _exc:
+                    _silent_log('_load_ai_config:shot_interval', _exc)
+                    self.screenshot_interval = 60
+                _rg = str(cfg.get('screenshot_region') or 'full').strip().lower()
+                self.screenshot_region = _rg if _rg in ('full', 'pet') else 'full'
+                self.screenshot_hotkey = str(
+                    cfg.get('screenshot_hotkey') or 'ctrl+alt+d').strip().lower()
+                _fb = str(cfg.get('screenshot_feedback') or 'bubble').strip().lower()
+                self.screenshot_feedback = _fb if _fb in ('bubble', 'chat') else 'bubble'
                 self.ai_bubble = bool(cfg.get('ai_bubble', True))
                 try:
                     self.ai_bubble_max_chars = max(8, min(120, int(
@@ -1845,9 +2068,144 @@ class PetWidget(QWidget):
     def _refresh_task_sidebar(self):
         """v6.43b / v6.65：刷新右侧信息栏的「任务」页（首行 = 执行中，其后排队可拖拽）"""
         try:
-            self.side_panel.refresh_tasks(self._cur_task_text, self._task_queue)
+            self.side_panel.refresh_tasks(self._cur_task_text, self._task_queue,
+                                           guides=self._guide_inbox or None,
+                                           guide_ok=bool(getattr(self, '_ai_busy', False)))
         except Exception:
             pass
+
+    # ---------- 运行中追加消息：「引导」（2026-11-01）----------
+    def _submit_guide(self, text, images=None):
+        """把一句话作为「引导」提交给正在跑的任务（不打断模型）
+
+        口径（照 AutoClaw）：
+          · 只有 `_ai_busy`（= 有 running 的 run）时才允许 —— 没有正在跑的任务，
+            "并入"无处可并，AutoClaw 那边也是 `guideDeliverable = 有 running`。
+          · 不取消当前请求：引导进收件箱，worker 线程在**下一个回合边界**
+            （上一轮工具执行完、下一轮请求发出前）取走并塞进 messages。
+          · 带附件的引导暂不支持注入（messages 里塞图要另建内容块）⇒
+            诚实降级成排队，并明确告知，不假装已引导。
+        """
+        text = str(text or '').strip()
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        if not text and not images:
+            return False
+        if not getattr(self, '_ai_busy', False):
+            # 没有在跑的任务 → 走普通发送（等价于 AutoClaw 空闲时就是普通消息）
+            return False
+        if images:
+            self._enqueue_task(text, images)
+            self._notify(('A guided message cannot carry attachments yet; '
+                          'queued it instead.') if is_en else
+                         '带附件的引导暂不支持，已改为排队（不会丢）')
+            return True
+        with self._guide_lock:
+            self._guide_inbox.append({'text': text, 'ts': __import__('time').time()})
+            _n = len(self._guide_inbox)
+        # 对话里独立显示（不混进用户气泡）：AutoClaw 那边引导也是独立块
+        try:
+            self._append_chat('我', ('🧭 Guide · ' if is_en else '🧭 引导 · ') + text)
+        except Exception as _exc:
+            _silent_log('_submit_guide:chat', _exc)
+        self.say_plain(('🧭 Got it — folding that in.' if is_en else
+                        '🧭 收到，我按这个方向调整～'), immediate=True)
+        self._notify(('🧭 Guided (pending %d)' if is_en else '🧭 已引导（待注入 %d 条）') % _n)
+        try:
+            self._audit_guide('submit', text, _n)
+        except Exception as _exc:
+            _silent_log('_submit_guide:audit', _exc)
+        self._refresh_task_sidebar()
+        return True
+
+    def _drain_guides(self):
+        """取走全部待注入的引导（worker 线程调用）。返回文本列表。"""
+        with self._guide_lock:
+            if not self._guide_inbox:
+                return []
+            items = [str(g.get('text') or '').strip()
+                     for g in self._guide_inbox]
+            self._guide_inbox = []
+        items = [t for t in items if t]
+        if items:
+            try:
+                self._run_on_ui(self._refresh_task_sidebar)
+            except Exception as _exc:
+                _silent_log('_drain_guides:refresh', _exc)
+        return items
+
+    def _guide_message_content(self, text):
+        """引导注入进 messages 时的正文（明确告诉模型这是中途改方向，别重头再来）"""
+        if getattr(self, 'language', 'zh') == 'en':
+            return ('(The owner is steering you while you work — adjust the current '
+                    'direction accordingly, do not restart the whole task):\n%s' % text)
+        return ('（主人在你干活过程中插话引导，请据此调整当前方向，不要把整个任务重来一遍）：\n%s'
+                % text)
+
+    def _audit_guide(self, phase, text, pending=0, reason=''):
+        """把一次引导写进审计（2026-11-01）
+
+        单独抽出来是为了**可测**（同 _audit_recycle 的理由）：直接 import governance
+        写日志的话，测试既拦不到也断言不了「到底有没有写」。
+        Owner 后来会问「我当时到底插了什么话」—— 引导必须可追溯。
+        """
+        try:
+            import governance as _gov
+            detail = '%s｜待注入 %d%s' % (str(text or '')[:240], int(pending),
+                                       ('｜' + reason) if reason else '')
+            _gov.log_event('guide', 'ui.chat', '引导', detail, allowed=True)
+        except Exception as _exc:
+            _silent_log('_audit_guide', _exc)
+
+    def _settle_leftover_guides(self, reason='run_ended'):
+        """本轮结束时若还有没注入的引导 → 转成排队任务，**不丢消息**
+
+        为什么要这一步：引导只在「回合边界」被取走；如果模型这轮直接给了最终回复
+        （没有工具调用就 break），收件箱里的话就永远没人取
+        ⇒ 用户以为说了，实际没生效。宁可降级成排队并说明。
+        """
+        leftovers = self._drain_guides()
+        if not leftovers:
+            return 0
+        for t in leftovers:
+            self._enqueue_task(t, None)
+        try:
+            self._notify('🧭 有 %d 条引导没赶上本轮（任务已结束），已转为排队' % len(leftovers))
+            self._audit_guide('leftover', '%d 条' % len(leftovers), len(leftovers), reason=reason)
+        except Exception as _exc:
+            _silent_log('_settle_leftover_guides', _exc)
+        return len(leftovers)
+
+    def _set_follow_up_mode(self, mode):
+        """设置「运行中追加消息」的模式（GUI 入口调用）"""
+        m = self._normalize_follow_up_mode(mode)
+        self.follow_up_mode = m
+        self._save_cfg_value('follow_up_mode', m)
+        label = self._FOLLOW_UP_LABELS.get(m, m)
+        self._notify('已设为：' + label)
+        self.say_plain('好，运行中追加消息改成「%s」' % label, immediate=True)
+        return m
+
+    def _guide_queued_task(self, item):
+        """把排队中的某条任务改成「引导」并入当前任务（队列右键菜单调用）"""
+        try:
+            data = item.data(Qt.UserRole) if hasattr(item, 'data') else None
+        except Exception as exc:
+            # 不吞：取不到数据就明确失败，日志里留痕（配置类异常不该静默）
+            _silent_log('_guide_queued_task:data', exc)
+            data = None
+        if not isinstance(data, dict) or data not in self._task_queue:
+            return False
+        text = str(data.get('text') or '').strip()
+        imgs = data.get('images')
+        if imgs:
+            self._notify('带附件的排队项不能改成引导（注入不了图片），请等它排队执行')
+            return False
+        if not getattr(self, '_ai_busy', False):
+            self._notify('当前没有在跑的任务，无从并入；它本来就会正常执行')
+            return False
+        self._task_queue.remove(data)
+        self._refresh_task_sidebar()
+        return self._submit_guide(text)
 
     # ---------- v6.65：信息栏页签的持久化与数据 ----------
     @staticmethod
@@ -2099,6 +2457,18 @@ class PetWidget(QWidget):
             self._append_chat('桌宠', '还没配置 AI 呢！在 config.json 里加 deepseek_api_key 就能和我聊天了')
             return
         if getattr(self, '_ai_busy', False):
+            # 2026-11-01（照 AutoClaw「运行中追加消息」）：
+            #   模式 = guide → 立即并入当前任务（不打断模型）；否则排队等这一轮结束。
+            #   Ctrl+Enter 可**临时**改用另一种（消费一次即清，不改设置）。
+            _alt = bool(getattr(self, '_followup_alt', False))
+            self._followup_alt = False
+            _mode = getattr(self, 'follow_up_mode', self.FOLLOW_UP_DEFAULT)
+            if _alt:
+                _mode = 'queue' if _mode == 'guide' else 'guide'
+            if _mode == 'guide':
+                if self._submit_guide(text, images):
+                    return
+                # 引导提交失败（例如带附件降级）→ 下面按排队继续，不丢消息
             # v6.43b：忙碌 → 加入 FCFS 任务队列（先来先到；侧栏可拖拽调优先级、双击取消排队）
             self._enqueue_task(text, images)
             self._notify(
@@ -2816,6 +3186,88 @@ class PetWidget(QWidget):
             self._notify('🧹 长期记忆已全部清空' if not is_en else '🧹 All memories cleared')
 
     # ============ 全局快捷键（v6.12，Ctrl+Alt+P 呼出） ============
+    def _tray_allowed(self):
+        """该不该真的建托盘图标（2026-11-01，按 WX-164 §五.3 的建议）
+
+        ⛔ 为什么需要（WX 给的实测，我复核同意）：
+           · 测试里 `PetWidget()` 构造点 85 处、分布 60 个文件
+           · 每个实例都建一个 QSystemTrayIcon
+           · 全量实跑出现 `QSystemTrayIcon::setVisible: No Icon set` 警告
+             ⇒ 确实有实例走到托盘路径
+           · 这次 0 failed 是「**没炸**」，不是「**没代价**」
+
+        判据与 `_lost_timer_allowed` 同形（一行、不写第二份）：
+          · `PET_TRAY=0` → 不建
+          · 平台是 offscreen（pytest 用）→ 不建
+          · 其余（真实桌面前台）→ 建
+
+        ⚠ 真实桌面下托盘是「窗口失联后唯一入口」，绝不能在正式环境关掉。
+        """
+        try:
+            _env = os.environ.get('PET_TRAY', '').strip()
+            if _env == '1':
+                return True         # 强制开（测试要验托盘时用这个，不手设 p.tray）
+            if _env == '0':
+                return False        # 强制关
+            _app = QApplication.instance()
+            if _app is not None and str(_app.platformName()).lower() == 'offscreen':
+                return False
+        except Exception as _exc:
+            _silent_log('_tray_allowed', _exc)
+        return True
+
+    def _lost_timer_allowed(self):
+        """周期自检该不该真的跑起来（2026-11-01）
+
+        ⛔ 为什么需要这个开关（实测，不是拍脑袋）：
+           建 25 个 PetWidget（≈全量测试的实例量），把其中一个挪到屏幕外，
+           等 6.5 秒后它被自动挪回 (180,120)。
+           ⇒ 全量跑 30 分钟时，前面测试的实例定时器会陆续触发，
+             把后面测试正在断言的窗口位置改掉。
+           我这轮两次「单跑绿、全量红」都是这个原因。
+
+        判据（2026-11-01 补全：原 docstring 只写了 '0'，实际代码也支持 '1'
+              —— WX-165 §二 指出的文档漂移，同 311 那个「docstring 写 Ctrl+Alt+S、
+              实际 0x44」是一类）：
+          · 环境变量 `PET_LOST_TIMER=1` → **强制开**（复核「定时器会挪窗口」时用）
+          · 环境变量 `PET_LOST_TIMER=0` → 强制关（调试/测试用）
+          · 未设 → 看平台：offscreen（pytest 用）关，真实桌面前台开
+
+        注意：`_check_lost()` 本身照常可手动调用，只是**周期触发**不在离屏环境跑。
+        """
+        try:
+            _env = os.environ.get('PET_LOST_TIMER', '').strip()
+            if _env == '1':
+                return True         # 强制开（复核「定时器会挪窗口」时用）
+            if _env == '0':
+                return False        # 强制关
+            _app = QApplication.instance()
+            if _app is not None and str(_app.platformName()).lower() == 'offscreen':
+                return False
+        except Exception as _exc:
+            _silent_log('_lost_timer_allowed', _exc)
+        return True
+
+    def _check_lost(self):
+        """周期自检：窗口跑到屏幕外就拉回（2026-11-01）
+
+        为什么还要这一步：拖拽钳制管住「用户拖」，但拔掉副屏、改分辨率、
+        某些远程桌面切换也会让窗口落在屏幕外 —— 这些不是拖出来的，得靠自检兜。
+        """
+        try:
+            if not self.isVisible():
+                return False          # 用户主动最小化到托盘：别把他叫回来
+            if getattr(self, 'dragging', False):
+                return False          # 正在拖：别跟用户抢
+            return self._rescue_if_lost('periodic')
+        except Exception as _exc:
+            _silent_log('_check_lost', _exc)
+            return False
+
+    def _on_rescue_hotkey(self):
+        """全局热键 Ctrl+Alt+H：把桌宠拉回屏幕（救命用）"""
+        return self.rescue_pet()
+
     def _on_global_hotkey(self):
         """全局热键回调：唤出桌宠 + 打开聊天面板"""
         self.show()
@@ -4166,6 +4618,21 @@ class PetWidget(QWidget):
                 if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
                     self._log_ai_abort('round-boundary')
                     return
+                # ⭐ 2026-11-01 引导注入点：「上一轮工具执行完、下一轮请求发出前」。
+                #   与 AutoClaw 的「引导」同语义 —— **不取消正在进行的请求**
+                #   （那边 tooltip 原文：「提交请求，但不中断模型运行」），
+                #   只把插话并进下一轮 messages，模型据此调整方向。
+                #   放在这里而不是流式中间：流式中途改 messages 会让本轮请求与
+                #   已发出的 body 不一致（等于假注入）。
+                _guides = self._drain_guides()
+                if _guides:
+                    for _g in _guides:
+                        messages.append({'role': 'user',
+                                         'content': self._guide_message_content(_g)})
+                    try:
+                        self._audit_guide('inject', '；'.join(_guides), 0)
+                    except Exception as _exc:
+                        _silent_log('_ai_worker:guide_audit', _exc)
                 # 请求阶段：覆盖预判为确定状态；v6.40 真流式（SSE）
                 self.ai_status_signal.emit('正在思考…' if getattr(self, 'language', 'zh') != 'en' else 'Thinking…')
                 data = jsonlib.dumps(dict({
@@ -4262,6 +4729,15 @@ class PetWidget(QWidget):
                     })
                 if getattr(self, '_choices_requested', False):
                     break
+
+            # 2026-11-01：本轮若在没有「下一个回合边界」的情况下结束（模型直接给终稿，
+            #   或空回复/异常退出），收件箱里的引导就永远没人取 ⇒ 用户以为说了、实际没生效。
+            #   一律转成排队任务并明确告知，**不丢消息**。
+            try:
+                if not aborted:
+                    self._settle_leftover_guides()
+            except Exception as _exc:
+                _silent_log('_ai_worker:settle_guides', _exc)
 
             if final_reply is None and not aborted:
                 # 工具轮次耗尽但没生成文本回复：强制不带工具重试一次
@@ -5913,7 +6389,7 @@ class PetWidget(QWidget):
         # 状态/场景立绘：懒加载（首次用到才读盘，加速启动）
         self.state_imgs = {}
         self.scene_imgs = {}
-        self._scaled_cache = {}  # 缩放结果缓存（id(pixmap) → 已缩放小图）
+        self._scaled_cache = {}  # 缩放结果缓存（pixmap.cacheKey() → 已缩放小图；勿用 id()）
         self._restore_display_state()  # 睡觉时显示睡眠立绘，否则待机（切角色不丢睡眠状态）
 
     def _get_state_img(self, st):
@@ -5969,8 +6445,19 @@ class PetWidget(QWidget):
         if src is None or src.isNull():
             return
         size = self.pet_size
-        key = id(src)
+        # ⛔ 2026-11-01 修：原为 `key = id(src)` —— Python 对象地址**回收后会被复用**
+        #   （实测 300 次 QPixmap 创建/销毁里复用 299 次）⇒ 缓存会命中**另一张图**的
+        #   缩放结果 ⇒ 立绘显示成上一张 / 场景动作看起来"被覆盖"。
+        #   改用 Qt 的内容标识 cacheKey()（稳定、能区分不同图）。
+        key = src.cacheKey()
         if key not in self._scaled_cache:
+            # ⚠ 上限：`_feeding_image()` 每次喂食都新建 QPixmap（不走 state_imgs），
+            #   cacheKey 各不相同 ⇒ 每喂一次加一条（260×260×4 ≈ 270 KB）。
+            #   不设上限会一直涨；dict 保持插入序，弹最旧的一条即可。
+            if len(self._scaled_cache) >= 32:
+                _oldest = next(iter(self._scaled_cache), None)
+                if _oldest is not None:
+                    self._scaled_cache.pop(_oldest, None)
             self._scaled_cache[key] = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         scaled = self._scaled_cache[key]
         canvas = QPixmap(size, size)
@@ -8110,7 +8597,15 @@ class PetWidget(QWidget):
                     return True
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
                 if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                    self._on_chat_input()
+                    # 2026-11-01（照 AutoClaw）：Ctrl+Enter = 本次临时改用另一种
+                    # 「运行中追加消息」模式（排队 ⇄ 引导），只影响这一次发送。
+                    self._followup_alt = bool(
+                        event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                    try:
+                        self._on_chat_input()
+                    finally:
+                        # 兜底清掉：_on_chat_input 走到「不忙」路径时不会消费它
+                        self._followup_alt = False
                     return True
         return super().eventFilter(obj, event)
 
@@ -8341,30 +8836,315 @@ class PetWidget(QWidget):
         self.ask_ai((f'（用户发来一张截图，OCR 识别内容如下，请根据内容回答或处理）\n{text}'
                     if not is_en else f'(User sent a screenshot. OCR result below; answer or act on it.)\n{text}'))
 
-    def _on_screenshot_hotkey(self):
-        """全局快捷键 Ctrl+Alt+S：截全屏 → OCR → 发给 AI 分析"""
+    # ================= 读屏截图（2026-11-01，Owner 需求二）=================
+    #: Owner 原话：「加一个选项定时截图或者加快捷键截图……可以实时互动还可以反馈」
+    #:          「我说的那个截图然后反馈是指的反馈到那个气泡上面」
+    #: ⇒ 结果默认走**气泡**（screenshot_feedback='bubble'），不进聊天区。
+    #: ⇒ 定时截图**默认关**（截图是敏感能力）；定时只在画面变化时才问模型（省 token）。
+
+    _SHOT_MODS = {'ctrl': 'MOD_CONTROL', 'alt': 'MOD_ALT',
+                  'shift': 'MOD_SHIFT', 'win': 'MOD_WIN'}
+
+    @staticmethod
+    def _parse_hotkey(spec):
+        """'ctrl+alt+d' → (mods, vk)；解析不出来返回 (None, None)
+
+        只支持「修饰键 + 单个字母/数字/F1-F12」—— 这是能可靠映射到
+        Win32 RegisterHotKey 的子集。⚠ 不假装支持任意组合：解析不了就明确返回 None，
+        由调用方保留原热键并提示，而不是静默注册一个错键。
+        """
+        s = str(spec or '').strip().lower().replace(' ', '')
+        if not s:
+            return (None, None)
+        parts = [p for p in s.split('+') if p]
+        if len(parts) < 2:
+            return (None, None)
+        key = parts[-1]
+        mods = 0
+        for p in parts[:-1]:
+            name = PetWidget._SHOT_MODS.get(p)
+            if not name:
+                return (None, None)
+            mods |= getattr(pl, name, 0)
+        if len(key) == 1 and ('a' <= key <= 'z' or '0' <= key <= '9'):
+            vk = ord(key.upper())
+        elif key.startswith('f') and key[1:].isdigit() and 1 <= int(key[1:]) <= 12:
+            vk = 0x70 + int(key[1:]) - 1          # VK_F1 = 0x70
+        else:
+            return (None, None)
+        return (mods, vk)
+
+    def _apply_screenshot_hotkey(self, notify=False):
+        """按当前配置（重新）注册全局截图热键。返回是否成功。
+
+        ⚠ 注册失败必须能看出来：`register_hotkey` 会因为「键被别的程序占了」返回 False，
+          这时如果静默当成成功，用户会以为能用、实际按了没反应（假绿的一种）。
+        """
+        mods, vk = self._parse_hotkey(getattr(self, 'screenshot_hotkey', 'ctrl+alt+d'))
+        if mods is None:
+            if notify:
+                self._notify('截图快捷键写法不认识：%r（例：ctrl+alt+d）'
+                             % getattr(self, 'screenshot_hotkey', ''))
+            return False
+        ok = False
+        try:
+            pl.unregister_hotkey(2)
+        except Exception as _exc:
+            _silent_log('_apply_screenshot_hotkey:unreg', _exc)
+        try:
+            ok = bool(pl.register_hotkey(2, mods, vk))
+        except Exception as _exc:
+            _silent_log('_apply_screenshot_hotkey:reg', _exc)
+            ok = False
+        if notify:
+            if ok:
+                self._notify('截图快捷键已改为 %s' % self.screenshot_hotkey)
+            else:
+                self._notify('截图快捷键 %s 注册失败（可能被别的程序占用）'
+                             % self.screenshot_hotkey)
+        return ok
+
+    def _capture_screenshot(self, region=None):
+        """截图落盘，返回路径；失败返回 None
+
+        region='pet' 只截桌宠周围一块（更实用、也少暴露屏幕其它内容）。
+        """
         try:
             from PIL import ImageGrab
-            is_en = getattr(self, 'language', 'zh') == 'en'
-            self._notify('📸 截屏中…' if not is_en else '📸 Capturing…')
-            img = ImageGrab.grab()
-            path = os.path.join(BASE_DIR, '_screenshot_ocr.png')
+        except Exception as _exc:
+            _silent_log('_capture_screenshot:import', _exc)
+            return None
+        reg = (region or getattr(self, 'screenshot_region', 'full') or 'full').lower()
+        try:
+            if reg == 'pet':
+                g = self.frameGeometry()
+                pad = 40
+                box = (max(0, g.x() - pad), max(0, g.y() - pad),
+                       g.x() + g.width() + pad, g.y() + g.height() + pad)
+                img = ImageGrab.grab(bbox=box)
+            else:
+                img = ImageGrab.grab()
+            return self._save_screenshot(img)
+        except Exception as _exc:
+            _silent_log('_capture_screenshot:grab', _exc)
+            return None
+
+    def _save_screenshot(self, img):
+        """把已抓到的图落盘，返回路径（2026-11-01 抽出）
+
+        抽出来的理由：定时截图原先**抓两次屏**（一次算指纹、一次落盘）。
+        大屏下每次白抓一整屏，既费内存也费时间。现在共用同一张。
+        """
+        try:
+            stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+            path = os.path.join(BASE_DIR, '_screenshot_%s.png' % stamp)
             img.save(path, 'PNG')
-            import threading
-            if self._vision_ready():
-                # v6.62：全屏截图直接交给模型看（版面/图表信息不再丢）
-                self.ask_ai(('（用户截了一张全屏图，已直接附在消息里，请看图回答）' if not is_en
-                             else '(User took a screenshot; it is attached. Please look at it.)'),
-                            images=[path])
-                return
-            def worker():
+            return path
+        except Exception as _exc:
+            _silent_log('_save_screenshot', _exc)
+            return None
+
+    @staticmethod
+    def _screenshot_signature(img, size=16):
+        """画面粗指纹（16x16 灰度）—— 用来判断「跟上一张比有没有变」
+
+        ⚠ 不要用「存 PNG 比文件大小」那种法子：壁纸轻微变化大小可能一样，
+          内容却变了，会漏报。这里比的是像素级缩略。
+        """
+        try:
+            g = img.convert('L').resize((size, size))
+            return tuple(g.getdata())
+        except Exception as exc:
+            # 取不到指纹就返回 None（调用方会当成「变了」而继续截图）——
+            # 但必须留痕：指纹失效会让「省 token」这条路静默失效。
+            _silent_log('_screenshot_signature', exc)
+            return None
+
+    def _ask_screenshot(self, path, trigger='hotkey'):
+        """把截图丢给模型看一眼，结果走气泡（线程执行，不卡 UI）"""
+        if getattr(self, '_shot_busy', False):
+            return False
+        self._shot_busy = True
+        is_en = getattr(self, 'language', 'zh') == 'en'
+
+        def worker():
+            text = ''
+            try:
+                if self._vision_ready():
+                    import base64
+                    with open(path, 'rb') as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    prompt = ('用一句中文说说这张截图里最值得注意的内容，不超过 40 字，'
+                              '不要客套。' if not is_en else
+                              'In one short English sentence (max 20 words), say what is '
+                              'worth noticing in this screenshot.')
+                    data = jsonlib.dumps({
+                        'model': self._current_model(),
+                        'messages': [{'role': 'user', 'content': [
+                            {'type': 'text', 'text': prompt},
+                            {'type': 'image_url',
+                             'image_url': {'url': 'data:image/png;base64,' + b64}},
+                        ]}],
+                        'max_tokens': 120,
+                        'thinking': {'type': 'disabled'},
+                    }).encode()
+                    resp = chat_completions(self._current_api_key(), data,
+                                            is_en=is_en,
+                                            endpoint=self._request_endpoint())
+                    text = (resp['choices'][0]['message'].get('content') or '').strip()
+                else:
+                    ocr = pl.ocr_image(path, OCR_PS1)
+                    ocr = (ocr or '').strip()
+                    text = (('屏幕上是：' + ocr[:60]) if ocr else '这张截图里没识别到文字')
+            except Exception as exc:
+                _silent_log('_ask_screenshot', exc)
+                text = ('截图看不了：%s' % str(exc)[:60])
+            finally:
+                self._shot_busy = False
                 try:
-                    self.ocr_signal.emit(pl.ocr_image(path, OCR_PS1))
-                except Exception:
-                    pass
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception as e:
-            self._notify(f'截图失败：{e}' if not is_en else f'Capture failed: {e}')
+                    self._run_on_ui(lambda t=text: self._on_shot_feedback(t, trigger))
+                except Exception as _exc:
+                    _silent_log('_ask_screenshot:ui', _exc)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    def _on_shot_feedback(self, text, trigger='hotkey'):
+        """截图结果落地：默认**气泡**（Owner 明确要求），长内容才补一条聊天记录"""
+        text = (text or '').strip() or '（没看清这张截图）'
+        if getattr(self, 'screenshot_feedback', 'bubble') == 'chat':
+            # 老行为：进聊天区并让 AI 接着聊
+            self._append_chat('桌宠', '📷 ' + text)
+            return
+        head = '📷 ' if trigger == 'hotkey' else '👀 '
+        self.say_plain(head + text, immediate=True)
+        # 长内容留痕（气泡塞不下），但**不进模型上下文**（avoid 污染对话）
+        if len(text) > 60:
+            try:
+                self._append_chat('桌宠', '📷 截图摘要：' + text)
+            except Exception as _exc:
+                _silent_log('_on_shot_feedback:chat', _exc)
+
+    def _on_screenshot_hotkey(self):
+        """全局热键：截图 → 看一眼 → 气泡反馈（2026-11-01 重写）
+
+        旧实现把图直接丢进聊天对话（`ask_ai(images=[...])`），会开一整轮 agent；
+        Owner 要的是「实时互动 + 反馈到气泡」⇒ 改成一次性轻量问答，
+        不占对话上下文、不触发工具循环。
+        ⚠ 旧 docstring 写的是 Ctrl+Alt+S，实际注册的是 0x44 = Ctrl+Alt+D —— 已按实现改正。
+        """
+        is_en = getattr(self, 'language', 'zh') == 'en'
+        self._notify('📸 截屏中…' if not is_en else '📸 Capturing…')
+        path = self._capture_screenshot()
+        if not path:
+            self._notify('截图失败' if not is_en else 'Capture failed')
+            return False
+        return self._ask_screenshot(path, trigger='hotkey')
+
+    # ---------- 定时截图 ----------
+    def _start_screenshot_timer(self):
+        """启动定时截图（幂等：重复调用不会叠加多个定时器）"""
+        try:
+            if self._shot_timer_obj is None:
+                self._shot_timer_obj = QTimer(self)
+                self._shot_timer_obj.timeout.connect(self._screenshot_tick)
+            sec = max(30, int(getattr(self, 'screenshot_interval', 60) or 60))
+            self._shot_timer_obj.start(sec * 1000)
+            return True
+        except Exception as _exc:
+            _silent_log('_start_screenshot_timer', _exc)
+            return False
+
+    def _stop_screenshot_timer(self):
+        try:
+            if self._shot_timer_obj is not None:
+                self._shot_timer_obj.stop()
+            return True
+        except Exception as _exc:
+            _silent_log('_stop_screenshot_timer', _exc)
+            return False
+
+    def _screenshot_tick(self):
+        """定时触发：先比画面变化，没变就不打扰（省 token、也不烦人）"""
+        if not getattr(self, 'screenshot_timer', False):
+            return False
+        if getattr(self, '_shot_busy', False):
+            return False
+        # 别打扰：拖拽中 / 正在输入 / 面板刚被打开时不截
+        try:
+            if getattr(self, 'dragging', False):
+                return False
+            if self.chat_input is not None and self.chat_input.hasFocus():
+                return False
+        except Exception as _exc:
+            _silent_log('_screenshot_tick:guard', _exc)
+        # ⚠ 只抓一次屏：同一张图既算指纹又落盘（原先白抓两次）
+        try:
+            from PIL import ImageGrab
+            img = ImageGrab.grab()
+            sig = self._screenshot_signature(img)
+            if sig is not None and sig == getattr(self, '_shot_last_sig', None):
+                return False          # 画面没变 → 不问模型
+            self._shot_last_sig = sig
+        except Exception as _exc:
+            _silent_log('_screenshot_tick:diff', _exc)
+            img = None
+        path = self._save_screenshot(img) if img is not None else self._capture_screenshot()
+        if not path:
+            return False
+        return self._ask_screenshot(path, trigger='timer')
+
+    # ---------- 设置入口（GUI 调用） ----------
+    def _set_screenshot_timer(self, enabled):
+        self.screenshot_timer = bool(enabled)
+        self._save_cfg_value('screenshot_timer', self.screenshot_timer)
+        if self.screenshot_timer:
+            self._start_screenshot_timer()
+            self._notify('定时截图已开启（每 %d 秒，画面有变化才反馈）'
+                         % int(self.screenshot_interval))
+        else:
+            self._stop_screenshot_timer()
+            self._notify('定时截图已关闭')
+        return self.screenshot_timer
+
+    def _set_screenshot_interval(self, seconds):
+        try:
+            sec = max(30, min(3600, int(seconds)))
+        except Exception as exc:
+            _silent_log('_set_screenshot_interval', exc)
+            sec = 60
+        self.screenshot_interval = sec
+        self._save_cfg_value('screenshot_interval', sec)
+        if getattr(self, 'screenshot_timer', False):
+            self._start_screenshot_timer()      # 立即按新间隔重排
+        self._notify('定时截图间隔：%d 秒' % sec)
+        return sec
+
+    def _set_screenshot_region(self, region):
+        r = str(region or 'full').strip().lower()
+        r = r if r in ('full', 'pet') else 'full'
+        self.screenshot_region = r
+        self._save_cfg_value('screenshot_region', r)
+        self._notify('截图范围：%s' % ('只截桌宠周围' if r == 'pet' else '整屏'))
+        return r
+
+    def _set_screenshot_feedback(self, mode):
+        m = str(mode or 'bubble').strip().lower()
+        m = m if m in ('bubble', 'chat') else 'bubble'
+        self.screenshot_feedback = m
+        self._save_cfg_value('screenshot_feedback', m)
+        self._notify('截图反馈方式：%s' % ('气泡' if m == 'bubble' else '聊天区'))
+        return m
+
+    def _set_screenshot_hotkey(self, spec):
+        old = getattr(self, 'screenshot_hotkey', 'ctrl+alt+d')
+        self.screenshot_hotkey = str(spec or '').strip().lower()
+        if not self._apply_screenshot_hotkey(notify=True):
+            self.screenshot_hotkey = old
+            self._apply_screenshot_hotkey(notify=False)
+            return old
+        self._save_cfg_value('screenshot_hotkey', self.screenshot_hotkey)
+        return self.screenshot_hotkey
 
     def _on_chat_input(self):
         """处理聊天输入：本地指令 / AI 对话（含暂存图片：OCR 后连同文字要求一起发）"""
@@ -9818,12 +10598,22 @@ class PetWidget(QWidget):
 
     def mouseMoveEvent(self, event):
         if self.dragging and (event.buttons() & Qt.LeftButton):
-            self.move(event.globalPosition().toPoint() - self.drag_offset)
+            # ⛔ 2026-11-01 修（Owner 报「拖快了拖到屏幕上方之外就彻底失联」）：
+            #   原先是裸 `self.move(globalPos - offset)` —— 没有任何屏幕钳制。
+            #   鼠标快速移动时一次采样就能跳到很远，窗口直接被扔出屏幕外；
+            #   而窗口是 Qt.Tool（不在任务栏/Alt+Tab）且平时没有托盘图标，
+            #   用户就彻底摸不到它了。现在先钳再移。
+            _tp = event.globalPosition().toPoint() - self.drag_offset
+            _nx, _ny = self._clamp_visible(_tp.x(), _tp.y())
+            self.move(_nx, _ny)
             event.accept()
 
     def mouseReleaseEvent(self, event):
         if self.dragging:
             self.dragging = False
+            # 兜底：钳制理论上已经保证可见，但旧版遗留位置 / 拖拽中途拔掉副屏
+            # 都可能让窗口落在屏幕外 ⇒ 松手时再查一次，丢就拉回。
+            self._rescue_if_lost('drag-release')
             self.base_x, self.base_y = self.x(), self.y()
             self._save_position()
             if self._drag_from_dock:
@@ -9860,13 +10650,33 @@ class PetWidget(QWidget):
             )
 
     def _ensure_tray(self):
+        # 2026-11-01：离屏/显式关闭时不建托盘（见 _tray_allowed 的理由）
+        if not self._tray_allowed():
+            return None
         if hasattr(self, 'tray') and self.tray is not None:
             return self.tray
-        icon = QIcon(self.full_idle.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # ⚠ 2026-11-01：构造早期 `self.full_idle` 可能还没准备好。
+        #   原写法直接 `self.full_idle.scaled(...)` ⇒ AttributeError 被上层吞掉
+        #   ⇒ **托盘根本没建起来** ⇒ 窗口跑到屏幕外就没有任何入口（实测过）。
+        #   图标源缺失时用空图标兜底 —— 托盘存在比图标好看重要得多。
+        icon = QIcon()
+        try:
+            _fi = getattr(self, 'full_idle', None)
+            if _fi is not None and not _fi.isNull():
+                icon = QIcon(_fi.scaled(64, 64, Qt.KeepAspectRatio,
+                                        Qt.SmoothTransformation))
+        except Exception as _exc:
+            _silent_log('_ensure_tray:icon', _exc)
         self.tray = QSystemTrayIcon(icon, self)
         self.tray.setToolTip('DeepSeek 桌宠助手')
         tray_menu = QMenu()
-        show_act = tray_menu.addAction('🏠 显示桌宠' if getattr(self, 'language', 'zh') != 'en' else '🏠 Show pet')
+        _is_en = getattr(self, 'language', 'zh') == 'en'
+        # 2026-11-01（Owner 报「拖出屏幕后关都没法关」）：托盘是最后的救命入口，
+        #   「拉回屏幕」必须单列一项 —— 窗口在屏幕外时，点「显示」也看不到它。
+        rescue_act = tray_menu.addAction(
+            '🎯 把桌宠拉回屏幕' if not _is_en else '🎯 Bring pet back to screen')
+        rescue_act.triggered.connect(lambda *_: self.rescue_pet())
+        show_act = tray_menu.addAction('🏠 显示桌宠' if not _is_en else '🏠 Show pet')
         # 角色项由模型档案生成（新增档案即出现，无需改代码）
         for _pk in MODEL_REGISTRY.keys():
             _prof = MODEL_REGISTRY.get(_pk)
@@ -9885,18 +10695,52 @@ class PetWidget(QWidget):
         if reason == QSystemTrayIcon.DoubleClick:
             self.show_pet()
 
+    def rescue_pet(self):
+        """把桌宠拉回主屏并显示（托盘菜单 / 全局热键 / 设置按钮都走这里）
+
+        为什么单独做一个对外方法：`_rescue_if_lost` 有「可见率 ≥35% 就不动」的短路，
+        而用户**主动**点「拉回屏幕」时应该无条件回主屏中央 —— 他要的就是归位。
+        """
+        try:
+            g = QApplication.primaryScreen().availableGeometry()
+            nx = g.left() + (g.width() - self.width()) // 2
+            ny = g.top() + (g.height() - self.height()) // 2
+            self.move(nx, ny)
+            self.base_x, self.base_y = nx, ny
+            self._exit_dock_to_free_if_needed()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            self._save_position()
+            _silent_log('rescue_pet', RuntimeError('已拉回主屏中央 %s' % ((nx, ny),)))
+            return True
+        except Exception as _exc:
+            _silent_log('rescue_pet', _exc)
+            return False
+
+    def _exit_dock_to_free_if_needed(self):
+        """若正在贴边，先解除（否则 move 之后 _edge_dock_check 又会把它吸回去）"""
+        try:
+            if getattr(self, '_edge_side', None) is not None:
+                self._exit_dock_to_free()
+        except Exception as _exc:
+            _silent_log('_exit_dock_to_free_if_needed', _exc)
+
     def show_pet(self):
+        """显示桌宠（托盘/热键入口都会走这里）—— 先确保它在屏幕内再显示"""
+        self._rescue_if_lost('show_pet')
         self.show()
         self.raise_()
         self.activateWindow()
 
     def quit_app(self):
         self._save_position()
-        if self._hotkey_installed:
+        # 2026-11-01：退出前把热键 1/2/3 全部注销，避免残留占用
+        for _hid in (1, 2, 3):
             try:
-                pl.unregister_hotkey(1)
-            except Exception:
-                pass
+                pl.unregister_hotkey(_hid)
+            except Exception as _exc:
+                _silent_log('quit_app:unregister_hotkey', _exc)
         QApplication.quit()
 
     def closeEvent(self, event):
@@ -10280,6 +11124,25 @@ class PetWidget(QWidget):
     RANDOM_ACTION_MIN_MS = 40_000
     RANDOM_ACTION_MAX_MS = 150_000
 
+    # ---------- 运行中追加消息（「引导」）----------
+    #: 口径照 AutoClaw 实测（PC-309）：设置里叫「运行中追加消息」，两档
+    #:   queue = 等这一轮结束后再处理
+    #:   guide = 立即并入当前任务（⛔ 不中断正在进行的模型请求）
+    FOLLOW_UP_MODES = ('queue', 'guide')
+    FOLLOW_UP_DEFAULT = 'queue'
+
+    #: 档位说明（设置界面与聊天提示共用，避免两处文案漂移）
+    _FOLLOW_UP_LABELS = {
+        'queue': '排队（等这一轮结束后再处理）',
+        'guide': '引导（立即并入当前任务，不打断模型）',
+    }
+
+    @staticmethod
+    def _normalize_follow_up_mode(value):
+        """把配置值规整成合法档位；不认识的值回落默认（不抛、不悄悄变成别的档）"""
+        s = str(value or '').strip().lower()
+        return s if s in PetWidget.FOLLOW_UP_MODES else PetWidget.FOLLOW_UP_DEFAULT
+
     def _next_random_action_ms(self):
         """下一个触发间隔（随机）—— 用固定节拍看着像机器，必须随机"""
         import random as _r
@@ -10304,7 +11167,8 @@ class PetWidget(QWidget):
             档位是 off          —— 主人在设置里关了
             档位是 hidden 且面板开着 —— 这是「仅收起时演」的定义
             sleep(睡眠)         —— 睡着还翻身不自然
-            _edge_docked        —— 贴边有专门的贴边动画，不要抢
+            _edge_side 非空     —— 贴边时立绘已换成 peek 图，演动作会打架；
+                                   而且用户只看到气泡没看到动作，体验更差
             _ai_busy            —— AI 正在说话，别抢它的表情
             气泡可见            —— 动作图会被气泡压住/换走
 
@@ -10332,7 +11196,12 @@ class PetWidget(QWidget):
                     ok = False
             if getattr(self, 'sleeping', False):
                 ok = False
-            if getattr(self, '_edge_docked', False):
+            # ⛔ 2026-11-01 修：这里原先判 `_edge_docked`，但那个属性全仓
+            #   只有初始化，**没有任何代码把它设成 True** ⇒ 判断永远不生效，
+            #   贴边时照样演动作（Owner 实测：「贴边还弹气泡，拖出来却是待机图」）。
+            #   贴边的真实标志是 `_edge_side`（由 _enter_dock 设置）。
+            #   贴边时立绘已换成 peek 图，演动作会打架，而且用户只看到气泡没看到动作 —— 干脆不演。
+            if getattr(self, '_edge_side', None) is not None:
                 ok = False
             if getattr(self, '_ai_busy', False):
                 ok = False
