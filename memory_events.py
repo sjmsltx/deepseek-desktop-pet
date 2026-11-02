@@ -22,7 +22,14 @@ _log = logging.getLogger('pet.memory_events')
 
 MAX_MEMORIES = 200          # 滚动淘汰上限
 INJECT_COUNT = 3            # prompt 注入最近 N 条
-HALF_LIFE_DAYS = 30.0           # 权重衰减半衰期（天）
+HALF_LIFE_DAYS = 30.0           # 权重衰减半衰期（天）—— 两种模型下语义相同
+#: 衰减模型（Owner 2026-11-02 拍板：改幂律）
+#:   'power'       幂律 f(a) = (1 + a/T)^(-d) —— 默认
+#:   'exponential' 指数 f(a) = 0.5^(a/HALF_LIFE) —— 旧行为，保留以便对照/回退
+DECAY_MODEL = 'power'
+#: 幂律指数 d（ACT-R 默认 0.5）。Schooler & Anderson 1997：环境里一个事实
+#: 被需要的几率本身按幂函数衰减 —— 不是人碰巧长成幂律，是环境本来如此。
+POWER_D = 0.5
 #: 每次被检索命中时权重上升的幅度（Owner：「被反复提及的记忆权重上升」）
 WEIGHT_BUMP = 0.06
 #: 权重上限
@@ -51,6 +58,46 @@ _MONEY_PATTERNS = (
 _ID_LOCK = threading.Lock()
 
 
+def decay_factor(age_days: float) -> float:
+    """时间衰减因子（0~1）。**全项目唯一一份** —— 星图亮度也从这里取，别再写第二份。
+
+    ⚠ 2026-11-02（Owner 拍板「衰减改幂律」，依据 WX-171 §二 修正二）：
+
+      旧：f(a) = 0.5^(a/30)            指数
+      新：f(a) = (1 + a/T)^(-d)        幂律，T 与 d 取到 f(30) == 0.5
+               d = POWER_D = 0.5，T = 30/(2^(1/d)-1) = 10
+
+    **为什么要改**（不是喜好，是两个可验的差别）：
+
+    | 年龄 | 指数 | 幂律 |
+    |---|---|---|
+    | 30 天 | 0.500 | 0.500 | ← 同半衰期，中间点完全一致
+    | 90 天 | 0.125 | 0.316 |
+    | 1 年 | 0.0002 | 0.163 |
+    | 3 年 | 1.6e-10 | 0.0995 |
+
+    ⇒ 指数衰减下「3 年前那件事」权重约等于 0，系统等于认为**它从未发生**；
+      幂律永不归零，与「模糊的壳一直留着、只是细节掉了」这种真实记忆形状一致。
+      依据是 ACT-R 的 B_i = ln(Σ t_j^(-d))（d 默认 0.5）+ Schooler & Anderson 1997
+      的理性分析：环境里一个事实被需要的几率本身按幂函数衰减。
+
+    ⛔ 已知取舍（写清，别当它是免费的）：同类实践项目 CogCor / openfeelz **都用指数**。
+       改幂律是走没人走的路 —— 不是补作业，是押注。DECAY_MODEL 保留 'exponential'
+       就是为了能一键对照回去。
+    """
+    try:
+        a = max(0.0, float(age_days))
+    except (TypeError, ValueError):
+        return 0.0
+    if DECAY_MODEL != 'power':
+        return 0.5 ** (a / HALF_LIFE_DAYS)
+    d = float(POWER_D) if POWER_D else 0.5
+    # T 取到「半衰期那一点仍为 0.5」，这样 HALF_LIFE_DAYS 的语义不因换模型而变，
+    # 配置与既有测试都不用改。
+    t = HALF_LIFE_DAYS / (2.0 ** (1.0 / d) - 1.0)
+    return (1.0 + a / t) ** (-d)
+
+
 def decayed_weight(base: float, age_days: float, pinned: bool = False) -> float:
     """时间衰减后的权重。半衰期 30 天，与 memory_engine.score_recency 同口径。
 
@@ -60,11 +107,10 @@ def decayed_weight(base: float, age_days: float, pinned: bool = False) -> float:
     if pinned:
         return float(base)
     try:
-        a = max(0.0, float(age_days))
         b = max(0.0, min(WEIGHT_MAX, float(base)))
     except (TypeError, ValueError):
         return 0.0
-    return max(0.0, b * (0.5 ** (a / HALF_LIFE_DAYS)))
+    return max(0.0, b * decay_factor(age_days))
 
 
 def entry_age_days(entry, now=None) -> float:

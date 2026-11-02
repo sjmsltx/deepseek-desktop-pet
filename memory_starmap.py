@@ -33,6 +33,11 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import QWidget
 
+# ⚠ 2026-11-02：亮度衰减必须与 memory_events 共用一份公式。
+#   原先本文件自带 HALF_LIFE_DAYS = 30.0 和一行 `0.5 ** (age/30)` —— 那是第二份实现。
+#   这是本仓反复踩的形状（写两份必然只修一份：is_sensitive_path / screenAt / USER_CONFIG_PATH）。
+from memory_events import HALF_LIFE_DAYS, decay_factor as _decay_factor  # noqa: F401
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 FACTS_PATH = os.path.join(BASE, 'memory.json')
 EVENTS_PATH = os.path.join(BASE, 'memories.json')
@@ -57,7 +62,6 @@ KEYWORDS = [
                '诗', '学习', '背', '大二']),
     ('work',  ['桌宠', '代码', '工程', '更新', '仓库', 'AutoClaw', '环境', '版本']),
 ]
-HALF_LIFE_DAYS = 30.0
 _log = logging.getLogger('pet.memory_starmap')
 
 
@@ -395,7 +399,9 @@ class MemoryStarMap(QWidget):
         return True
 
     def _bright(self, s):
-        return 0.42 + 0.58 * (0.5 ** (s['age'] / HALF_LIFE_DAYS))
+        # 与 memory_events.decay_factor 同源（幂律）。0.42 是保底亮度：
+        # 老星星也要看得见 —— 星图的意义是「它还在」，不是「它快没了」。
+        return 0.42 + 0.58 * _decay_factor(s['age'])
 
     def _to_screen(self, x, y):
         return QPointF(self._cx + (x - self._cx) * self.zoom + self.pan.x(),
