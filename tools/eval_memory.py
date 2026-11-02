@@ -68,10 +68,10 @@ def run(facts=None, cases=None, top_k=3):
     active_texts = [str(f.get('content') or '') for f in facts
                     if f.get('status', 'active') == 'active']
 
-    out = {'recall': [], 'evidence': [], 'false': [], 'noise': [], 'superseded': [],
-           'counts': {}, 'ok': True}
+    out = {'recall': [], 'holdout': [], 'evidence': [], 'false': [], 'noise': [],
+           'superseded': [], 'counts': {}, 'ok': True}
 
-    # ---------- recall ----------
+    # ---------- recall（开发集）----------
     for c in cases.get('recall', []):
         hits = me.search_memory_for_injection(facts, c['query'], top_k=top_k)
         texts = [str(h.get('text') or '') for h in hits]
@@ -82,6 +82,15 @@ def run(facts=None, cases=None, top_k=3):
         # ---------- evidence（与 recall 同源，复用一次检索结果）----------
         bad = [t for t in texts if t not in active_texts]
         out['evidence'].append({'id': c['id'], 'verbatim': not bad, 'bad': bad[:2]})
+
+    # ---------- holdout（选参时不参与，选完才验收；防「对着答案调参」）----------
+    for c in cases.get('holdout', []):
+        hits = me.search_memory_for_injection(facts, c['query'], top_k=top_k)
+        texts = [str(h.get('text') or '') for h in hits]
+        out['holdout'].append({'id': c['id'], 'query': c['query'],
+                               'r1': bool(texts) and _has_any(texts[0], c['expect_any']),
+                               'r3': _has_any(' '.join(texts[:3]), c['expect_any']),
+                               'top': [t[:40] for t in texts]})
 
     # ---------- false ----------
     for c in cases.get('false', []):
@@ -107,17 +116,21 @@ def run(facts=None, cases=None, top_k=3):
                                   'top': [t[:40] for t in texts]})
 
     n = len(out['recall']) or 1
+    hn = len(out['holdout']) or 1
     out['counts'] = {
         'facts_active': len(active_texts),
         'R@1': round(sum(1 for x in out['recall'] if x['r1']) / n, 3),
         'R@3': round(sum(1 for x in out['recall'] if x['r3']) / n, 3),
+        'H_R@1': round(sum(1 for x in out['holdout'] if x['r1']) / hn, 3),
+        'H_R@3': round(sum(1 for x in out['holdout'] if x['r3']) / hn, 3),
         'EVID': round(sum(1 for x in out['evidence'] if x['verbatim']) / n, 3),
         'FALSE': round(sum(1 for x in out['false'] if x['empty']) / (len(out['false']) or 1), 3),
         'NOISE': round(sum(1 for x in out['noise'] if x['clean']) / (len(out['noise']) or 1), 3),
         'SUPERSEDED': round(sum(1 for x in out['superseded'] if x['clean'])
                             / (len(out['superseded']) or 1), 3),
     }
-    out['ok'] = all(v == 1.0 for k, v in out['counts'].items() if k != 'facts_active')
+    out['ok'] = all(v == 1.0 for k, v in out['counts'].items()
+                    if k not in ('facts_active', 'R@1', 'R@3', 'H_R@1', 'H_R@3'))
     return out
 
 
@@ -138,14 +151,15 @@ def main():
     print('%s' % ('-' * 66))
     print('%-12s %-6s %s' % ('指标', '值', '说明'))
     print('%s' % ('-' * 66))
-    for k, desc in (('R@1', '该命中的进了第 1 条'), ('R@3', '该命中的进了前 3'),
+    for k, desc in (('R@1', '开发集：命中的进了第 1 条'), ('R@3', '开发集：命中的进了前 3'),
+                    ('H_R@1', '留出集：命中的进了第 1 条'), ('H_R@3', '留出集：命中的进了前 3'),
                     ('EVID', '召回的是原文，不是编的'),
                     ('FALSE', '无关的话没命中'), ('NOISE', '可重算播报没被召回'),
                     ('SUPERSEDED', '失效事实没冒充现状')):
         flag = '✓' if c[k] == 1.0 else '✗'
         print('%-12s %-6s %s %s' % (k, '%.0f%%' % (c[k] * 100), flag, desc))
     print()
-    for grp in ('recall', 'false', 'noise', 'superseded'):
+    for grp in ('recall', 'holdout', 'false', 'noise', 'superseded'):
         bad = [x for x in r[grp] if not (x.get('r3', x.get('empty', x.get('clean', True))))]
         if bad:
             print('[%s] 未达标 %d 条：' % (grp, len(bad)))
