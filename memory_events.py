@@ -38,6 +38,13 @@ WEIGHT_MAX = 1.0
 WEIGHT_NEW = 0.55
 #: 每次命中衰减的「保鲜」作用：命中一次把年龄按此折算（天）
 ACCESS_REFRESH_DAYS = 3.0
+#: 淘汰台账文件（与 memories.json 同目录）。追加式 JSONL，一行一条。
+#: ⚠ 2026-11-02 新增（Owner「淘汰可以」，WX-168 §五 建议1）：
+#:   原来超 200 条直接切片丢弃，**丢了什么没有任何记录**，事后无法回答
+#:   「那条记忆是何时、为何没的」。台账让「遗忘」变成可追溯的行为。
+EVICTED_NAME = 'memory_evicted.jsonl'
+#: 台账最大行数；超过就轮转（旧的存成 .1，只留一代）—— 防止台账自己无限长
+EVICTED_MAX_LINES = 5000
 
 _TYPES = {'milestone', 'event', 'user_mark', 'memory'}
 
@@ -219,6 +226,9 @@ def is_recomputable_notice(title: str, detail: str = '') -> bool:
 class MemoryEvents:
     def __init__(self, path: str):
         self.path = path
+        # 台账与记忆库同目录（不放别处：备份/迁移时两者一定一起走）
+        self.evicted_path = os.path.join(os.path.dirname(os.path.abspath(path)),
+                                         EVICTED_NAME)
         self._lock = threading.Lock()
         self._memories = self._load()
 
@@ -244,6 +254,83 @@ class MemoryEvents:
                 os.remove(tmp)
             except Exception:
                 pass
+
+    # ---------- 淘汰台账 ----------
+    def record_evicted(self, items, reason: str = 'overflow', kept: int = 0) -> int:
+        """把即将被删掉的条目**先**记进台账。返回成功记下的条数。
+
+        ⚠ 纪律：调用方必须**先调本函数、再删**。顺序反了就没有「删之前一定记过」。
+        ⚠ 写失败不影响淘汰（库里无限增长会让 prompt 注入爆掉，比不可追溯更糟），
+          但必须落痕 —— 静默失败是最坏的一种。
+        ⚠ 字段一律 .get()：老数据有 3 种字段集（WX-172 发现 D），不许假设字段齐全。
+        """
+        if not items:
+            return 0
+        stamp = time.strftime('%Y-%m-%d %H:%M')
+        rows = []
+        for m in items:
+            try:
+                rows.append(json.dumps({
+                    't': stamp,
+                    'reason': reason,
+                    'id': m.get('id'),
+                    'title': m.get('title') or '',
+                    'time': m.get('time') or '',
+                    'weight': m.get('weight'),
+                    'access_count': m.get('access_count'),
+                    'origin': m.get('origin') or 'user',
+                    'repeat_count': m.get('repeat_count'),
+                    'kept': kept,
+                }, ensure_ascii=False))
+            except Exception as exc:
+                _log.debug('台账序列化失败（跳过该条）：%r', exc)
+        if not rows:
+            return 0
+        try:
+            # 轮转：先看现有行数，超上限就把旧文件改名（只留一代）
+            if os.path.exists(self.evicted_path):
+                try:
+                    with open(self.evicted_path, encoding='utf-8') as fh:
+                        n = sum(1 for _ in fh)
+                except Exception as exc:
+                    # 落痕：数不了行数 ≠ 台账是空的。静默按 0 处理会让轮转永不触发，
+                    # 台账悄悄涨到无限长（那正是轮转要防的事）。
+                    _log.warning('台账行数读不出来（按 0 处理，轮转本轮跳过）：%r', exc)
+                    n = 0
+                if n >= EVICTED_MAX_LINES:
+                    bak = self.evicted_path + '.1'
+                    try:
+                        if os.path.exists(bak):
+                            os.remove(bak)
+                        os.replace(self.evicted_path, bak)
+                    except Exception as exc:
+                        _log.warning('台账轮转失败（继续追加）：%r', exc)
+            with open(self.evicted_path, 'a', encoding='utf-8', newline='\n') as fh:
+                fh.write('\n'.join(rows) + '\n')
+            return len(rows)
+        except Exception as exc:
+            _log.warning('淘汰台账写入失败（淘汰仍会继续，但这条不可追溯）：%r', exc)
+            return 0
+
+    def evicted_recent(self, n: int = 20) -> list:
+        """最近 n 条淘汰记录（时间倒序）。台账不存在返回空表 —— 不是错误。"""
+        if not os.path.exists(self.evicted_path):
+            return []
+        out = []
+        try:
+            with open(self.evicted_path, encoding='utf-8') as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        out.append(json.loads(line))
+                    except Exception:
+                        _log.debug('台账有一行解析不了（跳过）：%r', line[:80])
+        except Exception as exc:
+            _log.warning('读淘汰台账失败：%r', exc)
+            return []
+        return list(reversed(out[-n:]))
 
     # ---------- 写入 ----------
     def add(self, role: str, type_: str, title: str, detail: str = '',
@@ -340,7 +427,17 @@ class MemoryEvents:
                 keep = max(0, MAX_MEMORIES - len(pinned))
                 kept = others[-keep:] if keep else []
                 merged = [m for m in self._memories if m in pinned or m in kept]
-                self._memories = merged[-MAX_MEMORIES:] if len(merged) > MAX_MEMORIES else merged
+                new_list = merged[-MAX_MEMORIES:] if len(merged) > MAX_MEMORIES else merged
+                # 2026-11-02（Owner「淘汰可以」）：**先记账、再删**。
+                #   算出「原来有、现在没有」的那些 = 真正被淘汰的，先写台账。
+                #   ⛔ 顺序不许反：反了就没有「删之前一定记过」。
+                try:
+                    gone = [m for m in self._memories if m not in new_list]
+                    if gone:
+                        self.record_evicted(gone, reason='overflow', kept=len(new_list))
+                except Exception as exc:
+                    _log.warning('淘汰台账环节异常（淘汰照常进行）：%r', exc)
+                self._memories = new_list
             self._save()
             return entry
 
