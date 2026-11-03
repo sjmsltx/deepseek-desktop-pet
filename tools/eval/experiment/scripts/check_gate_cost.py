@@ -28,8 +28,12 @@ import os
 import random
 import sys
 
-REPO = r'D:\ai工作站\desktop-pet'
-OUT = r'D:\AutoClawworkspace\桌宠记忆实验-20261103'
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
@@ -98,7 +102,7 @@ def main():
     neg = json.loads(io.open(os.path.join(REPO, 'tools', 'eval', 'negatives.json'),
                              encoding='utf-8').read())
     neg_qs = [q for cat, qs in neg['categories'].items() for q in qs]
-    noise = json.loads(io.open(os.path.join(OUT, 'experiment.json'), encoding='utf-8').read())['facts']
+    noise = json.loads(io.open(os.path.join(DATA, 'memories-1411.json'), encoding='utf-8').read())['facts']
 
     print('=' * 78)
     print('真实库 21 条（产品当前状态）')

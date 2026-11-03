@@ -26,12 +26,31 @@ import os
 import random
 import sys
 
-REPO = r'D:\ai工作站\desktop-pet'
-OUT = r'D:\AutoClawworkspace\mem-exp-20261103'
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
 import memory_engine as me  # noqa: E402
+
+def _rjson(path):
+    """读 JSON。with 包裹 —— 产品代码禁止一行式 open（长驻进程里是真实句柄泄漏）。"""
+    with io.open(path, encoding='utf-8') as _f:
+        return json.loads(_f.read())
+
+
+def _wjson(path, obj, **kw):
+    """写 JSON（同 _rjson 的理由）。默认 ensure_ascii=False、indent=1。"""
+    kw.setdefault('ensure_ascii', False)
+    kw.setdefault('indent', 1)
+    with io.open(path, 'w', encoding='utf-8', newline='\n') as _f:
+        _f.write(json.dumps(obj, **kw) + '\n')
+
+
 
 
 def load_real_facts():
@@ -41,7 +60,7 @@ def load_real_facts():
              os.path.join(REPO, 'data', 'memory.json')]
     for p in cands:
         if os.path.exists(p):
-            raw = json.loads(io.open(p, encoding='utf-8').read())
+            raw = _rjson(p)
             items = (raw.get('facts') or raw.get('items')) if isinstance(raw, dict) else raw
             if not items:
                 continue
@@ -56,7 +75,7 @@ def main():
     print('受控实验：只改「语料条数」一个变量')
     print('=' * 78)
     real = load_real_facts()
-    exp = json.loads(io.open(os.path.join(OUT, 'experiment.json'), encoding='utf-8').read())
+    exp = json.loads(io.open(os.path.join(DATA, 'memories-1411.json'), encoding='utf-8').read())
     noise_pool = exp['facts']
     print('  噪声池：%d 条合成 facts' % len(noise_pool))
     print()
@@ -131,10 +150,10 @@ def main():
         rows.append({'noise': n_noise, 'total': len(mixed), 'recall_hit': ok_r,
                      'holdout_hit': ok_h, 'neg_inject': neg_inj, 'avg_returned': round(avg_ret, 2)})
 
-    p = os.path.join(OUT, 'density_ab.json')
-    io.open(p, 'w', encoding='utf-8', newline='\n').write(json.dumps({
+    p = os.path.join(RESULTS, 'density_ab.json')
+    _wjson(p, {
         'note': '只改语料条数一个变量；用例限定为期望词在真实库中存在的那些',
-        'n_usable_cases': n_case, 'rows': rows}, ensure_ascii=False, indent=2) + '\n')
+        'n_usable_cases': n_case, 'rows': rows}, indent=2)
     print()
     print('  已写 %s' % p)
     return 0

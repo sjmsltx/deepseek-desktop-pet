@@ -24,7 +24,27 @@ import os
 import random
 import sys
 
-OUT = r'D:\AutoClawworkspace\桌宠记忆实验-20261103'
+def _rjson(path):
+    """读 JSON。with 包裹 —— 产品代码禁止一行式 open（长驻进程里是真实句柄泄漏）。"""
+    with io.open(path, encoding='utf-8') as _f:
+        return json.loads(_f.read())
+
+
+def _wjson(path, obj, **kw):
+    """写 JSON（同 _rjson 的理由）。默认 ensure_ascii=False、indent=1。"""
+    kw.setdefault('ensure_ascii', False)
+    kw.setdefault('indent', 1)
+    with io.open(path, 'w', encoding='utf-8', newline='\n') as _f:
+        _f.write(json.dumps(obj, **kw) + '\n')
+
+
+
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 N = 1200
 SPAN = 730
 
@@ -94,7 +114,7 @@ def main():
 
     print()
     print('=== 两种模型的因子差（说明为什么必须跨两年）===')
-    sys.path.insert(0, r'D:\ai工作站\desktop-pet')
+    sys.path.insert(0, REPO)
     import memory_events as me
     print('  %-9s %-11s %-11s %-10s %s' % ('年龄', '指数', '幂律', '差', '差/指数'))
     for kp in (1, 7, 30, 90, 180, 365, 545, 730):
@@ -122,9 +142,8 @@ def main():
         'timestamps': [(now - datetime.timedelta(days=a)).strftime('%Y-%m-%d %H:%M')
                        for a in ages],
     }
-    p = os.path.join(OUT, 'timeline_plan.json')
-    io.open(p, 'w', encoding='utf-8', newline='\n').write(
-        json.dumps(plan, ensure_ascii=False, indent=2) + '\n')
+    p = os.path.join(DATA, 'timeline_plan.json')
+    _wjson(p, plan, indent=2)
     print()
     print('  已写 %s (%d B)' % (p, os.path.getsize(p)))
     return 0 if ok_all else 1

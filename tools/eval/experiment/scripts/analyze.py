@@ -24,8 +24,12 @@ import os
 import sys
 from collections import Counter
 
-REPO = r'D:\ai工作站\desktop-pet'
-OUT = r'D:\AutoClawworkspace\mem-exp-20261103'
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
@@ -33,11 +37,26 @@ import memory_engine as me  # noqa: E402
 import memory_events as mev  # noqa: E402
 import memory_starmap as msm  # noqa: E402
 
-EXP = os.path.join(OUT, 'experiment.json')
+def _rjson(path):
+    """读 JSON。with 包裹 —— 产品代码禁止一行式 open（长驻进程里是真实句柄泄漏）。"""
+    with io.open(path, encoding='utf-8') as _f:
+        return json.loads(_f.read())
+
+
+def _wjson(path, obj, **kw):
+    """写 JSON（同 _rjson 的理由）。默认 ensure_ascii=False、indent=1。"""
+    kw.setdefault('ensure_ascii', False)
+    kw.setdefault('indent', 1)
+    with io.open(path, 'w', encoding='utf-8', newline='\n') as _f:
+        _f.write(json.dumps(obj, **kw) + '\n')
+
+
+
+EXP = os.path.join(DATA, 'memories-1411.json')
 
 
 def load():
-    d = json.loads(io.open(EXP, encoding='utf-8').read())
+    d = _rjson(EXP)
     facts = d['facts']
     # 转成 memory_engine 认的形状
     for i, f in enumerate(facts):
@@ -205,12 +224,12 @@ def main():
     print('  · 能答「模型间有无差别」「规模上去会不会崩」')
     print('  · 不能答「人真正怎么忘」「哪个模型更对」')
 
-    p = os.path.join(OUT, 'analysis.json')
-    io.open(p, 'w', encoding='utf-8', newline='\n').write(json.dumps({
+    p = os.path.join(RESULTS, 'analysis.json')
+    _wjson(p, {
         'generated': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
         'n_facts': len(facts), 'n_events': len(d['events']),
         'retrieval': r1, 'decay': r2, 'starmap': r3,
-    }, ensure_ascii=False, indent=2, default=str) + '\n')
+    }, indent=2, default=str)
     print()
     print('  已写 %s' % p)
     return 0

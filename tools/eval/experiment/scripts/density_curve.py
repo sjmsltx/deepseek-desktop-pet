@@ -22,12 +22,31 @@ import os
 import random
 import sys
 
-REPO = r'D:\ai工作站\desktop-pet'
-OUT = r'D:\AutoClawworkspace\mem-exp-20261103'
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
 import memory_engine as me  # noqa: E402
+
+def _rjson(path):
+    """读 JSON。with 包裹 —— 产品代码禁止一行式 open（长驻进程里是真实句柄泄漏）。"""
+    with io.open(path, encoding='utf-8') as _f:
+        return json.loads(_f.read())
+
+
+def _wjson(path, obj, **kw):
+    """写 JSON（同 _rjson 的理由）。默认 ensure_ascii=False、indent=1。"""
+    kw.setdefault('ensure_ascii', False)
+    kw.setdefault('indent', 1)
+    with io.open(path, 'w', encoding='utf-8', newline='\n') as _f:
+        _f.write(json.dumps(obj, **kw) + '\n')
+
+
 
 POINTS = [0, 25, 50, 75, 100, 125, 150, 175, 200, 300, 500]
 REPEATS = 3
@@ -37,7 +56,7 @@ def main():
     real = [f for f in json.loads(io.open(os.path.join(REPO, 'memory.json'),
                                           encoding='utf-8').read())['facts']
             if f.get('status') == 'active']
-    noise = json.loads(io.open(os.path.join(OUT, 'experiment.json'), encoding='utf-8').read())['facts']
+    noise = json.loads(io.open(os.path.join(DATA, 'memories-1411.json'), encoding='utf-8').read())['facts']
     cases = json.loads(io.open(os.path.join(REPO, 'tools', 'eval', 'cases.json'),
                                encoding='utf-8').read())
     neg = json.loads(io.open(os.path.join(REPO, 'tools', 'eval', 'negatives.json'),
@@ -102,10 +121,10 @@ def main():
                      'holdout_mean': round(sum(holds) / len(holds), 2),
                      'avg_returned': round(sum(rets) / len(rets), 2)})
 
-    p = os.path.join(OUT, 'density_curve.json')
-    io.open(p, 'w', encoding='utf-8', newline='\n').write(json.dumps({
+    p = os.path.join(RESULTS, 'density_curve.json')
+    _wjson(p, {
         'note': '每个点 %d 次独立随机噪声，取均值并记录极差' % REPEATS,
-        'real_facts': len(real), 'rows': rows}, ensure_ascii=False, indent=2) + '\n')
+        'real_facts': len(real), 'rows': rows}, indent=2)
     print()
     print('  已写 %s' % p)
     base = rows[0]['neg_inject_mean']

@@ -25,8 +25,12 @@ import os
 import sys
 import time
 
-REPO = r'D:\ai工作站\desktop-pet'
-OUT = r'D:\AutoClawworkspace\桌宠记忆实验-20261103'
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
@@ -80,7 +84,7 @@ def old_build_edges(stars):
 
 
 def load_stars(n_noise):
-    src = json.loads(io.open(os.path.join(OUT, 'experiment.json'), encoding='utf-8').read())
+    src = json.loads(io.open(os.path.join(DATA, 'memories-1411.json'), encoding='utf-8').read())
     real = [f for f in json.loads(io.open(os.path.join(REPO, 'memory.json'),
                                          encoding='utf-8').read())['facts']
             if f.get('status') == 'active']

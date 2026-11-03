@@ -127,6 +127,25 @@ def jaccard(a, b):
     return len(ta & tb) / float(len(ta | tb))
 
 
+#: ── 2.5D 星图（2026-11-03）──
+#: z 轴 = 年龄。三维度分工：
+#:   位置：向**全局消失点**（图心）收缩 —— 透视的正确做法（远处靠近消失点）
+#:   大小：远小近大；光晕：越老越不发光（密集处才不会糊成色块）
+#:   遮挡：按 z 降序绘制（老的先画，新的压在上面）
+#:
+#: ⛔ 曾经把深度做成「老记忆整体上移 R*0.34」，截图发现与环形方位布局打架：
+#:   上方星团的老星顶到标题区（实际 y=97，标题在 y=44），下方星团的老星
+#:   跑进画面中部，类团结构被破坏。**深度不能靠整体平移实现**，
+#:   只能用「向消失点收缩」——那样每个点都沿自己的视线方向后退，不会串团。
+#: 位移量 = 类内半径 × DEPTH_SHRINK。类内半径最大 190，
+#: 要让「外圈更远」可被感知，位移需 ≥ 半径的 30%（约 57px）⇒ 取 0.30。
+#: ⚠ 0.18 时位移只有 34px，在 600px 的类团间距下是噪声（前五轮截图的教训）。
+DEPTH_SHRINK = 0.30      # 最老的向图心收缩 30%
+DEPTH_TILT = 0.94        # 深度方向再压纵向 6%（斜视）
+DEPTH_RAD = 0.48         # 最老的核心半径是最新的 48%（0.62 时密集处看不出差异）
+DEPTH_GLOW = 0.38        # 最老的光晕只剩最新的 38%（再乘 alpha 衰减）
+
+
 def build_edges(stars):
     """算出星图的两种边。返回 (strong, weak)。
 
@@ -340,7 +359,9 @@ class MemoryStarMap(QWidget):
         cx, cy = w * 0.50, h * 0.50
         # 2026-10-31：主区里容器高只有 ~610，若直接用 min(w,h)*0.40 星团名会顶到标题栏。
         #   留出顶部（标题+副标题约 84px）与底部（图例约 90px）的净空再定半径。
-        R = max(60.0, min(w * 0.46, (h - 84 - 90) * 0.50))
+        # 2026-11-03：0.50 → 0.42。类内半径从 148 拉到 190（年龄轴要够长），
+        #   整体必须同比缩小，否则最外圈的点会顶出画面。已按 1500x940 / 900x620 验算。
+        R = max(60.0, min(w * 0.44, (h - 84 - 90) * 0.42))
         self._centers = {}
         for cat in ORDER:
             a = math.radians(ANGLES[cat])
@@ -352,6 +373,17 @@ class MemoryStarMap(QWidget):
             groups.setdefault(s['cat'], []).append(s)
         self._groups = groups
 
+        # ---- 2.5D 深度：z = 全局归一化年龄（0 = 最新/最近，1 = 最老/最远）----
+        #   用**全局**而不是类内归一化：这样整张图共用一条时间轴，
+        #   不同星团的「老」程度可比 —— 这才是「z 轴 = 年龄」的本意。
+        _ages = [float(s.get('age') or 0.0) for s in self.stars]
+        if _ages:
+            _a_lo, _a_hi = min(_ages), max(_ages)
+        else:
+            _a_lo, _a_hi = 0.0, 0.0
+        _span = max(_a_hi - _a_lo, 1e-6)
+        self._depth = {}
+
         pos = {}
         for cat in ORDER:
             arr = sorted(groups.get(cat) or [], key=lambda s: s['age'])
@@ -361,10 +393,25 @@ class MemoryStarMap(QWidget):
             n = len(arr)
             for i, s in enumerate(arr):
                 frac = (i + 0.5) / n
-                rr = (30 + 118 * frac) * (1.0 if n > 1 else 0.45)
+                # 2026-11-03：30+118 → 22+168。
+                #   这是「年龄 = 离团心多远」这条映射的**唯一放大器** ——
+                #   之前半径跨度只有 118px，深度收缩 18% 只挪 27px，
+                #   在 600px 的类团间距下是噪声，所以前四轮怎么调都看不出纵深。
+                rr = (22 + 168 * frac) * (1.0 if n > 1 else 0.45)
                 ang = 2 * math.pi * ((i * 0.618) % 1.0)
-                pos[s.get('key') or s['text']] = (gx + rr * math.cos(ang),
-                                                 gy + rr * math.sin(ang) * 0.92)
+                px = gx + rr * math.cos(ang)
+                py = gy + rr * math.sin(ang) * 0.92
+
+                # 深度归一化 → 透视投影：沿各自的视线向消失点（图心）后退。
+                #   ⚠ 不加任何整体平移 —— 那会让远处的点串到别的星团、或顶出画面。
+                z = (float(s.get('age') or 0.0) - _a_lo) / _span
+                shrink = 1.0 - DEPTH_SHRINK * z
+                sx = cx + (px - cx) * shrink
+                sy = cy + (py - cy) * shrink * (1.0 - (1.0 - DEPTH_TILT) * z)
+
+                key = s.get('key') or s['text']
+                pos[key] = (sx, sy)
+                self._depth[key] = z
         self._layout = pos
 
     def _current_sig(self):
@@ -512,11 +559,18 @@ class MemoryStarMap(QWidget):
             a, b = self._layout[ki], self._layout[kj]
             # 权重越高越亮：0.045 → alpha 90，0.20 → alpha 190
             t = min(1.0, max(0.0, (w - STRONG_EDGE_JACCARD) / 0.155))
-            alpha = int(90 + 100 * t)
+            # 2026-11-03：再按**屏幕距离**衰减。跨类强边长达 600+px，
+            #   1px 细线横穿整个画面 ⇒ 星团边界感被打散（截图实测 180 颗时
+            #   绿团与蓝团之间是一大束平行线，最抢眼却信息量最低）。
+            #   视觉惯例：关系越远越弱。团内保持清晰，跨团淡到约 1/4。
+            _sa, _sb = self._to_screen(*a), self._to_screen(*b)
+            _dist = math.hypot(_sa.x() - _sb.x(), _sa.y() - _sb.y())
+            _fade = max(0.24, 1.0 - _dist / (self._R * 2.2))
+            alpha = int((90 + 100 * t) * _fade)
             col = QColor(*PAL[self.stars[i].get('cat') or 'human'])
             col.setAlpha(alpha)
             p.setPen(QPen(col, 1.0 + 0.8 * t))
-            p.drawLine(self._to_screen(*a), self._to_screen(*b))
+            p.drawLine(_sa, _sb)
 
         # 外圈失效星
         p.setPen(Qt.NoPen)
@@ -531,24 +585,34 @@ class MemoryStarMap(QWidget):
             y = self._cy + rr * math.sin(ang) * 0.86
             p.drawEllipse(self._to_screen(x, y), 1.6 * self.zoom + 0.6, 1.6 * self.zoom + 0.6)
 
-        # 记忆星
-        for s in self.stars:
-            xy = self._layout.get(s.get('key') or s['text'])
+        # 记忆星 —— 2.5D：按深度降序绘制（z 大的 = 老的 = 远的先画，
+        #   新的后画并压在上面，形成真实的前后遮挡）
+        _draw = sorted(self.stars,
+                       key=lambda s: -self._depth.get(s.get('key') or s['text'], 0.0))
+        for s in _draw:
+            _k = s.get('key') or s['text']
+            xy = self._layout.get(_k)
             if not xy:
                 continue
+            _z = self._depth.get(_k, 0.0)
             b = self._bright(s)
             col = PAL[s['cat']]
-            rad = (2.0 + 1.5 * s['imp']) * self.zoom
+            # 远小近大
+            rad = (2.0 + 1.5 * s['imp']) * self.zoom * (1.0 - (1.0 - DEPTH_RAD) * _z)
+            # 光晕随深度收缩+变淡：这是 1411 条不糊成色块的关键。
+            # 原来固定 rad*5.5、alpha 190，1191 颗叠在一起就是一块实心蓝。
+            glow = 5.5 * (1.0 - (1.0 - DEPTH_GLOW) * _z)
+            ga = 1.0 - 0.55 * _z
             sp = self._to_screen(*xy)
-            gg = QRadialGradient(sp, rad * 5.5)
-            c0 = QColor(*col); c0.setAlpha(int(190 * b))
-            c1 = QColor(*col); c1.setAlpha(int(64 * b))
+            gg = QRadialGradient(sp, rad * glow)
+            c0 = QColor(*col); c0.setAlpha(int(190 * b * ga))
+            c1 = QColor(*col); c1.setAlpha(int(64 * b * ga))
             c2 = QColor(*col); c2.setAlpha(0)
             gg.setColorAt(0.0, c0)
             gg.setColorAt(0.35, c1)
             gg.setColorAt(1.0, c2)
             p.setBrush(QBrush(gg)); p.setPen(Qt.NoPen)
-            p.drawEllipse(sp, rad * 5.5, rad * 5.5)
+            p.drawEllipse(sp, rad * glow, rad * glow)
             core = QColor(*col)
             core = QColor(min(255, core.red() + 28), min(255, core.green() + 28),
                           min(255, core.blue() + 28))
@@ -625,16 +689,24 @@ class MemoryStarMap(QWidget):
                        Qt.AlignHCenter, '%d 颗' % len(self._groups[cat]))
             p.setFont(QFont('Microsoft YaHei', 11))
 
-        # 个体标签（只标最亮 10 颗）
+        # 个体标签（只标最亮 5 颗）
+        # 2026-11-03：从 10 颗减到 5 颗。截图发现 10 个标签会从上往下排成一竖列，
+        #   正好压在星团盘面上（星团中心 y≈238、半径≈148，标签区 y=90~190 全在盘内）。
+        #   星图的主信息是「分布 + 关联」，个体详情 hover 已有卡片，
+        #   所以密集时宁可不标，也不要糊成一团。
         p.setFont(QFont('Microsoft YaHei', 8))
-        cand = sorted(self.stars, key=lambda s: -self._bright(s))[:10]
-        # 先把星团名占位 —— 否则个体标签会压在星团名上
+        cand = sorted(self.stars, key=lambda s: -self._bright(s))[:4]
+        # 先把星团名 + **星团盘**占位 —— 否则个体标签会压在星团名与星点上
         boxes = []
         for cat in ORDER:
             if not self._groups.get(cat):
                 continue
             cp = self._to_screen(*self._centers[cat])
             boxes.append((cp.x() - 95, cp.y() - 186 * self.zoom, 190, 44))
+            # 星团盘（画云气用的那圈）只占最核心一小块 —— 0.72 会把所有候选位置
+            #   都挡掉（实测 180 颗时一个标签都不显示），0.40 让外圈星点有位置可放。
+            _disk = (92 + 13 * min(len(self._groups[cat]), 8)) * 0.14 * self.zoom
+            boxes.append((cp.x() - _disk, cp.y() - _disk, _disk * 2, _disk * 2))
         for s in cand:
             xy = self._layout.get(s.get('key') or s['text'])
             if not xy:
@@ -646,7 +718,8 @@ class MemoryStarMap(QWidget):
             text = s['text'] if len(s['text']) <= 15 else s['text'][:14] + '…'
             tw = p.fontMetrics().horizontalAdvance(text)
             placed = False
-            for dx, dy in ((14, -22), (14, 8), (-tw - 14, -22), (-tw - 14, 8), (14, -40)):
+            for dx, dy in ((14, -22), (14, 8), (-tw - 14, -22), (-tw - 14, 8),
+                           (14, -40), (-tw - 14, -40), (14, 26)):
                 bx, by = sp.x() + dx, sp.y() + dy
                 if bx < 20 or by < 90 or bx + tw > self.width() - 20 or by > self.height() - 120:
                     continue
@@ -656,8 +729,14 @@ class MemoryStarMap(QWidget):
                 col = QColor(*PAL[s['cat']])
                 p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 90), 1))
                 p.drawLine(sp, QPointF(bx if dx > 0 else bx + tw, by + 8))
-                p.setPen(QColor(min(255, col.red() + 60), min(255, col.green() + 60),
-                                min(255, col.blue() + 60)))
+                # 2026-11-03：加深色底框。近光源标签压在亮星上读不清
+                #   （截图实测：绿团里的「用户目前在准备计算机二级考试」几乎看不见）。
+                #   底色沿用详情卡的 (10,12,26)，保持主题单一源、不引入新色值。
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(10, 12, 26, 205))
+                p.drawRoundedRect(QRectF(bx - 4, by - 2, tw + 8, 19), 4, 4)
+                p.setPen(QColor(min(255, col.red() + 70), min(255, col.green() + 70),
+                                min(255, col.blue() + 70)))
                 p.drawText(QPointF(bx, by + 14), text)
                 boxes.append((bx, by, tw, 16))
                 placed = True
@@ -734,16 +813,22 @@ class MemoryStarMap(QWidget):
 
     # ---------- 交互 ----------
     def _hit(self, pos):
-        """命中测试。C1：半径随 zoom 与星体大小变化 —— 放大后 18px 固定值点不中。"""
+        """命中测试。C1：半径随 zoom 与星体大小变化 —— 放大后 18px 固定值点不中。
+
+        2.5D（2026-11-03）：老的星画得小（最多缩 34%），命中半径必须同比缩，
+        否则点一颗小星会误中它旁边的大星。"""
         best, bd = None, None
         for s in self.stars:
-            xy = self._layout.get(s.get('key') or s['text'])
+            _k = s.get('key') or s['text']
+            xy = self._layout.get(_k)
             if not xy:
                 continue
             sp = self._to_screen(*xy)
             d = math.hypot(sp.x() - pos.x(), sp.y() - pos.y())
-            # 可视核心半径 × zoom + 余量，下限 10px
-            reach = max(10.0, (2.0 + 1.5 * s.get('imp', 3)) * self.zoom + 6.0)
+            # 可视核心半径 × zoom × 深度缩放 + 余量，下限 10px
+            _z = self._depth.get(_k, 0.0)
+            reach = max(10.0, (2.0 + 1.5 * s.get('imp', 3)) * self.zoom
+                        * (1.0 - (1.0 - DEPTH_RAD) * _z) + 6.0)
             if d <= reach and (bd is None or d < bd):
                 best, bd = s, d
         return best

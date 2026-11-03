@@ -45,12 +45,31 @@ import random
 import sys
 import time
 
-REPO = r'D:\ai工作站\desktop-pet'
-OUT = r'D:\AutoClawworkspace\桌宠记忆实验-20261103'
+import os as _os
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+OUT = _os.path.dirname(_HERE)                  # 本实验目录（data/ 与 results/ 的父目录）
+DATA = _os.path.join(OUT, 'data')              # 只读：语料 / 时间轴 / 1411 条记忆
+RESULTS = _os.path.join(OUT, 'results')        # 只写：各脚本的分析结果
+REPO = _os.path.dirname(_os.path.dirname(_os.path.dirname(OUT)))  # 仓库根（上溯 3 层）
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
 import deepseek_client  # noqa: E402
+
+def _rjson(path):
+    """读 JSON。with 包裹 —— 产品代码禁止一行式 open（长驻进程里是真实句柄泄漏）。"""
+    with io.open(path, encoding='utf-8') as _f:
+        return json.loads(_f.read())
+
+
+def _wjson(path, obj, **kw):
+    """写 JSON（同 _rjson 的理由）。默认 ensure_ascii=False、indent=1。"""
+    kw.setdefault('ensure_ascii', False)
+    kw.setdefault('indent', 1)
+    with io.open(path, 'w', encoding='utf-8', newline='\n') as _f:
+        _f.write(json.dumps(obj, **kw) + '\n')
+
+
 
 CFG = json.loads(io.open(os.path.join(REPO, 'config.json'), encoding='utf-8').read())
 KEY = CFG.get('deepseek_api_key') or ''
@@ -140,8 +159,8 @@ def main():
     corpus = gen_corpus()
     print('语料种子：%d 条（%d 类 × %d 种子 × %d 侧面）'
           % (len(corpus), len(SEEDS), len(SEEDS['学业课程']), len(ASPECTS)))
-    p = os.path.join(OUT, 'corpus.json')
-    io.open(p, 'w', encoding='utf-8', newline='\n').write(json.dumps({
+    p = os.path.join(DATA, 'corpus.json')
+    _wjson(p, {
         '_meta': {
             '生成时间': time.strftime('%Y-%m-%d %H:%M'),
             '用途': '1200 条合成语料的种子（供 LLM 展开成对话，再走真实抽取管线）',
@@ -152,7 +171,7 @@ def main():
         'seeds': SEEDS,
         'aspects': ASPECTS,
         'corpus': corpus,
-    }, ensure_ascii=False, indent=2) + '\n')
+    }, indent=2)
     print('已写 %s  (%d B)' % (p, os.path.getsize(p)))
     print()
     print('类别分布：')

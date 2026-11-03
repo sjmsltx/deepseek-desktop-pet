@@ -412,6 +412,67 @@ precision/recall 前沿就在这里，任何精度提升都要拿召回换。**
 
 ---
 
+## 九之二、2.5D 星图（z 轴 = 年龄）
+
+Owner：「2.5D（z 轴=年龄），更真实 + 更好看」。定为 2.5D 而非真 3D：
+零新依赖、包体积不变，且让「年龄 / 衰减」两个维度在视觉上和解。
+
+### 四个深度线索
+
+| 线索 | 实现 |
+|---|---|
+| 位置 | 向**全局消失点**（图心）收缩 30% —— 透视的正确做法 |
+| 大小 | 远小近大，最老的核心半径是最新的 48% |
+| 光晕 | 越老越不发光（半径 ×0.38、alpha ×0.45）⇒ 密集处才不会糊成色块 |
+| 遮挡 | 绘制顺序按 z 降序：老的先画，新的压在上面 |
+
+深度 `z` = **全局**归一化年龄（不是类内），整张图共用一条时间轴。
+
+### 关键实现选择
+
+**投影在 `_compute_layout` 里做完，结果写进 `_layout`。**
+这样 `_to_screen` / `_hit` / 连线端点全部自动正确，不用改三处。
+深度值另存 `self._depth[key]`，供绘制顺序与命中半径查询。
+
+### 走过的弯路（都留了注释在代码里）
+
+| 轮 | 做法 | 截图发现的问题 |
+|---|---|---|
+| 1 | 老记忆整体上移 `R*0.34` | 与环形方位布局打架：上方星团老星顶到标题区（y=97，标题在 y=44），下方星团老星跑进画面中部 |
+| 2 | 改成向心收缩 18% + 光晕衰减 | 位置几乎没变（类内半径 148 × 18% = 27px，在 600px 类团间距下是噪声） |
+| 3 | `DEPTH_RAD` 0.62→0.48、标签 10→5 + 星团盘占位 | 标签**一个都不显示**（占位 0.72 把 5 个候选位全挡住，亮星都在内圈） |
+| 4 | 强边按屏幕距离衰减 + 占位放宽到 0.40 | 连线终于不乱了；但标签仍全被挡 |
+| 5 | 类内半径 148→190、整体 R ×0.42 | 星点有间隙了；纵深仍弱 |
+| 6 | `DEPTH_SHRINK` 0.18→**0.30**（数学定：位移需 ≥ 类内半径 30%） | 纵深数值到位 |
+| 7 | 标签加深色底框（沿用详情卡底色） | 近光源标签压在亮星上读不清 |
+
+### 诚实结论：纵深「数值到位」但「视觉仍不强」
+
+原因不在参数，在**数据分布**：age 集中在中间（1411 条的中位数约 330 天 / 跨度 801），
+所以大部分星的 z 在 0.3~0.7，大小差异只有 15% —— 只有极新/极老的少数星差异达 52%。
+
+要做出**明显可感知**的纵深，必须改构图范式（例如改成斜视盘面 + 高度轴，
+让「离盘心距离」成为唯一的年龄轴），那是推翻现有环形星团设计，
+**属于重大变更，需 Owner 拍**，本轮没做。
+
+### 顺带修掉的观感缺陷（都是截图发现的）
+
+- 跨类强边长达 600+px，1px 细线横穿画面 ⇒ 星团边界被打散
+  → 按屏幕距离衰减，跨团淡到约 1/4
+- 1411 条时 like 单团 1191 颗，每颗画 5.5 倍半径光晕 ⇒ 叠成一坨实心色块
+  → 光晕随深度收缩变淡
+- 个体标签从 y=90 排成一竖列压在星盘上 → 减到 4 颗 + 深色底框
+
+### 截图（offscreen 渲染，已注入中文字体）
+
+见 `shots/`：`starmap-real-21.png`（产品现状）、`starmap-exp-200.png`（产品上限）、
+`starmap-exp-1411.png`（实验全量）。
+
+复现：`python scripts/shot_starmap.py`（须用带 PySide6 的独立 python，
+且 offscreen 平台不加载系统字体、脚本里显式注入了 `msyh.ttc`）
+
+---
+
 ## 十、发现七：淘汰机制第一次真跑
 
 `MAX_MEMORIES = 200`，1411 条必然触发。
@@ -487,35 +548,43 @@ committed 全为 True
 
 ```powershell
 $py = 'C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe'
-cd D:\ai工作站\desktop-pet\tools\eval\experiment
+cd <仓库根>          # 脚本用 __file__ 推导路径，在任意 cwd 下都能跑
 
 # ① 生成语料（1200 条种子，无需 API）
-& $py scripts\gen_corpus.py
+& $py tools\eval\experiment\scripts\gen_corpus.py
 
 # ② 规划时间轴
-& $py scripts\plan_timeline_v2.py
+& $py tools\eval\experiment\scripts\plan_timeline_v2.py
 
-# ③ 跑实验（240 批，约 50 分钟，¥1.9，支持断点续传）
-& $py scripts\run_experiment.py            # --limit=10 试跑
+# ③ 跑实验（240 批，约 50 分钟，¥1.9，支持断点续传；需 API key）
+& $py tools\eval\experiment\scripts\run_experiment.py            # --limit=10 试跑
 
 # ④ 回填时间戳
-& $py scripts\backfill_time.py
+& $py tools\eval\experiment\scripts\backfill_time.py
 
-# ⑤ 分析与验证
-& $py scripts\analyze.py            # 四个基础问题
-& $py scripts\density_ab.py         # 受控密度实验
-& $py scripts\density_curve.py      # 细密度曲线
-& $py scripts\gate_sweep.py         # 闸门阈值扫描
-& $py scripts\gate_mechanism.py     # 换机制对比
+# ⑤ 分析与验证（无需 API）
+& $py tools\eval\experiment\scripts\analyze.py            # 四个基础问题
+& $py tools\eval\experiment\scripts\density_ab.py         # 受控密度实验
+& $py tools\eval\experiment\scripts\density_curve.py      # 细密度曲线
+& $py tools\eval\experiment\scripts\gate_sweep.py         # 闸门阈值扫描
+& $py tools\eval\experiment\scripts\gate_mechanism.py     # 换机制对比
+& $py tools\eval\experiment\scripts\verify_edges.py       # 星图连线等价性
 ```
 
 产出落在 `results/`，都是 JSON，字段自解释。
 
 ### 环境依赖
 
-- 需要仓库根目录在 `sys.path`（脚本里写死了 `D:\ai工作站\desktop-pet`，换机器要改）
+- **路径全部相对 `__file__`**（`experiment/scripts/` 上溯三层到仓库根），
+  换机器、换 clone 位置都不用改代码
+- 读取一律 `<仓库根>/tools/eval/experiment/data/`，写出一律 `.../results/`
 - 需要 `memory.json`（21 条真实库）作为受控实验的底库
-- API key 走环境变量，不落盘
+- 只有 ③ 需要 API key（走环境变量，不落盘）；其余 ① ② ④ ⑤ 全部离线可跑
+
+### 一次实测（2026-11-03）
+
+从仓库根直接跑 `gate_sweep.py`，输出的 `results/gate_sweep.json`
+sha256 与改造前**逐字节相同**（`8362940D69C7`）⇒ 路径改造没有改变任何结果。
 
 ---
 
