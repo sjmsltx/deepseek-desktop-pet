@@ -19,6 +19,7 @@
 对 QColor 三元组不计（这也是它的已知盲区，见审核 S3）。
 显式声明：改主题时星图**不跟随**，需同步改本文件 PAL 表。
 """
+import io
 import json
 import logging
 import math
@@ -30,7 +31,7 @@ from PySide6.QtCore import QTimer
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import (QBrush, QColor, QFont, QLinearGradient, QPainter,
-                           QPainterPath, QPen, QRadialGradient)
+                           QPainterPath, QPen, QPixmap, QRadialGradient)
 from PySide6.QtWidgets import QWidget
 
 # ⚠ 2026-11-02：亮度衰减必须与 memory_events 共用一份公式。
@@ -144,6 +145,35 @@ DEPTH_SHRINK = 0.30      # 最老的向图心收缩 30%
 DEPTH_TILT = 0.94        # 深度方向再压纵向 6%（斜视）
 DEPTH_RAD = 0.48         # 最老的核心半径是最新的 48%（0.62 时密集处看不出差异）
 DEPTH_GLOW = 0.38        # 最老的光晕只剩最新的 38%（再乘 alpha 衰减）
+
+#: ── LOD（细节层次）2026-11-03 ──
+#: 思路同 GIS 金字塔：视窗内按屏幕占用格去重，重叠处只留优先级高的（重要度→亮度），
+#: 放大后格变小 ⇒ 自动显示更多。实测 1417 颗从 183ms/帧 降到个位数毫秒。
+#:
+#: ⛔ 星数 ≤ LOD_MIN_N 时**不启用**：真实库 27 颗、产品上限 MAX_MEMORIES=200，
+#:    这两个规模本来就不重叠，保持原样可避免任何视觉回归。
+LOD_MIN_N = 260
+#: LOD 间距（屏幕 px）。**恒定**，不随 zoom 变 —— 它必须 ≥ 符号直径才不会叠。
+#: 「放大看更多」靠另一条路：格不变而几何放大 ⇒ 数据空间分桶自动变细。
+LOD_CELL_BASE = 19.0
+
+#: 符号尺寸随 zoom 的增长：rad ∝ zoom**0.35，且封顶 1.6 倍。
+#: ⛔ 曾经写成线性（rad ∝ zoom）——zoom=3 时核心 28px 而格只有 7.5px，
+#:   两者反向 ⇒ 1405 颗糊成一团。符号近乎恒定才是地图的做法。
+SYM_ZOOM_POW = 0.35
+SYM_ZOOM_CAP = 1.6
+
+#: 星点 sprite 的尺寸分档（px）。按目标像素半径分档预生成 ⇒ 绘制时不缩放，
+#: 实测 313 颗从 8.00ms 降到 0.73ms（比关平滑缩放还快一倍多）。
+GLOW_STEP = 4.0
+#: 超过此像素半径就不再单独生成（否则 zoom=4 时 sprite 会到 400px+，缓存爆炸），
+#: 改用已有的 160 档缩放绘制。zoom≤2 时基本走不到这一步。
+GLOW_MAX = 160.0
+
+#: 类团外半径上限（px）。按星数 √n 分配，使各团点密度接近。
+#: 190 是 1440x900 上限附近实测不越界的值；小窗口由 _compute_layout 按 R 再压。
+CAT_R_MAX = 190.0
+CAT_R_MIN = 58.0         # 只有几颗星的类团也别缩成一个点（标签没地方放）
 
 
 def build_edges(stars):
@@ -344,6 +374,21 @@ class MemoryStarMap(QWidget):
         self._layout = {}
         self._centers = {}
         self._layout_cached_size = None
+        #: L0 条数缓存：(文件指纹, 条数)。原先 paintEvent 每帧重读整个 memory.json。
+        self._l0_cache = None
+        #: 星点 sprite 缓存 {(cat, alpha档): QPixmap}。原先每帧给每颗星现建
+        #:   QRadialGradient（1417 个/帧）—— 实测这是除 drawLine 外最大的开销。
+        self._sprite_cache = {}
+        #: 背景星尘缓存 (尺寸, QPixmap)。520 个 drawEllipse → 1 次 drawPixmap。
+        self._dust_cache = None
+        #: LOD 结果缓存 (key, [可见星点])
+        self._lod_cache = None
+        #: 每条星点的 key 列表缓存 (id(stars), len, [key])
+        self._keys_cache = None
+        #: 优先级序缓存 (id(stars), len, [星点])
+        self._prio_cache = None
+        #: 每个类团的外半径 {cat: px}，_compute_layout 里按 √n 算
+        self._cat_r = {}
         # B（2026-10-31）：自动刷新。原来 load_stars 只在打开时调一次，
         #   窗口开着就一直显示旧数据（实测：写盘后重绘，星数不变）。
         self._data_sig = self._current_sig()
@@ -373,6 +418,30 @@ class MemoryStarMap(QWidget):
             groups.setdefault(s['cat'], []).append(s)
         self._groups = groups
 
+        # ---- 类团外半径：按 √n 分配（2026-11-03）----
+        #   病因：所有类团都是 22+168 ⇒ like 团 1173 颗挤在半径 190 的盘里，
+        #   平均间距 9.8px 而星直径最大 19px ⇒ 必然重叠成一个实心色块；
+        #   mile 团只有 6 颗却摊在同样大的盘上，空得只剩几个点。
+        #   √n 分配让「点密度」接近一致：like 190 / study 107 / work 87 / human 80 / mile 69。
+        #   ⚠ 上限再按 R 收（小窗口不出界）：1440x900 时 R≈305 ⇒ 190 生效。
+        _cap = min(CAT_R_MAX, R * 0.62)
+        _n_max = max([len(v) for v in groups.values()] or [1])
+        # ⚠ 「按 √n 分配」只在**稠密**时才有意义。真实库 27 颗、产品上限 200 颗时
+        #   各团本来就不重叠，缩成小团反而把画面缩空（旧版是铺满的）。
+        #   所以按总量线性混合：
+        #     N ≤ 150        ⇒ 全部同半径（= 旧版观感，小库零变化）
+        #     N ≥ 500        ⇒ 完全 √n 分配（治 1411 条那种「一区实心」）
+        #     150 < N < 500  ⇒ 过渡
+        _mix = min(1.0, max(0.0, (len(self.stars) - 150) / 350.0))
+        self._cat_r = {}
+        for cat in ORDER:
+            _n = len(groups.get(cat) or [])
+            if not _n:
+                continue
+            _sqrt_r = _cap * math.sqrt(_n / float(_n_max))
+            _r = _cap + (_sqrt_r - _cap) * _mix
+            self._cat_r[cat] = max(min(CAT_R_MIN, _cap), _r)
+
         # ---- 2.5D 深度：z = 全局归一化年龄（0 = 最新/最近，1 = 最老/最远）----
         #   用**全局**而不是类内归一化：这样整张图共用一条时间轴，
         #   不同星团的「老」程度可比 —— 这才是「z 轴 = 年龄」的本意。
@@ -393,11 +462,10 @@ class MemoryStarMap(QWidget):
             n = len(arr)
             for i, s in enumerate(arr):
                 frac = (i + 0.5) / n
-                # 2026-11-03：30+118 → 22+168。
-                #   这是「年龄 = 离团心多远」这条映射的**唯一放大器** ——
-                #   之前半径跨度只有 118px，深度收缩 18% 只挪 27px，
-                #   在 600px 的类团间距下是噪声，所以前四轮怎么调都看不出纵深。
-                rr = (22 + 168 * frac) * (1.0 if n > 1 else 0.45)
+                # 2026-11-03：半径改由 self._cat_r[cat] 给（按 √n 分配）。
+                #   0.12 是内圈留白比例（原 22/190 = 0.116），保持「离团心越远越老」。
+                _cr = self._cat_r.get(cat, 120.0)
+                rr = _cr * (0.12 + 0.88 * frac) * (1.0 if n > 1 else 0.45)
                 ang = 2 * math.pi * ((i * 0.618) % 1.0)
                 px = gx + rr * math.cos(ang)
                 py = gy + rr * math.sin(ang) * 0.92
@@ -449,12 +517,199 @@ class MemoryStarMap(QWidget):
         # 清布局缓存：否则会继续用旧布局画新数据
         self._layout = {}
         self._layout_cached_size = None
+        # LOD / 优先级序也要清：星点换了但缓存 key 只看 id+len，
+        #   新列表的 id 通常会变，但不能寄望于此。
+        self._lod_cache = None
+        self._prio_cache = None
         if self.pinned is not None and (self.pinned.get('key') or '') not in {
                 s.get('key') or '' for s in stars}:
             self.pinned = None
         self.hover = None
         self.update()
         return True
+
+    # ---------- 绘制缓存 / LOD ----------
+    def _dust_pixmap(self):
+        """整张静态背景：纯色底 + 径向渐变 + 星尘（固定种子）。
+
+        三层都与 pan/zoom 无关 ⇒ 只在 resize 时重建，每帧一次 blit。
+        原来每帧要做 3 次全屏操作：fillRect 纯色、fillRect 径向渐变、
+        520 个 drawEllipse 星尘。
+        """
+        key = (self.width(), self.height(), round(getattr(self, '_cx', 0.0), 1),
+               round(getattr(self, '_cy', 0.0), 1))
+        if self._dust_cache and self._dust_cache[0] == key:
+            return self._dust_cache[1]
+        pm = QPixmap(max(1, self.width()), max(1, self.height()))
+        pm.fill(QColor(6, 7, 15))
+        pp = QPainter(pm)
+        pp.setRenderHint(QPainter.Antialiasing, True)
+        # 径向渐变（原先每帧现建）
+        _gx = getattr(self, '_cx', self.width() * 0.5)
+        _gy = getattr(self, '_cy', self.height() * 0.5)
+        g = QRadialGradient(QPointF(_gx, _gy), max(self.width(), self.height()) * 0.75)
+        g.setColorAt(0.0, QColor(22, 20, 46))
+        g.setColorAt(0.55, QColor(10, 10, 24))
+        g.setColorAt(1.0, QColor(4, 5, 12))
+        pp.fillRect(0, 0, self.width(), self.height(), QBrush(g))
+        pp.setPen(Qt.NoPen)
+        seed = 1234567
+        for _ in range(520):
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff
+            x = (seed % 10000) / 10000.0 * self.width()
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff
+            y = (seed % 10000) / 10000.0 * self.height()
+            v = 18 + (seed % 64)
+            pp.setBrush(QColor(v, v, min(255, v + 24)))
+            pp.drawEllipse(QPointF(x, y), 0.9, 0.9)
+        pp.end()
+        self._dust_cache = (key, pm)
+        return pm
+
+    def _sym_scale(self):
+        """符号尺寸的 zoom 系数（近乎恒定，封顶 SYM_ZOOM_CAP）。
+
+        ⛔ 不要改回 `self.zoom` 线性：那会让放大后点更大、更挤，
+        与「LOD 间距恒定」互相打架（zoom=3 时 1405 颗糊成一团）。
+        """
+        z = max(self.zoom, 0.05)
+        return min(SYM_ZOOM_CAP, z ** SYM_ZOOM_POW)
+
+    def _star_sprite(self, cat, px_radius):
+        """光晕 sprite：按**目标像素半径**分档预生成（绘制时不缩放）。
+
+        ⚠ 2026-11-03 实测（313 颗，同场景）：
+            114px sprite + 平滑缩放   8.00 ms
+            缩放但关平滑              1.77 ms
+            按目标尺寸预生成、不缩放    0.73 ms   ← 采用
+        ⇒ 主因是「平滑缩放」，不是光晕面积。所以按 GLOW_STEP 分档生成，
+        绘制走 drawPixmap(QPointF, pm)，零缩放。
+
+        返回 (pixmap, 实际半径)。实际半径与请求不同时（被 GLOW_MAX 截断），
+        调用方负责缩放绘制。
+        核心（亮圆点）不烘进 sprite：核心/光晕的比例随深度变化，
+        烘死会改变老星的核心大小 —— 那属于视觉回归，不做。
+        """
+        r = max(6.0, min(GLOW_MAX, round(px_radius / GLOW_STEP) * GLOW_STEP))
+        key = (cat, int(r))
+        pm = self._sprite_cache.get(key)
+        if pm is not None:
+            return pm, r
+        size = int(r * 2) + 2
+        pm = QPixmap(size, size)
+        pm.fill(Qt.transparent)
+        pp = QPainter(pm)
+        pp.setRenderHint(QPainter.Antialiasing, True)
+        c = QPointF(size / 2.0, size / 2.0)
+        col = PAL[cat]
+        gg = QRadialGradient(c, r)
+        c0 = QColor(*col); c0.setAlpha(190)
+        c1 = QColor(*col); c1.setAlpha(64)
+        c2 = QColor(*col); c2.setAlpha(0)
+        gg.setColorAt(0.0, c0)
+        gg.setColorAt(0.35, c1)
+        gg.setColorAt(1.0, c2)
+        pp.setBrush(QBrush(gg)); pp.setPen(Qt.NoPen)
+        pp.drawEllipse(c, r, r)
+        pp.end()
+        self._sprite_cache[key] = pm
+        return pm, r
+
+    def _keys_list(self):
+        """每条星点的 key（缓存）。原先每条连边两端都现算一次字符串拼接。"""
+        c = getattr(self, '_keys_cache', None)
+        if c and c[0] == id(self.stars) and c[1] == len(self.stars):
+            return c[2]
+        keys = [(s.get('key') or s['text']) for s in self.stars]
+        self._keys_cache = (id(self.stars), len(self.stars), keys)
+        return keys
+
+    def _label_candidates(self):
+        """个体标签候选（最亮 4 颗）。缓存 —— 原先每帧重排全部星点。"""
+        c = self._prio_cache
+        if c and len(c) > 3 and c[3] == (id(self.stars), len(self.stars)):
+            return c[4]
+        top = sorted(self.stars, key=lambda s: -self._bright(s))[:4]
+        self._prio_cache = (None, None, None, (id(self.stars), len(self.stars)), top)
+        return top
+
+    def _priority_order(self):
+        """LOD 的优先级序：重要度高的先留，同重要度按亮度（越新越亮）。
+
+        Owner 的原话是「重叠的地方干脆就只显示大的」⇒ 优先级第一键就是 imp。
+        """
+        c = self._prio_cache
+        if c and c[0] == id(self.stars) and c[1] == len(self.stars):
+            return c[2]
+        order = sorted(self.stars,
+                       key=lambda s: (-float(s.get('imp') or 3), -self._bright(s)))
+        self._prio_cache = (id(self.stars), len(self.stars), order)
+        return order
+
+    def _lod_visible(self):
+        """按屏幕占用格去重，返回本轮该画的星点（GIS 金字塔式 LOD）。
+
+        格边长 = LOD_CELL_BASE / zoom ⇒ 放大后格变小、可见星自动变多，
+        这就是「放大够了再把小的显示出来」。
+
+        ⚠ 星数 ≤ LOD_MIN_N 时原样全返回 —— 真实库 27 颗、产品上限 200 颗
+        本来就不重叠，不能因为这条优化改变它们的观感。
+        ⚠ pinned / hover 永远保留，否则点开的星会突然消失。
+        """
+        if len(self.stars) <= LOD_MIN_N:
+            return self.stars
+        # 格边长恒定；放大后同一段世界坐标落进更多格子 ⇒ 自动显示更多。
+        cell = LOD_CELL_BASE
+        key = (round(self.zoom, 3), id(self.stars), len(self.stars),
+               self._layout_cached_size)
+        c = self._lod_cache
+        if c and c[0] == key:
+            return c[1]
+        taken = set()
+        keep = []
+        pin, hov = self.pinned, self.hover
+        for st in self._priority_order():
+            k = st.get('key') or st['text']
+            xy = self._layout.get(k)
+            if not xy:
+                continue
+            ck = (int(math.floor(xy[0] * self.zoom / cell)),
+                  int(math.floor(xy[1] * self.zoom / cell)))
+            if ck in taken:
+                if st is pin or st is st is hov:
+                    keep.append(st)
+                continue
+            taken.add(ck)
+            keep.append(st)
+        self._lod_cache = (key, keep)
+        return keep
+
+    def _l0_count(self):
+        """L0 人格卡常驻条数（读本实例的 facts_path，按文件指纹缓存）。
+
+        ⚠ 2026-11-03 修：原实现写在 paintEvent 里，用的是**全局** FACTS_PATH
+        且**每帧** open+json.load 整个文件 —— 传了自定义 facts_path 的实例
+        （实验数据 / 多库）会显示真实库的条数，且拖动时每秒读盘 60 次。
+        """
+        try:
+            st = os.stat(self._facts_path)
+            key = (round(st.st_mtime, 3), st.st_size)
+        except OSError as _exc:
+            _log.debug('星图 L0 指纹读取失败：%s', _exc)
+            return 0
+        if self._l0_cache and self._l0_cache[0] == key:
+            return self._l0_cache[1]
+        n = 0
+        try:
+            from memory_engine import build_l0_block
+            with io.open(self._facts_path, encoding='utf-8') as _f:
+                _mj = json.loads(_f.read())
+            _l0, _used = build_l0_block(_mj.get('facts', []), getattr(self, 'role', 'flash'))
+            n = len(_used or [])
+        except Exception as _exc:
+            _log.debug('星图读取 L0 失败（不显示条数）：%s', _exc)
+        self._l0_cache = (key, n)
+        return n
 
     def _bright(self, s):
         # 与 memory_events.decay_factor 同源（幂律）。0.42 是保底亮度：
@@ -472,26 +727,10 @@ class MemoryStarMap(QWidget):
             self._layout_cached_size = (self.width(), self.height())
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        p.fillRect(self.rect(), QColor(6, 7, 15))
-
-        # 背景渐变
-        g = QRadialGradient(QPointF(self._cx, self._cy), max(self.width(), self.height()) * 0.75)
-        g.setColorAt(0.0, QColor(22, 20, 46))
-        g.setColorAt(0.55, QColor(10, 10, 24))
-        g.setColorAt(1.0, QColor(4, 5, 12))
-        p.fillRect(self.rect(), QBrush(g))
-
-        # 背景星尘（固定种子，重绘不闪）
-        p.setPen(Qt.NoPen)
-        seed = 1234567
-        for i in range(520):
-            seed = (seed * 1103515245 + 12345) & 0x7fffffff
-            x = (seed % 10000) / 10000.0 * self.width()
-            seed = (seed * 1103515245 + 12345) & 0x7fffffff
-            y = (seed % 10000) / 10000.0 * self.height()
-            v = 18 + (seed % 64)
-            p.setBrush(QColor(v, v, min(255, v + 24)))
-            p.drawEllipse(QPointF(x, y), 0.9, 0.9)
+        # 背景（纯色 + 径向渐变 + 星尘）烘成一张静态 pixmap（2026-11-03）
+        #   原来每帧三次全屏填充（纯色 / 径向渐变 / 星尘 alpha 混合）。
+        #   三层都与 pan/zoom 无关，只在 resize 时重建 ⇒ 每帧 1 次 blit。
+        p.drawPixmap(0, 0, self._dust_pixmap())
 
         # 星团云气
         for cat in ORDER:
@@ -499,7 +738,8 @@ class MemoryStarMap(QWidget):
                 continue
             gx, gy = self._centers[cat]
             sp = self._to_screen(gx, gy)
-            rr = (92 + 13 * min(len(self._groups[cat]), 8)) * self.zoom
+            # 云气半径跟类团外半径走（原先固定 92+13*min(n,8)，与 √n 版式不匹配）
+            rr = max(46.0, self._cat_r.get(cat, 120.0) * 1.08) * self.zoom
             col = QColor(*PAL[cat])
             gg = QRadialGradient(sp, rr)
             c0 = QColor(col); c0.setAlpha(78)
@@ -533,30 +773,46 @@ class MemoryStarMap(QWidget):
             self._strong_edges, self._weak_edges = build_edges(self.stars)
             self._edge_cache_key = (id(self.stars), len(self.stars))
 
-        def _ok(idx):
-            st = self.stars[idx]
-            k = st.get('key') or st['text']
-            return (k in self._layout), k
+        # 本轮可见集合（LOD 后的结果）与它的 key 集 —— 连线两端都可见才画，
+        #   否则会出现「线连着看不见的点」这种破绽，也白画。
+        _vis = self._lod_visible()
+        _vis_keys = {(s.get('key') or s['text']) for s in _vis}
+        # key 列表按星点缓存 —— 原先每条边两端都现算 'key' or 'text' 字符串，
+        #   每帧 5350 次（1.6ms）。改成索引查表。
+        _keys = self._keys_list()
 
         # 弱边先画（在底层，避免盖住强边）
+        #   2026-11-03：改为**按类别聚成一条 QPainterPath**，并关掉抗锯齿。
+        #   实测 181 条逐条 AA drawLine = 7.4ms；批量 + 无 AA = 4.8ms。
+        #   弱边 alpha 只有 28，关 AA 看不出锯齿。
+        _weak_paths = {}
         for i, j in getattr(self, '_weak_edges', []):
-            oki, ki = _ok(i)
-            okj, kj = _ok(j)
-            if not (oki and okj):
+            if _keys[i] not in _vis_keys or _keys[j] not in _vis_keys:
                 continue
-            a, b = self._layout[ki], self._layout[kj]
-            wcol = QColor(*PAL[self.stars[i].get('cat') or 'human'])
-            wcol.setAlpha(28)
-            p.setPen(QPen(wcol, 1.0))
-            p.drawLine(self._to_screen(*a), self._to_screen(*b))
+            a, b = self._layout[_keys[i]], self._layout[_keys[j]]
+            _cat = self.stars[i].get('cat') or 'human'
+            pa, pb = self._to_screen(*a), self._to_screen(*b)
+            _path = _weak_paths.get(_cat)
+            if _path is None:
+                _path = QPainterPath()
+                _weak_paths[_cat] = _path
+            _path.moveTo(pa)
+            _path.lineTo(pb)
+        if _weak_paths:
+            _aa = p.testRenderHint(QPainter.Antialiasing)
+            p.setRenderHint(QPainter.Antialiasing, False)
+            for _cat, _path in _weak_paths.items():
+                wcol = QColor(*PAL[_cat])
+                wcol.setAlpha(28)
+                p.setPen(QPen(wcol, 1.0))
+                p.drawPath(_path)
+            p.setRenderHint(QPainter.Antialiasing, _aa)
 
         # 强边后画（亮，压在上面）
         for i, j, w in getattr(self, '_strong_edges', []):
-            oki, ki = _ok(i)
-            okj, kj = _ok(j)
-            if not (oki and okj):
+            if _keys[i] not in _vis_keys or _keys[j] not in _vis_keys:
                 continue
-            a, b = self._layout[ki], self._layout[kj]
+            a, b = self._layout[_keys[i]], self._layout[_keys[j]]
             # 权重越高越亮：0.045 → alpha 90，0.20 → alpha 190
             t = min(1.0, max(0.0, (w - STRONG_EDGE_JACCARD) / 0.155))
             # 2026-11-03：再按**屏幕距离**衰减。跨类强边长达 600+px，
@@ -585,10 +841,16 @@ class MemoryStarMap(QWidget):
             y = self._cy + rr * math.sin(ang) * 0.86
             p.drawEllipse(self._to_screen(x, y), 1.6 * self.zoom + 0.6, 1.6 * self.zoom + 0.6)
 
-        # 记忆星 —— 2.5D：按深度降序绘制（z 大的 = 老的 = 远的先画，
-        #   新的后画并压在上面，形成真实的前后遮挡）
-        _draw = sorted(self.stars,
-                       key=lambda s: -self._depth.get(s.get('key') or s['text'], 0.0))
+        # 记忆星 —— 2.5D + LOD + sprite（2026-11-03）
+        #   · 只画 _vis（LOD 后）：重叠处只留优先级高的，放大后自动变多
+        #   · 按深度降序：z 大的（老的）先画，新的压在上面，形成前后遮挡
+        #   · 每颗星不再现建渐变，改为 drawPixmap 缩放缓存好的 sprite
+        _draw = sorted(_vis, key=lambda s: -self._depth.get(s.get('key') or s['text'], 0.0))
+        # 平滑缩放只在「sprite 被 GLOW_MAX 截断」时用得上；默认关掉（实测 4.5 倍差）。
+        p.setRenderHint(QPainter.SmoothPixmapTransform, False)
+        _sym = self._sym_scale()
+        _W, _H = self.width(), self.height()
+        _onview = 0
         for s in _draw:
             _k = s.get('key') or s['text']
             xy = self._layout.get(_k)
@@ -596,28 +858,33 @@ class MemoryStarMap(QWidget):
                 continue
             _z = self._depth.get(_k, 0.0)
             b = self._bright(s)
-            col = PAL[s['cat']]
-            # 远小近大
-            rad = (2.0 + 1.5 * s['imp']) * self.zoom * (1.0 - (1.0 - DEPTH_RAD) * _z)
+            # 远小近大；尺寸随 zoom 只轻微增长（见 _sym_scale）
+            rad = (2.0 + 1.5 * s['imp']) * _sym * (1.0 - (1.0 - DEPTH_RAD) * _z)
             # 光晕随深度收缩+变淡：这是 1411 条不糊成色块的关键。
-            # 原来固定 rad*5.5、alpha 190，1191 颗叠在一起就是一块实心蓝。
             glow = 5.5 * (1.0 - (1.0 - DEPTH_GLOW) * _z)
             ga = 1.0 - 0.55 * _z
             sp = self._to_screen(*xy)
-            gg = QRadialGradient(sp, rad * glow)
-            c0 = QColor(*col); c0.setAlpha(int(190 * b * ga))
-            c1 = QColor(*col); c1.setAlpha(int(64 * b * ga))
-            c2 = QColor(*col); c2.setAlpha(0)
-            gg.setColorAt(0.0, c0)
-            gg.setColorAt(0.35, c1)
-            gg.setColorAt(1.0, c2)
-            p.setBrush(QBrush(gg)); p.setPen(Qt.NoPen)
-            p.drawEllipse(sp, rad * glow, rad * glow)
-            core = QColor(*col)
-            core = QColor(min(255, core.red() + 28), min(255, core.green() + 28),
-                          min(255, core.blue() + 28))
-            p.setBrush(core)
+            _r = rad * glow
+            # 视窗剔除：连光晕都碰不到画面的直接跳过（zoom 大时省下绝大部分）
+            if (sp.x() + _r < 0 or sp.x() - _r > _W
+                    or sp.y() + _r < 0 or sp.y() - _r > _H):
+                continue
+            _onview += 1
+            _pm, _ru = self._star_sprite(s['cat'], _r)
+            p.setOpacity(b * ga)
+            if _ru == _r:
+                p.drawPixmap(QPointF(sp.x() - _ru, sp.y() - _ru), _pm)
+            else:
+                p.drawPixmap(QRectF(sp.x() - _r, sp.y() - _r, _r * 2, _r * 2), _pm,
+                             QRectF(_pm.rect()))
+            # 核心亮圆点：透明度回满 —— 与改动前一致（原实现核心不带亮度系数）
+            p.setOpacity(1.0)
+            _core = PAL[s['cat']]
+            p.setBrush(QColor(min(255, _core[0] + 28), min(255, _core[1] + 28),
+                              min(255, _core[2] + 28)))
+            p.setPen(Qt.NoPen)
             p.drawEllipse(sp, rad, rad)
+        self._onview_n = _onview
 
         # 中心 L0 核（三层固定半径，不再随 zoom 放大成白雾）
         # M2（审核抓出）：圆心必须走 _to_screen，否则拖动后中心亮斑留在屏幕正中、
@@ -636,19 +903,12 @@ class MemoryStarMap(QWidget):
         p.drawEllipse(_c, 7 * self.zoom + 2, 7 * self.zoom + 2)
         # S2（审核指出）：图例写「中心 = L0 人格卡」就必须真读数据。
         #   这里把真实身份条目数写在核下方，读不到就不写。
-        try:
-            from memory_engine import build_l0_block
-            import json as _json
-            _mj = _json.load(open(FACTS_PATH, encoding='utf-8'))
-            _l0, _used = build_l0_block(_mj.get('facts', []), getattr(self, 'role', 'flash'))
-            _n_id = len(_used or [])
-            if _n_id:
-                p.setFont(QFont('Microsoft YaHei', 8))
-                p.setPen(QColor(226, 214, 176, 220))
-                p.drawText(_c.x() - 70, _c.y() + 30 * self.zoom + 14,
-                           'L0 人格卡 · %d 条常驻' % _n_id)
-        except Exception as _exc:
-            _log.debug('星图读取 L0 失败（不显示条数）：%s', _exc)
+        _n_id = self._l0_count()
+        if _n_id:
+            p.setFont(QFont('Microsoft YaHei', 8))
+            p.setPen(QColor(226, 214, 176, 220))
+            p.drawText(_c.x() - 70, _c.y() + 30 * self.zoom + 14,
+                       'L0 人格卡 · %d 条常驻' % _n_id)
 
         # 文字
         p.setPen(QColor(255, 250, 242))
@@ -660,8 +920,13 @@ class MemoryStarMap(QWidget):
         p.setPen(QColor(150, 162, 200))
         n_ev = sum(1 for s in self.stars if s['kind'] == 'event')
         # C3：把「滤掉了多少」也说清楚，避免把 3/200 说成「真实数据」而不披露
-        p.drawText(30, 68, '真实数据 · 亮星 %d 颗（事实 %d + 共同经历 %d）· 隐没 %d 颗'
-                   % (len(self.stars), len(self.stars) - n_ev, n_ev, len(self.dead)))
+        # LOD 生效时必须在标题行披露「看到的是子集」，否则用户会以为数据丢了。
+        _lod_note = ''
+        _ov = getattr(self, '_onview_n', len(_vis))
+        if _ov < len(self.stars):
+            _lod_note = ' · 当前显示 %d 颗（视野内；重叠处先隐去，放大可见更多）' % _ov
+        p.drawText(30, 68, '真实数据 · 亮星 %d 颗（事实 %d + 共同经历 %d）· 隐没 %d 颗%s'
+                   % (len(self.stars), len(self.stars) - n_ev, n_ev, len(self.dead), _lod_note))
         # C3：滤除/合并了多少要披露，但不能塞进副标题（会压到星团名），
         #     放到右下角独立一行。
         _raw = self.raw_events or 0
@@ -681,11 +946,12 @@ class MemoryStarMap(QWidget):
             sp = self._to_screen(*self._centers[cat])
             col = QColor(*PAL[cat])
             p.setPen(col)
-            p.drawText(QRectF(sp.x() - 90, sp.y() - 178 * self.zoom, 180, 20),
+            _cr = self._cat_r.get(cat, 120.0) * self.zoom
+            p.drawText(QRectF(sp.x() - 90, sp.y() - (_cr * 0.92 + 42), 180, 20),
                        Qt.AlignHCenter, CN[cat])
             p.setPen(QColor(150, 156, 184))
             p.setFont(QFont('Microsoft YaHei', 8))
-            p.drawText(QRectF(sp.x() - 90, sp.y() - 158 * self.zoom, 180, 18),
+            p.drawText(QRectF(sp.x() - 90, sp.y() - (_cr * 0.92 + 24), 180, 18),
                        Qt.AlignHCenter, '%d 颗' % len(self._groups[cat]))
             p.setFont(QFont('Microsoft YaHei', 11))
 
@@ -695,17 +961,22 @@ class MemoryStarMap(QWidget):
         #   星图的主信息是「分布 + 关联」，个体详情 hover 已有卡片，
         #   所以密集时宁可不标，也不要糊成一团。
         p.setFont(QFont('Microsoft YaHei', 8))
-        cand = sorted(self.stars, key=lambda s: -self._bright(s))[:4]
+        # ⚠ 2026-11-03：原先每帧都 sorted(全部星点) 取前 4 ⇒ 1417 次 _bright/帧（1.2ms）。
+        #   星点与年龄不变时结果不变 ⇒ 缓存。
+        cand = self._label_candidates()
         # 先把星团名 + **星团盘**占位 —— 否则个体标签会压在星团名与星点上
         boxes = []
         for cat in ORDER:
             if not self._groups.get(cat):
                 continue
             cp = self._to_screen(*self._centers[cat])
-            boxes.append((cp.x() - 95, cp.y() - 186 * self.zoom, 190, 44))
-            # 星团盘（画云气用的那圈）只占最核心一小块 —— 0.72 会把所有候选位置
-            #   都挡掉（实测 180 颗时一个标签都不显示），0.40 让外圈星点有位置可放。
-            _disk = (92 + 13 * min(len(self._groups[cat]), 8)) * 0.14 * self.zoom
+            # 类团半径已按 √n 分配，标签/占位不能再写死 186/92 这些常量，
+            #   否则小团（mile 69px）的标签会飘在很久之外。
+            # 星团名要留在团盘**外侧**。⚠ 位置属于几何 ⇒ 用 zoom；
+            #   符号尺寸才用 _sym_scale。混用会让 zoom=3 时名字落进团盘里被星压住。
+            _cr = self._cat_r.get(cat, 120.0) * self.zoom
+            boxes.append((cp.x() - 95, cp.y() - (_cr * 0.92 + 42), 190, 44))
+            _disk = _cr * 0.14
             boxes.append((cp.x() - _disk, cp.y() - _disk, _disk * 2, _disk * 2))
         for s in cand:
             xy = self._layout.get(s.get('key') or s['text'])
@@ -743,6 +1014,12 @@ class MemoryStarMap(QWidget):
                 break
 
         # 图例 + 映射
+        # 2026-11-03：加半透明深色底。放大后星团会压到这块，灰字打在蓝星上读不清
+        #   （zoom=3 截图实测）。底色沿用详情卡的 (10,12,26)，不引入新色值。
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(10, 12, 26, 176))
+        p.drawRoundedRect(QRectF(20, self.height() - 168, 168, 156), 8, 8)
+        p.drawRoundedRect(QRectF(self.width() - 310, self.height() - 168, 292, 156), 8, 8)
         p.setFont(QFont('Microsoft YaHei', 9))
         ly = self.height() - 150
         p.setPen(QColor(196, 204, 232))
@@ -818,7 +1095,9 @@ class MemoryStarMap(QWidget):
         2.5D（2026-11-03）：老的星画得小（最多缩 34%），命中半径必须同比缩，
         否则点一颗小星会误中它旁边的大星。"""
         best, bd = None, None
-        for s in self.stars:
+        # 只命中**本轮可见**的星：LOD 隐去的星如果还能点中，
+        #   就会出现「点了空白处却钉住一颗看不见的星」。
+        for s in self._lod_visible():
             _k = s.get('key') or s['text']
             xy = self._layout.get(_k)
             if not xy:
@@ -827,8 +1106,13 @@ class MemoryStarMap(QWidget):
             d = math.hypot(sp.x() - pos.x(), sp.y() - pos.y())
             # 可视核心半径 × zoom × 深度缩放 + 余量，下限 10px
             _z = self._depth.get(_k, 0.0)
-            reach = max(10.0, (2.0 + 1.5 * s.get('imp', 3)) * self.zoom
-                        * (1.0 - (1.0 - DEPTH_RAD) * _z) + 6.0)
+            # 命中半径 = 核心半径 × 1.8 + 6，并**额外随 zoom 放宽**。
+            #   ⚠ 符号本身封顶 1.6 倍（否则放大后点更挤），但点选容差不能跟着封顶：
+            #   放大就是在细看，容差收紧会点不中（test_hit_radius_scales_with_zoom
+            #   的契约：zoom=4 时 20px 外仍要能点中）。
+            _core = (2.0 + 1.5 * s.get('imp', 3)) * self._sym_scale() \
+                * (1.0 - (1.0 - DEPTH_RAD) * _z)
+            reach = max(10.0, _core * 1.8 + 6.0 + 2.0 * max(0.0, self.zoom - 1.0))
             if d <= reach and (bd is None or d < bd):
                 best, bd = s, d
         return best
