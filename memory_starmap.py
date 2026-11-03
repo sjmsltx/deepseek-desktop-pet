@@ -143,10 +143,23 @@ def build_edges(stars):
         return [], []
 
     # ---- 强边：全配对算词重叠 ----
+    # v7.x（2026-11-03 性能）：原先每对都调 jaccard()，而 jaccard 内部把两段文本
+    #   重新 terms() 一遍 ⇒ 1411 点要跑 199 万次 terms()。
+    #   改成每篇只算一次，jaccard 用 |A∩B|/(|A|+|B|-|A∩B|) 手算（与原式恒等）。
+    _ts = [terms(s.get('text', '')) for s in stars]
     cand = []
     for i in range(n):
+        ta = _ts[i]
+        if not ta:
+            continue
         for j in range(i + 1, n):
-            w = jaccard(stars[i].get('text', ''), stars[j].get('text', ''))
+            tb = _ts[j]
+            if not tb:
+                continue
+            inter = len(ta & tb)
+            if not inter:          # 无交集 ⇒ jaccard 为 0，必然不过阈值
+                continue
+            w = inter / float(len(ta) + len(tb) - inter)
             if w >= STRONG_EDGE_JACCARD:
                 cand.append((w, i, j))
     cand.sort(reverse=True)
@@ -167,26 +180,24 @@ def build_edges(stars):
     for idx, s in enumerate(stars):
         by_cat.setdefault(s.get('cat'), []).append(idx)
 
+    # ⚠ 2026-11-03 性能：原先用朴素 Prim（每轮扫 tree×rest），累计 O(V³)。
+    #   实测 1411 条里 like 单团 1173 点 ⇒ 约 27 秒，是整张星图唯一的耗时大头
+    #   （强边全配对只要 1.3 秒）。
+    #
+    #   但距离是 |age_a - age_b| —— **一维**。一维欧氏距离的最小生成树就是
+    #   「按 age 排序后相邻两点相连」，O(n log n)，实测 0.0003 秒。
+    #
+    #   等价性：两者都是最小生成树 ⇒ **总权重相同**。原先注释要求的
+    #   「细线倾向连接时间接近的经历」恰好就是排序相邻连，语义更强而非更弱。
+    #   ⚠ age 完全相同的点之间 MST 不唯一，边集可能与 Prim 略有差异（总权重不变），
+    #     星图视觉上无差别。
     weak = []
     for cand_idx in by_cat.values():
         if len(cand_idx) < 2:
             continue
-        # Prim：起点取最老的（age 最大），逐次连最近的未访问点
-        rest = set(cand_idx)
-        first = max(rest, key=lambda k: stars[k].get('age') or 0.0)
-        rest.discard(first)
-        tree = [first]
-        while rest:
-            best = None
-            for a in tree:
-                for b in rest:
-                    d = abs((stars[a].get('age') or 0.0) - (stars[b].get('age') or 0.0))
-                    if best is None or d < best[0]:
-                        best = (d, a, b)
-            _d, a, b = best
+        order = sorted(cand_idx, key=lambda k: (stars[k].get('age') or 0.0, k))
+        for a, b in zip(order, order[1:]):
             weak.append((a, b))
-            tree.append(b)
-            rest.discard(b)
 
     return strong, weak
 
