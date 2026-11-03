@@ -11,6 +11,7 @@ memory_events.py — 回忆日志（事件记忆层）
 {id, time, role, type, title, detail, emotion, affection_at}
 type: milestone(成就/里程碑) | event(事件) | user_mark(用户标记) | memory(事实记忆双写)
 """
+import hashlib
 import json
 import logging
 import os
@@ -270,10 +271,17 @@ class MemoryEvents:
         rows = []
         for m in items:
             try:
+                # content_hash：库删了 id 之后，靠它还能认出「当时删的是哪条内容的版本」
+                #   （WX-174 §六 第 3 条）。title + detail 拼起来取前 16 位。
+                _raw = ((m.get('title') or '') + '\x00' + (m.get('detail') or '')).encode('utf-8')
+                _hash = hashlib.sha256(_raw).hexdigest()[:16]
                 rows.append(json.dumps({
                     't': stamp,
                     'reason': reason,
                     'id': m.get('id'),
+                    # ⚠ 加 version=2：老台账没有这两个字段，靠它区分
+                    'v': 2,
+                    'content_hash': _hash,
                     'title': m.get('title') or '',
                     'time': m.get('time') or '',
                     'weight': m.get('weight'),
@@ -281,6 +289,11 @@ class MemoryEvents:
                     'origin': m.get('origin') or 'user',
                     'repeat_count': m.get('repeat_count'),
                     'kept': kept,
+                    # committed=False 表示「已记账、尚未确认删除成功」
+                    #   淘汰写台账成功、删记忆失败（进程被 kill 在中间）时，
+                    #   重启后台账里有一条「已淘汰」但记忆还在 ⇒ 对账会以为它没了。
+                    #   删成功后再 update_evicted_committed() 改成 True。
+                    'committed': False,
                 }, ensure_ascii=False))
             except Exception as exc:
                 _log.debug('台账序列化失败（跳过该条）：%r', exc)
@@ -310,6 +323,50 @@ class MemoryEvents:
             return len(rows)
         except Exception as exc:
             _log.warning('淘汰台账写入失败（淘汰仍会继续，但这条不可追溯）：%r', exc)
+            return 0
+
+    def update_evicted_committed(self, ids, committed: bool = True) -> int:
+        """把台账里这些 id 的 committed 标记改掉。返回改了条数。
+
+        ⚠ 为什么要它（WX-174 §六 第 3 条）：淘汰是「先记账 → 再删」两步，
+          中间被 kill 就会留下「台账说已淘汰、库里还在」的假记录。
+          本方法在删除**确认成功后**才把 committed 置 True，
+          对账时「committed=false 且库里没有」才是真异常。
+
+        ⚠ 重写整个文件（台账 5000 行上限，可接受）；失败落痕不吞。
+        """
+        ids = {str(i) for i in (ids or []) if i is not None}
+        if not ids or not os.path.exists(self.evicted_path):
+            return 0
+        rows = []
+        changed = 0
+        try:
+            with open(self.evicted_path, encoding='utf-8') as fh:
+                for line in fh:
+                    t = line.strip()
+                    if not t:
+                        continue
+                    try:
+                        d = json.loads(t)
+                    except Exception as exc:
+                        # 落痕：一行坏了就原样保留、不阻断整次更新。
+                        # 但「有一行解析不了」是台账正在腐坏的信号，必须看得见。
+                        _log.warning('台账有一行解析不了（原样保留，该行 committed 无法更新）：'
+                                     '%r：%r', t[:80], exc)
+                        rows.append(t)
+                        continue
+                    if str(d.get('id')) in ids and d.get('committed') is not committed:
+                        d['committed'] = committed
+                        changed += 1
+                    rows.append(json.dumps(d, ensure_ascii=False))
+            if changed:
+                tmp = self.evicted_path + '.tmp'
+                with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
+                    fh.write('\n'.join(rows) + '\n')
+                os.replace(tmp, self.evicted_path)
+            return changed
+        except Exception as exc:
+            _log.warning('台账 committed 更新失败（对账时需人工确认）：%r', exc)
             return 0
 
     def evicted_recent(self, n: int = 20) -> list:
@@ -431,13 +488,19 @@ class MemoryEvents:
                 # 2026-11-02（Owner「淘汰可以」）：**先记账、再删**。
                 #   算出「原来有、现在没有」的那些 = 真正被淘汰的，先写台账。
                 #   ⛔ 顺序不许反：反了就没有「删之前一定记过」。
+                _rec_ids = []
                 try:
                     gone = [m for m in self._memories if m not in new_list]
                     if gone:
                         self.record_evicted(gone, reason='overflow', kept=len(new_list))
+                        _rec_ids = [m.get('id') for m in gone]
                 except Exception as exc:
                     _log.warning('淘汰台账环节异常（淘汰照常进行）：%r', exc)
                 self._memories = new_list
+                # 删除已生效 ⇒ 把台账里的 committed 置 True。
+                # 若这里被 kill，台账会留 committed=false，对账时能分辨。
+                if _rec_ids:
+                    self.update_evicted_committed(_rec_ids, True)
             self._save()
             return entry
 
@@ -485,13 +548,34 @@ class MemoryEvents:
         return False
 
     def _bump(self, pool, idx):
-        """命中加权：在锁内改原条目（pool 里的 dict 就是 self._memories 的元素）"""
+        """命中加权：在锁内改原条目（pool 里的 dict 就是 self._memories 的元素）
+
+        ⚠ 2026-11-03 补 origin 保护（WX-174 §四-b 报出，我核实成立）：
+
+          `add()` 的合并路径**特意**做了「pet 不动 weight」——
+            原注释：「定时关心是一句固定模板，一天触发几十次，照样能把权重推到满格。
+            那不是『被反复提及』，是『定时器跑了很多次』。⇒ 'pet' 来源只累加
+            repeat_count，不动 weight。」
+          但 `_bump()`（检索命中路径）**无条件** `weight = min(MAX, base + 0.06)`
+          ⇒ **同一个风险，一条路堵了、一条路漏着。**
+
+          后果：一条 origin='pet' 的模板话被检索命中 8 次：
+            0.55 + 8 × 0.06 = 1.03 → min() 截到 1.0 = WEIGHT_MAX 满格
+          正是 WX-158 要防的那个症状，从另一条路径绕回来了。
+
+          ⚠ 自限说明：当前 6 条 weight 全是 0.55（= WEIGHT_NEW），
+            说明 `_bump` 在这个库上几乎没真正生效过 ⇒ **这是代码层不一致，不是已发生事故。**
+            但一旦接上语义检索、命中率上去，它就会变成事故。
+        """
         m = pool[idx]
         try:
             m['access_count'] = int(m.get('access_count') or 0) + 1
         except (TypeError, ValueError):
             m['access_count'] = 1
         m['last_access'] = time.strftime('%Y-%m-%d %H:%M')
+        # 只有「人说的」才因命中而加权 —— 与 add() 合并路径同一个判据
+        if (m.get('origin') or 'user') == 'pet':
+            return m
         try:
             base = float(m.get('weight', WEIGHT_NEW))
         except (TypeError, ValueError):
