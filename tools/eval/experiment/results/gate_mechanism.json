@@ -1,0 +1,78 @@
+{
+  "note": "容量 200 条，5 种子；rare = 只数 IDF 高于 query 中位数的命中词",
+  "rows": [
+    {
+      "recipe": "baseline",
+      "thr": null,
+      "recall": 2.0,
+      "holdout": 3.2,
+      "neg_inject": 6.4
+    },
+    {
+      "recipe": "rare",
+      "thr": 1,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 24.4,
+      "range": [
+        23,
+        25
+      ]
+    },
+    {
+      "recipe": "rare",
+      "thr": 2,
+      "recall": 2.0,
+      "holdout": 1.2,
+      "neg_inject": 4.6,
+      "range": [
+        3,
+        6
+      ]
+    },
+    {
+      "recipe": "rare_any",
+      "thr": 0.3,
+      "recall": 2.0,
+      "holdout": 2.0,
+      "neg_inject": 1.0,
+      "range": [
+        0,
+        2
+      ]
+    },
+    {
+      "recipe": "rare_any",
+      "thr": 0.4,
+      "recall": 0.0,
+      "holdout": 1.0,
+      "neg_inject": 0.0,
+      "range": [
+        0,
+        0
+      ]
+    },
+    {
+      "recipe": "rare_and_cov",
+      "thr": 0.3,
+      "recall": 2.0,
+      "holdout": 2.0,
+      "neg_inject": 1.0,
+      "range": [
+        0,
+        2
+      ]
+    },
+    {
+      "recipe": "rare_and_cov",
+      "thr": 0.4,
+      "recall": 0.0,
+      "holdout": 1.0,
+      "neg_inject": 0.0,
+      "range": [
+        0,
+        0
+      ]
+    }
+  ]
+}

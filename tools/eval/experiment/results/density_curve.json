@@ -1,0 +1,138 @@
+{
+  "note": "每个点 3 次独立随机噪声，取均值并记录极差",
+  "real_facts": 21,
+  "rows": [
+    {
+      "noise": 0,
+      "total": 21,
+      "neg_inject_mean": 2.0,
+      "neg_inject_range": [
+        2,
+        2
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.44
+    },
+    {
+      "noise": 25,
+      "total": 46,
+      "neg_inject_mean": 2.33,
+      "neg_inject_range": [
+        2,
+        3
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.52
+    },
+    {
+      "noise": 50,
+      "total": 71,
+      "neg_inject_mean": 4.0,
+      "neg_inject_range": [
+        3,
+        5
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.56
+    },
+    {
+      "noise": 75,
+      "total": 96,
+      "neg_inject_mean": 5.33,
+      "neg_inject_range": [
+        4,
+        7
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.7
+    },
+    {
+      "noise": 100,
+      "total": 121,
+      "neg_inject_mean": 5.0,
+      "neg_inject_range": [
+        5,
+        5
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.67,
+      "avg_returned": 0.65
+    },
+    {
+      "noise": 125,
+      "total": 146,
+      "neg_inject_mean": 4.0,
+      "neg_inject_range": [
+        3,
+        5
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.72
+    },
+    {
+      "noise": 150,
+      "total": 171,
+      "neg_inject_mean": 6.0,
+      "neg_inject_range": [
+        4,
+        8
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.33,
+      "avg_returned": 0.74
+    },
+    {
+      "noise": 175,
+      "total": 196,
+      "neg_inject_mean": 9.67,
+      "neg_inject_range": [
+        9,
+        11
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.33,
+      "avg_returned": 0.74
+    },
+    {
+      "noise": 200,
+      "total": 221,
+      "neg_inject_mean": 4.67,
+      "neg_inject_range": [
+        4,
+        5
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.89
+    },
+    {
+      "noise": 300,
+      "total": 321,
+      "neg_inject_mean": 11.33,
+      "neg_inject_range": [
+        11,
+        12
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.0,
+      "avg_returned": 0.76
+    },
+    {
+      "noise": 500,
+      "total": 521,
+      "neg_inject_mean": 11.33,
+      "neg_inject_range": [
+        10,
+        12
+      ],
+      "recall_mean": 2.0,
+      "holdout_mean": 3.33,
+      "avg_returned": 0.89
+    }
+  ]
+}

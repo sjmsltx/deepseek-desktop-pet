@@ -1,0 +1,138 @@
+{
+  "note": "容量固定 200 条（产品上限），5 个随机种子重复",
+  "n_recall": 6,
+  "n_holdout": 12,
+  "n_neg": 42,
+  "rows": [
+    {
+      "min_matched": 2,
+      "min_coverage": 0.3,
+      "keep_ratio": 0.25,
+      "recall": 2.0,
+      "holdout": 3.2,
+      "neg_inject": 6.4,
+      "neg_inject_range": [
+        5,
+        7
+      ],
+      "avg_returned": 0.67
+    },
+    {
+      "min_matched": 2,
+      "min_coverage": 0.25,
+      "keep_ratio": 0.25,
+      "recall": 2.0,
+      "holdout": 3.2,
+      "neg_inject": 11.0,
+      "neg_inject_range": [
+        10,
+        13
+      ],
+      "avg_returned": 0.67
+    },
+    {
+      "min_matched": 2,
+      "min_coverage": 0.2,
+      "keep_ratio": 0.25,
+      "recall": 3.0,
+      "holdout": 3.2,
+      "neg_inject": 14.4,
+      "neg_inject_range": [
+        13,
+        16
+      ],
+      "avg_returned": 0.81
+    },
+    {
+      "min_matched": 1,
+      "min_coverage": 0.4,
+      "keep_ratio": 0.25,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    },
+    {
+      "min_matched": 1,
+      "min_coverage": 0.33,
+      "keep_ratio": 0.25,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    },
+    {
+      "min_matched": 1,
+      "min_coverage": 0.3,
+      "keep_ratio": 0.25,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    },
+    {
+      "min_matched": 1,
+      "min_coverage": 0.25,
+      "keep_ratio": 0.25,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    },
+    {
+      "min_matched": 2,
+      "min_coverage": 0.0,
+      "keep_ratio": 0.25,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    },
+    {
+      "min_matched": 1,
+      "min_coverage": 0.0,
+      "keep_ratio": 0.25,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    },
+    {
+      "min_matched": 0,
+      "min_coverage": 0.0,
+      "keep_ratio": 0.0,
+      "recall": 5.8,
+      "holdout": 4.2,
+      "neg_inject": 26.2,
+      "neg_inject_range": [
+        25,
+        27
+      ],
+      "avg_returned": 2.13
+    }
+  ]
+}

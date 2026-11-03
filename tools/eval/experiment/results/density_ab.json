@@ -1,0 +1,46 @@
+{
+  "note": "只改语料条数一个变量；用例限定为期望词在真实库中存在的那些",
+  "n_usable_cases": 18,
+  "rows": [
+    {
+      "noise": 0,
+      "total": 21,
+      "recall_hit": 2,
+      "holdout_hit": 3,
+      "neg_inject": 2,
+      "avg_returned": 0.44
+    },
+    {
+      "noise": 50,
+      "total": 71,
+      "recall_hit": 2,
+      "holdout_hit": 3,
+      "neg_inject": 5,
+      "avg_returned": 0.56
+    },
+    {
+      "noise": 200,
+      "total": 221,
+      "recall_hit": 2,
+      "holdout_hit": 3,
+      "neg_inject": 5,
+      "avg_returned": 0.78
+    },
+    {
+      "noise": 800,
+      "total": 821,
+      "recall_hit": 2,
+      "holdout_hit": 4,
+      "neg_inject": 14,
+      "avg_returned": 1.22
+    },
+    {
+      "noise": 1400,
+      "total": 1421,
+      "recall_hit": 2,
+      "holdout_hit": 4,
+      "neg_inject": 15,
+      "avg_returned": 1.28
+    }
+  ]
+}
