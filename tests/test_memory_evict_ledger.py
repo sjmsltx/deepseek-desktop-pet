@@ -184,3 +184,100 @@ def test_only_eviction_path_is_touched():
             if node.func.attr == 'record_evicted':
                 hits.append(node.lineno)
     assert len(hits) == 1, 'record_evicted 被调用 %d 次，只该在淘汰处调一次：%r' % (len(hits), hits)
+
+# ══════════ content_hash / committed（2026-11-03，WX-174 §六 第 3 条）══════════
+
+def test_ledger_has_content_hash(tmp_path):
+    """⭐ content_hash 必须存在且格式对 —— 库删了 id 之后靠它认出删的是什么。
+
+    微信原话：「只记 id 的话，库里删了 id 就再也查不出当时删的是什么。」
+
+    ⚠ 第一版我在这个函数里留了两段没用上的代码（`m2`/`o2` 建了不跑、`h1` 算了不用），
+      自查时删掉 —— 测试里的死代码比产品里的更危险，会让人以为「这里验过了」。
+    """
+    m, old = _mk(tmp_path, cap=2)
+    try:
+        m._memories = [
+            {'id': 1, 'title': '唯一标题甲', 'detail': '细节甲', 'time': '2026-10-01 10:00'},
+            {'id': 2, 'title': '唯一标题乙', 'detail': '细节乙', 'time': '2026-10-02 10:00'},
+            {'id': 3, 'title': '新的', 'time': '2026-10-03 10:00'},
+        ]
+        m.add('flash', 'event', '触发', 'x')
+        rows = m.evicted_recent(50)
+        assert rows, '没有台账'
+        for r in rows:
+            assert 'content_hash' in r, '台账缺 content_hash'
+            ch = r['content_hash']
+            assert isinstance(ch, str) and len(ch) == 16, \
+                'content_hash 应为 16 位十六进制串，实际 %r' % (ch,)
+            assert all(c in '0123456789abcdef' for c in ch), \
+                'content_hash 含非十六进制字符：%r' % (ch,)
+    finally:
+        me.MAX_MEMORIES = old
+
+
+def test_ledger_content_hash_differs_for_different_content(tmp_path):
+    """不同内容的 content_hash 必须不同（否则认不出「是哪一版」）。"""
+    m, old = _mk(tmp_path, cap=2)
+    try:
+        m._memories = [
+            {'id': 1, 'title': '标题甲', 'detail': '细节甲', 'time': '2026-10-01 10:00'},
+            {'id': 2, 'title': '标题乙', 'detail': '细节乙', 'time': '2026-10-02 10:00'},
+            {'id': 3, 'title': '新的', 'time': '2026-10-03 10:00'},
+        ]
+        m.add('flash', 'event', '触发', 'x')
+        rows = m.evicted_recent(50)
+        hashes = [r['content_hash'] for r in rows]
+        assert len(set(hashes)) == len(hashes), '不同内容的 content_hash 撞了：%r' % hashes
+    finally:
+        me.MAX_MEMORIES = old
+
+
+def test_ledger_committed_flips_after_delete(tmp_path):
+    """⭐ 淘汰成功后 committed 必须是 True（对账时靠它分辨「记了但没删成」）。"""
+    m, old = _mk(tmp_path, cap=2)
+    try:
+        for i in range(5):
+            m.add('flash', 'event', 'T%d' % i, 'D%d' % i)
+        rows = m.evicted_recent(50)
+        assert rows, '没有台账'
+        assert all(r.get('committed') is True for r in rows), (
+            '删除已生效但 committed 不是 True：%r'
+            % [(r.get('id'), r.get('committed')) for r in rows])
+    finally:
+        me.MAX_MEMORIES = old
+
+
+def test_update_committed_works(tmp_path):
+    """update_evicted_committed 能把 false 改回 true，且不碰别的行。"""
+    m, old = _mk(tmp_path, cap=2)
+    try:
+        for i in range(4):
+            m.add('flash', 'event', 'T%d' % i, 'D%d' % i)
+        rows = m.evicted_recent(50)
+        ids = [r['id'] for r in rows]
+        # 人为全部改回 False（模拟「记账后被杀」）
+        n = m.update_evicted_committed(ids, False)
+        assert n == len(ids), '改了 %d 条，应为 %d' % (n, len(ids))
+        assert all(r.get('committed') is False for r in m.evicted_recent(50))
+        # 再改回 True
+        n2 = m.update_evicted_committed(ids, True)
+        assert n2 == len(ids)
+        assert all(r.get('committed') is True for r in m.evicted_recent(50))
+        # 不存在的 id 不该报错
+        assert m.update_evicted_committed([999999], True) == 0
+    finally:
+        me.MAX_MEMORIES = old
+
+
+def test_ledger_version_marked(tmp_path):
+    """v=2 标记存在 —— 老台账没这两个字段，靠它区分格式代。"""
+    m, old = _mk(tmp_path, cap=2)
+    try:
+        for i in range(4):
+            m.add('flash', 'event', 'T%d' % i, 'D%d' % i)
+        rows = m.evicted_recent(50)
+        assert rows and all(r.get('v') == 2 for r in rows), '台账缺 v=2 标记'
+    finally:
+        me.MAX_MEMORIES = old
+
