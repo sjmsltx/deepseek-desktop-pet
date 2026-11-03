@@ -1,0 +1,237 @@
+{
+  "_meta": {
+    "生成时间": "2026-11-03 09:53",
+    "用途": "真实对话分布快照（从 chat_memory_*.json 抽 user 消息）。不参与打分。",
+    "为什么冻结": "chat_memory 会随使用变化，冻结才能让「注入率 31.1%」这个数可复核。",
+    "抽取口径": "who ∈ {我,user,用户,主人}；长度 1~200；按原文去重",
+    "实测字段": "{'who': '我'|'桌宠', 'text': ..., 'ts': ...}"
+  },
+  "count": 45,
+  "messages": [
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-24 17:36",
+      "text": "？"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-24 17:38",
+      "text": "你好"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-24 19:17",
+      "text": "nb666"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-24 19:18",
+      "text": "没事"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-24 19:18",
+      "text": "说话"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-24 21:43",
+      "text": "hello"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-25 13:02",
+      "text": "konohentai"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-25 13:03",
+      "text": "阿姨洗铁路"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-25 13:10",
+      "text": "good morning"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-25 14:21",
+      "text": "Good morning good evening"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-25 17:18",
+      "text": "下午好"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-26 18:31",
+      "text": "背贾谊还是哪个的过秦论"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-26 18:33",
+      "text": "不是，让你读"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-26 22:43",
+      "text": "再读一遍"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-27 23:12",
+      "text": "binbinbin"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-27 23:12",
+      "text": "冰冰冰"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 00:07",
+      "text": "背静夜思"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 00:07",
+      "text": "再背"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 00:08",
+      "text": "怎么不读呢"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 00:08",
+      "text": "懂了"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 08:48",
+      "text": "感谢天气提醒，早上好，注意身体健康哟"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 08:55",
+      "text": "如果让你在现在世界上的ai模型中选一个当伴侣，你选谁"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-30 08:57",
+      "text": "牛逼，我以为你要选claude或者gpt"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-31 00:21",
+      "text": "晚安"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-31 11:21",
+      "text": "背一下过秦论"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-31 17:57",
+      "text": "Good morning"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "10-31 21:38",
+      "text": "你现在记忆机制优化了"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "11-01 17:10",
+      "text": "🧭 引导 · 这轮赶不上了"
+    },
+    {
+      "src": "chat_memory_flash.json",
+      "ts": "11-01 20:34",
+      "text": ">>> d={x:y for x in [1,2,3] for y in [4,5,6]}\n>>> d\n{1: 6, 2: 6, 3: 6}\n讲一下这个"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 13:52",
+      "text": "a=[1,2,3,4,5]\nb=iter(a)\nc=0\nd=[]\nif c < 4:\n    d=d.append(next(b))\n    c = c+1\nprint(b),print(d)\n你分析一下这段代码"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 13:59",
+      "text": "a=[1,2,3,4,5]\nb=iter(a)\nc=0\nd=[]\nwhile c < 5:\n    d.append(next(b))\n    c = c+1\nprint(b),print(d)\n我自己又改了一下"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 14:01",
+      "text": "a=[1,2,3,4,5]\nb=iter(a)\nc=0\nd=[]\nwhile c < 5:\n    d.append(next(b))\n    c = c+1\nprint(list(b)),print(d)\n相当于说是把一个变量给它转换成一次性的迭代器之后然后再用nex给它取出来 它原来列表内的那些元素会没有是吧"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:05",
+      "text": "写一段摩斯编码的字典 ,然后你来随机给一组编码我来测试 看输出的什么"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:06",
+      "text": "你刚刚发的那个字典程序它没有办法输入"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:09",
+      "text": "BLUE FLASH"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:09",
+      "text": "再来一组"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:09",
+      "text": "GEOGRAPHY"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:09",
+      "text": "上难度，带数字标点"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:10",
+      "text": "PYTHON 3.14!"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:10",
+      "text": "再来一组更狠的"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:11",
+      "text": "GIS? 4326 / 3857?"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-11 18:11",
+      "text": "我去你说的这俩数字是什么意思来讲一讲"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-15 12:04",
+      "text": "你们服务器修好了吗现在居然可以调用了"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-15 12:05",
+      "text": "你联网搜索一下deep seek现在的状况"
+    },
+    {
+      "src": "chat_memory_kimi.json",
+      "ts": "10-15 12:15",
+      "text": "这几天有那个传言说是在搞灰度测试，但是今天服务器突然崩溃了不知道是不是这个原因，但是我估计不是。因为服务器崩溃的话不可能修了4个小时才修好 ，它那个模型迭代的话不可能会要4个小时 。"
+    }
+  ]
+}

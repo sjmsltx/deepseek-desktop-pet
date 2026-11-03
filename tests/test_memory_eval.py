@@ -79,6 +79,9 @@ BASELINE = {
     'R@3': 2 / 6,        # 开发集 6 条中 2 条进前 3
     'H_R@1': 2 / 12,     # 留出集 12 条中 2 条进第 1
     'H_R@3': 3 / 12,     # 留出集 12 条中 3 条进前 3
+    # 纯检索口径（排除 L0 常驻块已含的用例）。实测 0.30 时 1/5。
+    # 为什么单列：H_R@3=25% 但其中 2 条是 L0 撑的，纯检索只有 20%。
+    'H_R@3_pure': 1 / 5,
     'EVID': 1.0,
     'FALSE': 1.0,
     'NOISE': 1.0,
@@ -100,7 +103,7 @@ def test_cases_file_is_real_data_based():
     p = os.path.join(BASE, 'tools', 'eval', 'cases.json')
     assert os.path.exists(p), 'cases.json 不见了'
     d = json.load(io.open(p, encoding='utf-8'))
-    for k in ('recall', 'holdout', 'false', 'noise', 'superseded'):
+    for k in ('recall', 'holdout', 'entity', 'false', 'noise', 'superseded'):
         assert d.get(k), '用例里 %s 类是空的' % k
 
 
@@ -110,7 +113,7 @@ def test_eval_runs_on_real_library(result):
         'active facts 只有 %d 条，评估等于没测' % result['counts']['facts_active'])
 
 
-@pytest.mark.parametrize('metric', ['R@1', 'R@3', 'H_R@1', 'H_R@3',
+@pytest.mark.parametrize('metric', ['R@1', 'R@3', 'H_R@1', 'H_R@3', 'H_R@3_pure',
                                     'EVID', 'FALSE', 'NOISE', 'SUPERSEDED'])
 def test_not_below_baseline(result, metric):
     """每一类都不许低于基线。改检索/闸门/衰减后跑一遍就知道有没有把东西弄坏。"""
@@ -192,3 +195,99 @@ def test_holdout_never_used_for_tuning():
         src = io.open(p, encoding='utf-8').read()
         assert 'holdout' not in src, '%s 里出现了 holdout，调参代码可能偷看留出集' % fn
         assert 'cases.json' not in src, '%s 里出现 cases.json，产品代码不许读用例' % fn
+
+
+# ══════════ 用例数钉（WX-173 §七 第 4 条）══════════
+
+def test_case_count_is_pinned():
+    """⭐ 用例数只许增不许减 —— 否则删掉难例就能让 R@3 虚高。
+
+    为什么需要（WX-173 §七 第 4 条原话）：
+
+        R@3 = 命中/用例数 ⇒ 删难例比修 bug 更容易制造 100%
+        现在 2/6=33%；把 r02 r04 删掉 → 2/4=50%；只留 r05 → 1/1=100% → 触发「修好了」
+
+    这与 `test_holdout_never_used_for_tuning` **防的不是同一件事**：
+      · 那条防「调参时偷看留出集」
+      · 这条防「删用例让分母变小」
+    删用例不违反那条（删完 holdout 变短，memory_engine.py 里照样没 'holdout' 字样）。
+    """
+    import json as _json
+    d = _json.load(io.open(os.path.join(BASE, 'tools', 'eval', 'cases.json'),
+                           encoding='utf-8'))
+    assert len(d['recall']) >= 6, '开发集只剩 %d 条（基线 6）—— 删用例会让 R@3 虚高' % len(d['recall'])
+    assert len(d.get('holdout', [])) >= 12, '留出集只剩 %d 条（基线 12）' % len(d.get('holdout', []))
+    assert len(d.get('entity', [])) >= 4, '实体区分类只剩 %d 条（基线 4）' % len(d.get('entity', []))
+    assert len(d.get('false', [])) >= 4, '无关问句只剩 %d 条（基线 4）' % len(d.get('false', []))
+
+
+def test_holdout_size_matches_declared_baseline():
+    """留出集条数与基线分母一致 —— 防「改了用例数但忘改基线」。
+
+    ⚠ 第一版这里写了 `assert denom == n_hold or True` —— 一个恒真的废断言。
+      自己复查时发现：`or True` 让整行永远通过，等于没写。
+    """
+    import json as _json
+    d = _json.load(io.open(os.path.join(BASE, 'tools', 'eval', 'cases.json'),
+                           encoding='utf-8'))
+    n_hold = len(d.get('holdout', []))
+    assert n_hold == 12, (
+        '留出集变成 %d 条了（基线 12）。若是有意扩，请同时：'
+        '①上调 BASELINE 的 H_R@1/H_R@3 ②更新本文件头部表格 ③重算 H_R@3_pure 基线' % n_hold)
+    assert len(d['recall']) == 6, '开发集变成 %d 条了（基线 6）' % len(d['recall'])
+
+
+# ══════════ 实体混淆（WX-173 §五 第 1 条）══════════
+
+def test_entity_confusion_is_a_known_open_gap(result):
+    """⭐ 已知缺口：问「我名字」时 top1 返回「Pro 模型姐姐的名字叫大蓝」。
+
+    这是**实体混淆**（问「我」返回「她」），不是无关噪声：
+      · FALSE=100% 抓不到（注入内容与问题主题相关）
+      · R@3 抓不到（top3 里有一条是本人就算过）
+      · 只有 R@1 / entity 组能抓
+
+    实测（2026-11-03，闸门 0.30）：
+        e01「我名字？」      → top1 姐姐那边  ✗
+        e02「我的名字」      → top1 姐姐那边  ✗
+        e03「我叫什么」      → 0 条（虚词稀释）✗
+        e04「模型姐姐叫什么」 → top1 正确      ✓
+
+    这条在缺口存在时通过、被修好时变红。
+    """
+    ent = {x['id']: x for x in result.get('entity', [])}
+    assert ent, 'entity 分组没有结果'
+    broken = [k for k, v in ent.items() if not v['ok']]
+    if not broken:
+        pytest.fail('实体混淆已修好（全部 ok）—— 请上调 BASELINE 并删掉本函数。')
+    # 缺口的**具体形状**必须仍是「本人问句被他人的压过」，不是别的未知故障
+    other_confusion = [k for k in broken if ent[k]['top1_other']]
+    assert set(other_confusion) <= {'e01', 'e02'}, (
+        '出现新的实体混淆：%r（原缺口只有 e01/e02）' % other_confusion)
+
+
+def test_pure_recall_is_a_subset(result):
+    """⭐ 纯检索口径的命中集必须是全路径口径命中集的**子集**。
+
+    ⚠ 第一版我写的是 `pure <= full` 比比率 —— 无效：
+      两者分母不同（5 条 vs 12 条），0.20 <= 0.25 只是巧合，
+      换个数据集就可能 2/5=40% > 3/12=25% 而其实没毛病。
+      正确判据是**集合包含关系**而不是数值大小。
+
+    实测（0.30）：全路径命中 h01 h02 h12；纯检索命中 h02
+    ⇒ {h02} ⊆ {h01, h02, h12} ✓
+    """
+    hit_full = {x['id'] for x in result['holdout'] if x['r3']}
+    cp = result.get('counts_pure') or {}
+    assert cp, 'counts_pure 缺失'
+    assert cp['n'] < 12, (
+        '纯检索用例数 %d = 全部 12 条，L0 过滤没生效（_has_any 传参错了？）' % cp['n'])
+    # 纯检索命中的用例 = 全路径命中 ∩ 纯检索用例集
+    pure_ids = set(cp['ids'])
+    hit_pure = hit_full & pure_ids
+    assert cp['hit'] == len(hit_pure), (
+        '纯检索命中数 %d 与「全路径命中 ∩ 纯检索用例」%d 不一致：%r vs %r'
+        % (cp['hit'], len(hit_pure), cp['hit'], len(hit_pure)))
+    # 且纯检索用例集必须是留出集子集
+    assert pure_ids <= {x['id'] for x in result['holdout']}, '纯检索用例不在留出集里' 
+

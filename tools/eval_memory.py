@@ -38,6 +38,13 @@ if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
 FACTS_PATH = os.path.join(BASE, 'memory.json')
+
+
+def _log_l0_fail(exc):
+    """L0 取不到时不许静默 —— 否则「纯检索口径」会悄悄把所有用例都算进去"""
+    import logging
+    logging.getLogger('pet.eval_memory').warning(
+        'build_l0_block 失败，H_R@3_pure 将退化为全量口径：%r', exc)
 CASES_PATH = os.path.join(BASE, 'tools', 'eval', 'cases.json')
 
 
@@ -68,8 +75,16 @@ def run(facts=None, cases=None, top_k=3):
     active_texts = [str(f.get('content') or '') for f in facts
                     if f.get('status', 'active') == 'active']
 
-    out = {'recall': [], 'holdout': [], 'evidence': [], 'false': [], 'noise': [],
-           'superseded': [], 'counts': {}, 'ok': True}
+    out = {'recall': [], 'holdout': [], 'entity': [], 'evidence': [], 'false': [],
+           'noise': [], 'superseded': [], 'counts': {}, 'ok': True}
+
+    # L0 常驻块：用来算「纯检索口径」（排除答案本来就每轮在 prompt 里的用例）
+    try:
+        _l0 = me.build_l0_block(facts, 'flash')
+        l0_text = _l0[0] if isinstance(_l0, tuple) else _l0
+    except Exception as exc:
+        _log_l0_fail(exc)
+        l0_text = ''
 
     # ---------- recall（开发集）----------
     for c in cases.get('recall', []):
@@ -91,6 +106,36 @@ def run(facts=None, cases=None, top_k=3):
                                'r1': bool(texts) and _has_any(texts[0], c['expect_any']),
                                'r3': _has_any(' '.join(texts[:3]), c['expect_any']),
                                'top': [t[:40] for t in texts]})
+
+    # ---------- entity（实体区分：问本人不许返回他人）----------
+    for c in cases.get('entity', []):
+        hits = me.search_memory_for_injection(facts, c['query'], top_k=top_k)
+        texts = [str(h.get('text') or '') for h in hits]
+        top1 = texts[0] if texts else ''
+        got_self = _has_any(top1, c['self_needles']) if top1 else False
+        got_other = _has_any(top1, c.get('other_needles') or []) if top1 else False
+        out['entity'].append({
+            'id': c['id'], 'query': c['query'],
+            'top1_self': got_self,
+            'top1_other': got_other,
+            'ok': (got_self and not got_other),
+            'top': [t[:40] for t in texts],
+        })
+
+    # ---------- H_R@3_pure：只算「答案不在 L0」的留出集用例 ----------
+    # ⚠ _has_any(text, needles) 的第一个参数必须是**字符串**。
+    #   我第一版写成 _has_any([l0_text], ...)（传列表）⇒ `n in [l0_text]` 恒 False
+    #   ⇒ 所有用例都被判「不在 L0」⇒ n=12 而不是 5。数字对不上才发现。
+    pure_cases = [c for c in cases.get('holdout', [])
+                  if not _has_any(l0_text, c['expect_any'])]
+    pure_hit = 0
+    for c in pure_cases:
+        hits = me.search_memory_for_injection(facts, c['query'], top_k=top_k)
+        if _has_any(' '.join(str(h.get('text') or '') for h in hits[:3]), c['expect_any']):
+            pure_hit += 1
+    out['counts_pure'] = {'n': len(pure_cases), 'hit': pure_hit,
+                          'rate': round(pure_hit / max(len(pure_cases), 1), 3),
+                          'ids': [c['id'] for c in pure_cases]}
 
     # ---------- false ----------
     for c in cases.get('false', []):
@@ -123,6 +168,10 @@ def run(facts=None, cases=None, top_k=3):
         'R@3': round(sum(1 for x in out['recall'] if x['r3']) / n, 3),
         'H_R@1': round(sum(1 for x in out['holdout'] if x['r1']) / hn, 3),
         'H_R@3': round(sum(1 for x in out['holdout'] if x['r3']) / hn, 3),
+        #: 纯检索口径：排除「答案已在 L0 常驻块」的用例。
+        #: 为什么需要：L0 每轮都注入，那些用例检索给不给用户都拿得到 ⇒ 会把检索改进摊薄。
+        #: 实测（0.34）：H_R@3=17% 但 H_R@3_pure=0% —— 17% 全是 L0 撑的。
+        'H_R@3_pure': out['counts_pure']['rate'],
         'EVID': round(sum(1 for x in out['evidence'] if x['verbatim']) / n, 3),
         'FALSE': round(sum(1 for x in out['false'] if x['empty']) / (len(out['false']) or 1), 3),
         'NOISE': round(sum(1 for x in out['noise'] if x['clean']) / (len(out['noise']) or 1), 3),
@@ -130,7 +179,7 @@ def run(facts=None, cases=None, top_k=3):
                             / (len(out['superseded']) or 1), 3),
     }
     out['ok'] = all(v == 1.0 for k, v in out['counts'].items()
-                    if k not in ('facts_active', 'R@1', 'R@3', 'H_R@1', 'H_R@3'))
+                    if k not in ('facts_active', 'R@1', 'R@3', 'H_R@1', 'H_R@3', 'H_R@3_pure'))
     return out
 
 
@@ -153,13 +202,14 @@ def main():
     print('%s' % ('-' * 66))
     for k, desc in (('R@1', '开发集：命中的进了第 1 条'), ('R@3', '开发集：命中的进了前 3'),
                     ('H_R@1', '留出集：命中的进了第 1 条'), ('H_R@3', '留出集：命中的进了前 3'),
+                    ('H_R@3_pure', '留出集纯检索（排除 L0 已含）'),
                     ('EVID', '召回的是原文，不是编的'),
                     ('FALSE', '无关的话没命中'), ('NOISE', '可重算播报没被召回'),
                     ('SUPERSEDED', '失效事实没冒充现状')):
         flag = '✓' if c[k] == 1.0 else '✗'
         print('%-12s %-6s %s %s' % (k, '%.0f%%' % (c[k] * 100), flag, desc))
     print()
-    for grp in ('recall', 'holdout', 'false', 'noise', 'superseded'):
+    for grp in ('recall', 'holdout', 'entity', 'false', 'noise', 'superseded'):
         bad = [x for x in r[grp] if not (x.get('r3', x.get('empty', x.get('clean', True))))]
         if bad:
             print('[%s] 未达标 %d 条：' % (grp, len(bad)))
