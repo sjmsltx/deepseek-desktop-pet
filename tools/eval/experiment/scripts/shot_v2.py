@@ -23,6 +23,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 sys.path.insert(0, REPO)
 
 from PySide6.QtGui import QFontDatabase  # noqa: E402
+from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -86,9 +87,29 @@ s2, d2, r2 = stars_of(206)
 render(s2, d2, r2, 'n206')
 
 s3, d3, r3 = stars_of(1411)
-render(s3, d3, r3, 'n1411-z1', zoom=1.0)
-render(s3, d3, r3, 'n1411-z2', zoom=2.0)
-render(s3, d3, r3, 'n1411-z3', zoom=3.0)
+for _z in (1.0, 2.0, 4.0, 10.0):
+    render(s3, d3, r3, 'n1411-z%s' % ('%g' % _z).replace('.', 'p'), zoom=_z)
+
+# 以 like 团为中心放大 —— 验证「放大后真能拆到单颗」
+wz = sms.MemoryStarMap(stars=s3, dead=d3, raw_events=r3,
+                       facts_path=os.path.join(REPO, 'memory.json'),
+                       events_path=os.path.join(REPO, 'memories.json'))
+wz.resize(1500, 940)
+wz._compute_layout()
+wz._layout_cached_size = (1500, 940)
+gx, gy = wz._centers['like']
+for _z in (4.0, 12.0):
+    wz.zoom = _z
+    # 把 like 团中心移到视图中心
+    _s = wz._S()
+    wz.pan = QPointF(-gx * _s, -gy * _s)
+    wz._lod_cache = None
+    vis = wz._lod_visible()
+    p = os.path.join(OUT_DIR, 'v2-like-z%s.png' % ('%g' % _z).replace('.', 'p'))
+    wz.grab().save(p)
+    print('  like 团 zoom=%-4g  可见 %4d  视野内 %4d  → %s (%d KB)'
+          % (_z, len(vis), getattr(wz, '_onview_n', -1),
+             os.path.basename(p), os.path.getsize(p) // 1024))
 
 print()
 print('=== 类团半径（√n 分配结果）===')

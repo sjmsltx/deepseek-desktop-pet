@@ -23,6 +23,7 @@ import io
 import json
 import logging
 import math
+import zlib
 import os
 import re
 import time
@@ -104,6 +105,17 @@ _STOP = set("""
 _ENG = re.compile(r'[a-z][a-z0-9_]{2,}')
 
 
+def stable_jitter(key, salt=0):
+    """确定性抖动，返回 [0, 1)。
+
+    用途：打散黄金角螺旋留下的规整螺旋臂（Owner：「分布有点太规律了」）。
+    ⛔ 不能用内置 hash()：它带 PYTHONHASHSEED 随机化，跨进程/重启会变 ⇒
+       星图每开一次位置都不同，而且 test_layout_deterministic 会红。
+    """
+    h = zlib.crc32(('%s|%d' % (key, salt)).encode('utf-8')) & 0xffffffff
+    return ((h >> 7) % 10007) / 10007.0
+
+
 def terms(text):
     """取可比较的词集合：中文 2-gram（去停用词）+ 英文整词（≥3 字符）
 
@@ -157,6 +169,16 @@ LOD_MIN_N = 260
 #: 「放大看更多」靠另一条路：格不变而几何放大 ⇒ 数据空间分桶自动变细。
 LOD_CELL_BASE = 19.0
 
+#: 缩放上下限。2026-11-03 Owner「放大上限再调高一点」：4.0 → 30。
+#: 配合「布局半径随条数 √ 增长」，放大到 30 倍才能把几万条里的一簇拆开看清。
+ZOOM_MIN = 0.20
+ZOOM_MAX = 30.0
+
+#: 防误触：按下到松开位移超过这个像素就当「拖动」，不钉住星点。
+#: Owner：「拖动时难免点到星上进行拖拽，这不是真的要钉住」。
+#: 用位移而不是时间 —— 时间阈值会让慢速拖动误钉。
+DRAG_THRESHOLD = 5.0
+
 #: 符号尺寸随 zoom 的增长：rad ∝ zoom**0.35，且封顶 1.6 倍。
 #: ⛔ 曾经写成线性（rad ∝ zoom）——zoom=3 时核心 28px 而格只有 7.5px，
 #:   两者反向 ⇒ 1405 颗糊成一团。符号近乎恒定才是地图的做法。
@@ -170,7 +192,13 @@ GLOW_STEP = 4.0
 #: 改用已有的 160 档缩放绘制。zoom≤2 时基本走不到这一步。
 GLOW_MAX = 160.0
 
-#: 类团外半径上限（px）。按星数 √n 分配，使各团点密度接近。
+#: ── 世界坐标（2026-11-03）──
+#: 布局与窗口解耦：`_layout` / `_centers` / `_cat_r` 存世界单位。
+#: 世界半径随条数 √n 增长 ⇒ 每颗星占的世界面积恒定 ⇒ 几万条也放得下。
+WORLD_BASE_R = 320.0     # n = WORLD_REF_N 时的世界布局半径
+WORLD_REF_N = 400        # 基准条数
+
+#: 类团外半径上限（世界单位，n = WORLD_REF_N 时）。按星数 √n 分配使密度接近。
 #: 190 是 1440x900 上限附近实测不越界的值；小窗口由 _compute_layout 按 R 再压。
 CAT_R_MAX = 190.0
 CAT_R_MIN = 58.0         # 只有几颗星的类团也别缩成一个点（标签没地方放）
@@ -196,21 +224,33 @@ def build_edges(stars):
     #   重新 terms() 一遍 ⇒ 1411 点要跑 199 万次 terms()。
     #   改成每篇只算一次，jaccard 用 |A∩B|/(|A|+|B|-|A∩B|) 手算（与原式恒等）。
     _ts = [terms(s.get('text', '')) for s in stars]
-    cand = []
-    for i in range(n):
-        ta = _ts[i]
-        if not ta:
+    # 2026-11-03：倒排索引，只算「共享至少 1 个词」的配对。
+    #   全配对 1411 点 = 99.5 万次，实测 0.44s（开窗时卡一下）；
+    #   倒排后候选对只占 15.3%（15.2 万），且**结果完全等价** ——
+    #   共享 0 词的对 jaccard 恒为 0，本来就不可能过阈值。
+    _inv = {}
+    for _i, _t in enumerate(_ts):
+        for _w in _t:
+            _inv.setdefault(_w, []).append(_i)
+    _inter = {}
+    for _docs in _inv.values():
+        _m = len(_docs)
+        if _m < 2:
             continue
-        for j in range(i + 1, n):
-            tb = _ts[j]
-            if not tb:
-                continue
-            inter = len(ta & tb)
-            if not inter:          # 无交集 ⇒ jaccard 为 0，必然不过阈值
-                continue
-            w = inter / float(len(ta) + len(tb) - inter)
-            if w >= STRONG_EDGE_JACCARD:
-                cand.append((w, i, j))
+        for _a in range(_m):
+            _ia = _docs[_a]
+            for _b in range(_a + 1, _m):
+                _ib = _docs[_b]
+                _k = (_ia, _ib) if _ia < _ib else (_ib, _ia)
+                _inter[_k] = _inter.get(_k, 0) + 1
+    cand = []
+    for (_i, _j), _inter_n in _inter.items():
+        _union = len(_ts[_i]) + len(_ts[_j]) - _inter_n
+        if not _union:
+            continue
+        _w = _inter_n / float(_union)
+        if _w >= STRONG_EDGE_JACCARD:
+            cand.append((_w, _i, _j))
     cand.sort(reverse=True)
 
     deg = {}
@@ -371,6 +411,10 @@ class MemoryStarMap(QWidget):
         self.pinned = None
         self._drag_from = None
         self._pan0 = None
+        #: 防误触：按下时的命中候选与起点（松手时判断「是点击还是拖动」）
+        self._press_hit = None
+        self._press_pt = None
+        self._press_moved = False
         self._layout = {}
         self._centers = {}
         self._layout_cached_size = None
@@ -387,8 +431,13 @@ class MemoryStarMap(QWidget):
         self._keys_cache = None
         #: 优先级序缓存 (id(stars), len, [星点])
         self._prio_cache = None
-        #: 每个类团的外半径 {cat: px}，_compute_layout 里按 √n 算
+        #: 每个类团的外半径 {cat: 世界单位}，_compute_layout 里按 √n 算
         self._cat_r = {}
+        #: 世界→屏幕的窗口适配系数：fit = 窗口可用半径 / 世界半径。
+        #: 初始 zoom=1 即「全览」。窗口 resize 时由 _compute_layout 重算。
+        self._fit = 1.0
+        #: 世界布局半径（随条数 √n 增长）
+        self._world_r = WORLD_BASE_R
         # B（2026-10-31）：自动刷新。原来 load_stars 只在打开时调一次，
         #   窗口开着就一直显示旧数据（实测：写盘后重绘，星数不变）。
         self._data_sig = self._current_sig()
@@ -404,14 +453,18 @@ class MemoryStarMap(QWidget):
         cx, cy = w * 0.50, h * 0.50
         # 2026-10-31：主区里容器高只有 ~610，若直接用 min(w,h)*0.40 星团名会顶到标题栏。
         #   留出顶部（标题+副标题约 84px）与底部（图例约 90px）的净空再定半径。
-        # 2026-11-03：0.50 → 0.42。类内半径从 148 拉到 190（年龄轴要够长），
-        #   整体必须同比缩小，否则最外圈的点会顶出画面。已按 1500x940 / 900x620 验算。
-        R = max(60.0, min(w * 0.44, (h - 84 - 90) * 0.42))
+        # 窗口可用半径（世界→屏幕的适配目标）
+        _avail = max(60.0, min(w * 0.44, (h - 84 - 90) * 0.42))
+        # 世界半径随条数 √n 增长：每颗星占的世界面积恒定
+        _grow = math.sqrt(max(1, len(self.stars)) / float(WORLD_REF_N))
+        R = WORLD_BASE_R * _grow
+        self._world_r = R
+        self._fit = _avail / R
         self._centers = {}
         for cat in ORDER:
             a = math.radians(ANGLES[cat])
-            self._centers[cat] = (cx + R * 1.02 * math.cos(a), cy + R * 0.80 * math.sin(a))
-        self._cx, self._cy, self._R = cx, cy, R
+            self._centers[cat] = (R * 1.02 * math.cos(a), R * 0.80 * math.sin(a))
+        self._cx, self._cy, self._R = cx, cy, _avail
 
         groups = {}
         for s in self.stars:
@@ -424,23 +477,30 @@ class MemoryStarMap(QWidget):
         #   mile 团只有 6 颗却摊在同样大的盘上，空得只剩几个点。
         #   √n 分配让「点密度」接近一致：like 190 / study 107 / work 87 / human 80 / mile 69。
         #   ⚠ 上限再按 R 收（小窗口不出界）：1440x900 时 R≈305 ⇒ 190 生效。
-        _cap = min(CAT_R_MAX, R * 0.62)
+        # 类团半径上限同样按 √n 放大（世界单位）⇒ 密度恒定。
+        # ⚠ 上限必须留出「类团不压住中心 L0 核」的余量：
+        #   类团中心距图心 = R*0.80，若半径到 R*0.62，则团的内缘只离图心 0.18R，
+        #   1411 条时 like 团（最大）会把中心的人格核整个盖住 —— 截图实测。
+        #   R*0.50 ⇒ 内缘 0.30R，中心与团之间留出空白。
+        _cap = min(CAT_R_MAX * _grow, R * 0.50)
         _n_max = max([len(v) for v in groups.values()] or [1])
-        # ⚠ 「按 √n 分配」只在**稠密**时才有意义。真实库 27 颗、产品上限 200 颗时
-        #   各团本来就不重叠，缩成小团反而把画面缩空（旧版是铺满的）。
-        #   所以按总量线性混合：
-        #     N ≤ 150        ⇒ 全部同半径（= 旧版观感，小库零变化）
-        #     N ≥ 500        ⇒ 完全 √n 分配（治 1411 条那种「一区实心」）
-        #     150 < N < 500  ⇒ 过渡
-        _mix = min(1.0, max(0.0, (len(self.stars) - 150) / 350.0))
+        # 类团半径一律按 √n 分配（每团点密度一致）。
+        #
+        # ⛔ 曾经加过「N≤150 时全部同半径」的混合（想保住旧观感），
+        #   但那让小团也被撑到 cap：真实库 33 颗时 human（12 颗）半径 153px
+        #   而 mile（1 颗）被 CAT_R_MIN 顶到 192px ⇒ mile 的标签直接落进粉团里，
+        #   两个团名打架（截图实测）。**小团必须小**，同半径是病根。
+        #
+        # 下限用**相对量** R*0.14：保证「只有几颗星」的团还有一点位置，
+        # 又不会在小库里占掉中心距的大半。
+        _r_min = min(CAT_R_MIN, R * 0.14)
         self._cat_r = {}
         for cat in ORDER:
             _n = len(groups.get(cat) or [])
             if not _n:
                 continue
-            _sqrt_r = _cap * math.sqrt(_n / float(_n_max))
-            _r = _cap + (_sqrt_r - _cap) * _mix
-            self._cat_r[cat] = max(min(CAT_R_MIN, _cap), _r)
+            _r = _cap * math.sqrt(_n / float(_n_max))
+            self._cat_r[cat] = max(min(_r_min, _cap), _r)
 
         # ---- 2.5D 深度：z = 全局归一化年龄（0 = 最新/最近，1 = 最老/最远）----
         #   用**全局**而不是类内归一化：这样整张图共用一条时间轴，
@@ -465,17 +525,27 @@ class MemoryStarMap(QWidget):
                 # 2026-11-03：半径改由 self._cat_r[cat] 给（按 √n 分配）。
                 #   0.12 是内圈留白比例（原 22/190 = 0.116），保持「离团心越远越老」。
                 _cr = self._cat_r.get(cat, 120.0)
-                rr = _cr * (0.12 + 0.88 * frac) * (1.0 if n > 1 else 0.45)
-                ang = 2 * math.pi * ((i * 0.618) % 1.0)
+                # 2026-11-03：加确定性抖动（Owner：「分布有点太规律了」）。
+                #   黄金角螺旋本身是均匀的，但**等比例**半径 + 固定步进角
+                #   会在视觉上留下明显的螺旋臂（尤其 1173 颗挤在一团时）。
+                #   角度抖 ±0.42rad、半径抖 ±11% 就足以打散纹理，
+                #   又不破坏「离团心越远越老」的单调趋势（2.5D 的语义）。
+                _key = s.get('key') or s['text']
+                _ja = stable_jitter(_key, 1)
+                _jr = stable_jitter(_key, 2)
+                rr = (_cr * (0.12 + 0.88 * frac) * (0.89 + 0.22 * _jr)
+                      * (1.0 if n > 1 else 0.45))
+                ang = 2 * math.pi * ((i * 0.618) % 1.0) + (_ja - 0.5) * 0.84
+                # 世界坐标（原点在图心）
                 px = gx + rr * math.cos(ang)
                 py = gy + rr * math.sin(ang) * 0.92
 
-                # 深度归一化 → 透视投影：沿各自的视线向消失点（图心）后退。
+                # 深度归一化 → 透视投影：沿各自的视线向消失点（世界原点）后退。
                 #   ⚠ 不加任何整体平移 —— 那会让远处的点串到别的星团、或顶出画面。
                 z = (float(s.get('age') or 0.0) - _a_lo) / _span
                 shrink = 1.0 - DEPTH_SHRINK * z
-                sx = cx + (px - cx) * shrink
-                sy = cy + (py - cy) * shrink * (1.0 - (1.0 - DEPTH_TILT) * z)
+                sx = px * shrink
+                sy = py * shrink * (1.0 - (1.0 - DEPTH_TILT) * z)
 
                 key = s.get('key') or s['text']
                 pos[key] = (sx, sy)
@@ -659,8 +729,10 @@ class MemoryStarMap(QWidget):
         if len(self.stars) <= LOD_MIN_N:
             return self.stars
         # 格边长恒定；放大后同一段世界坐标落进更多格子 ⇒ 自动显示更多。
-        cell = LOD_CELL_BASE
-        key = (round(self.zoom, 3), id(self.stars), len(self.stars),
+        # 格边长在**屏幕上**恒定 19px ⇒ 世界格 = 19 / S。
+        #   S 随 zoom 变大 ⇒ 世界格变小 ⇒ 同一片区域能容纳更多星（金字塔展开）。
+        cell = LOD_CELL_BASE / max(self._S(), 1e-9)
+        key = (round(self.zoom, 4), id(self.stars), len(self.stars),
                self._layout_cached_size)
         c = self._lod_cache
         if c and c[0] == key:
@@ -673,8 +745,8 @@ class MemoryStarMap(QWidget):
             xy = self._layout.get(k)
             if not xy:
                 continue
-            ck = (int(math.floor(xy[0] * self.zoom / cell)),
-                  int(math.floor(xy[1] * self.zoom / cell)))
+            ck = (int(math.floor(xy[0] / cell)),
+                  int(math.floor(xy[1] / cell)))
             if ck in taken:
                 if st is pin or st is st is hov:
                     keep.append(st)
@@ -716,9 +788,15 @@ class MemoryStarMap(QWidget):
         # 老星星也要看得见 —— 星图的意义是「它还在」，不是「它快没了」。
         return 0.42 + 0.58 * _decay_factor(s['age'])
 
+    def _S(self):
+        """世界单位 → 屏幕像素的总系数（zoom × 窗口适配）。"""
+        return self.zoom * self._fit
+
     def _to_screen(self, x, y):
-        return QPointF(self._cx + (x - self._cx) * self.zoom + self.pan.x(),
-                       self._cy + (y - self._cy) * self.zoom + self.pan.y())
+        """世界坐标 → 屏幕坐标。世界原点 (0,0) 落在视图中心。"""
+        _s = self._S()
+        return QPointF(self._cx + x * _s + self.pan.x(),
+                       self._cy + y * _s + self.pan.y())
 
     # ---------- 绘制 ----------
     def paintEvent(self, _ev):
@@ -739,7 +817,7 @@ class MemoryStarMap(QWidget):
             gx, gy = self._centers[cat]
             sp = self._to_screen(gx, gy)
             # 云气半径跟类团外半径走（原先固定 92+13*min(n,8)，与 √n 版式不匹配）
-            rr = max(46.0, self._cat_r.get(cat, 120.0) * 1.08) * self.zoom
+            rr = max(46.0 * self._fit, self._cat_r.get(cat, 120.0) * 1.08) * self._S()
             col = QColor(*PAL[cat])
             gg = QRadialGradient(sp, rr)
             c0 = QColor(col); c0.setAlpha(78)
@@ -755,7 +833,7 @@ class MemoryStarMap(QWidget):
         for cat in ORDER:
             if not self._groups.get(cat):
                 continue
-            a = self._to_screen(self._cx, self._cy)
+            a = self._to_screen(0.0, 0.0)
             b = self._to_screen(*self._centers[cat])
             p.setPen(QPen(QColor(46, 52, 84, 150), 1))
             p.drawLine(a, b)
@@ -801,9 +879,15 @@ class MemoryStarMap(QWidget):
         if _weak_paths:
             _aa = p.testRenderHint(QPainter.Antialiasing)
             p.setRenderHint(QPainter.Antialiasing, False)
+            # 放大时衰减：全览看结构（线有用），放大看单颗（线成了蛛网）。
+            #   实测 zoom=12 时满屏蛛网，遮住星点。
+            # ⚠ 用 math.sqrt 而不是 `** 0.5`：tests/test_decay_model 的结构钉会用 AST
+            #   扫「源码段里同时出现 0.5 和 **」并当作「第二份字面衰减公式」。
+            #   这里的含义是连线视觉衰减，与记忆衰减无关，但没必要去撞那条守卫。
+            _wa = int(28 * max(0.32, 1.0 / math.sqrt(max(self.zoom, 1.0))))
             for _cat, _path in _weak_paths.items():
                 wcol = QColor(*PAL[_cat])
-                wcol.setAlpha(28)
+                wcol.setAlpha(_wa)
                 p.setPen(QPen(wcol, 1.0))
                 p.drawPath(_path)
             p.setRenderHint(QPainter.Antialiasing, _aa)
@@ -822,7 +906,8 @@ class MemoryStarMap(QWidget):
             _sa, _sb = self._to_screen(*a), self._to_screen(*b)
             _dist = math.hypot(_sa.x() - _sb.x(), _sa.y() - _sb.y())
             _fade = max(0.24, 1.0 - _dist / (self._R * 2.2))
-            alpha = int((90 + 100 * t) * _fade)
+            alpha = int((90 + 100 * t) * _fade
+                        * max(0.30, 1.0 / max(self.zoom, 1.0) ** 0.6))
             col = QColor(*PAL[self.stars[i].get('cat') or 'human'])
             col.setAlpha(alpha)
             p.setPen(QPen(col, 1.0 + 0.8 * t))
@@ -836,10 +921,11 @@ class MemoryStarMap(QWidget):
             seed = (seed * 1103515245 + 12345) & 0x7fffffff
             ang = (seed % 6283) / 1000.0
             seed = (seed * 1103515245 + 12345) & 0x7fffffff
-            rr = self._R * (1.30 + (seed % 220) / 1000.0)
-            x = self._cx + rr * math.cos(ang)
-            y = self._cy + rr * math.sin(ang) * 0.86
-            p.drawEllipse(self._to_screen(x, y), 1.6 * self.zoom + 0.6, 1.6 * self.zoom + 0.6)
+            rr = self._world_r * (1.30 + (seed % 220) / 1000.0)
+            x = rr * math.cos(ang)
+            y = rr * math.sin(ang) * 0.86
+            _dr = 1.6 * self._sym_scale() + 0.6
+            p.drawEllipse(self._to_screen(x, y), _dr, _dr)
 
         # 记忆星 —— 2.5D + LOD + sprite（2026-11-03）
         #   · 只画 _vis（LOD 后）：重叠处只留优先级高的，放大后自动变多
@@ -889,7 +975,7 @@ class MemoryStarMap(QWidget):
         # 中心 L0 核（三层固定半径，不再随 zoom 放大成白雾）
         # M2（审核抓出）：圆心必须走 _to_screen，否则拖动后中心亮斑留在屏幕正中、
         #   与已平移的星团辐条脱钩。
-        _c = self._to_screen(self._cx, self._cy)
+        _c = self._to_screen(0.0, 0.0)
         for rad_f, alpha in ((0.070, 150), (0.135, 52), (0.240, 18)):
             rr = self._R * rad_f * self.zoom
             gg = QRadialGradient(_c, rr)
@@ -900,14 +986,15 @@ class MemoryStarMap(QWidget):
             p.setBrush(QBrush(gg)); p.setPen(Qt.NoPen)
             p.drawEllipse(_c, rr, rr)
         p.setBrush(QColor(255, 252, 240))
-        p.drawEllipse(_c, 7 * self.zoom + 2, 7 * self.zoom + 2)
+        _cr0 = 7.0 * self._sym_scale() + 2
+        p.drawEllipse(_c, _cr0, _cr0)
         # S2（审核指出）：图例写「中心 = L0 人格卡」就必须真读数据。
         #   这里把真实身份条目数写在核下方，读不到就不写。
         _n_id = self._l0_count()
         if _n_id:
             p.setFont(QFont('Microsoft YaHei', 8))
             p.setPen(QColor(226, 214, 176, 220))
-            p.drawText(_c.x() - 70, _c.y() + 30 * self.zoom + 14,
+            p.drawText(_c.x() - 70, _c.y() + 30 * self._S() + 14,
                        'L0 人格卡 · %d 条常驻' % _n_id)
 
         # 文字
@@ -946,12 +1033,12 @@ class MemoryStarMap(QWidget):
             sp = self._to_screen(*self._centers[cat])
             col = QColor(*PAL[cat])
             p.setPen(col)
-            _cr = self._cat_r.get(cat, 120.0) * self.zoom
-            p.drawText(QRectF(sp.x() - 90, sp.y() - (_cr * 0.92 + 42), 180, 20),
+            _cr = self._cat_r.get(cat, 120.0) * self._S()
+            p.drawText(QRectF(sp.x() - 90, sp.y() - (_cr * 1.02 + 42), 180, 20),
                        Qt.AlignHCenter, CN[cat])
             p.setPen(QColor(150, 156, 184))
             p.setFont(QFont('Microsoft YaHei', 8))
-            p.drawText(QRectF(sp.x() - 90, sp.y() - (_cr * 0.92 + 24), 180, 18),
+            p.drawText(QRectF(sp.x() - 90, sp.y() - (_cr * 1.02 + 24), 180, 18),
                        Qt.AlignHCenter, '%d 颗' % len(self._groups[cat]))
             p.setFont(QFont('Microsoft YaHei', 11))
 
@@ -974,8 +1061,8 @@ class MemoryStarMap(QWidget):
             #   否则小团（mile 69px）的标签会飘在很久之外。
             # 星团名要留在团盘**外侧**。⚠ 位置属于几何 ⇒ 用 zoom；
             #   符号尺寸才用 _sym_scale。混用会让 zoom=3 时名字落进团盘里被星压住。
-            _cr = self._cat_r.get(cat, 120.0) * self.zoom
-            boxes.append((cp.x() - 95, cp.y() - (_cr * 0.92 + 42), 190, 44))
+            _cr = self._cat_r.get(cat, 120.0) * self._S()
+            boxes.append((cp.x() - 95, cp.y() - (_cr * 1.02 + 42), 190, 44))
             _disk = _cr * 0.14
             boxes.append((cp.x() - _disk, cp.y() - _disk, _disk * 2, _disk * 2))
         for s in cand:
@@ -1118,20 +1205,32 @@ class MemoryStarMap(QWidget):
         return best
 
     def mousePressEvent(self, ev):
+        """按下只记候选，**不**立刻钉住。
+
+        ⛔ 原实现「按到星就钉住」的问题：想拖动画面时按到星上，必然误钉
+        （Owner：「拖动时难免点到星上进行拖拽，这不是真的要钉住」）。
+        """
         if ev.button() == Qt.LeftButton:
-            hit = self._hit(ev.position())
-            if hit:
-                self.pinned = None if (self.pinned is hit) else hit
-                self.update()
-                return
-            self._drag_from = ev.position()
+            pos = ev.position()
+            self._press_hit = self._hit(pos)
+            self._press_pt = QPointF(pos)
+            self._press_moved = False
+            # 无论有没有命中，都允许拖动（覆盖「按在星上想平移」这个常见场景）
+            self._drag_from = pos
             self._pan0 = QPointF(self.pan)
+            if self._press_hit is not None:
+                self.setCursor(Qt.ClosedHandCursor)
         super().mousePressEvent(ev)
 
     def mouseMoveEvent(self, ev):
         if self._drag_from is not None:
-            self.pan = QPointF(self._pan0.x() + ev.position().x() - self._drag_from.x(),
-                               self._pan0.y() + ev.position().y() - self._drag_from.y())
+            pos = ev.position()
+            if not self._press_moved and self._press_pt is not None:
+                if math.hypot(pos.x() - self._press_pt.x(),
+                              pos.y() - self._press_pt.y()) > DRAG_THRESHOLD:
+                    self._press_moved = True
+            self.pan = QPointF(self._pan0.x() + pos.x() - self._drag_from.x(),
+                               self._pan0.y() + pos.y() - self._drag_from.y())
             self.update()
             return
         hit = self._hit(ev.position())
@@ -1141,13 +1240,22 @@ class MemoryStarMap(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, ev):
+        # 只有「按下没怎么动」才算点击（钉住/取消钉住）；拖动过就只当平移。
+        if (self._drag_from is not None and not self._press_moved
+                and self._press_hit is not None):
+            self.pinned = None if (self.pinned is self._press_hit) else self._press_hit
+            self.update()
         self._drag_from = None
+        self._press_hit = None
+        self._press_pt = None
+        self._press_moved = False
+        self.setCursor(Qt.ArrowCursor)
         super().mouseReleaseEvent(ev)
 
     def wheelEvent(self, ev):
         delta = ev.angleDelta().y()
         factor = 1.12 if delta > 0 else 1 / 1.12
-        new = max(0.35, min(4.0, self.zoom * factor))
+        new = max(ZOOM_MIN, min(ZOOM_MAX, self.zoom * factor))
         # 以光标为中心缩放
         cur = ev.position()
         self.pan = QPointF(

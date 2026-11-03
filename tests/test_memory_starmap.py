@@ -100,12 +100,92 @@ def test_zoom_clamped():
                          Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
         w.wheelEvent(ev)
 
-    for _ in range(40):
+    for _ in range(60):
         wheel(120)
-    assert w.zoom <= 4.0, '放大未被钳制：%r' % w.zoom
-    for _ in range(120):
+    # ⚠ 2026-11-03：这里原来写死 4.0 / 0.35。Owner「放大上限再调高一点」把上限
+    #   改成常量 ZOOM_MAX（4.0 → 30），硬编码数值属于契约漂移，改为引用单一源。
+    #   **本测试的契约是「有钳制」**，不是「钳制在某个具体数」。
+    assert w.zoom <= sm.ZOOM_MAX + 1e-9, '放大未被钳制：%r (上限 %r)' % (w.zoom, sm.ZOOM_MAX)
+    for _ in range(200):
         wheel(-120)
-    assert w.zoom >= 0.35, '缩小未被钳制：%r' % w.zoom
+    assert w.zoom >= sm.ZOOM_MIN - 1e-9, '缩小未被钳制：%r (下限 %r)' % (w.zoom, sm.ZOOM_MIN)
+    # 反向守护：上限必须留够「放大看单颗」的余地 —— 否则这条设计意图会被悄悄改回去
+    assert sm.ZOOM_MAX >= 8.0, '放大上限太小（%r），几万条数据集无法放大到单颗' % sm.ZOOM_MAX
+
+
+def _press(w, pos):
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+    ev = QMouseEvent(QEvent.MouseButtonPress, QPointF(pos[0], pos[1]), QPointF(pos[0], pos[1]),
+                     Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    w.mousePressEvent(ev)
+
+
+def _move(w, pos):
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+    ev = QMouseEvent(QEvent.MouseMove, QPointF(pos[0], pos[1]), QPointF(pos[0], pos[1]),
+                     Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+    w.mouseMoveEvent(ev)
+
+
+def _release(w, pos):
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+    ev = QMouseEvent(QEvent.MouseButtonRelease, QPointF(pos[0], pos[1]), QPointF(pos[0], pos[1]),
+                     Qt.LeftButton, Qt.NoButton, Qt.NoModifier)
+    w.mouseReleaseEvent(ev)
+
+
+def test_drag_over_star_does_not_pin():
+    """防误触：按在星上拖动画面，松手不能把星钉住。
+
+    Owner 原话：「拖动时难免点到星上进行拖拽，这不是真的要钉住」。
+    原先 mousePressEvent 一按到星就钉住，拖动永远逃不掉。
+    """
+    w = _widget()
+    s = max(w.stars, key=lambda x: x.get('imp', 3))
+    k = s.get('key') or s['text']
+    sp = w._to_screen(*w._layout[k])
+    _press(w, (sp.x(), sp.y()))
+    _move(w, (sp.x() + 40, sp.y() + 30))      # 明显拖动
+    _release(w, (sp.x() + 40, sp.y() + 30))
+    assert w.pinned is None, '拖动时误把星钉住了 ✗'
+    # 而且画面确实平移了（拖动没有白做）
+    assert w.pan.x() != 0 or w.pan.y() != 0, '拖动没有平移画面'
+
+
+def test_click_on_star_pins():
+    """对照：按下就松开（位移小于阈值）应正常钉住 —— 防误触不能把点击也废掉。"""
+    w = _widget()
+    s = max(w.stars, key=lambda x: x.get('imp', 3))
+    k = s.get('key') or s['text']
+    sp = w._to_screen(*w._layout[k])
+    _press(w, (sp.x(), sp.y()))
+    _release(w, (sp.x(), sp.y()))
+    assert w.pinned is not None, '单击星点未能钉住 ✗（防误触做过头了）'
+
+
+def test_small_jitter_still_pins():
+    """按下后轻微抖动（小于 DRAG_THRESHOLD）仍算点击 —— 手抖不该丢点击。"""
+    w = _widget()
+    s = max(w.stars, key=lambda x: x.get('imp', 3))
+    k = s.get('key') or s['text']
+    sp = w._to_screen(*w._layout[k])
+    _press(w, (sp.x(), sp.y()))
+    _move(w, (sp.x() + 2, sp.y() + 2))
+    _release(w, (sp.x() + 2, sp.y() + 2))
+    assert w.pinned is not None, '手抖 2px 就丢点击 ✗'
+
+
+def test_layout_deterministic_with_jitter():
+    """抖动必须确定性（crc32 而非 hash()）—— 否则每次开窗位置都变。"""
+    w = _widget()
+    a = dict(w._layout)
+    w._layout = {}
+    w._compute_layout()
+    b = dict(w._layout)
+    assert a == b, '加了抖动后布局不再确定（可能用了内置 hash()）'
 
 
 def test_reset_view():
