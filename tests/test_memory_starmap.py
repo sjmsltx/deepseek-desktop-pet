@@ -54,6 +54,22 @@ def test_load_stars_fields():
         assert s['cat'] in ('core', 'human', 'like', 'study', 'work', 'mile', 'dead')
 
 
+def _widget_with(stars):
+    """用指定星点构造控件（不读盘）。
+
+    ⚠ 必须 resize + show + 显式 _compute_layout：布局与 LOD 都依赖窗口尺寸，
+    不布局的话 _layout 为空 ⇒ _lod_visible 返回空 ⇒ 任何「边」的断言都是假空。
+    """
+    w = sm.MemoryStarMap(stars=stars, dead=[], raw_events=0,
+                         facts_path=os.path.join(BASE, 'memory.json'),
+                         events_path=os.path.join(BASE, 'memories.json'))
+    w.resize(1500, 940)
+    w.show()
+    _app.processEvents()
+    w._compute_layout()
+    w._layout_cached_size = (w.width(), w.height())
+    return w
+
 def _widget():
     stars, dead, raw = sm.load_stars()
     w = sm.MemoryStarMap(stars=stars, dead=dead, raw_events=raw)
@@ -186,6 +202,53 @@ def test_layout_deterministic_with_jitter():
     w._compute_layout()
     b = dict(w._layout)
     assert a == b, '加了抖动后布局不再确定（可能用了内置 hash()）'
+
+
+def test_edges_computed_on_visible_set_not_filtered():
+    """联系性回归：LOD 启用时，边必须在**可见集**上算，不是「全量算完再过滤」。
+
+    2026-11-04 实测：1417 点按「全量算边 → 要求两端都可见」只留下 49 条强边
+    （保留 17% 的点 ⇒ 边留下约 p²≈3%），可见星里 64% 一条边都没有 —— 表现为
+    「节点之间的联系性没体现」。改成在可见集上重算后：强边 172、有边星 83%。
+
+    本用例用「30 组、每组 10 条同文」造强边：
+      · 在可见集上算 ⇒ 同组内必有边，有边星比例高
+      · 全量算完过滤 ⇒ 同组 10 条里大约只剩 1~2 条可见，比例很低
+    """
+    stars = []
+    for g in range(30):
+        for k in range(10):
+            # ⚠ age 必须在组内拉开：布局按 age 排序定半径，age 相近的点
+            #   会挤在同一处、被 LOD 去重掉 ⇒ 看不到组内同文应有的边。
+            stars.append({'text': '第%d组 用户喜欢遥感课程 组内同文 %d' % (g, k),
+                          'imp': 3, 'age': 1.0 + k * 25.0 + g * 0.7, 'kind': 'fact',
+                          'cat': 'study', 'detail': '', 'time': '',
+                          'key': 'k%d_%d' % (g, k)})
+    w = _widget_with(stars)
+    vis = w._lod_visible()
+    assert len(vis) < len(stars), '此用例要求 LOD 生效（否则测不到过滤问题）'
+    se, _we = w._edges_for(vis)
+    assert se, '可见集上一条强边都没有 —— 边可能还在全量上算'
+    linked = set()
+    vkeys = [(x.get('key') or x['text']) for x in vis]
+    for i, j, _wt in se:
+        linked.add(vkeys[i])
+        linked.add(vkeys[j])
+    ratio = len(linked) / float(len(vis))
+    assert ratio >= 0.5, (
+        '可见星里只有 %.0f%% 有强边 —— 边可能是「全量算完再过滤」而不是在可见集上算'
+        % (ratio * 100))
+
+
+def test_small_library_edges_unchanged():
+    """小库零回归：≤LOD_MIN_N 时 vis 就是 self.stars 本身，边与全量一致。"""
+    w = _widget()
+    assert len(w.stars) <= sm.LOD_MIN_N, '真实库应小于 LOD 阈值'
+    vis = w._lod_visible()
+    assert vis is w.stars, '小库时 _lod_visible 应原样返回 self.stars'
+    se, we = w._edges_for(vis)
+    ref_s, ref_w = sm.build_edges(w.stars)
+    assert len(se) == len(ref_s) and len(we) == len(ref_w), '小库边数与全量算不一致'
 
 
 def test_reset_view():

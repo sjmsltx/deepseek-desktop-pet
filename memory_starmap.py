@@ -167,7 +167,10 @@ DEPTH_GLOW = 0.38        # 最老的光晕只剩最新的 38%（再乘 alpha 衰
 LOD_MIN_N = 260
 #: LOD 间距（屏幕 px）。**恒定**，不随 zoom 变 —— 它必须 ≥ 符号直径才不会叠。
 #: 「放大看更多」靠另一条路：格不变而几何放大 ⇒ 数据空间分桶自动变细。
-LOD_CELL_BASE = 19.0
+#: 格边长基准（屏幕 px）。**必须明显大于星核心直径**（imp=5 时约 19px），
+#: 否则相切无间隙、视觉上密不透风（19px 实测：zoom=4 时 811 颗糊成一片）。
+#: 26px 留出约 7px 间隙；实测可见数 zoom=1 147 / zoom=2 287 / zoom=4 584。
+LOD_CELL_BASE = 26.0
 
 #: 缩放上下限。2026-11-03 Owner「放大上限再调高一点」：4.0 → 30。
 #: 配合「布局半径随条数 √ 增长」，放大到 30 倍才能把几万条里的一簇拆开看清。
@@ -197,6 +200,20 @@ GLOW_MAX = 160.0
 #: 世界半径随条数 √n 增长 ⇒ 每颗星占的世界面积恒定 ⇒ 几万条也放得下。
 WORLD_BASE_R = 320.0     # n = WORLD_REF_N 时的世界布局半径
 WORLD_REF_N = 400        # 基准条数
+
+#: 参与算边的点数上限。build_edges 的候选对随点数平方增长：
+#:   235 点 → 8.7k 对（3.5ms）／812 点 → 92k 对（29ms）／1417 点 → 282k 对（90ms）。
+#: 400 点 ≈ 21k 对 ≈ 9ms，是一帧预算内能接受的上限。
+#: 超出时按 (重要度 desc, 亮度 desc) 取前 N —— 被裁的是暗淡低重要度的星，
+#: 它们不该抢眼的线；pinned / hover 强制保留。
+EDGE_MAX_N = 360
+
+#: 算边时的视野缓冲（屏幕 px）。视野外这么多以内的点也参与算边，
+#: 这样小幅拖动时边缘的线不会突然断掉。
+VIEW_PAD = 240.0
+#: 拖动量化（屏幕 px）。pan 以这个粒度取整后才进缓存 key ⇒
+#: 小幅拖动命中缓存（不重算边），大幅拖动才重算一次。
+VIEW_PAN_Q = 200.0
 
 #: 类团外半径上限（世界单位，n = WORLD_REF_N 时）。按星数 √n 分配使密度接近。
 #: 190 是 1440x900 上限附近实测不越界的值；小窗口由 _compute_layout 按 R 再压。
@@ -429,8 +446,31 @@ class MemoryStarMap(QWidget):
         self._lod_cache = None
         #: 每条星点的 key 列表缓存 (id(stars), len, [key])
         self._keys_cache = None
+        #: 边缓存：**按 LOD 可见集算**（见 _edges_for）。
+        #:   _edge_src_ref 持有**调用方传入的那个列表**的引用 —— 既做身份判据，
+        #:   也防止 list 被回收后 id 复用导致误命中缓存。
+        #:   ⚠ 不能存裁剪后的新列表（那会让身份判断永远不命中、每帧重算边）。
+        self._edge_src_ref = None
+        self._edge_strong = []
+        self._edge_weak = []
+        #: 视野内（含缓冲）的星点列表缓存。
+        #:   边只在这批点上算 —— 大 zoom 时 LOD 可见数上千，全算要 68ms。
+        self._view_cache = None
+        #: 滚动/缩放中「延后重算边」的单次定时器。
+        #:   缩放时 LOD 可见集会变 ⇒ 边要重算（30~40ms，超一帧预算）。
+        #:   做法：先用上一轮的边继续画（位置仍按当前 _layout，视觉正确，
+        #:   只是线的疏密短暂沿用），停 130ms 后再算一次。
+        self._edge_timer = QTimer(self)
+        self._edge_timer.setSingleShot(True)
+        self._edge_timer.setInterval(130)
+        self._edge_timer.timeout.connect(self._rebuild_edges_now)
         #: 优先级序缓存 (id(stars), len, [星点])
+        #: ⚠ 与 _label_cache 必须分**两个**字段：两个缓存格式不同（3 元组 / 5 元组），
+        #:   共用一个字段会互相覆盖 ⇒ 两边永远不命中 ⇒ 每帧全量排序 1417 星点算亮度。
+        #:   （这个 bug 让稳定态帧耗时从 ~12ms 涨到 ~26ms，实测抓出来的。）
         self._prio_cache = None
+        #: 标签候选缓存 (id(stars), len, [最亮 4 颗]) —— 与 _prio_cache 分开
+        self._label_cache = None
         #: 每个类团的外半径 {cat: 世界单位}，_compute_layout 里按 √n 算
         self._cat_r = {}
         #: 世界→屏幕的窗口适配系数：fit = 窗口可用半径 / 世界半径。
@@ -591,6 +631,9 @@ class MemoryStarMap(QWidget):
         #   新列表的 id 通常会变，但不能寄望于此。
         self._lod_cache = None
         self._prio_cache = None
+        self._label_cache = None
+        self._edge_src_ref = None
+        self._view_cache = None
         if self.pinned is not None and (self.pinned.get('key') or '') not in {
                 s.get('key') or '' for s in stars}:
             self.pinned = None
@@ -696,11 +739,11 @@ class MemoryStarMap(QWidget):
 
     def _label_candidates(self):
         """个体标签候选（最亮 4 颗）。缓存 —— 原先每帧重排全部星点。"""
-        c = self._prio_cache
-        if c and len(c) > 3 and c[3] == (id(self.stars), len(self.stars)):
-            return c[4]
+        c = self._label_cache
+        if c and c[0] == id(self.stars) and c[1] == len(self.stars):
+            return c[2]
         top = sorted(self.stars, key=lambda s: -self._bright(s))[:4]
-        self._prio_cache = (None, None, None, (id(self.stars), len(self.stars)), top)
+        self._label_cache = (id(self.stars), len(self.stars), top)
         return top
 
     def _priority_order(self):
@@ -716,6 +759,89 @@ class MemoryStarMap(QWidget):
         self._prio_cache = (id(self.stars), len(self.stars), order)
         return order
 
+    def _rebuild_edges_now(self):
+        """延后重算边（由 _edge_timer 触发）。
+
+        把身份判据置空 ⇒ 下一次 paintEvent 会走同步重算分支。
+        """
+        self._edge_src_ref = None
+        self.update()
+
+    def _schedule_edge_rebuild(self):
+        """滚动/缩放中：安排一次延后重算（已在排队就不重复排）。"""
+        if not self._edge_timer.isActive():
+            self._edge_timer.start()
+
+    def _view_stars(self, vis):
+        """LOD 可见集里**落在视野内（含 VIEW_PAD 缓冲）**的那些。
+
+        为什么需要：build_edges 的代价随点数平方增长（zoom=20 时 1403 点要 68ms），
+        而视野外看不见的边算了也白算。实测 zoom=3 时视野内只有 296 点、4.6ms。
+
+        ⚠ pan 量化到 VIEW_PAN_Q 才进 key：否则拖动时每个 mouseMove 都重算边。
+        """
+        q = VIEW_PAN_Q
+        key = (id(self.stars), len(self.stars), len(vis),
+               round(self.zoom, 3), int(round(self.pan.x() / q)),
+               int(round(self.pan.y() / q)))
+        c = self._view_cache
+        if c and c[0] == key:
+            return c[1]
+        S = self._S()
+        if S <= 0:
+            self._view_cache = (key, vis)
+            return vis
+        px = int(round(self.pan.x() / q)) * q
+        py = int(round(self.pan.y() / q)) * q
+        m = VIEW_PAD
+        x_lo = (-m - self._cx - px) / S
+        x_hi = (self.width() + m - self._cx - px) / S
+        y_lo = (-m - self._cy - py) / S
+        y_hi = (self.height() + m - self._cy - py) / S
+        lay = self._layout
+        out = []
+        for st in vis:
+            xy = lay.get(st.get('key') or st['text'])
+            if not xy:
+                continue
+            if x_lo <= xy[0] <= x_hi and y_lo <= xy[1] <= y_hi:
+                out.append(st)
+        self._view_cache = (key, out)
+        return out
+
+    def _edges_for(self, vis):
+        """算边（**在给定星点集合上**，通常是 LOD 可见集）。
+
+        ⛔ 为什么不能「在全部星点上算完再过滤」：LOD 只保留约 17% 的点，
+           要求边两端都可见 ⇒ 只剩约 3% 的边。实测 1417 点：1263 条强边
+           画出来只有 49 条，64% 的可见星一条边都没有 ⇒「联系性没体现」。
+
+        ✅ 在可见集上重算：全览看的是「每个位置的代表星之间的关系」，
+           放大后代表变多、图自然变细（与地图金字塔同理）。
+           实测 235 可见点：强边 49 → 172，有边星 36% → 83%。
+
+        ⚠ 小库（≤LOD_MIN_N）时 vis 就是 self.stars 本身 ⇒ 与改动前完全一致。
+        """
+        # ⚠ 必须用「调用方传进来的那个对象」做身份判据（_edge_src_ref），
+        #   不能用裁剪后的新列表 —— 否则下一次调用永远不命中、每帧重算边。
+        if self._edge_src_ref is vis:
+            return self._edge_strong, self._edge_weak
+        _src = vis
+        if len(vis) > EDGE_MAX_N:
+            pin, hov = self.pinned, self.hover
+            ordered = sorted(vis, key=lambda st: (
+                -float(st.get('imp') or 3), -self._bright(st)))
+            keep = ordered[:EDGE_MAX_N]
+            ids = {id(x) for x in keep}
+            for x in (pin, hov):
+                if x is not None and id(x) not in ids and x in vis:
+                    keep.append(x)
+            vis = keep
+        s, w = build_edges(vis)
+        self._edge_strong, self._edge_weak = s, w
+        self._edge_src_ref = _src          # 存**原始输入**对象（持有引用防 id 复用）
+        return s, w
+
     def _lod_visible(self):
         """按屏幕占用格去重，返回本轮该画的星点（GIS 金字塔式 LOD）。
 
@@ -728,10 +854,12 @@ class MemoryStarMap(QWidget):
         """
         if len(self.stars) <= LOD_MIN_N:
             return self.stars
-        # 格边长恒定；放大后同一段世界坐标落进更多格子 ⇒ 自动显示更多。
-        # 格边长在**屏幕上**恒定 19px ⇒ 世界格 = 19 / S。
-        #   S 随 zoom 变大 ⇒ 世界格变小 ⇒ 同一片区域能容纳更多星（金字塔展开）。
-        cell = LOD_CELL_BASE / max(self._S(), 1e-9)
+        # 格边长 = 19px × 符号缩放，再换算成世界格（19×sym / S）。
+        #   S 随 zoom 变大 ⇒ 世界格变小 ⇒ 同一区域容纳更多星（金字塔展开）。
+        # ⚠ 必须乘 _sym_scale()：符号随 zoom 放大到 1.6 倍（直径 ~30px），
+        #   若格仍固定 19px ⇒ 符号直径 > 格距 ⇒ 必然重叠糊成一片
+        #   （zoom=4 截图实测：885 颗星糊成一团浅蓝，连线完全看不见）。
+        cell = (LOD_CELL_BASE * self._sym_scale()) / max(self._S(), 1e-9)
         key = (round(self.zoom, 4), id(self.stars), len(self.stars),
                self._layout_cached_size)
         c = self._lod_cache
@@ -845,16 +973,29 @@ class MemoryStarMap(QWidget):
         #   强边 = 词面重叠 ≥ STRONG_EDGE_JACCARD，可跨星团，实线，按权重给亮度
         #   弱边 = 同类别最小生成树，很淡的细线（表示「同类但无显著词面关系」）
         #
-        # 边只算一次并缓存：星点与布局不变时不必每帧重算
-        #   （词重叠是 O(n²) 次词集合运算，23 点 = 253 对，每帧算会拖慢拖动缩放）
-        if getattr(self, '_edge_cache_key', None) != (id(self.stars), len(self.stars)):
-            self._strong_edges, self._weak_edges = build_edges(self.stars)
-            self._edge_cache_key = (id(self.stars), len(self.stars))
+        # 边：在**本轮可见集**上算（不是全量算完过滤 —— 那会丢掉 96% 的线，
+        #   见 _edges_for 的注释）。可见集没变时命中缓存，不重算。
 
         # 本轮可见集合（LOD 后的结果）与它的 key 集 —— 连线两端都可见才画，
         #   否则会出现「线连着看不见的点」这种破绽，也白画。
         _vis = self._lod_visible()
         _vis_keys = {(s.get('key') or s['text']) for s in _vis}
+        # 边在「可见 ∩ 视野内」上重算 ⇒ 下标是 _view 的局部下标。
+        #   （不先按视野筛，zoom 大时 1400 点算边要 68ms）
+        _view = self._view_stars(_vis)
+        if self._edge_src_ref is _view:
+            # 已就绪：直接用缓存
+            _strong_e, _weak_e = self._edge_strong, self._edge_weak
+        elif self._edge_src_ref is None:
+            # 首次（或延后重算刚清空）：同步算一次
+            _strong_e, _weak_e = self._edges_for(_view)
+        else:
+            # 缩放中：先用上一轮的边（位置仍按当前 _layout ⇒ 视觉正确），
+            #   停 130ms 后再算。否则每次滚轮都要 30~40ms，滚动会迟滞。
+            _view = self._edge_src_ref
+            _strong_e, _weak_e = self._edge_strong, self._edge_weak
+            self._schedule_edge_rebuild()
+        _vkeys = [(s.get('key') or s['text']) for s in _view]
         # key 列表按星点缓存 —— 原先每条边两端都现算 'key' or 'text' 字符串，
         #   每帧 5350 次（1.6ms）。改成索引查表。
         _keys = self._keys_list()
@@ -864,11 +1005,10 @@ class MemoryStarMap(QWidget):
         #   实测 181 条逐条 AA drawLine = 7.4ms；批量 + 无 AA = 4.8ms。
         #   弱边 alpha 只有 28，关 AA 看不出锯齿。
         _weak_paths = {}
-        for i, j in getattr(self, '_weak_edges', []):
-            if _keys[i] not in _vis_keys or _keys[j] not in _vis_keys:
-                continue
-            a, b = self._layout[_keys[i]], self._layout[_keys[j]]
-            _cat = self.stars[i].get('cat') or 'human'
+        for i, j in _weak_e:
+            ki, kj = _vkeys[i], _vkeys[j]
+            a, b = self._layout[ki], self._layout[kj]
+            _cat = _view[i].get('cat') or 'human'
             pa, pb = self._to_screen(*a), self._to_screen(*b)
             _path = _weak_paths.get(_cat)
             if _path is None:
@@ -884,7 +1024,7 @@ class MemoryStarMap(QWidget):
             # ⚠ 用 math.sqrt 而不是 `** 0.5`：tests/test_decay_model 的结构钉会用 AST
             #   扫「源码段里同时出现 0.5 和 **」并当作「第二份字面衰减公式」。
             #   这里的含义是连线视觉衰减，与记忆衰减无关，但没必要去撞那条守卫。
-            _wa = int(28 * max(0.32, 1.0 / math.sqrt(max(self.zoom, 1.0))))
+            _wa = int(28 * max(0.50, 1.0 / math.sqrt(max(self.zoom, 1.0))))
             for _cat, _path in _weak_paths.items():
                 wcol = QColor(*PAL[_cat])
                 wcol.setAlpha(_wa)
@@ -893,25 +1033,41 @@ class MemoryStarMap(QWidget):
             p.setRenderHint(QPainter.Antialiasing, _aa)
 
         # 强边后画（亮，压在上面）
-        for i, j, w in getattr(self, '_strong_edges', []):
-            if _keys[i] not in _vis_keys or _keys[j] not in _vis_keys:
-                continue
-            a, b = self._layout[_keys[i]], self._layout[_keys[j]]
+        #   2026-11-04：改回**逐条 drawLine**。
+        #   曾试过「按 alpha 分档聚成 QPainterPath」，cProfile 实测 drawPath
+        #   每帧 17ms（280 次/8 帧），比逐条还慢 —— QPainterPath 里是一条条
+        #   **不连续**子路径，描边要逐子路径做 join/cap，线段多并不省。
+        #   微基准也证实：172 条散线 逐条 2.78ms / drawLines 2.47 / path 2.49。
+        #   既然差这么小，就用最简单可预测的写法。
+        # 下限 0.50：0.30 时放大 4 倍线几乎不可见（截图实测），
+        #   而「放大后看关系」正是放大档的用途之一。
+        _zoom_fade = max(0.50, 1.0 / max(self.zoom, 1.0) ** 0.6)
+        _aa0 = p.testRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.Antialiasing, False)
+        _pen_cache = {}
+        for i, j, w in _strong_e:
+            ki, kj = _vkeys[i], _vkeys[j]
+            a, b = self._layout[ki], self._layout[kj]
             # 权重越高越亮：0.045 → alpha 90，0.20 → alpha 190
             t = min(1.0, max(0.0, (w - STRONG_EDGE_JACCARD) / 0.155))
-            # 2026-11-03：再按**屏幕距离**衰减。跨类强边长达 600+px，
-            #   1px 细线横穿整个画面 ⇒ 星团边界感被打散（截图实测 180 颗时
-            #   绿团与蓝团之间是一大束平行线，最抢眼却信息量最低）。
-            #   视觉惯例：关系越远越弱。团内保持清晰，跨团淡到约 1/4。
+            # 再按**屏幕距离**衰减：跨类强边长达 600+px，1px 细线横穿画面
+            #   ⇒ 星团边界感被打散。团内保持清晰，跨团淡到约 1/4。
             _sa, _sb = self._to_screen(*a), self._to_screen(*b)
             _dist = math.hypot(_sa.x() - _sb.x(), _sa.y() - _sb.y())
             _fade = max(0.24, 1.0 - _dist / (self._R * 2.2))
-            alpha = int((90 + 100 * t) * _fade
-                        * max(0.30, 1.0 / max(self.zoom, 1.0) ** 0.6))
-            col = QColor(*PAL[self.stars[i].get('cat') or 'human'])
-            col.setAlpha(alpha)
-            p.setPen(QPen(col, 1.0 + 0.8 * t))
+            alpha = int((90 + 100 * t) * _fade * _zoom_fade)
+            cat = _view[i].get('cat') or 'human'
+            wide = 1 if t > 0.45 else 0
+            _k = (cat, alpha // 16, wide)
+            pen = _pen_cache.get(_k)
+            if pen is None:
+                col = QColor(*PAL[cat])
+                col.setAlpha(int((alpha // 16 + 0.5) * 16))
+                pen = QPen(col, 1.0 + (0.8 if wide else 0.0))
+                _pen_cache[_k] = pen
+            p.setPen(pen)
             p.drawLine(_sa, _sb)
+        p.setRenderHint(QPainter.Antialiasing, _aa0)
 
         # 外圈失效星
         p.setPen(Qt.NoPen)
