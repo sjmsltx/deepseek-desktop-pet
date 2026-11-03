@@ -1,0 +1,5 @@
+# 本目录的临时产物，不进仓库
+# starmap_viewer.py --n N 会写一份合并数据；正常退出会删，被强杀时会留下
+.viewer-*.json
+# run_experiment.py 的断点续传状态
+.progress.json
