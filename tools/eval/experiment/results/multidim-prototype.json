@@ -1,0 +1,28 @@
+{
+ "generated": "2026-11-04 15:06",
+ "n_facts": 1411,
+ "n_true_entities": 239,
+ "metrics": {
+  "knn1_same_entity_pct": 54.4,
+  "knn3_same_entity_pct": 73.6,
+  "same_median": 0.6845,
+  "diff_median": 0.5025,
+  "cluster_cut": 0.3,
+  "n_clusters": 576,
+  "n_true": 239,
+  "purity": 0.758,
+  "entity_recall": 0.502,
+  "compression": 2.4,
+  "singleton_pct": 41.9,
+  "retention_median": 1.0,
+  "noise_drop": 0.0315
+ },
+ "verdict": [
+  "同实体中位余弦 0.684 vs 异类 0.502（差 0.182）",
+  "最近邻同实体仅 54%，top-3 74% ⇒ 「同一件事的不同面向」在向量空间里并不紧挨",
+  "层次聚类 576 簇（真值 239），purity 0.758，实体召回 0.502",
+  "purity 0.758 ⇒ 簇里混进了其他实体，不能当「一件事」用",
+  "压缩 2.4:1，但聚合句只留原措辞 100% ⇒ 损失可接受",
+  "真实消息最高余弦下降 0.0315（阈值需在聚合节点上重新校准后才能报注入率）"
+ ]
+}

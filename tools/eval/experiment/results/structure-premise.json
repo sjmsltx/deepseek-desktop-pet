@@ -1,0 +1,47 @@
+{
+ "generated": "2026-11-04 18:05",
+ "result": {
+  "syn_batch": {
+   "n": 1411,
+   "entities": 239,
+   "avg_size": 5.903765690376569,
+   "singleton_pct": 0.0,
+   "retention_median": 0.17
+  },
+  "syn_topic": {
+   "n": 1411,
+   "entities": 239,
+   "avg_size": 5.903765690376569,
+   "singleton_pct": 0.0,
+   "retention_median": 0.17
+  },
+  "syn_object": {
+   "n": 1411,
+   "entities": 235,
+   "avg_size": 6.004255319148936,
+   "singleton_pct": 0.0,
+   "retention_median": 0.17
+  },
+  "real_llm": {
+   "n": 21,
+   "entities": 18,
+   "avg_size": 1.1666666666666667,
+   "singleton_pct": 83.3,
+   "retention_median": 1.0
+  },
+  "real_v3topic": {
+   "n": 21,
+   "entities": 18,
+   "avg_size": 1.1666666666666667,
+   "singleton_pct": 83.3,
+   "retention_median": 1.0
+  },
+  "real_object": {
+   "n": 21,
+   "entities": 18,
+   "avg_size": 1.1666666666666667,
+   "singleton_pct": 83.3,
+   "retention_median": 1.0
+  }
+ }
+}

@@ -1,0 +1,106 @@
+{
+ "generated": "2026-11-04 18:05",
+ "groups": {
+  "f1785689490646": {
+   "topic": "爱吃合川桃片",
+   "object": "重庆合川桃片",
+   "aspect": "episode"
+  },
+  "f1785689490675": {
+   "topic": "重庆地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "episode"
+  },
+  "f1785689595993": {
+   "topic": "桌宠名字",
+   "object": "小蓝",
+   "aspect": "episode"
+  },
+  "f1785689596033": {
+   "topic": "Pro模型名字",
+   "object": "大蓝",
+   "aspect": "episode"
+  },
+  "f1785732107832": {
+   "topic": "用AutoClaw强化桌宠",
+   "object": "AutoClaw",
+   "aspect": "episode"
+  },
+  "f1786722588650": {
+   "topic": "AI Agent治理体系",
+   "object": "agent-governance-template",
+   "aspect": "episode"
+  },
+  "f1787068645500": {
+   "topic": "玩galgame",
+   "object": "Galgame",
+   "aspect": "episode"
+  },
+  "f1788143335570": {
+   "topic": "学生身份",
+   "object": "大二",
+   "aspect": "episode"
+  },
+  "f1789640343829": {
+   "topic": "玩战争雷霆解压",
+   "object": "战争雷霆",
+   "aspect": "episode"
+  },
+  "f1789824394827": {
+   "topic": "发教材截图识别",
+   "object": "教材插图",
+   "aspect": "episode"
+  },
+  "f1789917675229": {
+   "topic": "古典诗词兴趣",
+   "object": "中国古典诗词",
+   "aspect": "episode"
+  },
+  "f1791697950926": {
+   "topic": "练习Python基础",
+   "object": "Python代码",
+   "aspect": "episode"
+  },
+  "f1792549566216": {
+   "topic": "Python关卡满分",
+   "object": "Python基础关卡",
+   "aspect": "episode"
+  },
+  "f1792904556928": {
+   "topic": "日语梗开玩笑",
+   "object": "この変態",
+   "aspect": "episode"
+  },
+  "f1792919892498": {
+   "topic": "日语谐音梗",
+   "object": "阿姨洗铁路",
+   "aspect": "episode"
+  },
+  "f1793010722059": {
+   "topic": "背古文考据作者",
+   "object": "过秦论",
+   "aspect": "episode"
+  },
+  "f1793377316145": {
+   "topic": "比较主流AI模型",
+   "object": "Claude、GPT",
+   "aspect": "episode"
+  },
+  "f1793453924641": {
+   "topic": "关注记忆机制",
+   "object": "记忆机制",
+   "aspect": "episode"
+  }
+ },
+ "n_groups": 18,
+ "usage": {
+  "prompt_tokens": 793,
+  "completion_tokens": 358,
+  "total_tokens": 1151,
+  "prompt_tokens_details": {
+   "cached_tokens": 0
+  },
+  "prompt_cache_hit_tokens": 0,
+  "prompt_cache_miss_tokens": 793
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "n_synth": 1411,
+ "synth_suspicious": 178,
+ "synth_suspicious_pct": 12.6,
+ "reasons": {
+  "aspect=struggle 但无困难词": 67,
+  "aspect=habit 但无持续词": 69,
+  "aspect=change 但无对比词": 40,
+  "object 不像专名": 2
+ },
+ "real_suspicious": 6,
+ "real_total": 21,
+ "object_coverage_pct": 4.1
+}

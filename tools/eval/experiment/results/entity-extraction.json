@@ -1,0 +1,6494 @@
+{
+ "passes": {
+  "A_p1": {
+   "res": {
+    "0": {
+     "entity": "遥感原理课程偏好",
+     "aspect": "preference"
+    },
+    "1": {
+     "entity": "遥感原理课程看法",
+     "aspect": "change"
+    },
+    "2": {
+     "entity": "遥感原理笔记习惯",
+     "aspect": "habit"
+    },
+    "3": {
+     "entity": "数字图像处理课程偏好",
+     "aspect": "preference"
+    },
+    "4": {
+     "entity": "课程项目态度",
+     "aspect": "change"
+    },
+    "5": {
+     "entity": "数字图像处理练习习惯",
+     "aspect": "habit"
+    },
+    "6": {
+     "entity": "GIS空间分析课程偏好",
+     "aspect": "preference"
+    },
+    "7": {
+     "entity": "GIS空间分析看法",
+     "aspect": "change"
+    },
+    "8": {
+     "entity": "GIS空间分析练习习惯",
+     "aspect": "habit"
+    },
+    "9": {
+     "entity": "地图学课程偏好",
+     "aspect": "preference"
+    },
+    "10": {
+     "entity": "地图学看法",
+     "aspect": "change"
+    },
+    "11": {
+     "entity": "地图学笔记习惯",
+     "aspect": "habit"
+    },
+    "12": {
+     "entity": "自然地理偏好",
+     "aspect": "preference"
+    },
+    "13": {
+     "entity": "自然地理看法",
+     "aspect": "change"
+    },
+    "14": {
+     "entity": "自然地理笔记习惯",
+     "aspect": "habit"
+    },
+    "15": {
+     "entity": "人文地理偏好",
+     "aspect": "preference"
+    },
+    "16": {
+     "entity": "人文地理打算",
+     "aspect": "change"
+    },
+    "17": {
+     "entity": "人文地理阅读习惯",
+     "aspect": "habit"
+    },
+    "18": {
+     "entity": "概率论偏好",
+     "aspect": "preference"
+    },
+    "19": {
+     "entity": "概率论学习目标",
+     "aspect": "change"
+    },
+    "20": {
+     "entity": "概率题练习习惯",
+     "aspect": "habit"
+    },
+    "21": {
+     "entity": "线性代数偏好",
+     "aspect": "preference"
+    },
+    "22": {
+     "entity": "线性代数课程内容",
+     "aspect": "episode"
+    },
+    "23": {
+     "entity": "分块矩阵求逆",
+     "aspect": "struggle"
+    },
+    "24": {
+     "entity": "高数学习进展",
+     "aspect": "episode"
+    },
+    "25": {
+     "entity": "高数喜好",
+     "aspect": "preference"
+    },
+    "26": {
+     "entity": "高数态度转变",
+     "aspect": "change"
+    },
+    "27": {
+     "entity": "大学物理学习内容",
+     "aspect": "episode"
+    },
+    "28": {
+     "entity": "大学物理喜好",
+     "aspect": "preference"
+    },
+    "29": {
+     "entity": "大学物理做题习惯",
+     "aspect": "habit"
+    },
+    "30": {
+     "entity": "C语言学习内容",
+     "aspect": "episode"
+    },
+    "31": {
+     "entity": "C语言喜好",
+     "aspect": "preference"
+    },
+    "32": {
+     "entity": "C语言态度转变",
+     "aspect": "change"
+    },
+    "33": {
+     "entity": "数据结构学习卡点",
+     "aspect": "struggle"
+    },
+    "34": {
+     "entity": "数据结构喜好",
+     "aspect": "preference"
+    },
+    "35": {
+     "entity": "学习想法转变",
+     "aspect": "change"
+    },
+    "36": {
+     "entity": "摄影测量课程",
+     "aspect": "episode"
+    },
+    "37": {
+     "entity": "摄影测量课程",
+     "aspect": "preference"
+    },
+    "38": {
+     "entity": "摄影测量课程",
+     "aspect": "change"
+    },
+    "39": {
+     "entity": "大地测量课程",
+     "aspect": "episode"
+    },
+    "40": {
+     "entity": "大地测量课程",
+     "aspect": "preference"
+    },
+    "41": {
+     "entity": "大地测量课程",
+     "aspect": "change"
+    },
+    "42": {
+     "entity": "误差理论课程",
+     "aspect": "episode"
+    },
+    "43": {
+     "entity": "误差理论课程",
+     "aspect": "preference"
+    },
+    "44": {
+     "entity": "误差理论课程",
+     "aspect": "change"
+    },
+    "45": {
+     "entity": "地理建模课程",
+     "aspect": "preference"
+    },
+    "46": {
+     "entity": "地理建模课程",
+     "aspect": "episode"
+    },
+    "47": {
+     "entity": "地理建模课程",
+     "aspect": "change"
+    },
+    "48": {
+     "entity": "空间数据库喜好",
+     "aspect": "preference"
+    },
+    "49": {
+     "entity": "空间数据库态度",
+     "aspect": "change"
+    },
+    "50": {
+     "entity": "空间数据库学习习惯",
+     "aspect": "habit"
+    },
+    "51": {
+     "entity": "Python喜好",
+     "aspect": "preference"
+    },
+    "52": {
+     "entity": "Python学习习惯",
+     "aspect": "habit"
+    },
+    "53": {
+     "entity": "编程态度",
+     "aspect": "change"
+    },
+    "54": {
+     "entity": "遥感图像解译喜好",
+     "aspect": "preference"
+    },
+    "55": {
+     "entity": "遥感图像解译态度",
+     "aspect": "change"
+    },
+    "56": {
+     "entity": "遥感图像解译习惯",
+     "aspect": "habit"
+    },
+    "57": {
+     "entity": "GIS二次开发卡点",
+     "aspect": "struggle"
+    },
+    "58": {
+     "entity": "GIS二次开发喜好",
+     "aspect": "preference"
+    },
+    "59": {
+     "entity": "GIS二次开发态度",
+     "aspect": "change"
+    },
+    "60": {
+     "entity": "考研数学二复习",
+     "aspect": "episode"
+    },
+    "61": {
+     "entity": "数学二偏好",
+     "aspect": "preference"
+    },
+    "62": {
+     "entity": "数学二复习策略",
+     "aspect": "change"
+    },
+    "63": {
+     "entity": "考研英语一复习",
+     "aspect": "episode"
+    },
+    "64": {
+     "entity": "英语一偏好",
+     "aspect": "preference"
+    },
+    "65": {
+     "entity": "英语一英语二选择",
+     "aspect": "change"
+    },
+    "66": {
+     "entity": "考研政治刷题",
+     "aspect": "episode"
+    },
+    "67": {
+     "entity": "政治偏好",
+     "aspect": "preference"
+    },
+    "68": {
+     "entity": "政治复习思路",
+     "aspect": "change"
+    },
+    "69": {
+     "entity": "882地理复习",
+     "aspect": "episode"
+    },
+    "70": {
+     "entity": "882地理偏好",
+     "aspect": "preference"
+    },
+    "71": {
+     "entity": "882地理复习思路",
+     "aspect": "change"
+    },
+    "72": {
+     "entity": "四级考试安排",
+     "aspect": "episode"
+    },
+    "73": {
+     "entity": "四级听力备考",
+     "aspect": "habit"
+    },
+    "74": {
+     "entity": "四级备考态度",
+     "aspect": "preference"
+    },
+    "75": {
+     "entity": "六级考试安排",
+     "aspect": "episode"
+    },
+    "76": {
+     "entity": "六级备考态度",
+     "aspect": "preference"
+    },
+    "77": {
+     "entity": "六级备考态度",
+     "aspect": "change"
+    },
+    "78": {
+     "entity": "遥感期末复习",
+     "aspect": "struggle"
+    },
+    "79": {
+     "entity": "遥感考试内容",
+     "aspect": "episode"
+    },
+    "80": {
+     "entity": "遥感课程兴趣",
+     "aspect": "preference"
+    },
+    "81": {
+     "entity": "GIS期末考核",
+     "aspect": "episode"
+    },
+    "82": {
+     "entity": "GIS实操兴趣",
+     "aspect": "preference"
+    },
+    "83": {
+     "entity": "GIS期末目标",
+     "aspect": "change"
+    },
+    "84": {
+     "entity": "地信期末复习",
+     "aspect": "episode"
+    },
+    "85": {
+     "entity": "地信课程喜好",
+     "aspect": "preference"
+    },
+    "86": {
+     "entity": "地信期末目标",
+     "aspect": "change"
+    },
+    "87": {
+     "entity": "计算机二级备考",
+     "aspect": "episode"
+    },
+    "88": {
+     "entity": "计算机二级刷题",
+     "aspect": "habit"
+    },
+    "89": {
+     "entity": "计算机二级薄弱项",
+     "aspect": "struggle"
+    },
+    "90": {
+     "entity": "普通话测试安排",
+     "aspect": "episode"
+    },
+    "91": {
+     "entity": "普通话练习喜好",
+     "aspect": "preference"
+    },
+    "92": {
+     "entity": "普通话测试目标",
+     "aspect": "change"
+    },
+    "93": {
+     "entity": "教资笔试报名",
+     "aspect": "episode"
+    },
+    "94": {
+     "entity": "教资备考重点",
+     "aspect": "change"
+    },
+    "95": {
+     "entity": "教资笔试喜好",
+     "aspect": "preference"
+    },
+    "96": {
+     "entity": "科目一备考",
+     "aspect": "habit"
+    },
+    "97": {
+     "entity": "科目一偏好",
+     "aspect": "preference"
+    },
+    "98": {
+     "entity": "科目一心态",
+     "aspect": "change"
+    },
+    "99": {
+     "entity": "科目二练习",
+     "aspect": "habit"
+    },
+    "100": {
+     "entity": "科目二偏好",
+     "aspect": "preference"
+    },
+    "101": {
+     "entity": "科目二心态",
+     "aspect": "change"
+    },
+    "102": {
+     "entity": "竞赛选拔准备",
+     "aspect": "habit"
+    },
+    "103": {
+     "entity": "竞赛选拔偏好",
+     "aspect": "preference"
+    },
+    "104": {
+     "entity": "竞赛选拔心态",
+     "aspect": "change"
+    },
+    "105": {
+     "entity": "保研面试准备",
+     "aspect": "habit"
+    },
+    "106": {
+     "entity": "保研面试偏好",
+     "aspect": "preference"
+    },
+    "107": {
+     "entity": "保研面试心态",
+     "aspect": "change"
+    },
+    "108": {
+     "entity": "夏令营申请",
+     "aspect": "episode"
+    },
+    "109": {
+     "entity": "夏令营方向选择",
+     "aspect": "episode"
+    },
+    "110": {
+     "entity": "夏令营方向偏好",
+     "aspect": "preference"
+    },
+    "111": {
+     "entity": "每日备考安排",
+     "aspect": "habit"
+    },
+    "112": {
+     "entity": "刷题背书顺序",
+     "aspect": "change"
+    },
+    "113": {
+     "entity": "复试准备习惯",
+     "aspect": "habit"
+    },
+    "114": {
+     "entity": "调剂信息整理",
+     "aspect": "episode"
+    },
+    "115": {
+     "entity": "学校信息偏好",
+     "aspect": "preference"
+    },
+    "116": {
+     "entity": "择校标准转变",
+     "aspect": "change"
+    },
+    "117": {
+     "entity": "导师套磁准备",
+     "aspect": "episode"
+    },
+    "118": {
+     "entity": "套磁联系方式偏好",
+     "aspect": "preference"
+    },
+    "119": {
+     "entity": "套磁策略转变",
+     "aspect": "change"
+    },
+    "120": {
+     "entity": "合川桃片偏好",
+     "aspect": "preference"
+    },
+    "121": {
+     "entity": "合川桃片偏好",
+     "aspect": "change"
+    },
+    "122": {
+     "entity": "合川桃片偏好",
+     "aspect": "advice"
+    },
+    "123": {
+     "entity": "重庆小面偏好",
+     "aspect": "preference"
+    },
+    "124": {
+     "entity": "重庆小面点法",
+     "aspect": "habit"
+    },
+    "125": {
+     "entity": "重庆小面习惯",
+     "aspect": "habit"
+    },
+    "126": {
+     "entity": "酸辣粉偏好",
+     "aspect": "preference"
+    },
+    "127": {
+     "entity": "酸辣粉点法",
+     "aspect": "habit"
+    },
+    "128": {
+     "entity": "酸辣粉习惯",
+     "aspect": "habit"
+    },
+    "129": {
+     "entity": "火锅偏好",
+     "aspect": "preference"
+    },
+    "130": {
+     "entity": "火锅点法",
+     "aspect": "change"
+    },
+    "131": {
+     "entity": "火锅习惯",
+     "aspect": "habit"
+    },
+    "132": {
+     "entity": "串串偏好",
+     "aspect": "preference"
+    },
+    "133": {
+     "entity": "串串经历",
+     "aspect": "episode"
+    },
+    "134": {
+     "entity": "串串习惯",
+     "aspect": "habit"
+    },
+    "135": {
+     "entity": "毛血旺偏好",
+     "aspect": "preference"
+    },
+    "136": {
+     "entity": "毛血旺偏好",
+     "aspect": "preference"
+    },
+    "137": {
+     "entity": "辣度偏好",
+     "aspect": "change"
+    },
+    "138": {
+     "entity": "豆花饭偏好",
+     "aspect": "preference"
+    },
+    "139": {
+     "entity": "豆花饭偏好",
+     "aspect": "preference"
+    },
+    "140": {
+     "entity": "豆花饭习惯",
+     "aspect": "habit"
+    },
+    "141": {
+     "entity": "老麻抄手偏好",
+     "aspect": "preference"
+    },
+    "142": {
+     "entity": "老麻抄手辣度",
+     "aspect": "change"
+    },
+    "143": {
+     "entity": "老麻抄手习惯",
+     "aspect": "habit"
+    },
+    "144": {
+     "entity": "冰美式偏好",
+     "aspect": "preference"
+    },
+    "145": {
+     "entity": "冰美式习惯",
+     "aspect": "habit"
+    },
+    "146": {
+     "entity": "冰美式冰量调整",
+     "aspect": "change"
+    },
+    "147": {
+     "entity": "美式冷热偏好",
+     "aspect": "change"
+    },
+    "148": {
+     "entity": "热美式喝法",
+     "aspect": "preference"
+    },
+    "149": {
+     "entity": "热美式口味转变",
+     "aspect": "change"
+    },
+    "150": {
+     "entity": "拿铁习惯",
+     "aspect": "habit"
+    },
+    "151": {
+     "entity": "拿铁口味偏好",
+     "aspect": "preference"
+    },
+    "152": {
+     "entity": "拿铁腻感转变",
+     "aspect": "change"
+    },
+    "153": {
+     "entity": "奶茶偏好",
+     "aspect": "preference"
+    },
+    "154": {
+     "entity": "奶茶习惯",
+     "aspect": "habit"
+    },
+    "155": {
+     "entity": "奶茶点单搭配",
+     "aspect": "preference"
+    },
+    "156": {
+     "entity": "柠檬茶偏好",
+     "aspect": "preference"
+    },
+    "157": {
+     "entity": "柠檬茶点法",
+     "aspect": "preference"
+    },
+    "158": {
+     "entity": "柠檬茶习惯",
+     "aspect": "habit"
+    },
+    "159": {
+     "entity": "酸奶偏好",
+     "aspect": "preference"
+    },
+    "160": {
+     "entity": "酸奶习惯",
+     "aspect": "habit"
+    },
+    "161": {
+     "entity": "酸奶习惯",
+     "aspect": "habit"
+    },
+    "162": {
+     "entity": "番茄炒蛋偏好",
+     "aspect": "preference"
+    },
+    "163": {
+     "entity": "番茄炒蛋做法",
+     "aspect": "preference"
+    },
+    "164": {
+     "entity": "番茄炒蛋口味变化",
+     "aspect": "change"
+    },
+    "165": {
+     "entity": "回锅肉偏好",
+     "aspect": "preference"
+    },
+    "166": {
+     "entity": "回锅肉做法",
+     "aspect": "preference"
+    },
+    "167": {
+     "entity": "回锅肉习惯",
+     "aspect": "habit"
+    },
+    "168": {
+     "entity": "麻婆豆腐偏好",
+     "aspect": "habit"
+    },
+    "169": {
+     "entity": "麻婆豆腐做法",
+     "aspect": "change"
+    },
+    "170": {
+     "entity": "麻婆豆腐口味",
+     "aspect": "change"
+    },
+    "171": {
+     "entity": "鱼香肉丝偏好",
+     "aspect": "preference"
+    },
+    "172": {
+     "entity": "鱼香肉丝配料",
+     "aspect": "preference"
+    },
+    "173": {
+     "entity": "鱼香肉丝习惯",
+     "aspect": "habit"
+    },
+    "174": {
+     "entity": "豆花口味偏好",
+     "aspect": "preference"
+    },
+    "175": {
+     "entity": "咸豆花搭配",
+     "aspect": "preference"
+    },
+    "176": {
+     "entity": "咸豆花习惯",
+     "aspect": "habit"
+    },
+    "177": {
+     "entity": "豆花口味偏好",
+     "aspect": "change"
+    },
+    "178": {
+     "entity": "甜豆花搭配",
+     "aspect": "preference"
+    },
+    "179": {
+     "entity": "甜豆花习惯",
+     "aspect": "habit"
+    },
+    "180": {
+     "entity": "编辑器偏好",
+     "aspect": "preference"
+    },
+    "181": {
+     "entity": "VS Code 配置",
+     "aspect": "change"
+    },
+    "182": {
+     "entity": "VS Code profile 管理",
+     "aspect": "habit"
+    },
+    "183": {
+     "entity": "编辑器偏好",
+     "aspect": "change"
+    },
+    "184": {
+     "entity": "编辑器切换意向",
+     "aspect": "advice"
+    },
+    "185": {
+     "entity": "VS Code 使用习惯",
+     "aspect": "habit"
+    },
+    "186": {
+     "entity": "编辑器切换纠结",
+     "aspect": "struggle"
+    },
+    "187": {
+     "entity": "编辑器切换方案",
+     "aspect": "change"
+    },
+    "188": {
+     "entity": "PyCharm 偏好",
+     "aspect": "preference"
+    },
+    "189": {
+     "entity": "PyCharm 使用习惯",
+     "aspect": "habit"
+    },
+    "190": {
+     "entity": "PyCharm 配置调整",
+     "aspect": "episode"
+    },
+    "191": {
+     "entity": "IDE 轻量化需求",
+     "aspect": "change"
+    },
+    "192": {
+     "entity": "编辑器偏好",
+     "aspect": "episode"
+    },
+    "193": {
+     "entity": "编辑器偏好",
+     "aspect": "preference"
+    },
+    "194": {
+     "entity": "编辑器偏好",
+     "aspect": "change"
+    },
+    "195": {
+     "entity": "睡眠状况",
+     "aspect": "struggle"
+    },
+    "196": {
+     "entity": "睡前刷手机",
+     "aspect": "habit"
+    },
+    "197": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "198": {
+     "entity": "晚睡看法",
+     "aspect": "change"
+    },
+    "199": {
+     "entity": "睡眠困扰",
+     "aspect": "episode"
+    },
+    "200": {
+     "entity": "睡眠调整计划",
+     "aspect": "advice"
+    },
+    "201": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "202": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "203": {
+     "entity": "晚睡感受",
+     "aspect": "preference"
+    },
+    "204": {
+     "entity": "睡眠时间调整",
+     "aspect": "change"
+    },
+    "205": {
+     "entity": "晚睡聊天经历",
+     "aspect": "episode"
+    },
+    "206": {
+     "entity": "早睡约定",
+     "aspect": "episode"
+    },
+    "207": {
+     "entity": "Anaconda 使用习惯",
+     "aspect": "habit"
+    },
+    "208": {
+     "entity": "Anaconda 偏好",
+     "aspect": "preference"
+    },
+    "209": {
+     "entity": "Anaconda 环境熟悉度",
+     "aspect": "habit"
+    },
+    "210": {
+     "entity": "Anaconda 态度转变",
+     "aspect": "change"
+    },
+    "211": {
+     "entity": "mamba 推荐经历",
+     "aspect": "episode"
+    },
+    "212": {
+     "entity": "Anaconda 与 miniforge 选择",
+     "aspect": "struggle"
+    },
+    "213": {
+     "entity": "Anaconda 环境维护",
+     "aspect": "struggle"
+    },
+    "214": {
+     "entity": "WPS 使用情况",
+     "aspect": "habit"
+    },
+    "215": {
+     "entity": "WPS 偏好",
+     "aspect": "preference"
+    },
+    "216": {
+     "entity": "WPS使用习惯",
+     "aspect": "habit"
+    },
+    "217": {
+     "entity": "WPS用法变化",
+     "aspect": "change"
+    },
+    "218": {
+     "entity": "WPS同事交流",
+     "aspect": "episode"
+    },
+    "219": {
+     "entity": "WPS使用范围",
+     "aspect": "preference"
+    },
+    "220": {
+     "entity": "QGIS工作内容",
+     "aspect": "episode"
+    },
+    "221": {
+     "entity": "QGIS偏好",
+     "aspect": "preference"
+    },
+    "222": {
+     "entity": "QGIS看法变化",
+     "aspect": "change"
+    },
+    "223": {
+     "entity": "QGIS同事交流",
+     "aspect": "episode"
+    },
+    "224": {
+     "entity": "QGIS使用习惯",
+     "aspect": "habit"
+    },
+    "225": {
+     "entity": "Docker环境搭建",
+     "aspect": "episode"
+    },
+    "226": {
+     "entity": "Docker偏好",
+     "aspect": "preference"
+    },
+    "227": {
+     "entity": "Docker看法变化",
+     "aspect": "change"
+    },
+    "228": {
+     "entity": "Docker使用",
+     "aspect": "episode"
+    },
+    "229": {
+     "entity": "Docker使用",
+     "aspect": "habit"
+    },
+    "230": {
+     "entity": "Docker使用",
+     "aspect": "change"
+    },
+    "231": {
+     "entity": "老麻抄手",
+     "aspect": "episode"
+    },
+    "232": {
+     "entity": "老麻抄手",
+     "aspect": "preference"
+    },
+    "233": {
+     "entity": "冰美式",
+     "aspect": "episode"
+    },
+    "234": {
+     "entity": "冰美式",
+     "aspect": "change"
+    }
+   },
+   "usage": {
+    "calls": 20,
+    "tok_in": 10034,
+    "tok_out": 5107,
+    "sec": 30.7
+   }
+  },
+  "A_p2": {
+   "res": {
+    "0": {
+     "entity": "遥感原理课程偏好",
+     "aspect": "preference"
+    },
+    "1": {
+     "entity": "遥感原理课程看法",
+     "aspect": "change"
+    },
+    "2": {
+     "entity": "遥感原理笔记习惯",
+     "aspect": "habit"
+    },
+    "3": {
+     "entity": "数字图像处理课程偏好",
+     "aspect": "preference"
+    },
+    "4": {
+     "entity": "课程项目态度",
+     "aspect": "change"
+    },
+    "5": {
+     "entity": "数字图像处理练习习惯",
+     "aspect": "habit"
+    },
+    "6": {
+     "entity": "GIS空间分析课程偏好",
+     "aspect": "preference"
+    },
+    "7": {
+     "entity": "GIS空间分析课程看法",
+     "aspect": "change"
+    },
+    "8": {
+     "entity": "GIS空间分析练习习惯",
+     "aspect": "habit"
+    },
+    "9": {
+     "entity": "地图学课程偏好",
+     "aspect": "preference"
+    },
+    "10": {
+     "entity": "地图学课程看法",
+     "aspect": "change"
+    },
+    "11": {
+     "entity": "地图学笔记制图习惯",
+     "aspect": "habit"
+    },
+    "12": {
+     "entity": "自然地理偏好",
+     "aspect": "preference"
+    },
+    "13": {
+     "entity": "自然地理看法",
+     "aspect": "change"
+    },
+    "14": {
+     "entity": "自然地理笔记习惯",
+     "aspect": "habit"
+    },
+    "15": {
+     "entity": "人文地理偏好",
+     "aspect": "preference"
+    },
+    "16": {
+     "entity": "人文地理打算",
+     "aspect": "change"
+    },
+    "17": {
+     "entity": "人文地理阅读习惯",
+     "aspect": "habit"
+    },
+    "18": {
+     "entity": "概率论偏好",
+     "aspect": "preference"
+    },
+    "19": {
+     "entity": "概率论学习目标",
+     "aspect": "change"
+    },
+    "20": {
+     "entity": "概率题练习习惯",
+     "aspect": "habit"
+    },
+    "21": {
+     "entity": "线性代数偏好",
+     "aspect": "preference"
+    },
+    "22": {
+     "entity": "线性代数课程内容",
+     "aspect": "episode"
+    },
+    "23": {
+     "entity": "分块矩阵求逆",
+     "aspect": "struggle"
+    },
+    "24": {
+     "entity": "高数学习进展",
+     "aspect": "episode"
+    },
+    "25": {
+     "entity": "高数喜好",
+     "aspect": "preference"
+    },
+    "26": {
+     "entity": "高数态度转变",
+     "aspect": "change"
+    },
+    "27": {
+     "entity": "大学物理学习内容",
+     "aspect": "episode"
+    },
+    "28": {
+     "entity": "大学物理喜好",
+     "aspect": "preference"
+    },
+    "29": {
+     "entity": "大学物理做题习惯",
+     "aspect": "habit"
+    },
+    "30": {
+     "entity": "C语言学习内容",
+     "aspect": "episode"
+    },
+    "31": {
+     "entity": "C语言喜好",
+     "aspect": "preference"
+    },
+    "32": {
+     "entity": "C语言态度转变",
+     "aspect": "change"
+    },
+    "33": {
+     "entity": "数据结构学习卡点",
+     "aspect": "struggle"
+    },
+    "34": {
+     "entity": "数据结构喜好",
+     "aspect": "preference"
+    },
+    "35": {
+     "entity": "学习方式转变",
+     "aspect": "change"
+    },
+    "36": {
+     "entity": "摄影测量课程",
+     "aspect": "episode"
+    },
+    "37": {
+     "entity": "摄影测量课程",
+     "aspect": "preference"
+    },
+    "38": {
+     "entity": "摄影测量课程",
+     "aspect": "change"
+    },
+    "39": {
+     "entity": "大地测量课程",
+     "aspect": "episode"
+    },
+    "40": {
+     "entity": "大地测量课程",
+     "aspect": "preference"
+    },
+    "41": {
+     "entity": "大地测量课程",
+     "aspect": "change"
+    },
+    "42": {
+     "entity": "误差理论课程",
+     "aspect": "episode"
+    },
+    "43": {
+     "entity": "误差理论课程",
+     "aspect": "preference"
+    },
+    "44": {
+     "entity": "误差理论课程",
+     "aspect": "change"
+    },
+    "45": {
+     "entity": "地理建模课程",
+     "aspect": "preference"
+    },
+    "46": {
+     "entity": "地理建模课程",
+     "aspect": "episode"
+    },
+    "47": {
+     "entity": "地理建模课程",
+     "aspect": "change"
+    },
+    "48": {
+     "entity": "空间数据库喜好",
+     "aspect": "preference"
+    },
+    "49": {
+     "entity": "空间数据库态度转变",
+     "aspect": "change"
+    },
+    "50": {
+     "entity": "空间数据库学习习惯",
+     "aspect": "habit"
+    },
+    "51": {
+     "entity": "Python喜好",
+     "aspect": "preference"
+    },
+    "52": {
+     "entity": "Python学习习惯",
+     "aspect": "habit"
+    },
+    "53": {
+     "entity": "编程态度转变",
+     "aspect": "change"
+    },
+    "54": {
+     "entity": "遥感图像解译喜好",
+     "aspect": "preference"
+    },
+    "55": {
+     "entity": "遥感图像解译态度转变",
+     "aspect": "change"
+    },
+    "56": {
+     "entity": "遥感图像解译习惯",
+     "aspect": "habit"
+    },
+    "57": {
+     "entity": "GIS二次开发卡点",
+     "aspect": "struggle"
+    },
+    "58": {
+     "entity": "GIS二次开发喜好",
+     "aspect": "preference"
+    },
+    "59": {
+     "entity": "GIS二次开发态度转变",
+     "aspect": "change"
+    },
+    "60": {
+     "entity": "考研数学二复习",
+     "aspect": "episode"
+    },
+    "61": {
+     "entity": "数学二偏好",
+     "aspect": "preference"
+    },
+    "62": {
+     "entity": "数学二复习策略",
+     "aspect": "change"
+    },
+    "63": {
+     "entity": "考研英语一复习",
+     "aspect": "episode"
+    },
+    "64": {
+     "entity": "英语一偏好",
+     "aspect": "preference"
+    },
+    "65": {
+     "entity": "英语一英语二选择",
+     "aspect": "change"
+    },
+    "66": {
+     "entity": "考研政治刷题",
+     "aspect": "episode"
+    },
+    "67": {
+     "entity": "政治偏好",
+     "aspect": "preference"
+    },
+    "68": {
+     "entity": "政治复习思路",
+     "aspect": "change"
+    },
+    "69": {
+     "entity": "882地理复习",
+     "aspect": "episode"
+    },
+    "70": {
+     "entity": "882地理偏好",
+     "aspect": "preference"
+    },
+    "71": {
+     "entity": "882地理复习思路",
+     "aspect": "change"
+    },
+    "72": {
+     "entity": "四级考试安排",
+     "aspect": "episode"
+    },
+    "73": {
+     "entity": "四级听力练习",
+     "aspect": "habit"
+    },
+    "74": {
+     "entity": "四级备考态度",
+     "aspect": "preference"
+    },
+    "75": {
+     "entity": "六级考试安排",
+     "aspect": "episode"
+    },
+    "76": {
+     "entity": "六级备考态度",
+     "aspect": "preference"
+    },
+    "77": {
+     "entity": "六级备考态度",
+     "aspect": "change"
+    },
+    "78": {
+     "entity": "遥感期末复习",
+     "aspect": "struggle"
+    },
+    "79": {
+     "entity": "遥感考试内容",
+     "aspect": "episode"
+    },
+    "80": {
+     "entity": "遥感课程兴趣",
+     "aspect": "preference"
+    },
+    "81": {
+     "entity": "GIS期末考核",
+     "aspect": "episode"
+    },
+    "82": {
+     "entity": "GIS实操兴趣",
+     "aspect": "preference"
+    },
+    "83": {
+     "entity": "GIS期末目标",
+     "aspect": "change"
+    },
+    "84": {
+     "entity": "地信期末复习",
+     "aspect": "episode"
+    },
+    "85": {
+     "entity": "地信课程喜好",
+     "aspect": "preference"
+    },
+    "86": {
+     "entity": "地信期末目标",
+     "aspect": "change"
+    },
+    "87": {
+     "entity": "计算机二级备考",
+     "aspect": "episode"
+    },
+    "88": {
+     "entity": "计算机二级刷题",
+     "aspect": "habit"
+    },
+    "89": {
+     "entity": "计算机二级薄弱项",
+     "aspect": "struggle"
+    },
+    "90": {
+     "entity": "普通话测试安排",
+     "aspect": "episode"
+    },
+    "91": {
+     "entity": "普通话练习喜好",
+     "aspect": "preference"
+    },
+    "92": {
+     "entity": "普通话测试目标",
+     "aspect": "change"
+    },
+    "93": {
+     "entity": "教资笔试报名",
+     "aspect": "episode"
+    },
+    "94": {
+     "entity": "教资备考重点",
+     "aspect": "change"
+    },
+    "95": {
+     "entity": "教资笔试喜好",
+     "aspect": "preference"
+    },
+    "96": {
+     "entity": "科目一备考",
+     "aspect": "habit"
+    },
+    "97": {
+     "entity": "科目一偏好",
+     "aspect": "preference"
+    },
+    "98": {
+     "entity": "科目一心态",
+     "aspect": "change"
+    },
+    "99": {
+     "entity": "科目二练习",
+     "aspect": "habit"
+    },
+    "100": {
+     "entity": "科目二偏好",
+     "aspect": "preference"
+    },
+    "101": {
+     "entity": "科目二心态",
+     "aspect": "change"
+    },
+    "102": {
+     "entity": "竞赛选拔准备",
+     "aspect": "habit"
+    },
+    "103": {
+     "entity": "竞赛选拔偏好",
+     "aspect": "preference"
+    },
+    "104": {
+     "entity": "竞赛选拔心态",
+     "aspect": "change"
+    },
+    "105": {
+     "entity": "保研面试准备",
+     "aspect": "habit"
+    },
+    "106": {
+     "entity": "保研面试偏好",
+     "aspect": "preference"
+    },
+    "107": {
+     "entity": "保研面试心态",
+     "aspect": "change"
+    },
+    "108": {
+     "entity": "夏令营申请",
+     "aspect": "episode"
+    },
+    "109": {
+     "entity": "夏令营方向选择",
+     "aspect": "episode"
+    },
+    "110": {
+     "entity": "夏令营方向偏好",
+     "aspect": "preference"
+    },
+    "111": {
+     "entity": "每日备考安排",
+     "aspect": "habit"
+    },
+    "112": {
+     "entity": "刷题背书顺序",
+     "aspect": "change"
+    },
+    "113": {
+     "entity": "复试准备习惯",
+     "aspect": "habit"
+    },
+    "114": {
+     "entity": "调剂信息整理",
+     "aspect": "episode"
+    },
+    "115": {
+     "entity": "学校信息偏好",
+     "aspect": "preference"
+    },
+    "116": {
+     "entity": "择校标准转变",
+     "aspect": "change"
+    },
+    "117": {
+     "entity": "导师套磁准备",
+     "aspect": "episode"
+    },
+    "118": {
+     "entity": "套磁联系方式偏好",
+     "aspect": "preference"
+    },
+    "119": {
+     "entity": "套磁策略转变",
+     "aspect": "change"
+    },
+    "120": {
+     "entity": "合川桃片偏好",
+     "aspect": "preference"
+    },
+    "121": {
+     "entity": "合川桃片偏好",
+     "aspect": "change"
+    },
+    "122": {
+     "entity": "合川桃片偏好",
+     "aspect": "advice"
+    },
+    "123": {
+     "entity": "重庆小面偏好",
+     "aspect": "preference"
+    },
+    "124": {
+     "entity": "重庆小面点法",
+     "aspect": "habit"
+    },
+    "125": {
+     "entity": "重庆小面习惯",
+     "aspect": "habit"
+    },
+    "126": {
+     "entity": "酸辣粉偏好",
+     "aspect": "preference"
+    },
+    "127": {
+     "entity": "酸辣粉点法",
+     "aspect": "habit"
+    },
+    "128": {
+     "entity": "酸辣粉习惯",
+     "aspect": "habit"
+    },
+    "129": {
+     "entity": "火锅偏好",
+     "aspect": "preference"
+    },
+    "130": {
+     "entity": "火锅点法",
+     "aspect": "change"
+    },
+    "131": {
+     "entity": "火锅习惯",
+     "aspect": "habit"
+    },
+    "132": {
+     "entity": "串串偏好",
+     "aspect": "preference"
+    },
+    "133": {
+     "entity": "串串偏好",
+     "aspect": "episode"
+    },
+    "134": {
+     "entity": "串串习惯",
+     "aspect": "habit"
+    },
+    "135": {
+     "entity": "毛血旺偏好",
+     "aspect": "preference"
+    },
+    "136": {
+     "entity": "毛血旺偏好",
+     "aspect": "preference"
+    },
+    "137": {
+     "entity": "辣度偏好",
+     "aspect": "change"
+    },
+    "138": {
+     "entity": "豆花饭偏好",
+     "aspect": "preference"
+    },
+    "139": {
+     "entity": "豆花饭偏好",
+     "aspect": "preference"
+    },
+    "140": {
+     "entity": "豆花饭习惯",
+     "aspect": "habit"
+    },
+    "141": {
+     "entity": "老麻抄手偏好",
+     "aspect": "preference"
+    },
+    "142": {
+     "entity": "老麻抄手辣度",
+     "aspect": "change"
+    },
+    "143": {
+     "entity": "老麻抄手习惯",
+     "aspect": "habit"
+    },
+    "144": {
+     "entity": "冰美式偏好",
+     "aspect": "preference"
+    },
+    "145": {
+     "entity": "冰美式习惯",
+     "aspect": "habit"
+    },
+    "146": {
+     "entity": "冰美式冰量调整",
+     "aspect": "change"
+    },
+    "147": {
+     "entity": "美式冷热偏好",
+     "aspect": "change"
+    },
+    "148": {
+     "entity": "热美式喝法",
+     "aspect": "preference"
+    },
+    "149": {
+     "entity": "热美式口味转变",
+     "aspect": "change"
+    },
+    "150": {
+     "entity": "拿铁习惯",
+     "aspect": "habit"
+    },
+    "151": {
+     "entity": "拿铁口味偏好",
+     "aspect": "preference"
+    },
+    "152": {
+     "entity": "拿铁腻感转变",
+     "aspect": "change"
+    },
+    "153": {
+     "entity": "奶茶偏好",
+     "aspect": "preference"
+    },
+    "154": {
+     "entity": "奶茶习惯",
+     "aspect": "habit"
+    },
+    "155": {
+     "entity": "奶茶点单搭配",
+     "aspect": "preference"
+    },
+    "156": {
+     "entity": "柠檬茶偏好",
+     "aspect": "preference"
+    },
+    "157": {
+     "entity": "柠檬茶点单搭配",
+     "aspect": "preference"
+    },
+    "158": {
+     "entity": "柠檬茶饮用习惯",
+     "aspect": "habit"
+    },
+    "159": {
+     "entity": "酸奶口味偏好",
+     "aspect": "preference"
+    },
+    "160": {
+     "entity": "酸奶饮用习惯",
+     "aspect": "habit"
+    },
+    "161": {
+     "entity": "酸奶饮用习惯",
+     "aspect": "habit"
+    },
+    "162": {
+     "entity": "番茄炒蛋偏好",
+     "aspect": "preference"
+    },
+    "163": {
+     "entity": "番茄炒蛋做法",
+     "aspect": "preference"
+    },
+    "164": {
+     "entity": "番茄炒蛋口味变化",
+     "aspect": "change"
+    },
+    "165": {
+     "entity": "回锅肉偏好",
+     "aspect": "preference"
+    },
+    "166": {
+     "entity": "回锅肉做法",
+     "aspect": "preference"
+    },
+    "167": {
+     "entity": "回锅肉食用习惯",
+     "aspect": "habit"
+    },
+    "168": {
+     "entity": "麻婆豆腐喜好",
+     "aspect": "habit"
+    },
+    "169": {
+     "entity": "麻婆豆腐做法",
+     "aspect": "change"
+    },
+    "170": {
+     "entity": "麻婆豆腐口味",
+     "aspect": "change"
+    },
+    "171": {
+     "entity": "鱼香肉丝喜好",
+     "aspect": "preference"
+    },
+    "172": {
+     "entity": "鱼香肉丝配料",
+     "aspect": "preference"
+    },
+    "173": {
+     "entity": "鱼香肉丝习惯",
+     "aspect": "habit"
+    },
+    "174": {
+     "entity": "豆花口味偏好",
+     "aspect": "preference"
+    },
+    "175": {
+     "entity": "咸豆花搭配",
+     "aspect": "preference"
+    },
+    "176": {
+     "entity": "咸豆花习惯",
+     "aspect": "habit"
+    },
+    "177": {
+     "entity": "豆花口味偏好",
+     "aspect": "change"
+    },
+    "178": {
+     "entity": "甜豆花搭配",
+     "aspect": "preference"
+    },
+    "179": {
+     "entity": "甜豆花习惯",
+     "aspect": "habit"
+    },
+    "180": {
+     "entity": "编辑器偏好",
+     "aspect": "preference"
+    },
+    "181": {
+     "entity": "VS Code 配置",
+     "aspect": "change"
+    },
+    "182": {
+     "entity": "VS Code profile 管理",
+     "aspect": "habit"
+    },
+    "183": {
+     "entity": "编辑器偏好",
+     "aspect": "change"
+    },
+    "184": {
+     "entity": "编辑器切换意向",
+     "aspect": "advice"
+    },
+    "185": {
+     "entity": "VS Code 使用习惯",
+     "aspect": "habit"
+    },
+    "186": {
+     "entity": "编辑器切换纠结",
+     "aspect": "struggle"
+    },
+    "187": {
+     "entity": "编辑器切换方案",
+     "aspect": "change"
+    },
+    "188": {
+     "entity": "PyCharm 偏好",
+     "aspect": "preference"
+    },
+    "189": {
+     "entity": "PyCharm 使用习惯",
+     "aspect": "habit"
+    },
+    "190": {
+     "entity": "PyCharm 配置调整",
+     "aspect": "episode"
+    },
+    "191": {
+     "entity": "IDE 轻量化意向",
+     "aspect": "change"
+    },
+    "192": {
+     "entity": "编辑器偏好",
+     "aspect": "episode"
+    },
+    "193": {
+     "entity": "编辑器偏好",
+     "aspect": "preference"
+    },
+    "194": {
+     "entity": "编辑器偏好",
+     "aspect": "change"
+    },
+    "195": {
+     "entity": "睡眠状况",
+     "aspect": "struggle"
+    },
+    "196": {
+     "entity": "睡前刷手机",
+     "aspect": "habit"
+    },
+    "197": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "198": {
+     "entity": "晚睡看法",
+     "aspect": "change"
+    },
+    "199": {
+     "entity": "睡眠困扰",
+     "aspect": "episode"
+    },
+    "200": {
+     "entity": "睡眠改善计划",
+     "aspect": "advice"
+    },
+    "201": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "202": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "203": {
+     "entity": "晚睡感受",
+     "aspect": "preference"
+    },
+    "204": {
+     "entity": "睡眠时间调整",
+     "aspect": "change"
+    },
+    "205": {
+     "entity": "晚睡聊天经历",
+     "aspect": "episode"
+    },
+    "206": {
+     "entity": "早睡约定",
+     "aspect": "episode"
+    },
+    "207": {
+     "entity": "Anaconda 使用习惯",
+     "aspect": "habit"
+    },
+    "208": {
+     "entity": "Anaconda 偏好",
+     "aspect": "preference"
+    },
+    "209": {
+     "entity": "Anaconda 环境熟悉度",
+     "aspect": "habit"
+    },
+    "210": {
+     "entity": "Anaconda 态度转变",
+     "aspect": "change"
+    },
+    "211": {
+     "entity": "mamba 推荐经历",
+     "aspect": "episode"
+    },
+    "212": {
+     "entity": "Anaconda 与 miniforge 选择",
+     "aspect": "struggle"
+    },
+    "213": {
+     "entity": "Anaconda 环境维护",
+     "aspect": "struggle"
+    },
+    "214": {
+     "entity": "WPS 使用场景",
+     "aspect": "habit"
+    },
+    "215": {
+     "entity": "WPS 偏好",
+     "aspect": "preference"
+    },
+    "216": {
+     "entity": "WPS使用习惯",
+     "aspect": "habit"
+    },
+    "217": {
+     "entity": "WPS用法变化",
+     "aspect": "change"
+    },
+    "218": {
+     "entity": "WPS同事交流",
+     "aspect": "episode"
+    },
+    "219": {
+     "entity": "WPS使用范围",
+     "aspect": "preference"
+    },
+    "220": {
+     "entity": "QGIS工作内容",
+     "aspect": "episode"
+    },
+    "221": {
+     "entity": "QGIS偏好",
+     "aspect": "preference"
+    },
+    "222": {
+     "entity": "QGIS看法变化",
+     "aspect": "change"
+    },
+    "223": {
+     "entity": "QGIS同事交流",
+     "aspect": "episode"
+    },
+    "224": {
+     "entity": "QGIS使用习惯",
+     "aspect": "habit"
+    },
+    "225": {
+     "entity": "Docker环境搭建",
+     "aspect": "episode"
+    },
+    "226": {
+     "entity": "Docker偏好",
+     "aspect": "preference"
+    },
+    "227": {
+     "entity": "Docker看法变化",
+     "aspect": "change"
+    },
+    "228": {
+     "entity": "Docker使用",
+     "aspect": "episode"
+    },
+    "229": {
+     "entity": "Docker使用",
+     "aspect": "habit"
+    },
+    "230": {
+     "entity": "Docker使用",
+     "aspect": "change"
+    },
+    "231": {
+     "entity": "老麻抄手",
+     "aspect": "episode"
+    },
+    "232": {
+     "entity": "老麻抄手",
+     "aspect": "preference"
+    },
+    "233": {
+     "entity": "冰美式",
+     "aspect": "advice"
+    },
+    "234": {
+     "entity": "冰美式",
+     "aspect": "change"
+    }
+   },
+   "usage": {
+    "calls": 20,
+    "tok_in": 10034,
+    "tok_out": 5121,
+    "sec": 33.1
+   }
+  },
+  "A_p3": {
+   "res": {
+    "68": {
+     "entity": "政治复习思路",
+     "aspect": "change"
+    },
+    "135": {
+     "entity": "毛血旺口味",
+     "aspect": "preference"
+    },
+    "55": {
+     "entity": "遥感图像解译思路",
+     "aspect": "change"
+    },
+    "210": {
+     "entity": "Anaconda 使用态度",
+     "aspect": "change"
+    },
+    "103": {
+     "entity": "竞赛选拔偏好",
+     "aspect": "preference"
+    },
+    "139": {
+     "entity": "豆花饭偏好",
+     "aspect": "preference"
+    },
+    "19": {
+     "entity": "概率论学习目标",
+     "aspect": "change"
+    },
+    "171": {
+     "entity": "鱼香肉丝偏好",
+     "aspect": "preference"
+    },
+    "131": {
+     "entity": "火锅习惯",
+     "aspect": "habit"
+    },
+    "194": {
+     "entity": "PyCharm 去留决定",
+     "aspect": "change"
+    },
+    "90": {
+     "entity": "普通话测试安排",
+     "aspect": "episode"
+    },
+    "164": {
+     "entity": "番茄炒蛋口味",
+     "aspect": "change"
+    },
+    "32": {
+     "entity": "C语言态度",
+     "aspect": "change"
+    },
+    "43": {
+     "entity": "误差理论喜好",
+     "aspect": "preference"
+    },
+    "185": {
+     "entity": "编辑器使用习惯",
+     "aspect": "habit"
+    },
+    "175": {
+     "entity": "咸豆花吃法",
+     "aspect": "preference"
+    },
+    "203": {
+     "entity": "熬夜习惯",
+     "aspect": "preference"
+    },
+    "231": {
+     "entity": "老麻抄手聊天",
+     "aspect": "episode"
+    },
+    "143": {
+     "entity": "老麻抄手习惯",
+     "aspect": "habit"
+    },
+    "168": {
+     "entity": "麻婆豆腐喜好",
+     "aspect": "habit"
+    },
+    "67": {
+     "entity": "考研政治喜好",
+     "aspect": "preference"
+    },
+    "167": {
+     "entity": "回锅肉习惯",
+     "aspect": "habit"
+    },
+    "152": {
+     "entity": "拿铁口味变化",
+     "aspect": "change"
+    },
+    "193": {
+     "entity": "PyCharm使用偏好",
+     "aspect": "preference"
+    },
+    "118": {
+     "entity": "套磁联系方式",
+     "aspect": "preference"
+    },
+    "223": {
+     "entity": "QGIS 使用看法",
+     "aspect": "change"
+    },
+    "219": {
+     "entity": "WPS 使用情况",
+     "aspect": "habit"
+    },
+    "91": {
+     "entity": "普通话练习",
+     "aspect": "preference"
+    },
+    "186": {
+     "entity": "编辑器选择",
+     "aspect": "struggle"
+    },
+    "65": {
+     "entity": "英语一备考",
+     "aspect": "change"
+    },
+    "188": {
+     "entity": "Python 编辑器",
+     "aspect": "preference"
+    },
+    "214": {
+     "entity": "WPS 使用情况",
+     "aspect": "episode"
+    },
+    "227": {
+     "entity": "Docker 使用看法",
+     "aspect": "change"
+    },
+    "113": {
+     "entity": "复试准备",
+     "aspect": "habit"
+    },
+    "222": {
+     "entity": "QGIS 使用看法",
+     "aspect": "change"
+    },
+    "217": {
+     "entity": "WPS 使用方式",
+     "aspect": "change"
+    },
+    "157": {
+     "entity": "柠檬茶点单搭配",
+     "aspect": "preference"
+    },
+    "163": {
+     "entity": "番茄炒蛋做法",
+     "aspect": "preference"
+    },
+    "160": {
+     "entity": "酸奶饮用习惯",
+     "aspect": "habit"
+    },
+    "13": {
+     "entity": "自然地理学习方式",
+     "aspect": "change"
+    },
+    "207": {
+     "entity": "Anaconda使用习惯",
+     "aspect": "habit"
+    },
+    "179": {
+     "entity": "甜豆花饮食习惯",
+     "aspect": "habit"
+    },
+    "204": {
+     "entity": "睡觉时间安排",
+     "aspect": "change"
+    },
+    "146": {
+     "entity": "冰美式冰量偏好",
+     "aspect": "change"
+    },
+    "102": {
+     "entity": "竞赛选拔准备",
+     "aspect": "episode"
+    },
+    "226": {
+     "entity": "Docker使用偏好",
+     "aspect": "preference"
+    },
+    "6": {
+     "entity": "GIS空间分析课程",
+     "aspect": "preference"
+    },
+    "48": {
+     "entity": "空间数据库课程",
+     "aspect": "preference"
+    },
+    "75": {
+     "entity": "六级考试",
+     "aspect": "preference"
+    },
+    "88": {
+     "entity": "计算机二级刷题",
+     "aspect": "habit"
+    },
+    "51": {
+     "entity": "编程语言偏好",
+     "aspect": "preference"
+    },
+    "125": {
+     "entity": "吃小面习惯",
+     "aspect": "habit"
+    },
+    "144": {
+     "entity": "咖啡偏好",
+     "aspect": "preference"
+    },
+    "195": {
+     "entity": "睡眠状况",
+     "aspect": "struggle"
+    },
+    "85": {
+     "entity": "地信课程喜好",
+     "aspect": "preference"
+    },
+    "14": {
+     "entity": "自然地理笔记习惯",
+     "aspect": "habit"
+    },
+    "36": {
+     "entity": "摄影测量课任务",
+     "aspect": "episode"
+    },
+    "122": {
+     "entity": "合川桃片尝试",
+     "aspect": "advice"
+    },
+    "47": {
+     "entity": "地理建模态度",
+     "aspect": "change"
+    },
+    "72": {
+     "entity": "四级考试",
+     "aspect": "preference"
+    },
+    "205": {
+     "entity": "晚睡习惯",
+     "aspect": "episode"
+    },
+    "184": {
+     "entity": "编辑器偏好",
+     "aspect": "episode"
+    },
+    "44": {
+     "entity": "误差理论看法",
+     "aspect": "change"
+    },
+    "142": {
+     "entity": "老麻抄手辣度",
+     "aspect": "change"
+    },
+    "155": {
+     "entity": "奶茶搭配",
+     "aspect": "habit"
+    },
+    "45": {
+     "entity": "地理建模课程",
+     "aspect": "preference"
+    },
+    "123": {
+     "entity": "重庆小面偏好",
+     "aspect": "preference"
+    },
+    "107": {
+     "entity": "保研面试心态",
+     "aspect": "change"
+    },
+    "165": {
+     "entity": "回锅肉偏好",
+     "aspect": "preference"
+    },
+    "8": {
+     "entity": "GIS空间分析练习",
+     "aspect": "habit"
+    },
+    "232": {
+     "entity": "老麻抄手辣度",
+     "aspect": "preference"
+    },
+    "109": {
+     "entity": "夏令营申请",
+     "aspect": "episode"
+    },
+    "112": {
+     "entity": "刷题背书顺序",
+     "aspect": "change"
+    },
+    "228": {
+     "entity": "Docker同事看法",
+     "aspect": "advice"
+    },
+    "124": {
+     "entity": "重庆小面点法",
+     "aspect": "preference"
+    },
+    "104": {
+     "entity": "竞赛选拔心态",
+     "aspect": "change"
+    },
+    "12": {
+     "entity": "地理学科偏好",
+     "aspect": "preference"
+    },
+    "216": {
+     "entity": "WPS使用习惯",
+     "aspect": "habit"
+    },
+    "60": {
+     "entity": "考研数学二复习",
+     "aspect": "struggle"
+    },
+    "86": {
+     "entity": "期末地信目标",
+     "aspect": "change"
+    },
+    "108": {
+     "entity": "夏令营申请准备",
+     "aspect": "episode"
+    },
+    "221": {
+     "entity": "QGIS软件偏好",
+     "aspect": "preference"
+    },
+    "70": {
+     "entity": "882地理偏好",
+     "aspect": "preference"
+    },
+    "34": {
+     "entity": "数据结构偏好",
+     "aspect": "preference"
+    },
+    "213": {
+     "entity": "Anaconda环境管理",
+     "aspect": "struggle"
+    },
+    "100": {
+     "entity": "科目二喜好",
+     "aspect": "preference"
+    },
+    "33": {
+     "entity": "图论Dijkstra学习",
+     "aspect": "struggle"
+    },
+    "17": {
+     "entity": "人文地理阅读习惯",
+     "aspect": "habit"
+    },
+    "149": {
+     "entity": "热美式口味变化",
+     "aspect": "change"
+    },
+    "101": {
+     "entity": "科目二态度变化",
+     "aspect": "change"
+    },
+    "121": {
+     "entity": "合川桃片吃法",
+     "aspect": "change"
+    },
+    "119": {
+     "entity": "套磁策略调整",
+     "aspect": "change"
+    },
+    "37": {
+     "entity": "摄影测量课喜好",
+     "aspect": "preference"
+    },
+    "50": {
+     "entity": "空间数据库复习习惯",
+     "aspect": "habit"
+    },
+    "15": {
+     "entity": "人文地理偏好",
+     "aspect": "preference"
+    },
+    "22": {
+     "entity": "线性代数课程进度",
+     "aspect": "episode"
+    },
+    "62": {
+     "entity": "复习策略",
+     "aspect": "change"
+    },
+    "2": {
+     "entity": "遥感笔记习惯",
+     "aspect": "habit"
+    },
+    "116": {
+     "entity": "择校想法",
+     "aspect": "change"
+    },
+    "78": {
+     "entity": "遥感复习困难",
+     "aspect": "struggle"
+    },
+    "0": {
+     "entity": "遥感课程喜好",
+     "aspect": "preference"
+    },
+    "21": {
+     "entity": "线性代数喜好",
+     "aspect": "preference"
+    },
+    "172": {
+     "entity": "鱼香肉丝讲究",
+     "aspect": "preference"
+    },
+    "11": {
+     "entity": "地图学学习习惯",
+     "aspect": "habit"
+    },
+    "196": {
+     "entity": "睡前刷手机习惯",
+     "aspect": "habit"
+    },
+    "4": {
+     "entity": "课程项目态度",
+     "aspect": "change"
+    },
+    "148": {
+     "entity": "热美式喝法",
+     "aspect": "preference"
+    },
+    "71": {
+     "entity": "882地理复习思路",
+     "aspect": "change"
+    },
+    "59": {
+     "entity": "GIS二次开发态度",
+     "aspect": "change"
+    },
+    "110": {
+     "entity": "研究方向选择",
+     "aspect": "preference"
+    },
+    "92": {
+     "entity": "普通话测试目标",
+     "aspect": "change"
+    },
+    "40": {
+     "entity": "大地测量课程感受",
+     "aspect": "preference"
+    },
+    "147": {
+     "entity": "咖啡偏好",
+     "aspect": "change"
+    },
+    "162": {
+     "entity": "番茄炒蛋喜好",
+     "aspect": "preference"
+    },
+    "69": {
+     "entity": "考研专业课内容",
+     "aspect": "advice"
+    },
+    "84": {
+     "entity": "期末地信复习",
+     "aspect": "episode"
+    },
+    "38": {
+     "entity": "摄影测量态度",
+     "aspect": "change"
+    },
+    "30": {
+     "entity": "C语言课程内容",
+     "aspect": "episode"
+    },
+    "83": {
+     "entity": "期末GIS目标",
+     "aspect": "change"
+    },
+    "153": {
+     "entity": "奶茶喜好",
+     "aspect": "preference"
+    },
+    "77": {
+     "entity": "六级备考态度",
+     "aspect": "change"
+    },
+    "183": {
+     "entity": "编辑器偏好",
+     "aspect": "change"
+    },
+    "76": {
+     "entity": "六级备考感受",
+     "aspect": "preference"
+    },
+    "25": {
+     "entity": "高数学习感受",
+     "aspect": "preference"
+    },
+    "93": {
+     "entity": "教资报名计划",
+     "aspect": "advice"
+    },
+    "52": {
+     "entity": "Python学习习惯",
+     "aspect": "habit"
+    },
+    "225": {
+     "entity": "Docker开发环境",
+     "aspect": "episode"
+    },
+    "182": {
+     "entity": "VS Code配置管理",
+     "aspect": "habit"
+    },
+    "64": {
+     "entity": "英语一偏好",
+     "aspect": "preference"
+    },
+    "24": {
+     "entity": "高数学习进度",
+     "aspect": "episode"
+    },
+    "190": {
+     "entity": "PyCharm配置调整",
+     "aspect": "episode"
+    },
+    "31": {
+     "entity": "C语言偏好",
+     "aspect": "preference"
+    },
+    "23": {
+     "entity": "线代作业卡点",
+     "aspect": "struggle"
+    },
+    "170": {
+     "entity": "吃辣口味变化",
+     "aspect": "change"
+    },
+    "233": {
+     "entity": "冰美式空腹提醒",
+     "aspect": "advice"
+    },
+    "201": {
+     "entity": "熬夜刷手机习惯",
+     "aspect": "habit"
+    },
+    "156": {
+     "entity": "柠檬茶偏好",
+     "aspect": "preference"
+    },
+    "145": {
+     "entity": "冰美式习惯",
+     "aspect": "habit"
+    },
+    "57": {
+     "entity": "GIS二次开发卡点",
+     "aspect": "struggle"
+    },
+    "212": {
+     "entity": "Python环境选择",
+     "aspect": "struggle"
+    },
+    "206": {
+     "entity": "早睡约定",
+     "aspect": "episode"
+    },
+    "105": {
+     "entity": "保研面试准备",
+     "aspect": "habit"
+    },
+    "159": {
+     "entity": "酸奶口味偏好",
+     "aspect": "preference"
+    },
+    "230": {
+     "entity": "Docker使用策略",
+     "aspect": "preference"
+    },
+    "20": {
+     "entity": "概率题练习习惯",
+     "aspect": "habit"
+    },
+    "42": {
+     "entity": "误差理论作业",
+     "aspect": "episode"
+    },
+    "16": {
+     "entity": "人文地理复习策略",
+     "aspect": "change"
+    },
+    "95": {
+     "entity": "教资笔试备考",
+     "aspect": "preference"
+    },
+    "66": {
+     "entity": "考研政治刷题",
+     "aspect": "struggle"
+    },
+    "224": {
+     "entity": "QGIS使用习惯",
+     "aspect": "habit"
+    },
+    "137": {
+     "entity": "辣度偏好",
+     "aspect": "change"
+    },
+    "35": {
+     "entity": "学习方法取向",
+     "aspect": "change"
+    },
+    "218": {
+     "entity": "WPS使用习惯",
+     "aspect": "advice"
+    },
+    "87": {
+     "entity": "计算机二级考试",
+     "aspect": "episode"
+    },
+    "27": {
+     "entity": "大学物理课程",
+     "aspect": "episode"
+    },
+    "129": {
+     "entity": "火锅偏好",
+     "aspect": "preference"
+    },
+    "26": {
+     "entity": "高数态度",
+     "aspect": "change"
+    },
+    "10": {
+     "entity": "地图学看法",
+     "aspect": "change"
+    },
+    "169": {
+     "entity": "麻婆豆腐做法",
+     "aspect": "change"
+    },
+    "79": {
+     "entity": "遥感期末考试",
+     "aspect": "episode"
+    },
+    "141": {
+     "entity": "老麻抄手偏好",
+     "aspect": "preference"
+    },
+    "181": {
+     "entity": "VS Code设置",
+     "aspect": "habit"
+    },
+    "178": {
+     "entity": "甜豆花搭配",
+     "aspect": "change"
+    },
+    "215": {
+     "entity": "WPS偏好",
+     "aspect": "preference"
+    },
+    "192": {
+     "entity": "编辑器聊天",
+     "aspect": "episode"
+    },
+    "198": {
+     "entity": "晚睡看法",
+     "aspect": "change"
+    },
+    "133": {
+     "entity": "串串店习惯",
+     "aspect": "habit"
+    },
+    "63": {
+     "entity": "考研英语一",
+     "aspect": "episode"
+    },
+    "49": {
+     "entity": "空间数据库态度",
+     "aspect": "change"
+    },
+    "111": {
+     "entity": "早晨学习安排",
+     "aspect": "habit"
+    },
+    "97": {
+     "entity": "科目一刷题",
+     "aspect": "preference"
+    },
+    "202": {
+     "entity": "熬夜作息",
+     "aspect": "habit"
+    },
+    "89": {
+     "entity": "计算机二级备考",
+     "aspect": "struggle"
+    },
+    "130": {
+     "entity": "火锅搭配",
+     "aspect": "preference"
+    },
+    "3": {
+     "entity": "数字图像处理课程",
+     "aspect": "preference"
+    },
+    "132": {
+     "entity": "串串喜好",
+     "aspect": "preference"
+    },
+    "191": {
+     "entity": "编辑器偏好",
+     "aspect": "change"
+    },
+    "187": {
+     "entity": "编辑器切换计划",
+     "aspect": "change"
+    },
+    "234": {
+     "entity": "冰美式饮用",
+     "aspect": "change"
+    },
+    "9": {
+     "entity": "地图学课程",
+     "aspect": "preference"
+    },
+    "173": {
+     "entity": "鱼香肉丝习惯",
+     "aspect": "habit"
+    },
+    "56": {
+     "entity": "遥感解译练习",
+     "aspect": "habit"
+    },
+    "154": {
+     "entity": "奶茶习惯",
+     "aspect": "habit"
+    },
+    "39": {
+     "entity": "大地测量课",
+     "aspect": "episode"
+    },
+    "200": {
+     "entity": "睡前手机管理",
+     "aspect": "advice"
+    },
+    "106": {
+     "entity": "保研面试喜好",
+     "aspect": "preference"
+    },
+    "46": {
+     "entity": "DEM坡度河网作业",
+     "aspect": "struggle"
+    },
+    "80": {
+     "entity": "遥感课程兴趣",
+     "aspect": "preference"
+    },
+    "115": {
+     "entity": "学校信息汇总偏好",
+     "aspect": "preference"
+    },
+    "136": {
+     "entity": "毛血旺偏好",
+     "aspect": "preference"
+    },
+    "98": {
+     "entity": "科目一态度",
+     "aspect": "change"
+    },
+    "126": {
+     "entity": "酸辣粉偏好",
+     "aspect": "preference"
+    },
+    "134": {
+     "entity": "串串饮食习惯",
+     "aspect": "habit"
+    },
+    "229": {
+     "entity": "Docker使用习惯",
+     "aspect": "habit"
+    },
+    "128": {
+     "entity": "酸辣粉饮食习惯",
+     "aspect": "habit"
+    },
+    "209": {
+     "entity": "Anaconda环境熟悉度",
+     "aspect": "preference"
+    },
+    "81": {
+     "entity": "GIS期末考核",
+     "aspect": "episode"
+    },
+    "211": {
+     "entity": "Anaconda工具推荐",
+     "aspect": "advice"
+    },
+    "197": {
+     "entity": "晚睡习惯",
+     "aspect": "habit"
+    },
+    "28": {
+     "entity": "大学物理态度",
+     "aspect": "change"
+    },
+    "54": {
+     "entity": "遥感图像解译喜好",
+     "aspect": "preference"
+    },
+    "74": {
+     "entity": "四级备考喜好",
+     "aspect": "preference"
+    },
+    "176": {
+     "entity": "咸豆花饮食习惯",
+     "aspect": "habit"
+    },
+    "73": {
+     "entity": "四级听力练习",
+     "aspect": "episode"
+    },
+    "199": {
+     "entity": "睡眠困扰",
+     "aspect": "advice"
+    },
+    "29": {
+     "entity": "物理刷题习惯",
+     "aspect": "habit"
+    },
+    "61": {
+     "entity": "数学二偏好",
+     "aspect": "preference"
+    },
+    "180": {
+     "entity": "编辑器偏好",
+     "aspect": "preference"
+    },
+    "120": {
+     "entity": "合川桃片喜好",
+     "aspect": "preference"
+    },
+    "140": {
+     "entity": "豆花饭习惯",
+     "aspect": "habit"
+    },
+    "41": {
+     "entity": "大地测量学习",
+     "aspect": "change"
+    },
+    "174": {
+     "entity": "豆花口味偏好",
+     "aspect": "preference"
+    },
+    "114": {
+     "entity": "考研调剂准备",
+     "aspect": "episode"
+    },
+    "7": {
+     "entity": "GIS空间分析学习",
+     "aspect": "change"
+    },
+    "96": {
+     "entity": "科目一备考",
+     "aspect": "episode"
+    },
+    "117": {
+     "entity": "导师套磁准备",
+     "aspect": "episode"
+    },
+    "18": {
+     "entity": "概率论喜好",
+     "aspect": "preference"
+    },
+    "177": {
+     "entity": "豆花口味偏好",
+     "aspect": "preference"
+    },
+    "158": {
+     "entity": "柠檬茶习惯",
+     "aspect": "habit"
+    },
+    "208": {
+     "entity": "Python环境工具偏好",
+     "aspect": "preference"
+    },
+    "150": {
+     "entity": "拿铁习惯",
+     "aspect": "habit"
+    },
+    "138": {
+     "entity": "豆花饭口味偏好",
+     "aspect": "preference"
+    },
+    "220": {
+     "entity": "QGIS工作内容",
+     "aspect": "episode"
+    },
+    "166": {
+     "entity": "回锅肉做法偏好",
+     "aspect": "preference"
+    },
+    "1": {
+     "entity": "遥感原理看法",
+     "aspect": "change"
+    },
+    "99": {
+     "entity": "科目二练习",
+     "aspect": "episode"
+    },
+    "58": {
+     "entity": "GIS二次开发喜好",
+     "aspect": "preference"
+    },
+    "5": {
+     "entity": "数字图像处理习惯",
+     "aspect": "habit"
+    },
+    "151": {
+     "entity": "拿铁口味偏好",
+     "aspect": "preference"
+    },
+    "127": {
+     "entity": "酸辣粉点单搭配",
+     "aspect": "preference"
+    },
+    "94": {
+     "entity": "备考计划调整",
+     "aspect": "change"
+    },
+    "82": {
+     "entity": "GIS实操喜好",
+     "aspect": "preference"
+    },
+    "53": {
+     "entity": "写代码思路转变",
+     "aspect": "change"
+    },
+    "161": {
+     "entity": "喝酸奶习惯",
+     "aspect": "habit"
+    },
+    "189": {
+     "entity": "PyCharm使用习惯",
+     "aspect": "habit"
+    }
+   },
+   "usage": {
+    "calls": 20,
+    "tok_in": 10033,
+    "tok_out": 5099,
+    "sec": 31.5
+   }
+  },
+  "B_p1": {
+   "res": {
+    "0": {
+     "topic": "课程偏好",
+     "object": "遥感原理",
+     "aspect": "preference"
+    },
+    "1": {
+     "topic": "课程看法变化",
+     "object": "遥感原理",
+     "aspect": "change"
+    },
+    "2": {
+     "topic": "学习习惯",
+     "object": "遥感原理笔记",
+     "aspect": "habit"
+    },
+    "3": {
+     "topic": "课程偏好",
+     "object": "数字图像处理",
+     "aspect": "preference"
+    },
+    "4": {
+     "topic": "课程项目态度",
+     "object": "课程项目",
+     "aspect": "change"
+    },
+    "5": {
+     "topic": "学习习惯",
+     "object": "数字图像处理",
+     "aspect": "habit"
+    },
+    "6": {
+     "topic": "课程偏好",
+     "object": "GIS空间分析",
+     "aspect": "preference"
+    },
+    "7": {
+     "topic": "课程看法变化",
+     "object": "GIS空间分析",
+     "aspect": "change"
+    },
+    "8": {
+     "topic": "学习习惯",
+     "object": "GIS空间分析",
+     "aspect": "habit"
+    },
+    "9": {
+     "topic": "课程偏好",
+     "object": "地图学",
+     "aspect": "preference"
+    },
+    "10": {
+     "topic": "课程看法变化",
+     "object": "地图学",
+     "aspect": "change"
+    },
+    "11": {
+     "topic": "学习习惯",
+     "object": "地图学",
+     "aspect": "habit"
+    },
+    "12": {
+     "topic": "地理学科偏好",
+     "object": "自然地理",
+     "aspect": "preference"
+    },
+    "13": {
+     "topic": "地理学习态度",
+     "object": "自然地理",
+     "aspect": "change"
+    },
+    "14": {
+     "topic": "地理学习习惯",
+     "object": "自然地理笔记",
+     "aspect": "habit"
+    },
+    "15": {
+     "topic": "地理学科偏好",
+     "object": "人文地理",
+     "aspect": "preference"
+    },
+    "16": {
+     "topic": "地理学习态度",
+     "object": "人文地理",
+     "aspect": "change"
+    },
+    "17": {
+     "topic": "地理学习习惯",
+     "object": "人文地理文章",
+     "aspect": "habit"
+    },
+    "18": {
+     "topic": "数学学科偏好",
+     "object": "概率论",
+     "aspect": "preference"
+    },
+    "19": {
+     "topic": "数学学习态度",
+     "object": "概率论",
+     "aspect": "change"
+    },
+    "20": {
+     "topic": "数学学习习惯",
+     "object": "概率题",
+     "aspect": "habit"
+    },
+    "21": {
+     "topic": "数学学科偏好",
+     "object": "线性代数",
+     "aspect": "preference"
+    },
+    "22": {
+     "topic": "课程学习进度",
+     "object": "线性代数",
+     "aspect": "episode"
+    },
+    "23": {
+     "topic": "作业学习卡点",
+     "object": "分块矩阵求逆",
+     "aspect": "struggle"
+    },
+    "24": {
+     "topic": "高数学习",
+     "object": "多元函数微分",
+     "aspect": "episode"
+    },
+    "25": {
+     "topic": "高数学习",
+     "object": "",
+     "aspect": "preference"
+    },
+    "26": {
+     "topic": "高数学习",
+     "object": "",
+     "aspect": "change"
+    },
+    "27": {
+     "topic": "大学物理学习",
+     "object": "电磁学与光学",
+     "aspect": "episode"
+    },
+    "28": {
+     "topic": "大学物理学习",
+     "object": "",
+     "aspect": "change"
+    },
+    "29": {
+     "topic": "大学物理学习",
+     "object": "",
+     "aspect": "habit"
+    },
+    "30": {
+     "topic": "C语言学习",
+     "object": "指针与结构体",
+     "aspect": "episode"
+    },
+    "31": {
+     "topic": "C语言学习",
+     "object": "",
+     "aspect": "preference"
+    },
+    "32": {
+     "topic": "C语言学习",
+     "object": "",
+     "aspect": "change"
+    },
+    "33": {
+     "topic": "数据结构学习",
+     "object": "Dijkstra堆优化",
+     "aspect": "struggle"
+    },
+    "34": {
+     "topic": "数据结构学习",
+     "object": "",
+     "aspect": "preference"
+    },
+    "35": {
+     "topic": "学习方法",
+     "object": "",
+     "aspect": "change"
+    },
+    "36": {
+     "topic": "课程学习",
+     "object": "摄影测量",
+     "aspect": "episode"
+    },
+    "37": {
+     "topic": "课程学习",
+     "object": "摄影测量",
+     "aspect": "preference"
+    },
+    "38": {
+     "topic": "课程学习",
+     "object": "摄影测量",
+     "aspect": "change"
+    },
+    "39": {
+     "topic": "课程学习",
+     "object": "大地测量",
+     "aspect": "episode"
+    },
+    "40": {
+     "topic": "课程学习",
+     "object": "大地测量",
+     "aspect": "preference"
+    },
+    "41": {
+     "topic": "课程学习",
+     "object": "大地测量",
+     "aspect": "change"
+    },
+    "42": {
+     "topic": "课程学习",
+     "object": "误差理论",
+     "aspect": "episode"
+    },
+    "43": {
+     "topic": "课程学习",
+     "object": "误差理论",
+     "aspect": "preference"
+    },
+    "44": {
+     "topic": "课程学习",
+     "object": "误差理论",
+     "aspect": "change"
+    },
+    "45": {
+     "topic": "课程学习",
+     "object": "地理建模",
+     "aspect": "preference"
+    },
+    "46": {
+     "topic": "课程学习",
+     "object": "地理建模",
+     "aspect": "episode"
+    },
+    "47": {
+     "topic": "课程学习",
+     "object": "地理建模",
+     "aspect": "change"
+    },
+    "48": {
+     "topic": "课程学习",
+     "object": "空间数据库",
+     "aspect": "preference"
+    },
+    "49": {
+     "topic": "学习态度转变",
+     "object": "空间数据库",
+     "aspect": "change"
+    },
+    "50": {
+     "topic": "学习习惯",
+     "object": "空间数据库",
+     "aspect": "habit"
+    },
+    "51": {
+     "topic": "编程语言偏好",
+     "object": "Python",
+     "aspect": "preference"
+    },
+    "52": {
+     "topic": "学习习惯",
+     "object": "Python",
+     "aspect": "habit"
+    },
+    "53": {
+     "topic": "编程态度转变",
+     "object": "写代码",
+     "aspect": "change"
+    },
+    "54": {
+     "topic": "技术方向偏好",
+     "object": "遥感图像解译",
+     "aspect": "preference"
+    },
+    "55": {
+     "topic": "学习态度转变",
+     "object": "遥感图像解译",
+     "aspect": "change"
+    },
+    "56": {
+     "topic": "学习习惯",
+     "object": "遥感图像解译",
+     "aspect": "habit"
+    },
+    "57": {
+     "topic": "开发卡点",
+     "object": "GIS二次开发",
+     "aspect": "struggle"
+    },
+    "58": {
+     "topic": "技术方向偏好",
+     "object": "GIS二次开发",
+     "aspect": "preference"
+    },
+    "59": {
+     "topic": "开发态度转变",
+     "object": "GIS二次开发",
+     "aspect": "change"
+    },
+    "60": {
+     "topic": "考研数学复习",
+     "object": "数学二",
+     "aspect": "episode"
+    },
+    "61": {
+     "topic": "考研数学复习",
+     "object": "数学二",
+     "aspect": "preference"
+    },
+    "62": {
+     "topic": "考研数学复习",
+     "object": "数学二",
+     "aspect": "change"
+    },
+    "63": {
+     "topic": "考研英语复习",
+     "object": "英语一",
+     "aspect": "episode"
+    },
+    "64": {
+     "topic": "考研英语复习",
+     "object": "英语一",
+     "aspect": "preference"
+    },
+    "65": {
+     "topic": "考研英语复习",
+     "object": "英语一",
+     "aspect": "change"
+    },
+    "66": {
+     "topic": "考研政治复习",
+     "object": "政治1000题",
+     "aspect": "episode"
+    },
+    "67": {
+     "topic": "考研政治复习",
+     "object": "考研政治",
+     "aspect": "preference"
+    },
+    "68": {
+     "topic": "考研政治复习",
+     "object": "考研政治",
+     "aspect": "change"
+    },
+    "69": {
+     "topic": "考研专业课复习",
+     "object": "882地理",
+     "aspect": "episode"
+    },
+    "70": {
+     "topic": "考研专业课复习",
+     "object": "882地理",
+     "aspect": "preference"
+    },
+    "71": {
+     "topic": "考研专业课复习",
+     "object": "882地理",
+     "aspect": "change"
+    },
+    "72": {
+     "topic": "英语四级考试",
+     "object": "四级",
+     "aspect": "episode"
+    },
+    "73": {
+     "topic": "英语四级备考",
+     "object": "四级听力",
+     "aspect": "habit"
+    },
+    "74": {
+     "topic": "英语四级备考",
+     "object": "四级",
+     "aspect": "preference"
+    },
+    "75": {
+     "topic": "英语六级考试",
+     "object": "六级",
+     "aspect": "episode"
+    },
+    "76": {
+     "topic": "英语六级备考",
+     "object": "六级阅读",
+     "aspect": "preference"
+    },
+    "77": {
+     "topic": "英语六级备考",
+     "object": "六级",
+     "aspect": "change"
+    },
+    "78": {
+     "topic": "期末遥感复习",
+     "object": "遥感",
+     "aspect": "struggle"
+    },
+    "79": {
+     "topic": "期末遥感考试",
+     "object": "遥感",
+     "aspect": "episode"
+    },
+    "80": {
+     "topic": "遥感课程学习",
+     "object": "遥感",
+     "aspect": "preference"
+    },
+    "81": {
+     "topic": "期末GIS考核",
+     "object": "GIS",
+     "aspect": "episode"
+    },
+    "82": {
+     "topic": "GIS实操学习",
+     "object": "GIS",
+     "aspect": "preference"
+    },
+    "83": {
+     "topic": "期末GIS备考",
+     "object": "GIS",
+     "aspect": "change"
+    },
+    "84": {
+     "topic": "期末地信复习",
+     "object": "遥感图像分类与GIS空间分析",
+     "aspect": "episode"
+    },
+    "85": {
+     "topic": "期末地信复习",
+     "object": "期末地信",
+     "aspect": "preference"
+    },
+    "86": {
+     "topic": "期末地信复习",
+     "object": "期末地信",
+     "aspect": "change"
+    },
+    "87": {
+     "topic": "计算机二级备考",
+     "object": "MS Office高级应用",
+     "aspect": "episode"
+    },
+    "88": {
+     "topic": "计算机二级备考",
+     "object": "操作题",
+     "aspect": "habit"
+    },
+    "89": {
+     "topic": "计算机二级备考",
+     "object": "Excel函数与PPT动画",
+     "aspect": "struggle"
+    },
+    "90": {
+     "topic": "普通话测试备考",
+     "object": "命题说话",
+     "aspect": "episode"
+    },
+    "91": {
+     "topic": "普通话测试备考",
+     "object": "普通话练习",
+     "aspect": "preference"
+    },
+    "92": {
+     "topic": "普通话测试备考",
+     "object": "普通话测试",
+     "aspect": "change"
+    },
+    "93": {
+     "topic": "教资笔试备考",
+     "object": "初中语文",
+     "aspect": "episode"
+    },
+    "94": {
+     "topic": "教资笔试备考",
+     "object": "综合素质",
+     "aspect": "change"
+    },
+    "95": {
+     "topic": "教资笔试备考",
+     "object": "材料分析题",
+     "aspect": "preference"
+    },
+    "96": {
+     "topic": "驾照考试",
+     "object": "科目一",
+     "aspect": "episode"
+    },
+    "97": {
+     "topic": "驾照考试",
+     "object": "科目一",
+     "aspect": "preference"
+    },
+    "98": {
+     "topic": "驾照考试",
+     "object": "科目一",
+     "aspect": "change"
+    },
+    "99": {
+     "topic": "驾照考试",
+     "object": "科目二",
+     "aspect": "episode"
+    },
+    "100": {
+     "topic": "驾照考试",
+     "object": "科目二",
+     "aspect": "preference"
+    },
+    "101": {
+     "topic": "驾照考试",
+     "object": "科目二",
+     "aspect": "change"
+    },
+    "102": {
+     "topic": "竞赛选拔",
+     "object": "",
+     "aspect": "episode"
+    },
+    "103": {
+     "topic": "竞赛选拔",
+     "object": "",
+     "aspect": "preference"
+    },
+    "104": {
+     "topic": "竞赛选拔",
+     "object": "",
+     "aspect": "change"
+    },
+    "105": {
+     "topic": "保研面试",
+     "object": "",
+     "aspect": "episode"
+    },
+    "106": {
+     "topic": "保研面试",
+     "object": "",
+     "aspect": "preference"
+    },
+    "107": {
+     "topic": "保研面试",
+     "object": "",
+     "aspect": "change"
+    },
+    "108": {
+     "topic": "夏令营申请",
+     "object": "推荐信",
+     "aspect": "episode"
+    },
+    "109": {
+     "topic": "夏令营申请",
+     "object": "三个方向",
+     "aspect": "episode"
+    },
+    "110": {
+     "topic": "夏令营方向选择",
+     "object": "人工智能方向",
+     "aspect": "preference"
+    },
+    "111": {
+     "topic": "备考日常安排",
+     "object": "",
+     "aspect": "habit"
+    },
+    "112": {
+     "topic": "复习顺序",
+     "object": "先刷题再背书",
+     "aspect": "change"
+    },
+    "113": {
+     "topic": "复试准备",
+     "object": "",
+     "aspect": "habit"
+    },
+    "114": {
+     "topic": "考研调剂信息",
+     "object": "调剂信息整理",
+     "aspect": "episode"
+    },
+    "115": {
+     "topic": "院校信息偏好",
+     "object": "学校汇总",
+     "aspect": "preference"
+    },
+    "116": {
+     "topic": "择校态度",
+     "object": "专业匹配",
+     "aspect": "change"
+    },
+    "117": {
+     "topic": "导师套磁",
+     "object": "套磁邮件",
+     "aspect": "episode"
+    },
+    "118": {
+     "topic": "套磁联系方式",
+     "object": "邮件套磁",
+     "aspect": "preference"
+    },
+    "119": {
+     "topic": "套磁策略",
+     "object": "重点联系导师",
+     "aspect": "change"
+    },
+    "120": {
+     "topic": "零食偏好",
+     "object": "合川桃片",
+     "aspect": "preference"
+    },
+    "121": {
+     "topic": "零食偏好",
+     "object": "合川桃片",
+     "aspect": "change"
+    },
+    "122": {
+     "topic": "零食偏好",
+     "object": "合川桃片",
+     "aspect": "advice"
+    },
+    "123": {
+     "topic": "面食偏好",
+     "object": "重庆小面",
+     "aspect": "preference"
+    },
+    "124": {
+     "topic": "点餐搭配",
+     "object": "重庆小面",
+     "aspect": "habit"
+    },
+    "125": {
+     "topic": "面食偏好",
+     "object": "重庆小面",
+     "aspect": "habit"
+    },
+    "126": {
+     "topic": "粉类偏好",
+     "object": "酸辣粉",
+     "aspect": "preference"
+    },
+    "127": {
+     "topic": "点餐搭配",
+     "object": "酸辣粉",
+     "aspect": "habit"
+    },
+    "128": {
+     "topic": "粉类偏好",
+     "object": "酸辣粉",
+     "aspect": "habit"
+    },
+    "129": {
+     "topic": "聚餐偏好",
+     "object": "火锅",
+     "aspect": "preference"
+    },
+    "130": {
+     "topic": "点餐搭配",
+     "object": "火锅",
+     "aspect": "change"
+    },
+    "131": {
+     "topic": "聚餐偏好",
+     "object": "火锅",
+     "aspect": "habit"
+    },
+    "132": {
+     "topic": "饮食偏好",
+     "object": "串串",
+     "aspect": "preference"
+    },
+    "133": {
+     "topic": "用餐习惯",
+     "object": "串串店",
+     "aspect": "habit"
+    },
+    "134": {
+     "topic": "用餐习惯",
+     "object": "串串",
+     "aspect": "habit"
+    },
+    "135": {
+     "topic": "饮食偏好",
+     "object": "毛血旺",
+     "aspect": "preference"
+    },
+    "136": {
+     "topic": "饮食偏好",
+     "object": "毛血旺",
+     "aspect": "preference"
+    },
+    "137": {
+     "topic": "口味变化",
+     "object": "辣度",
+     "aspect": "change"
+    },
+    "138": {
+     "topic": "饮食偏好",
+     "object": "豆花饭",
+     "aspect": "preference"
+    },
+    "139": {
+     "topic": "饮食偏好",
+     "object": "豆花饭",
+     "aspect": "preference"
+    },
+    "140": {
+     "topic": "用餐习惯",
+     "object": "豆花饭",
+     "aspect": "habit"
+    },
+    "141": {
+     "topic": "饮食偏好",
+     "object": "老麻抄手",
+     "aspect": "preference"
+    },
+    "142": {
+     "topic": "口味变化",
+     "object": "老麻抄手",
+     "aspect": "change"
+    },
+    "143": {
+     "topic": "用餐习惯",
+     "object": "老麻抄手",
+     "aspect": "habit"
+    },
+    "144": {
+     "topic": "咖啡口味偏好",
+     "object": "冰美式",
+     "aspect": "preference"
+    },
+    "145": {
+     "topic": "咖啡饮用习惯",
+     "object": "冰美式",
+     "aspect": "habit"
+    },
+    "146": {
+     "topic": "咖啡口味变化",
+     "object": "冰美式",
+     "aspect": "change"
+    },
+    "147": {
+     "topic": "咖啡口味偏好",
+     "object": "热美式",
+     "aspect": "preference"
+    },
+    "148": {
+     "topic": "咖啡饮用讲究",
+     "object": "热美式",
+     "aspect": "preference"
+    },
+    "149": {
+     "topic": "咖啡口味变化",
+     "object": "热美式",
+     "aspect": "change"
+    },
+    "150": {
+     "topic": "咖啡饮用习惯",
+     "object": "拿铁",
+     "aspect": "habit"
+    },
+    "151": {
+     "topic": "咖啡口味偏好",
+     "object": "拿铁",
+     "aspect": "preference"
+    },
+    "152": {
+     "topic": "咖啡口味变化",
+     "object": "拿铁",
+     "aspect": "change"
+    },
+    "153": {
+     "topic": "奶茶喜好",
+     "object": "奶茶",
+     "aspect": "preference"
+    },
+    "154": {
+     "topic": "奶茶饮用习惯",
+     "object": "奶茶",
+     "aspect": "habit"
+    },
+    "155": {
+     "topic": "奶茶点单偏好",
+     "object": "珍珠奶茶",
+     "aspect": "preference"
+    },
+    "156": {
+     "topic": "饮品偏好",
+     "object": "柠檬茶",
+     "aspect": "preference"
+    },
+    "157": {
+     "topic": "饮品偏好",
+     "object": "柠檬茶",
+     "aspect": "preference"
+    },
+    "158": {
+     "topic": "饮品习惯",
+     "object": "柠檬茶",
+     "aspect": "habit"
+    },
+    "159": {
+     "topic": "饮品偏好",
+     "object": "原味无糖酸奶",
+     "aspect": "preference"
+    },
+    "160": {
+     "topic": "饮品习惯",
+     "object": "酸奶",
+     "aspect": "habit"
+    },
+    "161": {
+     "topic": "饮品习惯",
+     "object": "酸奶",
+     "aspect": "habit"
+    },
+    "162": {
+     "topic": "菜品偏好",
+     "object": "番茄炒蛋",
+     "aspect": "preference"
+    },
+    "163": {
+     "topic": "烹饪做法",
+     "object": "番茄炒蛋",
+     "aspect": "habit"
+    },
+    "164": {
+     "topic": "口味变化",
+     "object": "番茄炒蛋",
+     "aspect": "change"
+    },
+    "165": {
+     "topic": "菜品偏好",
+     "object": "回锅肉",
+     "aspect": "preference"
+    },
+    "166": {
+     "topic": "烹饪做法",
+     "object": "回锅肉",
+     "aspect": "habit"
+    },
+    "167": {
+     "topic": "饮食习惯",
+     "object": "回锅肉",
+     "aspect": "habit"
+    },
+    "168": {
+     "topic": "饮食偏好",
+     "object": "麻婆豆腐",
+     "aspect": "preference"
+    },
+    "169": {
+     "topic": "烹饪做法",
+     "object": "麻婆豆腐",
+     "aspect": "change"
+    },
+    "170": {
+     "topic": "口味变化",
+     "object": "麻婆豆腐",
+     "aspect": "change"
+    },
+    "171": {
+     "topic": "饮食偏好",
+     "object": "鱼香肉丝",
+     "aspect": "preference"
+    },
+    "172": {
+     "topic": "饮食讲究",
+     "object": "鱼香肉丝",
+     "aspect": "preference"
+    },
+    "173": {
+     "topic": "饮食习惯",
+     "object": "鱼香肉丝",
+     "aspect": "habit"
+    },
+    "174": {
+     "topic": "饮食偏好",
+     "object": "咸豆花",
+     "aspect": "preference"
+    },
+    "175": {
+     "topic": "饮食搭配",
+     "object": "咸豆花",
+     "aspect": "preference"
+    },
+    "176": {
+     "topic": "饮食习惯",
+     "object": "咸豆花",
+     "aspect": "habit"
+    },
+    "177": {
+     "topic": "饮食偏好",
+     "object": "甜豆花",
+     "aspect": "preference"
+    },
+    "178": {
+     "topic": "饮食搭配",
+     "object": "甜豆花",
+     "aspect": "change"
+    },
+    "179": {
+     "topic": "饮食习惯",
+     "object": "甜豆花",
+     "aspect": "habit"
+    },
+    "180": {
+     "topic": "编辑器偏好",
+     "object": "VS Code",
+     "aspect": "preference"
+    },
+    "181": {
+     "topic": "编辑器配置",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "182": {
+     "topic": "编辑器配置",
+     "object": "VS Code",
+     "aspect": "habit"
+    },
+    "183": {
+     "topic": "编辑器偏好",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "184": {
+     "topic": "编辑器选择",
+     "object": "Cursor",
+     "aspect": "episode"
+    },
+    "185": {
+     "topic": "编辑器使用习惯",
+     "object": "VS Code",
+     "aspect": "habit"
+    },
+    "186": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "struggle"
+    },
+    "187": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "188": {
+     "topic": "编辑器偏好",
+     "object": "PyCharm",
+     "aspect": "preference"
+    },
+    "189": {
+     "topic": "编辑器使用习惯",
+     "object": "PyCharm",
+     "aspect": "habit"
+    },
+    "190": {
+     "topic": "编辑器配置",
+     "object": "PyCharm",
+     "aspect": "habit"
+    },
+    "191": {
+     "topic": "编辑器偏好",
+     "object": "",
+     "aspect": "change"
+    },
+    "192": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "episode"
+    },
+    "193": {
+     "topic": "编辑器选择",
+     "object": "PyCharm",
+     "aspect": "preference"
+    },
+    "194": {
+     "topic": "编辑器选择",
+     "object": "PyCharm",
+     "aspect": "change"
+    },
+    "195": {
+     "topic": "睡眠状况",
+     "object": "",
+     "aspect": "struggle"
+    },
+    "196": {
+     "topic": "睡前手机习惯",
+     "object": "手机",
+     "aspect": "preference"
+    },
+    "197": {
+     "topic": "晚睡习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "198": {
+     "topic": "晚睡看法",
+     "object": "",
+     "aspect": "change"
+    },
+    "199": {
+     "topic": "睡眠交流",
+     "object": "",
+     "aspect": "advice"
+    },
+    "200": {
+     "topic": "睡眠改善计划",
+     "object": "手机",
+     "aspect": "advice"
+    },
+    "201": {
+     "topic": "晚睡习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "202": {
+     "topic": "晚睡习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "203": {
+     "topic": "晚睡感受",
+     "object": "",
+     "aspect": "preference"
+    },
+    "204": {
+     "topic": "睡眠作息",
+     "object": "",
+     "aspect": "change"
+    },
+    "205": {
+     "topic": "睡眠作息",
+     "object": "",
+     "aspect": "episode"
+    },
+    "206": {
+     "topic": "睡眠作息",
+     "object": "",
+     "aspect": "episode"
+    },
+    "207": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "habit"
+    },
+    "208": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "preference"
+    },
+    "209": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "habit"
+    },
+    "210": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "change"
+    },
+    "211": {
+     "topic": "Python环境工具",
+     "object": "mamba",
+     "aspect": "episode"
+    },
+    "212": {
+     "topic": "Python环境工具",
+     "object": "miniforge",
+     "aspect": "struggle"
+    },
+    "213": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "struggle"
+    },
+    "214": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "habit"
+    },
+    "215": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "preference"
+    },
+    "216": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "habit"
+    },
+    "217": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "change"
+    },
+    "218": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "episode"
+    },
+    "219": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "preference"
+    },
+    "220": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "episode"
+    },
+    "221": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "preference"
+    },
+    "222": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "change"
+    },
+    "223": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "episode"
+    },
+    "224": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "habit"
+    },
+    "225": {
+     "topic": "开发环境搭建",
+     "object": "Docker",
+     "aspect": "episode"
+    },
+    "226": {
+     "topic": "开发环境搭建",
+     "object": "Docker",
+     "aspect": "preference"
+    },
+    "227": {
+     "topic": "开发环境搭建",
+     "object": "Docker",
+     "aspect": "change"
+    },
+    "228": {
+     "topic": "容器技术讨论",
+     "object": "Docker",
+     "aspect": "episode"
+    },
+    "229": {
+     "topic": "容器工具使用",
+     "object": "Docker",
+     "aspect": "habit"
+    },
+    "230": {
+     "topic": "容器工具使用",
+     "object": "Docker",
+     "aspect": "change"
+    },
+    "231": {
+     "topic": "餐饮店聊天",
+     "object": "老麻抄手",
+     "aspect": "episode"
+    },
+    "232": {
+     "topic": "饮食口味偏好",
+     "object": "老麻抄手",
+     "aspect": "preference"
+    },
+    "233": {
+     "topic": "咖啡饮用提醒",
+     "object": "冰美式",
+     "aspect": "advice"
+    },
+    "234": {
+     "topic": "咖啡饮用调整",
+     "object": "冰美式",
+     "aspect": "change"
+    }
+   },
+   "usage": {
+    "calls": 20,
+    "tok_in": 11174,
+    "tok_out": 6513,
+    "sec": 35.0
+   }
+  },
+  "B_p2": {
+   "res": {
+    "0": {
+     "topic": "课程偏好",
+     "object": "遥感原理",
+     "aspect": "preference"
+    },
+    "1": {
+     "topic": "课程看法变化",
+     "object": "遥感原理",
+     "aspect": "change"
+    },
+    "2": {
+     "topic": "学习习惯",
+     "object": "遥感原理笔记",
+     "aspect": "habit"
+    },
+    "3": {
+     "topic": "课程偏好",
+     "object": "数字图像处理",
+     "aspect": "preference"
+    },
+    "4": {
+     "topic": "课程项目态度",
+     "object": "课程项目",
+     "aspect": "change"
+    },
+    "5": {
+     "topic": "学习习惯",
+     "object": "数字图像处理",
+     "aspect": "habit"
+    },
+    "6": {
+     "topic": "课程偏好",
+     "object": "GIS空间分析",
+     "aspect": "preference"
+    },
+    "7": {
+     "topic": "课程看法变化",
+     "object": "GIS空间分析",
+     "aspect": "change"
+    },
+    "8": {
+     "topic": "学习习惯",
+     "object": "GIS空间分析",
+     "aspect": "habit"
+    },
+    "9": {
+     "topic": "课程偏好",
+     "object": "地图学",
+     "aspect": "preference"
+    },
+    "10": {
+     "topic": "课程看法变化",
+     "object": "地图学",
+     "aspect": "change"
+    },
+    "11": {
+     "topic": "学习习惯",
+     "object": "地图学",
+     "aspect": "habit"
+    },
+    "12": {
+     "topic": "地理学科偏好",
+     "object": "自然地理",
+     "aspect": "preference"
+    },
+    "13": {
+     "topic": "地理学习态度",
+     "object": "自然地理",
+     "aspect": "change"
+    },
+    "14": {
+     "topic": "地理学习习惯",
+     "object": "自然地理笔记",
+     "aspect": "habit"
+    },
+    "15": {
+     "topic": "地理学科偏好",
+     "object": "人文地理",
+     "aspect": "preference"
+    },
+    "16": {
+     "topic": "地理学习态度",
+     "object": "人文地理",
+     "aspect": "change"
+    },
+    "17": {
+     "topic": "地理学习习惯",
+     "object": "人文地理文章",
+     "aspect": "habit"
+    },
+    "18": {
+     "topic": "数学学科偏好",
+     "object": "概率论",
+     "aspect": "preference"
+    },
+    "19": {
+     "topic": "数学学习态度",
+     "object": "概率论",
+     "aspect": "change"
+    },
+    "20": {
+     "topic": "数学学习习惯",
+     "object": "概率题",
+     "aspect": "habit"
+    },
+    "21": {
+     "topic": "数学学科偏好",
+     "object": "线性代数",
+     "aspect": "preference"
+    },
+    "22": {
+     "topic": "课程学习进度",
+     "object": "线性代数",
+     "aspect": "episode"
+    },
+    "23": {
+     "topic": "作业学习卡点",
+     "object": "分块矩阵求逆",
+     "aspect": "struggle"
+    },
+    "24": {
+     "topic": "高数学习",
+     "object": "多元函数微分",
+     "aspect": "episode"
+    },
+    "25": {
+     "topic": "高数学习",
+     "object": "",
+     "aspect": "preference"
+    },
+    "26": {
+     "topic": "高数学习",
+     "object": "",
+     "aspect": "change"
+    },
+    "27": {
+     "topic": "大学物理学习",
+     "object": "电磁学与光学",
+     "aspect": "episode"
+    },
+    "28": {
+     "topic": "大学物理学习",
+     "object": "",
+     "aspect": "change"
+    },
+    "29": {
+     "topic": "大学物理学习",
+     "object": "",
+     "aspect": "habit"
+    },
+    "30": {
+     "topic": "C语言学习",
+     "object": "指针与结构体",
+     "aspect": "episode"
+    },
+    "31": {
+     "topic": "C语言学习",
+     "object": "",
+     "aspect": "preference"
+    },
+    "32": {
+     "topic": "C语言学习",
+     "object": "",
+     "aspect": "change"
+    },
+    "33": {
+     "topic": "数据结构学习",
+     "object": "Dijkstra堆优化",
+     "aspect": "struggle"
+    },
+    "34": {
+     "topic": "数据结构学习",
+     "object": "",
+     "aspect": "preference"
+    },
+    "35": {
+     "topic": "学习方式",
+     "object": "",
+     "aspect": "change"
+    },
+    "36": {
+     "topic": "课程学习",
+     "object": "摄影测量",
+     "aspect": "episode"
+    },
+    "37": {
+     "topic": "课程学习",
+     "object": "摄影测量",
+     "aspect": "preference"
+    },
+    "38": {
+     "topic": "课程学习",
+     "object": "摄影测量",
+     "aspect": "change"
+    },
+    "39": {
+     "topic": "课程学习",
+     "object": "大地测量",
+     "aspect": "episode"
+    },
+    "40": {
+     "topic": "课程学习",
+     "object": "大地测量",
+     "aspect": "preference"
+    },
+    "41": {
+     "topic": "课程学习",
+     "object": "大地测量",
+     "aspect": "change"
+    },
+    "42": {
+     "topic": "课程学习",
+     "object": "误差理论",
+     "aspect": "episode"
+    },
+    "43": {
+     "topic": "课程学习",
+     "object": "误差理论",
+     "aspect": "preference"
+    },
+    "44": {
+     "topic": "课程学习",
+     "object": "误差理论",
+     "aspect": "change"
+    },
+    "45": {
+     "topic": "课程学习",
+     "object": "地理建模",
+     "aspect": "preference"
+    },
+    "46": {
+     "topic": "课程学习",
+     "object": "地理建模",
+     "aspect": "episode"
+    },
+    "47": {
+     "topic": "课程学习",
+     "object": "地理建模",
+     "aspect": "change"
+    },
+    "48": {
+     "topic": "课程学习",
+     "object": "空间数据库",
+     "aspect": "preference"
+    },
+    "49": {
+     "topic": "学习态度转变",
+     "object": "空间数据库",
+     "aspect": "change"
+    },
+    "50": {
+     "topic": "学习习惯",
+     "object": "空间数据库",
+     "aspect": "habit"
+    },
+    "51": {
+     "topic": "编程语言偏好",
+     "object": "Python",
+     "aspect": "preference"
+    },
+    "52": {
+     "topic": "学习习惯",
+     "object": "Python",
+     "aspect": "habit"
+    },
+    "53": {
+     "topic": "编程态度转变",
+     "object": "写代码",
+     "aspect": "change"
+    },
+    "54": {
+     "topic": "技术方向偏好",
+     "object": "遥感图像解译",
+     "aspect": "preference"
+    },
+    "55": {
+     "topic": "学习态度转变",
+     "object": "遥感图像解译",
+     "aspect": "change"
+    },
+    "56": {
+     "topic": "学习习惯",
+     "object": "遥感图像解译",
+     "aspect": "habit"
+    },
+    "57": {
+     "topic": "开发卡点",
+     "object": "GIS二次开发",
+     "aspect": "struggle"
+    },
+    "58": {
+     "topic": "技术方向偏好",
+     "object": "GIS二次开发",
+     "aspect": "preference"
+    },
+    "59": {
+     "topic": "开发态度转变",
+     "object": "GIS二次开发",
+     "aspect": "change"
+    },
+    "60": {
+     "topic": "考研数学复习",
+     "object": "数学二",
+     "aspect": "episode"
+    },
+    "61": {
+     "topic": "考研数学复习",
+     "object": "数学二",
+     "aspect": "preference"
+    },
+    "62": {
+     "topic": "考研数学复习",
+     "object": "数学二",
+     "aspect": "change"
+    },
+    "63": {
+     "topic": "考研英语复习",
+     "object": "英语一",
+     "aspect": "episode"
+    },
+    "64": {
+     "topic": "考研英语复习",
+     "object": "英语一",
+     "aspect": "preference"
+    },
+    "65": {
+     "topic": "考研英语复习",
+     "object": "英语一",
+     "aspect": "change"
+    },
+    "66": {
+     "topic": "考研政治复习",
+     "object": "政治1000题",
+     "aspect": "episode"
+    },
+    "67": {
+     "topic": "考研政治复习",
+     "object": "考研政治",
+     "aspect": "preference"
+    },
+    "68": {
+     "topic": "考研政治复习",
+     "object": "考研政治",
+     "aspect": "change"
+    },
+    "69": {
+     "topic": "考研专业课复习",
+     "object": "882地理",
+     "aspect": "episode"
+    },
+    "70": {
+     "topic": "考研专业课复习",
+     "object": "882地理",
+     "aspect": "preference"
+    },
+    "71": {
+     "topic": "考研专业课复习",
+     "object": "882地理",
+     "aspect": "change"
+    },
+    "72": {
+     "topic": "英语四级考试",
+     "object": "四级",
+     "aspect": "episode"
+    },
+    "73": {
+     "topic": "英语四级备考",
+     "object": "四级听力",
+     "aspect": "habit"
+    },
+    "74": {
+     "topic": "英语四级备考",
+     "object": "四级",
+     "aspect": "preference"
+    },
+    "75": {
+     "topic": "英语六级考试",
+     "object": "六级",
+     "aspect": "episode"
+    },
+    "76": {
+     "topic": "英语六级备考",
+     "object": "六级阅读",
+     "aspect": "preference"
+    },
+    "77": {
+     "topic": "英语六级备考",
+     "object": "六级",
+     "aspect": "change"
+    },
+    "78": {
+     "topic": "期末遥感复习",
+     "object": "遥感",
+     "aspect": "struggle"
+    },
+    "79": {
+     "topic": "期末遥感考试",
+     "object": "遥感",
+     "aspect": "episode"
+    },
+    "80": {
+     "topic": "遥感课程学习",
+     "object": "遥感",
+     "aspect": "preference"
+    },
+    "81": {
+     "topic": "期末GIS考核",
+     "object": "ArcGIS",
+     "aspect": "episode"
+    },
+    "82": {
+     "topic": "GIS实操学习",
+     "object": "GIS制图",
+     "aspect": "preference"
+    },
+    "83": {
+     "topic": "期末GIS备考",
+     "object": "GIS",
+     "aspect": "change"
+    },
+    "84": {
+     "topic": "期末地信复习",
+     "object": "遥感图像分类与GIS空间分析",
+     "aspect": "episode"
+    },
+    "85": {
+     "topic": "期末地信复习",
+     "object": "期末地信",
+     "aspect": "preference"
+    },
+    "86": {
+     "topic": "期末地信复习",
+     "object": "期末地信",
+     "aspect": "change"
+    },
+    "87": {
+     "topic": "计算机二级备考",
+     "object": "MS Office高级应用",
+     "aspect": "episode"
+    },
+    "88": {
+     "topic": "计算机二级备考",
+     "object": "操作题",
+     "aspect": "habit"
+    },
+    "89": {
+     "topic": "计算机二级备考",
+     "object": "Excel函数与PPT动画",
+     "aspect": "struggle"
+    },
+    "90": {
+     "topic": "普通话测试备考",
+     "object": "命题说话",
+     "aspect": "episode"
+    },
+    "91": {
+     "topic": "普通话测试备考",
+     "object": "普通话练习",
+     "aspect": "preference"
+    },
+    "92": {
+     "topic": "普通话测试备考",
+     "object": "普通话测试",
+     "aspect": "change"
+    },
+    "93": {
+     "topic": "教资笔试备考",
+     "object": "初中语文",
+     "aspect": "episode"
+    },
+    "94": {
+     "topic": "教资笔试备考",
+     "object": "综合素质",
+     "aspect": "change"
+    },
+    "95": {
+     "topic": "教资笔试备考",
+     "object": "材料分析题",
+     "aspect": "preference"
+    },
+    "96": {
+     "topic": "驾照考试",
+     "object": "科目一",
+     "aspect": "episode"
+    },
+    "97": {
+     "topic": "驾照考试",
+     "object": "科目一",
+     "aspect": "preference"
+    },
+    "98": {
+     "topic": "驾照考试",
+     "object": "科目一",
+     "aspect": "change"
+    },
+    "99": {
+     "topic": "驾照考试",
+     "object": "科目二",
+     "aspect": "episode"
+    },
+    "100": {
+     "topic": "驾照考试",
+     "object": "科目二",
+     "aspect": "preference"
+    },
+    "101": {
+     "topic": "驾照考试",
+     "object": "科目二",
+     "aspect": "change"
+    },
+    "102": {
+     "topic": "竞赛选拔",
+     "object": "",
+     "aspect": "episode"
+    },
+    "103": {
+     "topic": "竞赛选拔",
+     "object": "",
+     "aspect": "preference"
+    },
+    "104": {
+     "topic": "竞赛选拔",
+     "object": "",
+     "aspect": "change"
+    },
+    "105": {
+     "topic": "保研面试",
+     "object": "",
+     "aspect": "episode"
+    },
+    "106": {
+     "topic": "保研面试",
+     "object": "",
+     "aspect": "preference"
+    },
+    "107": {
+     "topic": "保研面试",
+     "object": "",
+     "aspect": "change"
+    },
+    "108": {
+     "topic": "夏令营申请",
+     "object": "推荐信",
+     "aspect": "episode"
+    },
+    "109": {
+     "topic": "夏令营申请",
+     "object": "三个方向",
+     "aspect": "episode"
+    },
+    "110": {
+     "topic": "夏令营方向选择",
+     "object": "人工智能方向",
+     "aspect": "preference"
+    },
+    "111": {
+     "topic": "备考日常安排",
+     "object": "",
+     "aspect": "habit"
+    },
+    "112": {
+     "topic": "复习顺序",
+     "object": "刷题与背书",
+     "aspect": "change"
+    },
+    "113": {
+     "topic": "复试准备",
+     "object": "",
+     "aspect": "habit"
+    },
+    "114": {
+     "topic": "考研调剂信息",
+     "object": "调剂信息整理",
+     "aspect": "episode"
+    },
+    "115": {
+     "topic": "院校信息偏好",
+     "object": "学校汇总",
+     "aspect": "preference"
+    },
+    "116": {
+     "topic": "择校态度",
+     "object": "专业匹配",
+     "aspect": "change"
+    },
+    "117": {
+     "topic": "导师套磁",
+     "object": "套磁邮件",
+     "aspect": "episode"
+    },
+    "118": {
+     "topic": "套磁联系方式",
+     "object": "邮件套磁",
+     "aspect": "preference"
+    },
+    "119": {
+     "topic": "套磁策略",
+     "object": "联系导师范围",
+     "aspect": "change"
+    },
+    "120": {
+     "topic": "零食偏好",
+     "object": "合川桃片",
+     "aspect": "preference"
+    },
+    "121": {
+     "topic": "零食偏好",
+     "object": "合川桃片",
+     "aspect": "change"
+    },
+    "122": {
+     "topic": "零食偏好",
+     "object": "合川桃片",
+     "aspect": "advice"
+    },
+    "123": {
+     "topic": "面食偏好",
+     "object": "重庆小面",
+     "aspect": "preference"
+    },
+    "124": {
+     "topic": "点餐搭配",
+     "object": "重庆小面",
+     "aspect": "habit"
+    },
+    "125": {
+     "topic": "面食偏好",
+     "object": "重庆小面",
+     "aspect": "habit"
+    },
+    "126": {
+     "topic": "粉类偏好",
+     "object": "酸辣粉",
+     "aspect": "preference"
+    },
+    "127": {
+     "topic": "点餐搭配",
+     "object": "酸辣粉",
+     "aspect": "habit"
+    },
+    "128": {
+     "topic": "粉类偏好",
+     "object": "酸辣粉",
+     "aspect": "habit"
+    },
+    "129": {
+     "topic": "聚餐偏好",
+     "object": "火锅",
+     "aspect": "preference"
+    },
+    "130": {
+     "topic": "点餐搭配",
+     "object": "火锅",
+     "aspect": "change"
+    },
+    "131": {
+     "topic": "聚餐偏好",
+     "object": "火锅",
+     "aspect": "habit"
+    },
+    "132": {
+     "topic": "串串偏好",
+     "object": "串串",
+     "aspect": "preference"
+    },
+    "133": {
+     "topic": "串串偏好",
+     "object": "小区门口串串店",
+     "aspect": "episode"
+    },
+    "134": {
+     "topic": "串串偏好",
+     "object": "串串",
+     "aspect": "habit"
+    },
+    "135": {
+     "topic": "毛血旺偏好",
+     "object": "毛血旺",
+     "aspect": "preference"
+    },
+    "136": {
+     "topic": "毛血旺偏好",
+     "object": "毛血旺",
+     "aspect": "preference"
+    },
+    "137": {
+     "topic": "辣度偏好",
+     "object": "",
+     "aspect": "change"
+    },
+    "138": {
+     "topic": "豆花饭偏好",
+     "object": "豆花饭",
+     "aspect": "preference"
+    },
+    "139": {
+     "topic": "豆花饭偏好",
+     "object": "豆花饭",
+     "aspect": "preference"
+    },
+    "140": {
+     "topic": "豆花饭偏好",
+     "object": "豆花饭",
+     "aspect": "habit"
+    },
+    "141": {
+     "topic": "老麻抄手偏好",
+     "object": "老麻抄手",
+     "aspect": "preference"
+    },
+    "142": {
+     "topic": "老麻抄手偏好",
+     "object": "老麻抄手",
+     "aspect": "change"
+    },
+    "143": {
+     "topic": "老麻抄手偏好",
+     "object": "老麻抄手",
+     "aspect": "habit"
+    },
+    "144": {
+     "topic": "咖啡口味偏好",
+     "object": "冰美式",
+     "aspect": "preference"
+    },
+    "145": {
+     "topic": "咖啡饮用习惯",
+     "object": "冰美式",
+     "aspect": "habit"
+    },
+    "146": {
+     "topic": "咖啡口味变化",
+     "object": "冰美式",
+     "aspect": "change"
+    },
+    "147": {
+     "topic": "咖啡口味偏好",
+     "object": "热美式",
+     "aspect": "preference"
+    },
+    "148": {
+     "topic": "咖啡饮用讲究",
+     "object": "热美式",
+     "aspect": "preference"
+    },
+    "149": {
+     "topic": "咖啡口味变化",
+     "object": "热美式",
+     "aspect": "change"
+    },
+    "150": {
+     "topic": "咖啡饮用习惯",
+     "object": "拿铁",
+     "aspect": "habit"
+    },
+    "151": {
+     "topic": "咖啡口味偏好",
+     "object": "拿铁",
+     "aspect": "preference"
+    },
+    "152": {
+     "topic": "咖啡口味变化",
+     "object": "拿铁",
+     "aspect": "change"
+    },
+    "153": {
+     "topic": "奶茶饮用偏好",
+     "object": "奶茶",
+     "aspect": "preference"
+    },
+    "154": {
+     "topic": "奶茶饮用习惯",
+     "object": "奶茶",
+     "aspect": "habit"
+    },
+    "155": {
+     "topic": "奶茶点单搭配",
+     "object": "珍珠奶茶",
+     "aspect": "preference"
+    },
+    "156": {
+     "topic": "饮品偏好",
+     "object": "柠檬茶",
+     "aspect": "preference"
+    },
+    "157": {
+     "topic": "饮品点单习惯",
+     "object": "柠檬茶",
+     "aspect": "habit"
+    },
+    "158": {
+     "topic": "饮品饮用习惯",
+     "object": "柠檬茶",
+     "aspect": "habit"
+    },
+    "159": {
+     "topic": "食物偏好",
+     "object": "原味无糖酸奶",
+     "aspect": "preference"
+    },
+    "160": {
+     "topic": "饮食日常习惯",
+     "object": "酸奶",
+     "aspect": "habit"
+    },
+    "161": {
+     "topic": "饮食长期习惯",
+     "object": "酸奶",
+     "aspect": "habit"
+    },
+    "162": {
+     "topic": "菜品偏好",
+     "object": "番茄炒蛋",
+     "aspect": "preference"
+    },
+    "163": {
+     "topic": "烹饪做法讲究",
+     "object": "番茄炒蛋",
+     "aspect": "habit"
+    },
+    "164": {
+     "topic": "口味变化",
+     "object": "番茄炒蛋",
+     "aspect": "change"
+    },
+    "165": {
+     "topic": "菜品偏好",
+     "object": "回锅肉",
+     "aspect": "preference"
+    },
+    "166": {
+     "topic": "烹饪做法讲究",
+     "object": "回锅肉",
+     "aspect": "habit"
+    },
+    "167": {
+     "topic": "饮食长期习惯",
+     "object": "回锅肉",
+     "aspect": "habit"
+    },
+    "168": {
+     "topic": "饮食偏好",
+     "object": "麻婆豆腐",
+     "aspect": "preference"
+    },
+    "169": {
+     "topic": "烹饪做法",
+     "object": "麻婆豆腐",
+     "aspect": "change"
+    },
+    "170": {
+     "topic": "口味变化",
+     "object": "麻婆豆腐",
+     "aspect": "change"
+    },
+    "171": {
+     "topic": "饮食偏好",
+     "object": "鱼香肉丝",
+     "aspect": "preference"
+    },
+    "172": {
+     "topic": "饮食讲究",
+     "object": "鱼香肉丝",
+     "aspect": "preference"
+    },
+    "173": {
+     "topic": "饮食习惯",
+     "object": "鱼香肉丝",
+     "aspect": "habit"
+    },
+    "174": {
+     "topic": "饮食偏好",
+     "object": "咸豆花",
+     "aspect": "preference"
+    },
+    "175": {
+     "topic": "饮食搭配",
+     "object": "咸豆花",
+     "aspect": "preference"
+    },
+    "176": {
+     "topic": "饮食习惯",
+     "object": "咸豆花",
+     "aspect": "habit"
+    },
+    "177": {
+     "topic": "饮食偏好",
+     "object": "甜豆花",
+     "aspect": "preference"
+    },
+    "178": {
+     "topic": "饮食搭配",
+     "object": "甜豆花",
+     "aspect": "change"
+    },
+    "179": {
+     "topic": "饮食习惯",
+     "object": "甜豆花",
+     "aspect": "habit"
+    },
+    "180": {
+     "topic": "编辑器偏好",
+     "object": "VS Code",
+     "aspect": "preference"
+    },
+    "181": {
+     "topic": "编辑器配置",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "182": {
+     "topic": "编辑器配置",
+     "object": "VS Code",
+     "aspect": "habit"
+    },
+    "183": {
+     "topic": "编辑器偏好",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "184": {
+     "topic": "编辑器选择",
+     "object": "Cursor",
+     "aspect": "advice"
+    },
+    "185": {
+     "topic": "编辑器使用习惯",
+     "object": "VS Code",
+     "aspect": "habit"
+    },
+    "186": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "struggle"
+    },
+    "187": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "188": {
+     "topic": "编辑器偏好",
+     "object": "PyCharm",
+     "aspect": "preference"
+    },
+    "189": {
+     "topic": "编辑器使用习惯",
+     "object": "PyCharm",
+     "aspect": "habit"
+    },
+    "190": {
+     "topic": "编辑器配置",
+     "object": "PyCharm",
+     "aspect": "habit"
+    },
+    "191": {
+     "topic": "编辑器偏好",
+     "object": "",
+     "aspect": "change"
+    },
+    "192": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "episode"
+    },
+    "193": {
+     "topic": "编辑器选择",
+     "object": "PyCharm",
+     "aspect": "preference"
+    },
+    "194": {
+     "topic": "编辑器选择",
+     "object": "PyCharm",
+     "aspect": "change"
+    },
+    "195": {
+     "topic": "睡眠状况",
+     "object": "",
+     "aspect": "struggle"
+    },
+    "196": {
+     "topic": "睡前刷手机",
+     "object": "手机",
+     "aspect": "habit"
+    },
+    "197": {
+     "topic": "晚睡习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "198": {
+     "topic": "晚睡看法",
+     "object": "",
+     "aspect": "change"
+    },
+    "199": {
+     "topic": "睡眠交流",
+     "object": "",
+     "aspect": "advice"
+    },
+    "200": {
+     "topic": "睡眠改善计划",
+     "object": "手机",
+     "aspect": "advice"
+    },
+    "201": {
+     "topic": "晚睡习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "202": {
+     "topic": "晚睡习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "203": {
+     "topic": "晚睡感受",
+     "object": "",
+     "aspect": "preference"
+    },
+    "204": {
+     "topic": "睡眠作息",
+     "object": "",
+     "aspect": "change"
+    },
+    "205": {
+     "topic": "睡眠作息",
+     "object": "",
+     "aspect": "episode"
+    },
+    "206": {
+     "topic": "睡眠作息",
+     "object": "桌宠",
+     "aspect": "episode"
+    },
+    "207": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "habit"
+    },
+    "208": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "preference"
+    },
+    "209": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "habit"
+    },
+    "210": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "change"
+    },
+    "211": {
+     "topic": "Python环境工具",
+     "object": "mamba",
+     "aspect": "episode"
+    },
+    "212": {
+     "topic": "Python环境工具",
+     "object": "miniforge",
+     "aspect": "struggle"
+    },
+    "213": {
+     "topic": "Python环境工具",
+     "object": "Anaconda",
+     "aspect": "struggle"
+    },
+    "214": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "habit"
+    },
+    "215": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "preference"
+    },
+    "216": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "habit"
+    },
+    "217": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "change"
+    },
+    "218": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "episode"
+    },
+    "219": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "preference"
+    },
+    "220": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "episode"
+    },
+    "221": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "preference"
+    },
+    "222": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "change"
+    },
+    "223": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "episode"
+    },
+    "224": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "habit"
+    },
+    "225": {
+     "topic": "开发环境配置",
+     "object": "Docker",
+     "aspect": "episode"
+    },
+    "226": {
+     "topic": "开发环境配置",
+     "object": "Docker",
+     "aspect": "preference"
+    },
+    "227": {
+     "topic": "开发环境配置",
+     "object": "Docker",
+     "aspect": "change"
+    },
+    "228": {
+     "topic": "容器技术讨论",
+     "object": "Docker",
+     "aspect": "episode"
+    },
+    "229": {
+     "topic": "容器工具使用",
+     "object": "Docker",
+     "aspect": "habit"
+    },
+    "230": {
+     "topic": "容器工具使用",
+     "object": "Docker",
+     "aspect": "change"
+    },
+    "231": {
+     "topic": "餐饮话题闲聊",
+     "object": "老麻抄手",
+     "aspect": "episode"
+    },
+    "232": {
+     "topic": "饮食口味偏好",
+     "object": "老麻抄手",
+     "aspect": "preference"
+    },
+    "233": {
+     "topic": "咖啡饮用提醒",
+     "object": "冰美式",
+     "aspect": "advice"
+    },
+    "234": {
+     "topic": "咖啡饮用调整",
+     "object": "冰美式",
+     "aspect": "change"
+    }
+   },
+   "usage": {
+    "calls": 20,
+    "tok_in": 11174,
+    "tok_out": 6549,
+    "sec": 35.2
+   }
+  },
+  "B_p3": {
+   "res": {
+    "68": {
+     "topic": "复习方法",
+     "object": "政治",
+     "aspect": "change"
+    },
+    "135": {
+     "topic": "饮食口味",
+     "object": "毛血旺",
+     "aspect": "preference"
+    },
+    "55": {
+     "topic": "学习方法",
+     "object": "遥感图像解译",
+     "aspect": "change"
+    },
+    "210": {
+     "topic": "工具选择",
+     "object": "Anaconda",
+     "aspect": "change"
+    },
+    "103": {
+     "topic": "竞赛态度",
+     "object": "",
+     "aspect": "preference"
+    },
+    "139": {
+     "topic": "饮食口味",
+     "object": "豆花饭",
+     "aspect": "preference"
+    },
+    "19": {
+     "topic": "学习目标",
+     "object": "概率论",
+     "aspect": "change"
+    },
+    "171": {
+     "topic": "饮食口味",
+     "object": "鱼香肉丝",
+     "aspect": "preference"
+    },
+    "131": {
+     "topic": "饮食习惯",
+     "object": "火锅",
+     "aspect": "habit"
+    },
+    "194": {
+     "topic": "工具选择",
+     "object": "PyCharm",
+     "aspect": "change"
+    },
+    "90": {
+     "topic": "考试安排",
+     "object": "普通话测试",
+     "aspect": "episode"
+    },
+    "164": {
+     "topic": "饮食口味",
+     "object": "番茄炒蛋",
+     "aspect": "change"
+    },
+    "32": {
+     "topic": "编程语言态度",
+     "object": "C语言",
+     "aspect": "change"
+    },
+    "43": {
+     "topic": "学科喜好",
+     "object": "误差理论",
+     "aspect": "preference"
+    },
+    "185": {
+     "topic": "开发工具习惯",
+     "object": "VS Code",
+     "aspect": "habit"
+    },
+    "175": {
+     "topic": "饮食搭配",
+     "object": "咸豆花",
+     "aspect": "preference"
+    },
+    "203": {
+     "topic": "作息偏好",
+     "object": "凌晨两点睡",
+     "aspect": "preference"
+    },
+    "231": {
+     "topic": "美食聊天",
+     "object": "老麻抄手",
+     "aspect": "episode"
+    },
+    "143": {
+     "topic": "餐饮习惯",
+     "object": "老麻抄手",
+     "aspect": "habit"
+    },
+    "168": {
+     "topic": "餐饮习惯",
+     "object": "麻婆豆腐",
+     "aspect": "habit"
+    },
+    "67": {
+     "topic": "学科喜好",
+     "object": "考研政治",
+     "aspect": "preference"
+    },
+    "167": {
+     "topic": "餐饮习惯",
+     "object": "回锅肉",
+     "aspect": "habit"
+    },
+    "152": {
+     "topic": "饮品偏好",
+     "object": "拿铁",
+     "aspect": "change"
+    },
+    "193": {
+     "topic": "开发工具态度",
+     "object": "PyCharm",
+     "aspect": "preference"
+    },
+    "118": {
+     "topic": "联系沟通方式",
+     "object": "邮件套磁",
+     "aspect": "preference"
+    },
+    "223": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "episode"
+    },
+    "219": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "habit"
+    },
+    "91": {
+     "topic": "学习兴趣",
+     "object": "普通话",
+     "aspect": "preference"
+    },
+    "186": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "struggle"
+    },
+    "65": {
+     "topic": "考研科目选择",
+     "object": "英语一",
+     "aspect": "change"
+    },
+    "188": {
+     "topic": "编程工具偏好",
+     "object": "PyCharm",
+     "aspect": "preference"
+    },
+    "214": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "episode"
+    },
+    "227": {
+     "topic": "容器化工具认知",
+     "object": "Docker",
+     "aspect": "change"
+    },
+    "113": {
+     "topic": "复试备考安排",
+     "object": "",
+     "aspect": "habit"
+    },
+    "222": {
+     "topic": "GIS工具使用",
+     "object": "QGIS",
+     "aspect": "change"
+    },
+    "217": {
+     "topic": "办公软件使用",
+     "object": "WPS",
+     "aspect": "change"
+    },
+    "157": {
+     "topic": "饮品点单",
+     "object": "柠檬茶",
+     "aspect": "preference"
+    },
+    "163": {
+     "topic": "烹饪做法",
+     "object": "番茄炒蛋",
+     "aspect": "preference"
+    },
+    "160": {
+     "topic": "饮食日常",
+     "object": "酸奶",
+     "aspect": "habit"
+    },
+    "13": {
+     "topic": "学习观念",
+     "object": "自然地理",
+     "aspect": "change"
+    },
+    "207": {
+     "topic": "工具使用",
+     "object": "Anaconda",
+     "aspect": "habit"
+    },
+    "179": {
+     "topic": "饮食偏好",
+     "object": "甜豆花",
+     "aspect": "habit"
+    },
+    "204": {
+     "topic": "作息调整",
+     "object": "睡觉时间",
+     "aspect": "change"
+    },
+    "146": {
+     "topic": "饮品习惯",
+     "object": "冰美式",
+     "aspect": "change"
+    },
+    "102": {
+     "topic": "竞赛准备",
+     "object": "竞赛选拔",
+     "aspect": "episode"
+    },
+    "226": {
+     "topic": "工具使用",
+     "object": "Docker",
+     "aspect": "preference"
+    },
+    "6": {
+     "topic": "课程喜好",
+     "object": "GIS空间分析",
+     "aspect": "preference"
+    },
+    "48": {
+     "topic": "课程喜好",
+     "object": "空间数据库",
+     "aspect": "preference"
+    },
+    "75": {
+     "topic": "考试报名",
+     "object": "六级考试",
+     "aspect": "episode"
+    },
+    "88": {
+     "topic": "备考练习",
+     "object": "计算机二级操作题",
+     "aspect": "habit"
+    },
+    "51": {
+     "topic": "编程语言偏好",
+     "object": "Python",
+     "aspect": "preference"
+    },
+    "125": {
+     "topic": "饮食习惯",
+     "object": "小面",
+     "aspect": "habit"
+    },
+    "144": {
+     "topic": "咖啡偏好",
+     "object": "冰美式",
+     "aspect": "preference"
+    },
+    "195": {
+     "topic": "睡眠状况",
+     "object": "",
+     "aspect": "struggle"
+    },
+    "85": {
+     "topic": "课程偏好",
+     "object": "期末地信",
+     "aspect": "preference"
+    },
+    "14": {
+     "topic": "学习习惯",
+     "object": "自然地理笔记",
+     "aspect": "habit"
+    },
+    "36": {
+     "topic": "课程任务",
+     "object": "摄影测量课",
+     "aspect": "episode"
+    },
+    "122": {
+     "topic": "零食尝试",
+     "object": "合川桃片",
+     "aspect": "advice"
+    },
+    "47": {
+     "topic": "学习态度转变",
+     "object": "地理建模",
+     "aspect": "change"
+    },
+    "72": {
+     "topic": "考试报名",
+     "object": "四级考试",
+     "aspect": "episode"
+    },
+    "205": {
+     "topic": "作息睡眠",
+     "object": "晚睡",
+     "aspect": "episode"
+    },
+    "184": {
+     "topic": "编辑器工具",
+     "object": "Cursor",
+     "aspect": "episode"
+    },
+    "44": {
+     "topic": "课程学习态度",
+     "object": "误差理论",
+     "aspect": "change"
+    },
+    "142": {
+     "topic": "口味偏好",
+     "object": "老麻抄手",
+     "aspect": "change"
+    },
+    "155": {
+     "topic": "奶茶点单习惯",
+     "object": "奶茶",
+     "aspect": "habit"
+    },
+    "45": {
+     "topic": "课程喜好",
+     "object": "地理建模",
+     "aspect": "preference"
+    },
+    "123": {
+     "topic": "食物偏好",
+     "object": "重庆小面",
+     "aspect": "preference"
+    },
+    "107": {
+     "topic": "面试心态",
+     "object": "保研面试",
+     "aspect": "change"
+    },
+    "165": {
+     "topic": "食物偏好",
+     "object": "回锅肉",
+     "aspect": "preference"
+    },
+    "8": {
+     "topic": "技能练习习惯",
+     "object": "GIS空间分析",
+     "aspect": "habit"
+    },
+    "232": {
+     "topic": "口味偏好",
+     "object": "老麻抄手",
+     "aspect": "preference"
+    },
+    "109": {
+     "topic": "夏令营申请",
+     "object": "夏令营",
+     "aspect": "episode"
+    },
+    "112": {
+     "topic": "学习顺序偏好",
+     "object": "",
+     "aspect": "change"
+    },
+    "228": {
+     "topic": "技术工具讨论",
+     "object": "Docker",
+     "aspect": "episode"
+    },
+    "124": {
+     "topic": "点餐固定搭配",
+     "object": "重庆小面",
+     "aspect": "preference"
+    },
+    "104": {
+     "topic": "竞赛选拔心态",
+     "object": "",
+     "aspect": "change"
+    },
+    "12": {
+     "topic": "学科方向偏好",
+     "object": "自然地理",
+     "aspect": "preference"
+    },
+    "216": {
+     "topic": "软件使用习惯",
+     "object": "WPS",
+     "aspect": "habit"
+    },
+    "60": {
+     "topic": "考研复习",
+     "object": "数学二",
+     "aspect": "struggle"
+    },
+    "86": {
+     "topic": "考试目标调整",
+     "object": "期末地信",
+     "aspect": "change"
+    },
+    "108": {
+     "topic": "夏令营申请",
+     "object": "",
+     "aspect": "episode"
+    },
+    "221": {
+     "topic": "软件工具偏好",
+     "object": "QGIS",
+     "aspect": "preference"
+    },
+    "70": {
+     "topic": "专业课偏好",
+     "object": "882地理",
+     "aspect": "preference"
+    },
+    "34": {
+     "topic": "学科方向偏好",
+     "object": "数据结构",
+     "aspect": "preference"
+    },
+    "213": {
+     "topic": "Python环境管理",
+     "object": "Anaconda",
+     "aspect": "struggle"
+    },
+    "100": {
+     "topic": "驾考科目偏好",
+     "object": "科目二",
+     "aspect": "preference"
+    },
+    "33": {
+     "topic": "数据结构学习",
+     "object": "Dijkstra堆优化",
+     "aspect": "struggle"
+    },
+    "17": {
+     "topic": "阅读习惯",
+     "object": "人文地理文章",
+     "aspect": "habit"
+    },
+    "149": {
+     "topic": "咖啡口味变化",
+     "object": "热美式",
+     "aspect": "change"
+    },
+    "101": {
+     "topic": "驾考科目态度",
+     "object": "科目二",
+     "aspect": "change"
+    },
+    "121": {
+     "topic": "零食食用方式",
+     "object": "合川桃片",
+     "aspect": "change"
+    },
+    "119": {
+     "topic": "套磁策略",
+     "object": "导师联系",
+     "aspect": "change"
+    },
+    "37": {
+     "topic": "课程喜好",
+     "object": "摄影测量",
+     "aspect": "preference"
+    },
+    "50": {
+     "topic": "课程学习习惯",
+     "object": "空间数据库",
+     "aspect": "habit"
+    },
+    "15": {
+     "topic": "地理学科偏好",
+     "object": "人文地理",
+     "aspect": "preference"
+    },
+    "22": {
+     "topic": "课程学习进度",
+     "object": "线性代数",
+     "aspect": "episode"
+    },
+    "62": {
+     "topic": "复习策略",
+     "object": "",
+     "aspect": "change"
+    },
+    "2": {
+     "topic": "学习习惯",
+     "object": "遥感原理笔记",
+     "aspect": "habit"
+    },
+    "116": {
+     "topic": "择校想法",
+     "object": "",
+     "aspect": "change"
+    },
+    "78": {
+     "topic": "复习困难",
+     "object": "遥感期末复习",
+     "aspect": "struggle"
+    },
+    "0": {
+     "topic": "课程喜好",
+     "object": "遥感原理",
+     "aspect": "preference"
+    },
+    "21": {
+     "topic": "学科喜好",
+     "object": "线性代数",
+     "aspect": "preference"
+    },
+    "172": {
+     "topic": "饮食讲究",
+     "object": "鱼香肉丝",
+     "aspect": "preference"
+    },
+    "11": {
+     "topic": "学习习惯",
+     "object": "地图学笔记",
+     "aspect": "habit"
+    },
+    "196": {
+     "topic": "睡前习惯",
+     "object": "刷手机",
+     "aspect": "preference"
+    },
+    "4": {
+     "topic": "课程项目态度",
+     "object": "课程项目",
+     "aspect": "change"
+    },
+    "148": {
+     "topic": "饮品讲究",
+     "object": "热美式",
+     "aspect": "preference"
+    },
+    "71": {
+     "topic": "复习策略",
+     "object": "882地理",
+     "aspect": "change"
+    },
+    "59": {
+     "topic": "GIS二次开发",
+     "object": "GIS二次开发",
+     "aspect": "change"
+    },
+    "110": {
+     "topic": "研究方向选择",
+     "object": "人工智能方向",
+     "aspect": "preference"
+    },
+    "92": {
+     "topic": "普通话测试目标",
+     "object": "普通话测试",
+     "aspect": "change"
+    },
+    "40": {
+     "topic": "课程喜好",
+     "object": "大地测量",
+     "aspect": "preference"
+    },
+    "147": {
+     "topic": "咖啡口味偏好",
+     "object": "热美式",
+     "aspect": "preference"
+    },
+    "162": {
+     "topic": "饮食偏好",
+     "object": "番茄炒蛋",
+     "aspect": "preference"
+    },
+    "69": {
+     "topic": "考研专业课",
+     "object": "882地理",
+     "aspect": "advice"
+    },
+    "84": {
+     "topic": "期末复习安排",
+     "object": "地信",
+     "aspect": "episode"
+    },
+    "38": {
+     "topic": "摄影测量态度",
+     "object": "摄影测量",
+     "aspect": "change"
+    },
+    "30": {
+     "topic": "C语言课程学习",
+     "object": "C语言",
+     "aspect": "episode"
+    },
+    "83": {
+     "topic": "期末GIS目标",
+     "object": "GIS",
+     "aspect": "change"
+    },
+    "153": {
+     "topic": "饮品偏好",
+     "object": "奶茶",
+     "aspect": "preference"
+    },
+    "77": {
+     "topic": "六级备考",
+     "object": "六级",
+     "aspect": "change"
+    },
+    "183": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "76": {
+     "topic": "六级备考",
+     "object": "六级阅读",
+     "aspect": "preference"
+    },
+    "25": {
+     "topic": "高数学习",
+     "object": "高数",
+     "aspect": "preference"
+    },
+    "93": {
+     "topic": "教资报考",
+     "object": "初中语文教资",
+     "aspect": "episode"
+    },
+    "52": {
+     "topic": "编程学习",
+     "object": "Python",
+     "aspect": "habit"
+    },
+    "225": {
+     "topic": "开发环境配置",
+     "object": "Docker",
+     "aspect": "episode"
+    },
+    "182": {
+     "topic": "编辑器配置",
+     "object": "VS Code profile",
+     "aspect": "episode"
+    },
+    "64": {
+     "topic": "考研英语",
+     "object": "英语一",
+     "aspect": "preference"
+    },
+    "24": {
+     "topic": "高数学习",
+     "object": "多元函数微分",
+     "aspect": "episode"
+    },
+    "190": {
+     "topic": "IDE配置",
+     "object": "PyCharm",
+     "aspect": "habit"
+    },
+    "31": {
+     "topic": "编程语言偏好",
+     "object": "C语言",
+     "aspect": "preference"
+    },
+    "23": {
+     "topic": "课程作业",
+     "object": "分块矩阵求逆",
+     "aspect": "struggle"
+    },
+    "170": {
+     "topic": "饮食口味",
+     "object": "麻婆豆腐",
+     "aspect": "change"
+    },
+    "233": {
+     "topic": "饮品健康",
+     "object": "冰美式",
+     "aspect": "advice"
+    },
+    "201": {
+     "topic": "作息习惯",
+     "object": "熬夜刷视频",
+     "aspect": "habit"
+    },
+    "156": {
+     "topic": "饮品偏好",
+     "object": "柠檬茶",
+     "aspect": "preference"
+    },
+    "145": {
+     "topic": "饮品习惯",
+     "object": "冰美式",
+     "aspect": "habit"
+    },
+    "57": {
+     "topic": "GIS二次开发",
+     "object": "图层加载",
+     "aspect": "struggle"
+    },
+    "212": {
+     "topic": "开发环境选择",
+     "object": "Anaconda",
+     "aspect": "struggle"
+    },
+    "206": {
+     "topic": "作息调整",
+     "object": "早睡计划",
+     "aspect": "episode"
+    },
+    "105": {
+     "topic": "保研面试",
+     "object": "保研面试",
+     "aspect": "episode"
+    },
+    "159": {
+     "topic": "食品偏好",
+     "object": "原味无糖酸奶",
+     "aspect": "preference"
+    },
+    "230": {
+     "topic": "Docker使用策略",
+     "object": "Docker",
+     "aspect": "change"
+    },
+    "20": {
+     "topic": "学习习惯",
+     "object": "概率题",
+     "aspect": "habit"
+    },
+    "42": {
+     "topic": "课程作业",
+     "object": "误差理论",
+     "aspect": "episode"
+    },
+    "16": {
+     "topic": "学习规划",
+     "object": "人文地理",
+     "aspect": "change"
+    },
+    "95": {
+     "topic": "教资备考",
+     "object": "教资笔试",
+     "aspect": "preference"
+    },
+    "66": {
+     "topic": "考研备考",
+     "object": "政治1000题",
+     "aspect": "episode"
+    },
+    "224": {
+     "topic": "软件使用习惯",
+     "object": "QGIS",
+     "aspect": "habit"
+    },
+    "137": {
+     "topic": "饮食偏好",
+     "object": "辣度",
+     "aspect": "change"
+    },
+    "35": {
+     "topic": "学习方式",
+     "object": "",
+     "aspect": "change"
+    },
+    "218": {
+     "topic": "软件使用习惯",
+     "object": "WPS",
+     "aspect": "advice"
+    },
+    "87": {
+     "topic": "考试备考",
+     "object": "计算机二级",
+     "aspect": "episode"
+    },
+    "27": {
+     "topic": "课程学习",
+     "object": "大学物理",
+     "aspect": "episode"
+    },
+    "129": {
+     "topic": "饮食偏好",
+     "object": "火锅",
+     "aspect": "preference"
+    },
+    "26": {
+     "topic": "学科态度变化",
+     "object": "高数",
+     "aspect": "change"
+    },
+    "10": {
+     "topic": "学科态度变化",
+     "object": "地图学",
+     "aspect": "change"
+    },
+    "169": {
+     "topic": "做菜习惯",
+     "object": "麻婆豆腐",
+     "aspect": "change"
+    },
+    "79": {
+     "topic": "考试内容",
+     "object": "遥感期末考",
+     "aspect": "episode"
+    },
+    "141": {
+     "topic": "饮食偏好",
+     "object": "老麻抄手",
+     "aspect": "preference"
+    },
+    "181": {
+     "topic": "编辑器设置",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "178": {
+     "topic": "饮食偏好",
+     "object": "甜豆花",
+     "aspect": "preference"
+    },
+    "215": {
+     "topic": "软件偏好",
+     "object": "WPS",
+     "aspect": "preference"
+    },
+    "192": {
+     "topic": "编辑器讨论",
+     "object": "VS Code",
+     "aspect": "advice"
+    },
+    "198": {
+     "topic": "作息态度变化",
+     "object": "晚睡",
+     "aspect": "change"
+    },
+    "133": {
+     "topic": "饮食偏好",
+     "object": "串串店",
+     "aspect": "habit"
+    },
+    "63": {
+     "topic": "考试内容",
+     "object": "考研英语一",
+     "aspect": "episode"
+    },
+    "49": {
+     "topic": "空间数据库学习",
+     "object": "空间数据库",
+     "aspect": "change"
+    },
+    "111": {
+     "topic": "每日学习安排",
+     "object": "",
+     "aspect": "habit"
+    },
+    "97": {
+     "topic": "驾考科目一",
+     "object": "科目一",
+     "aspect": "preference"
+    },
+    "202": {
+     "topic": "作息习惯",
+     "object": "",
+     "aspect": "habit"
+    },
+    "89": {
+     "topic": "计算机二级备考",
+     "object": "计算机二级",
+     "aspect": "struggle"
+    },
+    "130": {
+     "topic": "火锅点餐搭配",
+     "object": "火锅",
+     "aspect": "preference"
+    },
+    "3": {
+     "topic": "课程偏好",
+     "object": "数字图像处理",
+     "aspect": "preference"
+    },
+    "132": {
+     "topic": "饮食偏好",
+     "object": "串串",
+     "aspect": "preference"
+    },
+    "191": {
+     "topic": "编辑器选择",
+     "object": "IDE",
+     "aspect": "change"
+    },
+    "187": {
+     "topic": "编辑器选择",
+     "object": "VS Code",
+     "aspect": "change"
+    },
+    "234": {
+     "topic": "咖啡饮用习惯",
+     "object": "冰美式",
+     "aspect": "change"
+    },
+    "9": {
+     "topic": "课程偏好",
+     "object": "地图学",
+     "aspect": "preference"
+    },
+    "173": {
+     "topic": "饮食习惯",
+     "object": "鱼香肉丝",
+     "aspect": "habit"
+    },
+    "56": {
+     "topic": "遥感练习",
+     "object": "遥感图像解译",
+     "aspect": "habit"
+    },
+    "154": {
+     "topic": "饮食习惯",
+     "object": "奶茶",
+     "aspect": "habit"
+    },
+    "39": {
+     "topic": "课程学习",
+     "object": "大地测量课",
+     "aspect": "struggle"
+    },
+    "200": {
+     "topic": "作息调整",
+     "object": "手机放客厅",
+     "aspect": "advice"
+    },
+    "106": {
+     "topic": "面试态度",
+     "object": "保研面试",
+     "aspect": "preference"
+    },
+    "46": {
+     "topic": "课程作业",
+     "object": "DEM坡度与河网",
+     "aspect": "struggle"
+    },
+    "80": {
+     "topic": "课程偏好",
+     "object": "遥感课",
+     "aspect": "preference"
+    },
+    "115": {
+     "topic": "信息偏好",
+     "object": "学校汇总",
+     "aspect": "preference"
+    },
+    "136": {
+     "topic": "饮食习惯",
+     "object": "毛血旺",
+     "aspect": "preference"
+    },
+    "98": {
+     "topic": "考试态度",
+     "object": "科目一",
+     "aspect": "change"
+    },
+    "126": {
+     "topic": "饮食习惯",
+     "object": "酸辣粉",
+     "aspect": "preference"
+    },
+    "134": {
+     "topic": "饮食习惯",
+     "object": "串串",
+     "aspect": "habit"
+    },
+    "229": {
+     "topic": "工具使用习惯",
+     "object": "Docker",
+     "aspect": "habit"
+    },
+    "128": {
+     "topic": "饮食习惯",
+     "object": "酸辣粉",
+     "aspect": "habit"
+    },
+    "209": {
+     "topic": "工具熟练度",
+     "object": "Anaconda",
+     "aspect": "preference"
+    },
+    "81": {
+     "topic": "课程考核",
+     "object": "ArcGIS制图报告",
+     "aspect": "episode"
+    },
+    "211": {
+     "topic": "工具使用经验",
+     "object": "mamba",
+     "aspect": "advice"
+    },
+    "197": {
+     "topic": "作息习惯",
+     "object": "晚睡",
+     "aspect": "habit"
+    },
+    "28": {
+     "topic": "学科喜好",
+     "object": "大学物理",
+     "aspect": "change"
+    },
+    "54": {
+     "topic": "学科喜好",
+     "object": "遥感图像解译",
+     "aspect": "preference"
+    },
+    "74": {
+     "topic": "考试备考",
+     "object": "四级",
+     "aspect": "preference"
+    },
+    "176": {
+     "topic": "饮食习惯",
+     "object": "咸豆花",
+     "aspect": "habit"
+    },
+    "73": {
+     "topic": "考试备考",
+     "object": "四级听力",
+     "aspect": "habit"
+    },
+    "199": {
+     "topic": "睡眠困扰",
+     "object": "",
+     "aspect": "episode"
+    },
+    "29": {
+     "topic": "学习习惯",
+     "object": "大学物理题",
+     "aspect": "habit"
+    },
+    "61": {
+     "topic": "考研科目选择",
+     "object": "数学二",
+     "aspect": "preference"
+    },
+    "180": {
+     "topic": "编辑器偏好",
+     "object": "VS Code",
+     "aspect": "preference"
+    },
+    "120": {
+     "topic": "饮食偏好",
+     "object": "合川桃片",
+     "aspect": "preference"
+    },
+    "140": {
+     "topic": "饮食习惯",
+     "object": "豆花饭",
+     "aspect": "habit"
+    },
+    "41": {
+     "topic": "专业学习想法",
+     "object": "大地测量",
+     "aspect": "change"
+    },
+    "174": {
+     "topic": "饮食偏好",
+     "object": "咸豆花",
+     "aspect": "preference"
+    },
+    "114": {
+     "topic": "考研调剂准备",
+     "object": "调剂信息",
+     "aspect": "episode"
+    },
+    "7": {
+     "topic": "专业学习想法",
+     "object": "GIS空间分析",
+     "aspect": "change"
+    },
+    "96": {
+     "topic": "驾照考试准备",
+     "object": "科目一",
+     "aspect": "episode"
+    },
+    "117": {
+     "topic": "导师套磁准备",
+     "object": "套磁邮件",
+     "aspect": "episode"
+    },
+    "18": {
+     "topic": "学科兴趣",
+     "object": "概率论",
+     "aspect": "preference"
+    },
+    "177": {
+     "topic": "饮食口味",
+     "object": "甜豆花",
+     "aspect": "preference"
+    },
+    "158": {
+     "topic": "饮品习惯",
+     "object": "柠檬茶",
+     "aspect": "habit"
+    },
+    "208": {
+     "topic": "工具偏好",
+     "object": "Anaconda",
+     "aspect": "preference"
+    },
+    "150": {
+     "topic": "饮品习惯",
+     "object": "拿铁",
+     "aspect": "habit"
+    },
+    "138": {
+     "topic": "饮食口味",
+     "object": "豆花饭",
+     "aspect": "preference"
+    },
+    "220": {
+     "topic": "GIS 工作",
+     "object": "QGIS",
+     "aspect": "episode"
+    },
+    "166": {
+     "topic": "烹饪做法",
+     "object": "回锅肉",
+     "aspect": "preference"
+    },
+    "1": {
+     "topic": "学科看法",
+     "object": "遥感原理",
+     "aspect": "change"
+    },
+    "99": {
+     "topic": "驾考练习",
+     "object": "科目二",
+     "aspect": "episode"
+    },
+    "58": {
+     "topic": "学科兴趣",
+     "object": "GIS 二次开发",
+     "aspect": "preference"
+    },
+    "5": {
+     "topic": "学习习惯",
+     "object": "数字图像处理",
+     "aspect": "habit"
+    },
+    "151": {
+     "topic": "咖啡口味",
+     "object": "拿铁",
+     "aspect": "preference"
+    },
+    "127": {
+     "topic": "点餐搭配",
+     "object": "酸辣粉",
+     "aspect": "preference"
+    },
+    "94": {
+     "topic": "备考计划",
+     "object": "综合素质",
+     "aspect": "change"
+    },
+    "82": {
+     "topic": "学习兴趣",
+     "object": "GIS实操",
+     "aspect": "preference"
+    },
+    "53": {
+     "topic": "编程观念",
+     "object": "",
+     "aspect": "change"
+    },
+    "161": {
+     "topic": "饮食习惯",
+     "object": "酸奶",
+     "aspect": "habit"
+    },
+    "189": {
+     "topic": "工具使用习惯",
+     "object": "PyCharm",
+     "aspect": "habit"
+    }
+   },
+   "usage": {
+    "calls": 20,
+    "tok_in": 11173,
+    "tok_out": 6510,
+    "sec": 37.0
+   }
+  }
+ },
+ "generated": "2026-11-04 15:27",
+ "n_facts": 235,
+ "analysis": {
+  "A": {
+   "coverage_pct": 100.0,
+   "aspect_legal_pct": 100.0,
+   "E2_entity_consistency_pct": 91.1,
+   "E3_entity_vs_p3_pct": 34.5,
+   "E4_conflicts": 6,
+   "E5_entity_purity": 0.983,
+   "E5_entity_entity_recall": 0.147,
+   "E5_entity_n_keys": 210,
+   "E5_entity_same_batch_median": 0.33,
+   "usage": {
+    "p1": {
+     "calls": 20,
+     "tok_in": 10034,
+     "tok_out": 5107,
+     "sec": 30.7
+    },
+    "p2": {
+     "calls": 20,
+     "tok_in": 10034,
+     "tok_out": 5121,
+     "sec": 33.1
+    },
+    "p3": {
+     "calls": 20,
+     "tok_in": 10033,
+     "tok_out": 5099,
+     "sec": 31.5
+    }
+   }
+  },
+  "B": {
+   "coverage_pct": 100.0,
+   "aspect_legal_pct": 100.0,
+   "E2_obj_consistency_pct": 96.6,
+   "E2_topic_consistency_pct": 88.1,
+   "E2_object_consistency_pct": 96.7,
+   "E3_obj_vs_p3_pct": 74.5,
+   "E4_conflicts": 0,
+   "E5_obj_purity": 0.991,
+   "E5_obj_entity_recall": 0.868,
+   "E5_obj_n_keys": 111,
+   "E5_obj_same_batch_median": 1.0,
+   "usage": {
+    "p1": {
+     "calls": 20,
+     "tok_in": 11174,
+     "tok_out": 6513,
+     "sec": 35.0
+    },
+    "p2": {
+     "calls": 20,
+     "tok_in": 11174,
+     "tok_out": 6549,
+     "sec": 35.2
+    },
+    "p3": {
+     "calls": 20,
+     "tok_in": 11173,
+     "tok_out": 6510,
+     "sec": 37.0
+    }
+   }
+  },
+  "verdict": [
+   "A 单entity：覆盖率 100.0%，自一致 91.1%，判别冲突 6 组，归并纯度 0.983 / 召回 0.147",
+   "B object主键：覆盖率 100.0%，自一致 96.6%，判别冲突 0 组，归并纯度 0.991 / 召回 0.868",
+   "B 的 object 字段单独看：自一致 96.7%（比 topic 的 88.1% 高 8.6 点）",
+   "⇒ 按「判别冲突更少 且 归并纯度不降」判定，B 更好"
+  ]
+ },
+ "E7b_incremental": {
+  "shuffled": true,
+  "cross_batches": 50,
+  "topic_vocab": 78,
+  "object_vocab": 73,
+  "topic_reuse_pct": 100.0,
+  "new_topics": 0,
+  "object_reuse_pct": 100.0,
+  "cross_aligned_pct": 92.0,
+  "conflicts": 5
+ }
+}

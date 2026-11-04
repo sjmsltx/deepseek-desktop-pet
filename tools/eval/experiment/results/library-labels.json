@@ -1,0 +1,7152 @@
+{
+ "real": {
+  "f1785689490646": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "preference"
+  },
+  "f1785689490675": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "episode"
+  },
+  "f1785689595993": {
+   "topic": "桌宠身份",
+   "object": "小蓝",
+   "aspect": "episode"
+  },
+  "f1785689596033": {
+   "topic": "桌宠身份",
+   "object": "大蓝",
+   "aspect": "episode"
+  },
+  "f1785732107832": {
+   "topic": "AI工具使用",
+   "object": "AutoClaw",
+   "aspect": "habit"
+  },
+  "f1786722588650": {
+   "topic": "AI Agent治理",
+   "object": "agent-governance-template",
+   "aspect": "preference"
+  },
+  "f1787068645500": {
+   "topic": "游戏偏好",
+   "object": "Galgame",
+   "aspect": "preference"
+  },
+  "f1788143335570": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "f1789640343829": {
+   "topic": "游戏偏好",
+   "object": "战争雷霆",
+   "aspect": "habit"
+  },
+  "f1789824394827": {
+   "topic": "桌宠使用习惯",
+   "object": "视觉识别",
+   "aspect": "habit"
+  },
+  "f1789917675229": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "preference"
+  },
+  "f1791697950926": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "f1792549566216": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "f1792904556928": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "habit"
+  },
+  "f1792919892498": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "habit"
+  },
+  "f1793010722059": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "f1793377316145": {
+   "topic": "AI模型",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "f1793453924641": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "preference"
+  }
+ },
+ "synth": {
+  "syn-0000": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0001": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0002": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0003": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0004": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0005": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0006": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0007": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0008": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0009": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0010": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0011": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0012": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0013": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0014": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0015": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0016": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0017": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0018": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0019": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0020": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0021": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0022": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0023": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0024": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0025": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0026": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0027": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0028": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0029": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0030": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0031": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0032": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0033": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0034": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0035": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0036": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0037": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0038": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0039": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0040": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0041": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0042": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0043": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0044": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0045": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0046": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0047": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0048": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0049": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0050": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0051": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0052": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0053": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0054": {
+   "topic": "高数学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0055": {
+   "topic": "大学物理学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0056": {
+   "topic": "大学物理学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0057": {
+   "topic": "大学物理学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0058": {
+   "topic": "大学物理学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0059": {
+   "topic": "大学物理学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0060": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0061": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0062": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0063": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0064": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0065": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0066": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0067": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0068": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0069": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0070": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0071": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0072": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0073": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0074": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0075": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0076": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0077": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0078": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0079": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0080": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0081": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0082": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0083": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0084": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0085": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0086": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0087": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0088": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0089": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "struggle"
+  },
+  "syn-0090": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0091": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0092": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0093": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0094": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0095": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0096": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0097": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0098": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0099": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0100": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0101": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0102": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0103": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0104": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0105": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0106": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0107": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0108": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0109": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0110": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0111": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0112": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0113": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0114": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0115": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0116": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0117": {
+   "topic": "考研数学复习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0118": {
+   "topic": "考研数学复习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0119": {
+   "topic": "考研数学复习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0120": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0121": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0122": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0123": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0124": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0125": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0126": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0127": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0128": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0129": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0130": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0131": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0132": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0133": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0134": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0135": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0136": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0137": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0138": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0139": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0140": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0141": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0142": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0143": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0144": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0145": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0146": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0147": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0148": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0149": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0150": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0151": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0152": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0153": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0154": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0155": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0156": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0157": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0158": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0159": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0160": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0161": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0162": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0163": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0164": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0165": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0166": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0167": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0168": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0169": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0170": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0171": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0172": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0173": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0174": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0175": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0176": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0177": {
+   "topic": "计算机二级备考",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0178": {
+   "topic": "计算机二级备考",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0179": {
+   "topic": "计算机二级备考",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0180": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0181": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0182": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0183": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0184": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0185": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0186": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0187": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0188": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0189": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0190": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0191": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0192": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0193": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0194": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0195": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0196": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0197": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0198": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0199": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0200": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0201": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0202": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0203": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0204": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0205": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0206": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0207": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0208": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0209": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0210": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0211": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0212": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0213": {
+   "topic": "驾照考试",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0214": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0215": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0216": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0217": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0218": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0219": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0220": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0221": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0222": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0223": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0224": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0225": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0226": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0227": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0228": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0229": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0230": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0231": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0232": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0233": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0234": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0235": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0236": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0237": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0238": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0239": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0240": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0241": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0242": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0243": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0244": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0245": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0246": {
+   "topic": "考研调剂",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0247": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0248": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0249": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0250": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0251": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0252": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0253": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "preference"
+  },
+  "syn-0254": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "change"
+  },
+  "syn-0255": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "advice"
+  },
+  "syn-0256": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0257": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0258": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0259": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0260": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0261": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0262": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0263": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0264": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0265": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0266": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0267": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0268": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0269": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0270": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0271": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0272": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0273": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0274": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0275": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0276": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0277": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0278": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0279": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0280": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0281": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0282": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0283": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0284": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0285": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0286": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0287": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0288": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0289": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0290": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0291": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0292": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0293": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0294": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0295": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0296": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0297": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0298": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0299": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0300": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0301": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0302": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0303": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0304": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0305": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0306": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0307": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0308": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0309": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0310": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0311": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0312": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0313": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0314": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0315": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0316": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0317": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0318": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0319": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0320": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0321": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0322": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0323": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0324": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0325": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0326": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0327": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0328": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0329": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0330": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0331": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0332": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0333": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0334": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0335": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0336": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0337": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0338": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0339": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0340": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0341": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0342": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0343": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0344": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0345": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0346": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0347": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0348": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0349": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0350": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0351": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0352": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0353": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0354": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0355": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0356": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0357": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0358": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0359": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0360": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0361": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0362": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0363": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0364": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0365": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0366": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0367": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0368": {
+   "topic": "作息习惯",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0369": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0370": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0371": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0372": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0373": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0374": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0375": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0376": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0377": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0378": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0379": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0380": {
+   "topic": "久坐习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0381": {
+   "topic": "久坐习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0382": {
+   "topic": "久坐习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0383": {
+   "topic": "久坐习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0384": {
+   "topic": "久坐习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0385": {
+   "topic": "久坐习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0386": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0387": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0388": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0389": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0390": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0391": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0392": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0393": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0394": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0395": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0396": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0397": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0398": {
+   "topic": "颈椎健康",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0399": {
+   "topic": "颈椎健康",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0400": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0401": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0402": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0403": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0404": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0405": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0406": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0407": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0408": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0409": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0410": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0411": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0412": {
+   "topic": "健身训练",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0413": {
+   "topic": "健身训练",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0414": {
+   "topic": "健身训练",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0415": {
+   "topic": "健身训练",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0416": {
+   "topic": "健身训练",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0417": {
+   "topic": "篮球运动",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0418": {
+   "topic": "篮球运动",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0419": {
+   "topic": "篮球运动",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0420": {
+   "topic": "篮球运动",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0421": {
+   "topic": "篮球运动",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0422": {
+   "topic": "篮球运动",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0423": {
+   "topic": "游泳运动",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0424": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0425": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0426": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0427": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0428": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0429": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0430": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0431": {
+   "topic": "游泳习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0432": {
+   "topic": "拉伸习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0433": {
+   "topic": "拉伸习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0434": {
+   "topic": "拉伸习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0435": {
+   "topic": "拉伸习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0436": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0437": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0438": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0439": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0440": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0441": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0442": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0443": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0444": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0445": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0446": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0447": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0448": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0449": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0450": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0451": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0452": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0453": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0454": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0455": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0456": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0457": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0458": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0459": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0460": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0461": {
+   "topic": "偏头痛",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0462": {
+   "topic": "偏头痛",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0463": {
+   "topic": "偏头痛",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0464": {
+   "topic": "偏头痛",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0465": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0466": {
+   "topic": "肩周不适",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0467": {
+   "topic": "肩周不适",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0468": {
+   "topic": "肩周不适",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0469": {
+   "topic": "肩周不适",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0470": {
+   "topic": "肩周不适",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0471": {
+   "topic": "肩周不适",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0472": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0473": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0474": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0475": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0476": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0477": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0478": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0479": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0480": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0481": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0482": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0483": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0484": {
+   "topic": "桌宠使用习惯",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0485": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0486": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0487": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0488": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0489": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0490": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0491": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0492": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0493": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0494": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0495": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0496": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0497": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0498": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0499": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0500": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0501": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0502": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0503": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0504": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0505": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0506": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0507": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0508": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0509": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0510": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0511": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0512": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0513": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0514": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0515": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0516": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0517": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0518": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0519": {
+   "topic": "Python学习",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0520": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0521": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0522": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0523": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0524": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0525": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0526": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0527": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0528": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0529": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0530": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0531": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0532": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0533": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0534": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0535": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0536": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0537": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0538": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0539": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0540": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0541": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0542": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0543": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0544": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0545": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0546": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0547": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0548": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0549": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0550": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0551": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0552": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0553": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0554": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0555": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0556": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0557": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0558": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0559": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0560": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0561": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0562": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0563": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0564": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0565": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0566": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0567": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0568": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0569": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0570": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0571": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0572": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0573": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0574": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0575": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0576": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0577": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0578": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0579": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0580": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0581": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0582": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0583": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0584": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0585": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0586": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0587": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0588": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0589": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0590": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0591": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0592": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0593": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0594": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0595": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0596": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0597": {
+   "topic": "SSH使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0598": {
+   "topic": "SSH使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0599": {
+   "topic": "SSH使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0600": {
+   "topic": "SSH使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0601": {
+   "topic": "SSH使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0602": {
+   "topic": "SSH使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0603": {
+   "topic": "SSH使用",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0604": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0605": {
+   "topic": "桌宠使用习惯",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "syn-0606": {
+   "topic": "桌宠使用习惯",
+   "object": "桌宠",
+   "aspect": "change"
+  },
+  "syn-0607": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "advice"
+  },
+  "syn-0608": {
+   "topic": "桌宠使用习惯",
+   "object": "桌宠",
+   "aspect": "habit"
+  },
+  "syn-0609": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "struggle"
+  },
+  "syn-0610": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0611": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "episode"
+  },
+  "syn-0612": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0613": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0614": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0615": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0616": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0617": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0618": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0619": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0620": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0621": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0622": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0623": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0624": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0625": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0626": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0627": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0628": {
+   "topic": "地理数据分析",
+   "object": "视觉识别",
+   "aspect": "episode"
+  },
+  "syn-0629": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0630": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0631": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0632": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0633": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0634": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0635": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0636": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0637": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0638": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0639": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0640": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0641": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0642": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0643": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0644": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0645": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0646": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0647": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "episode"
+  },
+  "syn-0648": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "preference"
+  },
+  "syn-0649": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "habit"
+  },
+  "syn-0650": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "change"
+  },
+  "syn-0651": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "advice"
+  },
+  "syn-0652": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0653": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0654": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0655": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0656": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0657": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0658": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0659": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0660": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0661": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0662": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0663": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0664": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "advice"
+  },
+  "syn-0665": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "habit"
+  },
+  "syn-0666": {
+   "topic": "地理数据分析",
+   "object": "重庆区县地理数据",
+   "aspect": "preference"
+  },
+  "syn-0667": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0668": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0669": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0670": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0671": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0672": {
+   "topic": "地理数据分析",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0673": {
+   "topic": "地理数据分析",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "syn-0674": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "syn-0675": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0676": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "change"
+  },
+  "syn-0677": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "advice"
+  },
+  "syn-0678": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "habit"
+  },
+  "syn-0679": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "struggle"
+  },
+  "syn-0680": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0681": {
+   "topic": "桌宠使用习惯",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "syn-0682": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "change"
+  },
+  "syn-0683": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "advice"
+  },
+  "syn-0684": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "habit"
+  },
+  "syn-0685": {
+   "topic": "桌宠技术",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "syn-0686": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0687": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0688": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0689": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0690": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0691": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0692": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0693": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0694": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0695": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0696": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0697": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0698": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0699": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0700": {
+   "topic": "AI Agent治理",
+   "object": "agent-governance-template",
+   "aspect": "habit"
+  },
+  "syn-0701": {
+   "topic": "AI Agent治理",
+   "object": "agent-governance-template",
+   "aspect": "episode"
+  },
+  "syn-0702": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0703": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0704": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0705": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0706": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0707": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0708": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0709": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0710": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0711": {
+   "topic": "AI模型",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0712": {
+   "topic": "AI模型",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0713": {
+   "topic": "AI模型",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0714": {
+   "topic": "AI模型",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0715": {
+   "topic": "AI模型",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0716": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0717": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0718": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0719": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0720": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0721": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0722": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0723": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0724": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0725": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0726": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0727": {
+   "topic": "AI Agent治理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0728": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0729": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0730": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0731": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0732": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0733": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0734": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0735": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0736": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0737": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0738": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0739": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0740": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0741": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0742": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0743": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0744": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0745": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0746": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0747": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0748": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0749": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0750": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0751": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0752": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0753": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0754": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0755": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0756": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0757": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0758": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0759": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0760": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0761": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0762": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0763": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0764": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0765": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0766": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0767": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0768": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0769": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0770": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0771": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0772": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0773": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0774": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0775": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0776": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0777": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0778": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0779": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0780": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0781": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0782": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0783": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0784": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0785": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0786": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0787": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0788": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0789": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0790": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0791": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0792": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0793": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0794": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0795": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0796": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0797": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0798": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0799": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0800": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0801": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0802": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0803": {
+   "topic": "宿舍关系",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0804": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0805": {
+   "topic": "社团活动",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0806": {
+   "topic": "社团活动",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0807": {
+   "topic": "社团活动",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0808": {
+   "topic": "社团活动",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0809": {
+   "topic": "群消息管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0810": {
+   "topic": "群消息管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0811": {
+   "topic": "群消息管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0812": {
+   "topic": "班级群消息",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0813": {
+   "topic": "班级群消息",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0814": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0815": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0816": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0817": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0818": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0819": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0820": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0821": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0822": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0823": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0824": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0825": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0826": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0827": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0828": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0829": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0830": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0831": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0832": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0833": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0834": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0835": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0836": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0837": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0838": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0839": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0840": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "preference"
+  },
+  "syn-0841": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "change"
+  },
+  "syn-0842": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "episode"
+  },
+  "syn-0843": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "advice"
+  },
+  "syn-0844": {
+   "topic": "饮食偏好",
+   "object": "重庆合川桃片",
+   "aspect": "struggle"
+  },
+  "syn-0845": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0846": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0847": {
+   "topic": "导师套磁",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0848": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0849": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0850": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0851": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0852": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0853": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0854": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0855": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0856": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0857": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0858": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0859": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0860": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0861": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0862": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0863": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0864": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0865": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0866": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0867": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0868": {
+   "topic": "宿舍环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0869": {
+   "topic": "宿舍环境",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0870": {
+   "topic": "宿舍环境",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0871": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0872": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0873": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0874": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0875": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0876": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0877": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0878": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0879": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0880": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0881": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0882": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0883": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0884": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0885": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0886": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0887": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0888": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0889": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0890": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0891": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0892": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0893": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0894": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0895": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0896": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0897": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0898": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0899": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0900": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0901": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0902": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0903": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0904": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0905": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0906": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0907": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0908": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0909": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0910": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0911": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0912": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0913": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0914": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0915": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0916": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0917": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0918": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0919": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0920": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0921": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0922": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0923": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0924": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0925": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0926": {
+   "topic": "买菜习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0927": {
+   "topic": "买菜偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0928": {
+   "topic": "买菜偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0929": {
+   "topic": "买菜偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0930": {
+   "topic": "买菜习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0931": {
+   "topic": "买菜习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0932": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0933": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0934": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0935": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0936": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0937": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-0938": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0939": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0940": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0941": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0942": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0943": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-0944": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0945": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0946": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0947": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0948": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0949": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0950": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0951": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0952": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0953": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0954": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0955": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0956": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0957": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0958": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0959": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0960": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0961": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0962": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0963": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0964": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0965": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0966": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-0967": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0968": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0969": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0970": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0971": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0972": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0973": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0974": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0975": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0976": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0977": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0978": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0979": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0980": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0981": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0982": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0983": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0984": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0985": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0986": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0987": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0988": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0989": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0990": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0991": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0992": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0993": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0994": {
+   "topic": "古典文学",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0995": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-0996": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-0997": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-0998": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-0999": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1000": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1001": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1002": {
+   "topic": "古典诗词兴趣",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1003": {
+   "topic": "桌宠互动",
+   "object": "桌宠",
+   "aspect": "preference"
+  },
+  "syn-1004": {
+   "topic": "游戏偏好",
+   "object": "战争雷霆",
+   "aspect": "preference"
+  },
+  "syn-1005": {
+   "topic": "游戏偏好",
+   "object": "战争雷霆",
+   "aspect": "preference"
+  },
+  "syn-1006": {
+   "topic": "游戏偏好",
+   "object": "战争雷霆",
+   "aspect": "change"
+  },
+  "syn-1007": {
+   "topic": "游戏偏好",
+   "object": "战争雷霆",
+   "aspect": "habit"
+  },
+  "syn-1008": {
+   "topic": "游戏偏好",
+   "object": "战争雷霆",
+   "aspect": "episode"
+  },
+  "syn-1009": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1010": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1011": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1012": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1013": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1014": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1015": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1016": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1017": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1018": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1019": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1020": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1021": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1022": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1023": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1024": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1025": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1026": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1027": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1028": {
+   "topic": "数独",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1029": {
+   "topic": "数独",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1030": {
+   "topic": "数独",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1031": {
+   "topic": "象棋",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1032": {
+   "topic": "象棋",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1033": {
+   "topic": "象棋",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1034": {
+   "topic": "象棋",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1035": {
+   "topic": "象棋",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1036": {
+   "topic": "围棋",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1037": {
+   "topic": "围棋",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1038": {
+   "topic": "围棋",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1039": {
+   "topic": "围棋",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1040": {
+   "topic": "游戏偏好",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1041": {
+   "topic": "纪录片偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1042": {
+   "topic": "纪录片偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1043": {
+   "topic": "纪录片偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1044": {
+   "topic": "纪录片偏好",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1045": {
+   "topic": "纪录片偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1046": {
+   "topic": "B站使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1047": {
+   "topic": "B站使用习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1048": {
+   "topic": "B站使用习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1049": {
+   "topic": "B站使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1050": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1051": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1052": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1053": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1054": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1055": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1056": {
+   "topic": "播客收听",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-1057": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1058": {
+   "topic": "阅读习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1059": {
+   "topic": "阅读习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1060": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1061": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1062": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1063": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1064": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1065": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1066": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1067": {
+   "topic": "阅读习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1068": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1069": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1070": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1071": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1072": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1073": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1074": {
+   "topic": "阅读偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1075": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1076": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1077": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1078": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1079": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1080": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1081": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1082": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1083": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1084": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1085": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1086": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1087": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1088": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1089": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1090": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1091": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1092": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1093": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1094": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1095": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1096": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1097": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1098": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1099": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1100": {
+   "topic": "实验室环境",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1101": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1102": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1103": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1104": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1105": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1106": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1107": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1108": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1109": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1110": {
+   "topic": "宿舍关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1111": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1112": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1113": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1114": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1115": {
+   "topic": "个人身份",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1116": {
+   "topic": "师生关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1117": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1118": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1119": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1120": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1121": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1122": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1123": {
+   "topic": "宿舍关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1124": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1125": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1126": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1127": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1128": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1129": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1130": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1131": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1132": {
+   "topic": "家庭生日",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1133": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1134": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1135": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1136": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1137": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1138": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1139": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1140": {
+   "topic": "手机使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1141": {
+   "topic": "手机使用习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1142": {
+   "topic": "手机使用习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1143": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1144": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1145": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1146": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1147": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1148": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1149": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1150": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1151": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1152": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1153": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1154": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1155": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1156": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1157": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1158": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1159": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1160": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1161": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1162": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1163": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1164": {
+   "topic": "出行游玩",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1165": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1166": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1167": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1168": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1169": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1170": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1171": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1172": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1173": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1174": {
+   "topic": "个人边界",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1175": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1176": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1177": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1178": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1179": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1180": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1181": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1182": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1183": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1184": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1185": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1186": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1187": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1188": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1189": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1190": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1191": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1192": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1193": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1194": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1195": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1196": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1197": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1198": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1199": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1200": {
+   "topic": "话费充值",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1201": {
+   "topic": "话费充值",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1202": {
+   "topic": "咖啡消费",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1203": {
+   "topic": "咖啡消费",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1204": {
+   "topic": "咖啡消费",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1205": {
+   "topic": "咖啡消费",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1206": {
+   "topic": "咖啡消费",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1207": {
+   "topic": "咖啡消费",
+   "object": "桌宠",
+   "aspect": "episode"
+  },
+  "syn-1208": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1209": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1210": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1211": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1212": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1213": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1214": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1215": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1216": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1217": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1218": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1219": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1220": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1221": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1222": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1223": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1224": {
+   "topic": "记账习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1225": {
+   "topic": "兼职工作",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1226": {
+   "topic": "兼职工作",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1227": {
+   "topic": "兼职工作",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1228": {
+   "topic": "消费规划",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1229": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1230": {
+   "topic": "消费规划",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1231": {
+   "topic": "奖学金",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1232": {
+   "topic": "奖学金",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1233": {
+   "topic": "奖学金",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1234": {
+   "topic": "奖学金",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1235": {
+   "topic": "奖学金",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1236": {
+   "topic": "竞赛选拔",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1237": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1238": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1239": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1240": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1241": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1242": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1243": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1244": {
+   "topic": "宿舍关系",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1245": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1246": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1247": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1248": {
+   "topic": "手机使用",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1249": {
+   "topic": "手机使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1250": {
+   "topic": "键盘爱好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1251": {
+   "topic": "键盘偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1252": {
+   "topic": "键盘偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1253": {
+   "topic": "键盘偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1254": {
+   "topic": "键盘偏好",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1255": {
+   "topic": "键盘偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1256": {
+   "topic": "订阅管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1257": {
+   "topic": "订阅管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1258": {
+   "topic": "订阅管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1259": {
+   "topic": "订阅管理",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1260": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1261": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1262": {
+   "topic": "出行计划",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1263": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1264": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1265": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1266": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1267": {
+   "topic": "出行偏好",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1268": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1269": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1270": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1271": {
+   "topic": "健康用眼",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1272": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1273": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1274": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1275": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1276": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1277": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1278": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1279": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1280": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1281": {
+   "topic": "饮食偏好",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1282": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1283": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1284": {
+   "topic": "电脑维修",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1285": {
+   "topic": "电脑维修",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1286": {
+   "topic": "电脑维修",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1287": {
+   "topic": "电脑维修",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1288": {
+   "topic": "取快递习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1289": {
+   "topic": "取快递习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1290": {
+   "topic": "取快递习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1291": {
+   "topic": "取快递习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1292": {
+   "topic": "取快递习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1293": {
+   "topic": "取快递习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1294": {
+   "topic": "水电费管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1295": {
+   "topic": "水电费管理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1296": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1297": {
+   "topic": "家庭通话",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1298": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1299": {
+   "topic": "健康管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1300": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1301": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1302": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1303": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1304": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1305": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1306": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "struggle"
+  },
+  "syn-1307": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1308": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1309": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1310": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1311": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1312": {
+   "topic": "出行习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1313": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1314": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1315": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1316": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1317": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1318": {
+   "topic": "睡眠作息",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1319": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1320": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1321": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1322": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1323": {
+   "topic": "睡眠管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1324": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1325": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1326": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1327": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1328": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1329": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1330": {
+   "topic": "饮水习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1331": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1332": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1333": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1334": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1335": {
+   "topic": "运动健身",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1336": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1337": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1338": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1339": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1340": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1341": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1342": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1343": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1344": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1345": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1346": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1347": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1348": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1349": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1350": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1351": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1352": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1353": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1354": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1355": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1356": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1357": {
+   "topic": "健康习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1358": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1359": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1360": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1361": {
+   "topic": "人际沟通",
+   "object": "",
+   "aspect": "episode"
+  },
+  "syn-1362": {
+   "topic": "终端使用习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1363": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1364": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1365": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1366": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1367": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1368": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1369": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1370": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1371": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1372": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1373": {
+   "topic": "英语考试",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1374": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1375": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1376": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1377": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1378": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1379": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1380": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1381": {
+   "topic": "打字练习",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1382": {
+   "topic": "咖啡习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1383": {
+   "topic": "咖啡习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1384": {
+   "topic": "咖啡习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1385": {
+   "topic": "咖啡习惯",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1386": {
+   "topic": "咖啡习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1387": {
+   "topic": "咖啡习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1388": {
+   "topic": "午休习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1389": {
+   "topic": "午休习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1390": {
+   "topic": "午休习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1391": {
+   "topic": "午休习惯",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1392": {
+   "topic": "播客收听",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1393": {
+   "topic": "写日记",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1394": {
+   "topic": "写日记",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1395": {
+   "topic": "写日记",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1396": {
+   "topic": "写日记",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1397": {
+   "topic": "写日记",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1398": {
+   "topic": "写日记",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1399": {
+   "topic": "邮箱清理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1400": {
+   "topic": "邮箱清理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1401": {
+   "topic": "邮箱清理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1402": {
+   "topic": "邮箱清理",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1403": {
+   "topic": "邮箱清理",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1404": {
+   "topic": "AI工具使用",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1405": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1406": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "habit"
+  },
+  "syn-1407": {
+   "topic": "作息习惯",
+   "object": "",
+   "aspect": "preference"
+  },
+  "syn-1408": {
+   "topic": "时间管理",
+   "object": "",
+   "aspect": "change"
+  },
+  "syn-1409": {
+   "topic": "时间管理",
+   "object": "",
+   "aspect": "advice"
+  },
+  "syn-1410": {
+   "topic": "时间管理",
+   "object": "",
+   "aspect": "episode"
+  }
+ },
+ "generated": "2026-11-04 17:52"
+}

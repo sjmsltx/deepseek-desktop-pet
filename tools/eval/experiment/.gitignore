@@ -3,3 +3,6 @@
 .viewer-*.json
 # run_experiment.py 的断点续传状态
 .progress.json
+
+# 本地向量评测的模型缓存（23MB，可重新下载）
+_embed_probe/
