@@ -39,7 +39,7 @@ import memory_embed as mem              # noqa: E402
 V3 = os.path.join(EXP, 'results', 'library-labels-v3.json')
 OUT = os.path.join(EXP, 'results', 'entity-merged.json')
 
-d = json.loads(io.open(V3, encoding='utf-8').read())
+d = _rjson(V3)
 lab = d['synth']
 syn = json.loads(io.open(os.path.join(EXP, 'data', 'memories-1411.json'),
                         encoding='utf-8').read())['facts']

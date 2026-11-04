@@ -36,7 +36,7 @@ import memory_embed as mem              # noqa: E402
 DATA = os.path.join(REPO, 'tools', 'eval', 'experiment', 'data', 'memories-1411.json')
 RESULTS = os.path.join(REPO, 'tools', 'eval', 'experiment', 'results')
 
-d = json.loads(io.open(DATA, encoding='utf-8').read())
+d = _rjson(DATA)
 FACTS = d['facts']
 TEXTS = [(f.get('content') or '').strip() for f in FACTS]
 BATCH = np.array([int(f.get('batch', -1)) for f in FACTS])

@@ -69,7 +69,7 @@ def _read_key():
         if not os.path.exists(q):
             continue
         try:
-            cfg = json.loads(io.open(q, encoding='utf-8').read())
+            cfg = _rjson(q)
         except (OSError, ValueError):
             continue
         k = (cfg.get('deepseek_api_key') or '').strip()
@@ -148,7 +148,7 @@ ASPECTS = {'preference', 'habit', 'change', 'struggle', 'advice', 'episode'}
 
 def load_sample():
     """取 60 个 batch × 3 条 + 全部硬样例 batch，构成评测集"""
-    d = json.loads(io.open(DATA, encoding='utf-8').read())
+    d = _rjson(DATA)
     fs = d['facts']
     for i, f in enumerate(fs):
         f['_i'] = i
@@ -220,7 +220,7 @@ def main():
     prev = {}
     if os.path.exists(OUT):
         try:
-            prev = json.loads(io.open(OUT, encoding='utf-8').read())
+            prev = _rjson(OUT)
             print('已有结果：%s' % ', '.join(sorted(prev.get('passes', {}))))
         except ValueError:
             prev = {}
@@ -399,7 +399,7 @@ def analyse(facts, passes):
     if bad:
         print('  ⚠ 越界取值：%r' % bad)
 
-    prev = json.loads(io.open(OUT, encoding='utf-8').read()) if os.path.exists(OUT) else {}
+    prev = _rjson(OUT) if os.path.exists(OUT) else {}
     prev['analysis'] = {
         'E1_coverage': {t: round(100.0 * sum(1 for v in rec(t).values() if v['entity']) / n, 1)
                         for t in ('p1', 'p2', 'p3')},

@@ -173,7 +173,7 @@ def main():
           % (align_pct, '库增长后同类记忆能对齐' if align_pct >= 80
              else '库增长后会对不上，必须靠 object 对齐'))
 
-    prev = json.loads(io.open(OUT, encoding='utf-8').read())
+    prev = _rjson(OUT)
     prev['E7b_incremental'] = {
         'shuffled': True, 'cross_batches': len(cross),
         'topic_vocab': len(vocab_t), 'object_vocab': len(vocab_o),

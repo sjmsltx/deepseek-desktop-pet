@@ -88,7 +88,7 @@ def _read_key():
         if not os.path.exists(q):
             continue
         try:
-            cfg = json.loads(io.open(q, encoding='utf-8').read())
+            cfg = _rjson(q)
         except (OSError, ValueError):
             continue
         k = (cfg.get('deepseek_api_key') or '').strip()
@@ -161,7 +161,7 @@ def norm(s):
 
 
 def load_sample():
-    d = json.loads(io.open(DATA, encoding='utf-8').read())
+    d = _rjson(DATA)
     fs = d['facts']
     by_b = collections.defaultdict(list)
     for i, f in enumerate(fs):
@@ -342,7 +342,7 @@ def main():
     prev = {}
     if os.path.exists(OUT):
         try:
-            prev = json.loads(io.open(OUT, encoding='utf-8').read())
+            prev = _rjson(OUT)
         except ValueError:
             prev = {}
     passes = prev.get('passes', {})

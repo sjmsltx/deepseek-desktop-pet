@@ -115,7 +115,7 @@ def main():
         print('    %6d 条 → %.2f s' % (n, n * dt / 1000))
 
     # ---------- 读评测数据 ----------
-    d = json.loads(io.open(EVAL_JSON, encoding='utf-8').read())
+    d = _rjson(EVAL_JSON)
     para = d['paraphrase']
     edges = d['edge_precision']
 
@@ -180,7 +180,7 @@ def main():
     print('=' * 74)
     print('③ 组合口径（词面 OR 向量 / 词面 AND 向量）')
     print('=' * 74)
-    d2 = json.loads(io.open(EVAL_JSON, encoding='utf-8').read())
+    d2 = _rjson(EVAL_JSON)
     rows_a = d2['paraphrase'].get('A_允许保留专名', {}).get('rows', [])
     rows_b = d2['paraphrase'].get('B_连专名也换成描述', {}).get('rows', [])
     for tag, rr in (('A', rows_a), ('B', rows_b)):

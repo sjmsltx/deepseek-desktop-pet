@@ -84,14 +84,14 @@ def main():
     prev = {}
     if os.path.exists(OUT):
         try:
-            prev = json.loads(io.open(OUT, encoding='utf-8').read())
+            prev = _rjson(OUT)
         except ValueError:
             prev = {}
     real_lab = prev.get('real', {})
     synth_lab = prev.get('synth', {})
 
     # ---------- 真实库 ----------
-    real = [f for f in json.loads(io.open(REAL, encoding='utf-8').read())['facts']
+    real = [f for f in _rjson(REAL)['facts']
             if f.get('status', 'active') == 'active']
     todo = [(f['id'], (f.get('content') or '').strip()) for f in real
             if f['id'] not in real_lab]
@@ -103,7 +103,7 @@ def main():
         _save(prev, real_lab, synth_lab)
 
     # ---------- 合成库 ----------
-    syn = json.loads(io.open(SYNTH, encoding='utf-8').read())['facts']
+    syn = _rjson(SYNTH)['facts']
     for i, f in enumerate(syn):
         f['_id'] = 'syn-%04d' % i
     todo2 = [(f['_id'], (f.get('content') or '').strip()) for f in syn

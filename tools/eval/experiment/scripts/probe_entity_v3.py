@@ -161,7 +161,7 @@ def main():
              if cross and same == len(cross) else
              '⇒ 有对齐失败，需在抽取时把 object 也纳入候选表'))
 
-    prev = json.loads(io.open(OUT, encoding='utf-8').read())
+    prev = _rjson(OUT)
     prev['E7_incremental'] = {
         'n_first': half, 'n_second': n - half,
         'vocab_size': len(vocab),

@@ -107,7 +107,7 @@ def main():
     prev = {}
     if os.path.exists(OUT):
         try:
-            prev = json.loads(io.open(OUT, encoding='utf-8').read())
+            prev = _rjson(OUT)
         except ValueError:
             prev = {}
     real_lab = prev.get('real', {})
