@@ -521,3 +521,41 @@ def test_quit_app_flushes_forced():
     seg = src[i:i + 400]
     assert "_maybe_flush_bumps(force=True)" in seg, \
         "退出时没强制落盘：%r" % seg[:200]
+
+# ═══ 台账不许进仓库（隐私，2026-11-04）═══
+# 背景：淘汰台账含**用户真实记忆标题**，一旦被 git 跟踪就是隐私泄露。
+# memory_evicted.jsonl（events 层）从 2026-11-02 就漏了，
+# 只因 events 从未触发淘汰（6 条 / 上限 200）才没暴露。
+
+
+def test_ledger_paths_are_gitignored():
+    """两种淘汰台账都必须被 .gitignore 覆盖"""
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    with io.open(_os.path.join(root, ".gitignore"), encoding="utf-8") as fh:
+        gi = fh.read()
+    for name in (mfe.LEDGER_NAME, "memory_evicted.jsonl"):
+        assert name in gi, (
+            "台账 %s 未被 .gitignore 覆盖 —— 会被误提交，含用户真实记忆标题"
+            % name)
+    # 轮转后的 .1 也要挡
+    assert "memory_evicted_facts.jsonl.*" in gi
+    assert "memory_evicted.jsonl.*" in gi
+
+
+def test_git_check_ignore_confirms(tmp_path):
+    """不止看文本，实际问一次 git（防规则写对了但位置在别的 pattern 之后被覆盖）"""
+    import subprocess as _sp
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    git = r"D:\Git\cmd\git.exe"
+    if not _os.path.exists(git):
+        import pytest as _pytest
+        _pytest.skip("本机无 git")
+    for name in (mfe.LEDGER_NAME, "memory_evicted.jsonl"):
+        r = _sp.run([git, "-c", "safe.directory=D:/ai工作站/desktop-pet",
+                    "-C", root, "check-ignore", name],
+                   capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0, (
+            "git 认为 %s 未被忽略（check-ignore rc=%d）：%s"
+            % (name, r.returncode, (r.stdout + r.stderr)[:120]))
