@@ -56,6 +56,7 @@ from recycle_box import (human_size as _human_size,
 
 from memory_engine import build_l0_block
 from memory_events import is_recomputable_notice
+import memory_fact_evict as _mfe      # 事实层权重/淘汰（2026-11-04）
 from code_checker import check_python_blocks
 import pet_bubble as pb  # 气泡/Markdown 渲染装配层（批 3）
 import pet_anim as anim  # 状态机与动画（低耦合段，批 4）
@@ -2884,8 +2885,50 @@ class PetWidget(QWidget):
         """加载 memory.json（事实 + 摘要；数据层拆至 memory_store）"""
         self.memory_facts, self.memory_summaries = load_memory(MEMORY_PATH)
 
+    def _enforce_memory_cap(self):
+        """facts 超上限时按「有效权重」淘汰（2026-11-04）
+
+        为什么挂在保存路径而不是写入点：写入有多个入口（memorize 工具 / 自动抽取 /
+        导入备份），逐处加必漏。`_save_memory` 是唯一收口。
+
+        淘汰只把 status 改成 'evicted'，**不物理删除**（原件保留，可恢复）；
+        台账写 memory_evicted_facts.jsonl，让「哪条何时为何没的」可追溯。
+        """
+        if not self.memory_facts:
+            return 0
+        n, kept = _mfe.evict_facts(
+            self.memory_facts,
+            cap=_mfe.FACTS_MAX,
+            ledger_path=os.path.join(BASE_DIR, _mfe.LEDGER_NAME))
+        if n:
+            _silent_log('_enforce_memory_cap',
+                        '淘汰 %d 条，active 剩 %d（上限 %d）' % (n, kept, _mfe.FACTS_MAX))
+        return n
+
+    def _bump_fact_hits(self, hits):
+        """对**真正注入**的记忆累加权重（weight / access_count / last_access）
+
+        这是「权重参与淘汰」的输入端：不累加的话，淘汰时所有人权重相同，
+        就退化成「按时间淘汰」—— 那样「经常被提起的事该留下来」根本不成立。
+        """
+        by_id = {}
+        for f in self.memory_facts:
+            fid = f.get('id')
+            if fid is not None:
+                by_id[fid] = f
+        n = 0
+        for h in hits or []:
+            f = by_id.get(h.get('id'))
+            if f is not None and _mfe.bump_fact(f):
+                n += 1
+        return n
+
     def _save_memory(self):
         """保存 memory.json（数据层拆至 memory_store）"""
+        try:
+            self._enforce_memory_cap()
+        except Exception as _exc:
+            _silent_log('_save_memory.enforce_cap', _exc)   # 淘汰失败不许影响保存
         save_memory(MEMORY_PATH, self.memory_facts, self.memory_summaries)
 
     # ---------- v6.41 记忆引擎：检索重排 + 自动抽取（memory_engine） ----------
@@ -4577,6 +4620,9 @@ class PetWidget(QWidget):
                 if rel:
                     rel_block = '\n'.join(f'★{c.get("importance", 3)} {c["text"]}' for c in rel)
                     mem = (rel_block + '\n\n' + mem) if mem else rel_block
+                    # 2026-11-04：命中即加权（权重参与淘汰；只算真正注入的这几条）
+                    if self._bump_fact_hits(rel):
+                        self._save_memory()
             except Exception as _exc:
                 _silent_log('_post_stream:2091', _exc)   # v6.54
             # v6.53：记忆只作背景、不做话题（治“问什么都往已记住的事上靠”的过拟合）
