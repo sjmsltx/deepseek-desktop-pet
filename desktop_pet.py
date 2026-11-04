@@ -2908,8 +2908,15 @@ class PetWidget(QWidget):
             cap=_mfe.FACTS_MAX,
             ledger_path=os.path.join(BASE_DIR, _mfe.LEDGER_NAME))
         if n:
-            _silent_log('_enforce_memory_cap',
-                        '淘汰 %d 条，active 剩 %d（上限 %d）' % (n, kept, _mfe.FACTS_MAX))
+            # ⚠ 2026-11-04 修：这里原先用 `_silent_log('_enforce_memory_cap', '...')`。
+            #   但 `_silent_log(where, exc)` 的第二个参数是**异常对象**，它内部取
+            #   `type(exc).__name__` ⇒ 日志写成 `.. | str: 淘汰 200 条..`，类型列成了 str。
+            #   而且「淘汰了几条」是**正常操作信息**，不是静默异常，不该走异常出口。
+            #   这是看真实 pet.log 时发现的（日志里明晃晃一个 `str:`）。
+            # 不需要额外 try：`_save_memory` 外层已 `except ... _silent_log(...)`，
+            # 这里抛出去会被接住并落痕 —— 内层再包一层只是多一个 except-pass。
+            get_logger('memory').info(
+                '淘汰 %d 条，active 剩 %d（上限 %d）', n, kept, _mfe.FACTS_MAX)
         return n
 
     def _bump_fact_hits(self, hits):
