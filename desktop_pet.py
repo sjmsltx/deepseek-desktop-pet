@@ -806,6 +806,13 @@ class PetWidget(QWidget):
         self.personality = '温柔'
         self.memory_facts = []      # 长期事实记忆
         self.memory_summaries = []  # 会话摘要
+        # 加权写盘节流（2026-11-04）：命中即加权会让「记忆变化才写盘」变成「每轮都写盘」。
+        # 攒够 _BUMP_FLUSH_N 次或过 _BUMP_FLUSH_SEC 秒才落，退出时强制 flush。
+        self._bump_pending = 0
+        # 初始化为**启动时刻**，不是 0.0：
+        # 0.0 会让「距上次已过 300 秒」恒真 ⇒ 第一次 bump 立刻落盘，节流形同虚设。
+        # （这个错误是测试 test_flush_is_throttled_by_count 抓出来的）
+        self._bump_last_save = time.time()
         self._load_memory()
         self.todos = []             # 待办清单
         self._load_todos()
@@ -2923,6 +2930,36 @@ class PetWidget(QWidget):
                 n += 1
         return n
 
+    #: 加权写盘节流：攒够几次注入命中就落一次盘
+    _BUMP_FLUSH_N = 5
+    #: 或距上次落盘超过多少秒（两者先到先触发）
+    _BUMP_FLUSH_SEC = 300.0
+
+    def _maybe_flush_bumps(self, force=False):
+        """把内存里的加权落盘（节流）。
+
+        为什么需要节流：`_bump_fact_hits` 在**每轮注入命中**时都改内存，
+        若紧跟一次 `_save_memory()`，就把「记忆真变化才写盘」变成「每轮都写盘」。
+        实测写盘 0.86ms（44 条）/ 2.90ms（400 条）——单次不贵，但长驻进程里是持续 I/O，
+        且权重晚几分钟落盘不影响任何功能。
+
+        崩溃时丢的是「最近几次加权」，不是记忆内容；weight 只是淘汰排序的参考量，
+        少加几次不影响正确性。比每轮写盘的风险小。
+
+        返回是否真的落了盘。
+        """
+        if not self._bump_pending:
+            return False
+        now = time.time()
+        if not force:
+            if self._bump_pending < self._BUMP_FLUSH_N:
+                if (now - self._bump_last_save) < self._BUMP_FLUSH_SEC:
+                    return False
+        self._save_memory()
+        self._bump_pending = 0
+        self._bump_last_save = now
+        return True
+
     def _save_memory(self):
         """保存 memory.json（数据层拆至 memory_store）"""
         try:
@@ -4621,8 +4658,10 @@ class PetWidget(QWidget):
                     rel_block = '\n'.join(f'★{c.get("importance", 3)} {c["text"]}' for c in rel)
                     mem = (rel_block + '\n\n' + mem) if mem else rel_block
                     # 2026-11-04：命中即加权（权重参与淘汰；只算真正注入的这几条）
+                    # 写盘走节流，不每轮落盘（见 _maybe_flush_bumps）
                     if self._bump_fact_hits(rel):
-                        self._save_memory()
+                        self._bump_pending += 1
+                        self._maybe_flush_bumps()
             except Exception as _exc:
                 _silent_log('_post_stream:2091', _exc)   # v6.54
             # v6.53：记忆只作背景、不做话题（治“问什么都往已记住的事上靠”的过拟合）
@@ -10807,6 +10846,11 @@ class PetWidget(QWidget):
 
     def quit_app(self):
         self._save_position()
+        # 2026-11-04：退出前把节流中的加权强制落盘（否则最近几次 bump 丢失）
+        try:
+            self._maybe_flush_bumps(force=True)
+        except Exception as _exc:
+            _silent_log('quit_app:flush_bumps', _exc)
         # 2026-11-01：退出前把热键 1/2/3 全部注销，避免残留占用
         for _hid in (1, 2, 3):
             try:

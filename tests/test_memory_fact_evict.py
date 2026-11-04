@@ -434,3 +434,90 @@ def test_bump_accumulates_beyond_first_time():
         ws.append(f["weight"])
     assert ws == sorted(ws), ws
     assert ws[-1] > ws[0] + 0.1, ws
+
+# ═══ 加权写盘节流（2026-11-04）═══
+# 背景：命中即加权让「记忆真变化才写盘」变成「每轮都写盘」
+# （实测 44 条 0.86ms / 400 条 2.90ms）。节流：攒够 5 次或过 300 秒才落，退出时强制 flush。
+
+
+class _ThrottleFake(object):
+    """最小可测夹具：只提供 _maybe_flush_bumps 依赖的三个属性"""
+    from desktop_pet import PetWidget as _PW
+    _BUMP_FLUSH_N = _PW._BUMP_FLUSH_N
+    _BUMP_FLUSH_SEC = _PW._BUMP_FLUSH_SEC
+    _maybe_flush_bumps = _PW._maybe_flush_bumps
+    _enforce_memory_cap = lambda self: 0
+
+    def __init__(self, pending=0):
+        import time as _t
+        self._bump_pending = pending
+        # 与产品一致：初始化为「现在」，否则距上次恒 >300 秒 ⇒ 首次立刻落盘
+        self._bump_last_save = _t.time()
+        self.saves = 0
+
+    def _save_memory(self):
+        self.saves += 1
+
+
+def test_throttle_constants_present():
+    """节流参数必须存在且合理（防被悄悄删掉退回每轮写盘）"""
+    from desktop_pet import PetWidget as PW
+    assert PW._BUMP_FLUSH_N >= 2, PW._BUMP_FLUSH_N
+    assert PW._BUMP_FLUSH_SEC >= 60, PW._BUMP_FLUSH_SEC
+
+
+def test_flush_is_throttled_by_count():
+    """只 bump 1~4 次不该写盘；第 5 次才写"""
+    f = _ThrottleFake()
+    n = f._BUMP_FLUSH_N
+    for i in range(1, n):
+        f._bump_pending = i
+        assert f._maybe_flush_bumps() is False, "第 %d 次就写盘了" % i
+    assert f.saves == 0, f.saves
+    f._bump_pending = n
+    assert f._maybe_flush_bumps() is True
+    assert f.saves == 1
+    assert f._bump_pending == 0, "落盘后计数没清零"
+
+
+def test_flush_force_ignores_threshold():
+    """退出时 force=True：哪怕只攒了 1 次也要落盘（否则丢加权）"""
+    f = _ThrottleFake(pending=1)
+    assert f._maybe_flush_bumps(force=True) is True
+    assert f.saves == 1
+
+
+def test_flush_is_noop_when_nothing_pending():
+    """没有待落盘时不许白写一次盘"""
+    f = _ThrottleFake()
+    assert f._maybe_flush_bumps() is False
+    assert f._maybe_flush_bumps(force=True) is False
+    assert f.saves == 0
+
+
+def test_injection_point_uses_throttle_not_direct_save():
+    """结构钉：注入点不许再直接 _save_memory，必须走节流"""
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    with io.open(_os.path.join(root, "desktop_pet.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    i = src.find("_bump_fact_hits(rel)")
+    assert i > 0, "找不到注入点"
+    seg = src[i:i + 300]
+    assert "_maybe_flush_bumps" in seg, "注入点没走节流"
+    head = [l.strip() for l in seg.splitlines()[:6]]
+    assert "self._save_memory()" not in head, \
+        "注入点仍在直接 _save_memory：%r" % head
+
+
+def test_quit_app_flushes_forced():
+    """退出路径必须强制 flush（否则最近几次加权丢失）"""
+    import os as _os
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    with io.open(_os.path.join(root, "desktop_pet.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    i = src.find("def quit_app(self):")
+    assert i > 0, "找不到 quit_app"
+    seg = src[i:i + 400]
+    assert "_maybe_flush_bumps(force=True)" in seg, \
+        "退出时没强制落盘：%r" % seg[:200]
