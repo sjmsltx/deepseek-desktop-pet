@@ -45,6 +45,34 @@ def save_memory(path, facts, summaries):
         _log.error('memory.json 写入失败，本次记忆修改已丢失：%s', e)
 
 
+def _next_fact_id(facts):
+    """生成不撞号的记忆 id（格式 `f<毫秒>`，撞号则加 `-n` 后缀）。
+
+    原实现是 `f{int(now.timestamp() * 1000)}` —— **纯毫秒时间戳，无任何撞号检查**。
+    自动抽取一次写多条是在同一循环里连写（desktop_pet L3083-3088），同毫秒必然撞号。
+
+    存量已撞 3 组（6 条**内容完全不同**的真实记忆共用 3 个 id，且两份都 active）：
+        f1792549566216 / f1793010722059 / f1793377316145
+    后果（都实测过）：
+      · `_bump_fact_hits` 用 {id: f} 建索引 ⇒ 只加到其中一份，另一份 weight 永远 None
+      · 一次 query 命中同 id 的两条 ⇒ 同一 id 在 prompt 里出现两次、内容还不一样
+      · `remember_fact('delete')` 命中第一份就 return ⇒ 用户说「忘了」，回执「已遗忘」，
+        但另一半仍 active、仍会被检索到
+
+    实测：连续 add 200 次 → 唯一 id **1 个**、撞号 49 组（98%）。
+
+    照 memory_events._next_id 的写法 —— 那边早已修过同一个坑，facts 侧漏了。
+    """
+    used = {f.get('id') for f in facts if isinstance(f, dict)}
+    base = int(datetime.datetime.now().timestamp() * 1000)
+    cand = 'f%d' % base
+    n = 0
+    while cand in used and n < 10000:
+        n += 1
+        cand = 'f%d-%d' % (base, n)
+    return cand
+
+
 def remember_fact(facts, action, content='', importance=3, fid='', role='both'):
     """memorize 工具处理：add/update/delete 长期事实（纯函数，不落盘）。
     role: both=共享 / flash / pro。返回 (new_facts, 提示文本)。"""
@@ -69,13 +97,23 @@ def remember_fact(facts, action, content='', importance=3, fid='', role='both'):
                 f['roles'] = role
                 f['updated_at'] = now
                 return facts, f'已更新已有记忆 #{f["id"]}'
-        fid = f'f{int(datetime.datetime.now().timestamp() * 1000)}'
+        fid = _next_fact_id(facts)
         facts.append({'id': fid, 'content': content, 'importance': importance,
                       'created_at': now, 'updated_at': now, 'status': 'active', 'roles': role})
-        # 遗忘机制：超 50 条按 重要度升序+旧 淘汰
-        if len(facts) > 50:
-            facts.sort(key=lambda x: (x.get('importance', 3), x.get('updated_at', '')))
-            facts = facts[-50:]
+        # ⛔ 2026-11-05 删除：此处原有「超 50 条按 (importance, updated_at) 升序物理截断」。
+        #   它是 v3.0 之前的容量治理，与 2026-11-04 新增的 _enforce_memory_cap **重复，且更早触发**：
+        #     · 判的是**全部** facts（含 superseded），不看 status ⇒ 作废条目占着名额
+        #     · 判据只有 importance + 时间，不认 weight / bump / 衰减 / _CRITICAL_PATTERNS
+        #     · **物理删除**，不写台账、不留痕
+        #   ⇒ 台账、critical 保护、400 条上限（FACTS_MAX），在真实写入路径上**全部形同虚设**。
+        #   实测（verify_wx179.py）：真实库 44 条，**再加 7 条即触发**；
+        #     投入 49 条普通 + 1 条「对花生过敏」→ add 一条后，**过敏被物理删除**；
+        #     台账行数前后都是 0（静默消失）。
+        #   容量治理只留一条路：`_save_memory` → `_enforce_memory_cap`
+        #   （status='evicted'，可恢复，写 memory_evicted_facts.jsonl）。
+        #   顺带修掉一个隐性副作用：`facts.sort()` 会**原地打乱整库顺序**，
+        #   而 `_extract_worker` 用 `self.memory_facts[-10:]` 取「已有记忆」当抽取上下文。
+        #   ⚠ 别再把它加回来：test_remember_fact_never_physically_drops 会红。
         return facts, f'已记住（重要度 {importance}/5）'
 
     if action == 'delete':
