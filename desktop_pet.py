@@ -6523,7 +6523,19 @@ class PetWidget(QWidget):
         if key not in self.scene_imgs:
             pth = asset(self.current, key)
             if os.path.exists(pth):
-                self.scene_imgs[key] = QPixmap(pth)
+                # ⛔ 2026-11-05（WX-180 ⑤ 指出，我实测坐实）：不能直接存 QPixmap(pth)。
+                #   读成 null 时若照样入缓存，`key in self.scene_imgs` 会**恒为 True** ⇒
+                #   文件明明在盘上、下一次就能读成功，代码也不再重试 ⇒
+                #   **一次瞬时加载失败 = 该场景动作在本次会话内永久失效**（要重启桌宠）。
+                #   实测（verify_scene_sticky.py）：
+                #     第 1 次 QPixmap(坏文件).isNull()=True → 已入缓存
+                #     把文件换成合法 PNG → 第 2 次仍返回 isNull=True（没重读）
+                #   ⚠ 这也解释了 test_scene_not_overwritten 偶发红：那条测试红的断言
+                #     （p.state == 'scene'）与用户看到「这个动作还没准备好~」是**同一处产品路径**。
+                #     2400 个测试反复建控件时内存压力下加载失败一次，就会被缓存永久化。
+                pm = QPixmap(pth)
+                if not pm.isNull():
+                    self.scene_imgs[key] = pm
             # v6.79（采纳微信侧 89 号加固建议）：**资源漏配不再静默** ——
             # `asset()` 对任何键都会兜底到 fallback / {role}_idle.png ✗ → “漏配”永远不被发现，
             # 而它正是今天缺陷 75 的共同土壤 ✓ → 无专属素材时记一条审计 warning（每键只一次 ✓）

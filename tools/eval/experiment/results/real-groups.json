@@ -62,8 +62,8 @@
    "aspect": "episode"
   },
   "f1792549566216": {
-   "topic": "Python关卡满分",
-   "object": "Python基础关卡",
+   "topic": "matplotlib绘图练习",
+   "object": "matplotlib",
    "aspect": "episode"
   },
   "f1792904556928": {
@@ -82,17 +82,32 @@
    "aspect": "episode"
   },
   "f1793377316145": {
-   "topic": "比较主流AI模型",
-   "object": "Claude、GPT",
-   "aspect": "episode"
+   "topic": "关心桌宠健康",
+   "object": "",
+   "aspect": "preference"
   },
   "f1793453924641": {
    "topic": "关注记忆机制",
    "object": "记忆机制",
    "aspect": "episode"
+  },
+  "f1792549566216-b": {
+   "topic": "Python关卡满分",
+   "object": "Python基础关卡",
+   "aspect": "episode"
+  },
+  "f1793010722059-b": {
+   "topic": "古典文学兴趣",
+   "object": "秦汉政论文",
+   "aspect": "preference"
+  },
+  "f1793377316145-b": {
+   "topic": "比较主流AI模型",
+   "object": "Claude、GPT",
+   "aspect": "preference"
   }
  },
- "n_groups": 18,
+ "n_groups": 21,
  "usage": {
   "prompt_tokens": 793,
   "completion_tokens": 358,
@@ -102,5 +117,18 @@
   },
   "prompt_cache_hit_tokens": 0,
   "prompt_cache_miss_tokens": 793
+ },
+ "relabeled_20261105": {
+  "when": "2026-11-05 21:42",
+  "why": "id 撞号缺陷（2026-11-05 已修）导致标签按组共用，6 条里 2 条挂错、4 条缺标",
+  "changed_ids": [
+   "f1792549566216",
+   "f1792549566216-b",
+   "f1793010722059-b",
+   "f1793377316145",
+   "f1793377316145-b"
+  ],
+  "by": "桌面侧人工标注（非 LLM 批次），依据每条自身内容",
+  "note": "product 侧 memory_density 与 probe 口径不同，此文件只服务 probe 与实验"
  }
 }

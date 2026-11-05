@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-04 22:59",
+ "generated": "2026-11-05 21:43",
  "result": {
   "syn_batch": {
    "n": 1411,
@@ -24,23 +24,23 @@
   },
   "real_llm": {
    "n": 21,
-   "entities": 18,
-   "avg_size": 1.1666666666666667,
-   "singleton_pct": 83.3,
+   "entities": 21,
+   "avg_size": 1.0,
+   "singleton_pct": 100.0,
    "retention_median": 1.0
   },
   "real_v3topic": {
    "n": 21,
-   "entities": 18,
-   "avg_size": 1.1666666666666667,
-   "singleton_pct": 83.3,
+   "entities": 21,
+   "avg_size": 1.0,
+   "singleton_pct": 100.0,
    "retention_median": 1.0
   },
   "real_object": {
    "n": 21,
-   "entities": 18,
-   "avg_size": 1.1666666666666667,
-   "singleton_pct": 83.3,
+   "entities": 21,
+   "avg_size": 1.0,
+   "singleton_pct": 100.0,
    "retention_median": 1.0
   }
  }

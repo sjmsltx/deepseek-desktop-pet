@@ -180,3 +180,65 @@ def test_get_state_img_scene_is_not_used_as_state_render():
     k_scene = body.find("'scene'")
     k_render = body.find('_render_frame')
     assert k_scene < k_render, 'scene 的判断写在了重绘之后，等于没挡'
+
+
+# ═══ E. 加载失败不许被缓存永久化（2026-11-05，WX-180 ⑤）═══
+# 微信侧指出 + 我实测坐实：`self.scene_imgs[key] = QPixmap(pth)` 没检查 isNull()，
+# 于是一次瞬时加载失败会让 `key in self.scene_imgs` 恒为 True ⇒ 文件修好也不再重读 ⇒
+# **该场景动作在本次会话内永久失效，要重启桌宠**。
+# 实测（改前）：第 1 次 isNull=True 已入缓存 → 换成合法 PNG → 第 2 次仍 isNull=True。
+
+
+def test_null_pixmap_is_not_cached(monkeypatch, tmp_path):
+    """坏文件读成 null 时不许入缓存 —— 否则一次失败永久失效"""
+    bad = tmp_path / 'bad.png'
+    bad.write_bytes(b'not a png at all')
+
+    p = _pet()
+    monkeypatch.setattr(dp, 'asset', lambda role, key, *a, **k: str(bad))
+    got = p._get_scene_img('eating')
+
+    assert 'eating' not in p.scene_imgs, (
+        'null 结果被写进缓存了 —— 文件修好后也不会重读')
+    assert got is None or got.isNull(), '坏文件居然读出了非 null 图'
+
+
+def test_recovers_after_transient_load_failure(monkeypatch, tmp_path):
+    """★ 核心回归：第一次加载失败，文件修好后必须能读到（不许永久失效）"""
+    from PySide6.QtGui import QPixmap
+
+    p = _pet()
+    # 找一张真实存在的图当「修好后的文件」
+    good_src = dp.asset(p.current, 'eating')
+    assert os.path.exists(good_src), '找不到 eating 素材，测试前提不成立：%s' % good_src
+
+    target = tmp_path / 'flaky.png'
+    target.write_bytes(b'broken')                       # 先坏
+    monkeypatch.setattr(dp, 'asset', lambda role, key, *a, **k: str(target))
+
+    first = p._get_scene_img('eating')
+    assert first is None or first.isNull(), '第一次应失败'
+
+    # 修好文件（复制真图过来）
+    with open(good_src, 'rb') as f:
+        data = f.read()
+    target.write_bytes(data)
+    assert not QPixmap(str(target)).isNull(), '夹具没修好'
+
+    second = p._get_scene_img('eating')
+    assert second is not None and not second.isNull(), (
+        '文件已修好但没重读 —— null 被粘在缓存里了（这正是缺陷本身）')
+
+
+def test_all_real_scene_assets_load():
+    """所有登记的场景键都能加载出非 null 图（防止素材漏配 + 防我改坏加载逻辑）"""
+    p = _pet()
+    keys = list(getattr(dp, 'SCENE_ACTIONS', {}) or {})
+    assert keys, 'SCENE_ACTIONS 为空，测试前提不成立'
+    bad = []
+    for k in keys:
+        img = p._get_scene_img(k)
+        if img is None or img.isNull():
+            bad.append(k)
+    assert not bad, '这些场景键加载不出图：%r（共 %d 个键）' % (bad, len(keys))
+

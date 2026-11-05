@@ -53,7 +53,10 @@ def test_no_cap_at_any_size():
     facts = []
     for i in range(500):
         facts, _ = ms.remember_fact(facts, 'add', content='#%d# 唯一标记' % i, importance=3)
-    assert len(facts) >= 400, '这里不该有任何上限，实测只剩 %d 条' % len(facts)
+    # ⚠ 必须是 == 不能是 >= 400（WX-180 ① 指出）：400 上限刚好能通过 >= 400，
+    #   而本测试的名字和 docstring 都说「任何大小都不许有上限」。
+    #   `>= 400` 区分不了「无上限」与「400 上限」⇒ 证明不了自己要证的事。
+    assert len(facts) == 500, '这里不该有任何上限，实测只剩 %d 条' % len(facts)
 
 
 def test_critical_entry_never_dropped_here():
