@@ -25,7 +25,7 @@
 > 是**内部开发迭代号**（`v6.19` 为开发起点）。两套编号用途不同，不是同一串版本。
 
 > [!NOTE]
-> **最新版：3.0.1（2026-10-30）** —— 已作为正式版发布，[Releases 列表](https://github.com/sjmsltx/deepseek-desktop-pet/releases) 里可下载便携包。
+> **最新版：3.0.2（2026-11-02）** —— 已作为正式版发布，[Releases 列表](https://github.com/sjmsltx/deepseek-desktop-pet/releases) 里可下载便携包。
 >
 > - **新增可选的主区**：聊天区底部一个「🗂 主区」按钮，进去可以把**待办**、**便签长文**、
 >   **用量分析**放在一个窗口里长期开着，不用反复开关弹窗。

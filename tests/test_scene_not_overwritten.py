@@ -235,10 +235,20 @@ def test_all_real_scene_assets_load():
     p = _pet()
     keys = list(getattr(dp, 'SCENE_ACTIONS', {}) or {})
     assert keys, 'SCENE_ACTIONS 为空，测试前提不成立'
+    # ⚠ 2026-11-05（WX-181 ②）：只判「能读出非 null」是**假锁** ——
+    #   `asset()` 对未知键会层层兜底到 `{role}_idle.png`，所以**真删掉 flash_eating.png
+    #   这条测试仍会绿**（读出来的是待机图）。这和 `>= 400` 是同一类：
+    #   断言区分不了「素材在」与「兜底成功」。
+    #   ⇒ 先判**专属文件在不在**，再判能不能读。
+    missing = []
     bad = []
     for k in keys:
+        exact = os.path.join(dp.ASSETS, p.current, '%s_%s.png' % (p.current, k))
+        if not os.path.exists(exact):
+            missing.append(k)
         img = p._get_scene_img(k)
         if img is None or img.isNull():
             bad.append(k)
+    assert not missing, '这些场景键没有专属素材（会静默兜底成待机图）：%r' % missing
     assert not bad, '这些场景键加载不出图：%r（共 %d 个键）' % (bad, len(keys))
 
