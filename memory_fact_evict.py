@@ -119,11 +119,47 @@ def fact_effective_weight(f, now=None):
     return _mev.decayed_weight(base, _mev.entry_age_days(f, now))
 
 
+#: 「失效代价高」关键词：这类条目丢了有**实际后果**，与它被用得多不多无关。
+#:
+#: ⛔ 为什么需要这一维（桌宠 2026-11-04 在 chat_memory_flash 里指出，我实测坐实）：
+#:   淘汰按「有效权重」排序，而权重 = importance/5 × 时间衰减 + 命中次数加成。
+#:   「命中次数」与「丢了会怎样」**完全无关** ⇒ 低频关键记忆被优先淘汰。
+#:
+#:   实测（`verify_lowfreq.py`）：
+#:     过敏(imp=3, 0 命中)   有效 0.108  → **被淘汰**
+#:     周杰伦(imp=3, 20 命中) 有效 1.000
+#:     过敏(imp=5, 0 命中)   有效 0.180  → **即使标最高重要度仍被淘汰**
+#:
+#:   桌宠原话：「'低频但关键'和'高频但无害'在同一个池子里打分竞争……
+#:   后者的失效代价是前者的一百倍。」
+#:
+#: ⚠ 词表刻意取窄：只收「丢了有实际后果」的类别。
+#:   「什么记忆永远不能丢」是产品策略，扩词表前须 Owner 确认。
+_CRITICAL_PATTERNS = (
+    '过敏', '忌口', '禁用', '不能吃', '不能碰', '不可吃',
+    '用药', '服药', '病历', '病史', '身份证', '密码', '紧急联系',
+)
+
+
+def is_critical(f):
+    """这条是否「失效代价高」（丢了后果严重，与使用频率无关）。"""
+    text = (f.get('content') or '')
+    if not text:
+        return False
+    return any(p in text for p in _CRITICAL_PATTERNS)
+
+
 def protected(f):
-    """这条是否受保护（不参与淘汰）：pinned 或身份条目。"""
+    """这条是否受保护（不参与淘汰）。
+
+    三种情况：pinned / 身份条目 / 失效代价高。
+    前两者原有；第三者是 2026-11-05 补的（见 _CRITICAL_PATTERNS 注释）。
+    """
     if f.get('pinned'):
         return True
-    return bool(_mev.is_identity_entry(f))
+    if _mev.is_identity_entry(f):
+        return True
+    return is_critical(f)
 
 
 def bump_fact(f, now=None):

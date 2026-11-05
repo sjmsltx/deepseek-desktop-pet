@@ -559,3 +559,71 @@ def test_git_check_ignore_confirms(tmp_path):
         assert r.returncode == 0, (
             "git 认为 %s 未被忽略（check-ignore rc=%d）：%s"
             % (name, r.returncode, (r.stdout + r.stderr)[:120]))
+
+
+# ═══ 失效代价维度（2026-11-05，源自桌宠的观察）═══
+# 桌宠在 chat_memory_flash 里指出：「低频但关键」与「高频但无害」同池竞争，
+# 前者失效代价是后者的一百倍，却因命中次数低而被先淘汰。
+# 实测坐实：过敏(imp=5, 0 命中) 有效 0.180 vs 周杰伦(20 命中) 1.000 ⇒ 淘汰过敏。
+
+
+def test_critical_entries_are_protected():
+    """丢了有实际后果的条目必须受保护，与 importance / 命中次数无关"""
+    cases = [
+        '对花生过敏，吃了会呼吸困难',
+        '对青霉素过敏',
+        '正在服用降压药，不能吃葡萄柚',
+        '身份证号后四位 8823',
+        '银行卡密码是 ****',
+        '紧急联系人是我妈 138xxxxxxxx',
+    ]
+    for text in cases:
+        f = _f('a', text, imp=1)
+        assert mfe.protected(f), '未受保护：%s' % text
+
+
+def test_critical_beats_frequent_competitor():
+    """★ 核心回归：过敏 vs 20 次命中的高频条目，必须淘汰高频那条"""
+    import datetime
+    now = datetime.datetime(2026, 11, 5, 1, 0)
+    allergy = _f('A', '对花生过敏，吃了会呼吸困难', imp=3, days_ago=300)
+    frequent = _f('F', '用户喜欢听周杰伦', imp=3, days_ago=300)
+    for _ in range(20):
+        mfe.bump_fact(frequent, now.strftime('%Y-%m-%dT%H:%M:%S'))
+    assert mfe.fact_effective_weight(allergy, now) < mfe.fact_effective_weight(
+        frequent, now), '前提变了：过敏的有效权重竟高于高频条目'
+    ev, _ = mfe.plan_eviction([allergy, frequent], cap=1, now=now)
+    assert [f['id'] for f in ev] == ['F'], '淘汰了关键条目：%r' % [f['id'] for f in ev]
+
+
+def test_normal_entries_still_evictable():
+    """别把保护做过头 —— 普通条目仍要能被淘汰（否则库无限长）"""
+    for text in ('用户喜欢听周杰伦', '今天想吃火锅', '最近在学 matplotlib'):
+        f = _f('a', text, imp=3)
+        assert not mfe.protected(f), '普通条目被误保护：%s' % text
+
+
+def test_critical_not_affected_by_importance():
+    """保护与 importance 无关（imp=1 的过敏也要保护）"""
+    for imp in (1, 2, 3, 4, 5):
+        f = _f('a', '对花生过敏', imp=imp)
+        assert mfe.protected(f), 'imp=%d 时未保护' % imp
+
+
+def test_critical_wordlist_is_deliberately_narrow():
+    """词表刻意取窄：不含泛泛的「重要」类词，防止保护膨胀"""
+    for word in ('重要', '目标', '喜欢', '习惯'):
+        assert word not in mfe._CRITICAL_PATTERNS, \
+            '词表里混进了泛词 %r，会让保护范围失控' % word
+
+
+def test_critical_known_gap_is_documented():
+    """已知缺口（写明，不装作覆盖全）
+
+    「考研目标是西南大学」这类长期目标，失效代价也高，但词表没覆盖。
+    这是刻意的：词表取窄，宁漏不滥。扩表前要 Owner 确认。
+    """
+    f = _f('a', '考研目标院校是西南大学 070503', imp=5)
+    assert not mfe.protected(f), \
+        '若这条被保护了，说明词表扩过头（需同步更新本测试与注释）'
+
