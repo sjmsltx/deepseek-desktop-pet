@@ -25,22 +25,33 @@
 > 是**内部开发迭代号**（`v6.19` 为开发起点）。两套编号用途不同，不是同一串版本。
 
 > [!NOTE]
-> **最新版：3.0.2（2026-11-02）** —— 已作为正式版发布，[Releases 列表](https://github.com/sjmsltx/deepseek-desktop-pet/releases) 里可下载便携包。
+> **最新版：3.0.2（2026-11-02）** —— [Releases](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)
+> 里下便携包（约 223 MB，解压即用）。下载页如果显示 `v2.9.1` 等旧 tag，那是历史版本，**认准 3.0.2 或更新**（`3.0.0` 是预发布版，别下那个）。
 >
-> - **新增可选的主区**：聊天区底部一个「🗂 主区」按钮，进去可以把**待办**、**便签长文**、
->   **用量分析**放在一个窗口里长期开着，不用反复开关弹窗。
->   **不点它就永远不会出现**，默认用法与旧版完全一致 —— 新版界面万一有毛病也不会影响你现有使用。
->   窗口可以拖拽改大小，尺寸与最大化状态会记住。
-> - **夜间静音可自定义**：默认仍是 23:00–08:00 不出声，现在可以改成任意时段，也能配多段
->   （比如午休 12:00–13:30 也不出声）。
-> - **修了几处使用中暴露的问题**：待办在面板里「加了看不到」、同一天金额提示互相矛盾、
->   余额与后台对不上（原来会跟着当前模型去查，切到中转就查错了账户）、
->   语音输入在某些环境下失灵、语音念长文只念首末几十字、
->   以及聊天面板的排版与滚动问题（用户消息被右对齐、翻看历史时被拉回底部等五处）。
-> - **范围说明（不吹）**：3.0 原计划的大界面全面改造（拆单体、通信层、双形态切换等）
->   推迟到寒假，接口已经留好。当前主区是**骨架 + 三个面板**，不是大界面完成版。
-> - **已知边界**：主区不做停靠拖拽、不做双形态切换。
-> - 2.x 分支继续维护，不会因为 3.x 而停止修 bug。
+> **先修掉一个折磨人的老问题**：拖到屏幕上方之外会**彻底失联** —— 窗口落在屏外、
+> 不在任务栏、也不在 Alt+Tab，右键还点不到，只能去任务管理器结束进程。这个坑存在了几个月。
+> 本版从六个方向堵死：拖拽只钳顶边、松手时可见率 < 35% 自动拉回、常驻托盘
+> 「把桌宠拉回屏幕」、召回热键 `Ctrl+Alt+H`、5 秒周期自检、保存位置前再钳一次。
+>
+> **顺带修掉的**：贴边时冒动作气泡、拖出来却是待机图（判了个从来没被设成 `True` 的死标志）；
+> 场景动作十几毫秒后被 `animate()` 画回待机；钳制与底部吸附差 2px 导致吸附**永远触发不了**；
+> 敏感文件黑名单只装在 `read_own_file` 这一扇门上，`shell` 那条路不知道它存在
+> （实测 `memory.json` 曾可读全文、`.ssh/id_rsa` 免确认）。
+>
+> **新加的（都能关）**：
+> - **运行中插话**：任务跑到一半可以追加消息。`queue` 排队（默认）/ `guide` 立刻并入当前任务，
+>   `Ctrl+Enter` 临时切另一个。注入点是回合边界，**不打断在途请求** ——
+>   已经发出去的请求体事后改不了，改那个是假注入。
+> - **拖文件喂食 / 真送回收站**：拖到立绘区假装吃掉（**只读，不 open 不删不移**，测试对文件取
+>   size+mtime+sha256 三元指纹，前后必须一致）；想真清掉可选送回收站，**默认关**、每次二次确认、
+>   只走 `SHFileOperationW + FOF_ALLOWUNDO`，绝不直接删。
+> - **读屏问模型**：定时或热键（默认 `Ctrl+Alt+D`）截图，结果**只进气泡**、不进聊天上下文；
+>   定时模式只在画面变化时才问（16×16 灰度指纹），省 token。
+> - 另加：6 种食物（各有专属动作图）、随机动作时机三档、主区记忆星图、好感度「阶段 × 性格」矩阵。
+>
+> **范围说明（不吹）**：3.0 原计划的大界面全面改造（拆单体、通信层、双形态切换）推迟到寒假，
+> 接口已留好。当前主区是**骨架 + 三个面板**，不是大界面完成版；主区不做停靠拖拽、不做双形态切换。
+> 完整清单见 [CHANGELOG.md](CHANGELOG.md)。2.x 分支继续维护，不会因为 3.x 停止修 bug。
 
 **[English](README.en.md) | [中文](README.md)**
 
@@ -56,6 +67,12 @@ It lives on your desktop as an animated character that chats, remembers, uses to
 - **Tool calling**: time · weather · reminders · todo · PowerShell automation · web search · MCP servers · installable plugins
 - **Theme system**: 86 design tokens with a single source of truth, plus installable theme plugins
 - **Extensible**: plugin system (tool / menu / rules / theme / skill) and self-editing code tools with backup + syntax gate
+- **Mid-task injection**: add a message while it is working — `queue` (default) or `guide` (merge into the running task);
+  injected at turn boundaries, never faking an edit of an in-flight request
+- **Drag-to-feed & real recycle bin**: dropping a file on the character is read-only (size+mtime+sha256 verified unchanged);
+  the optional recycle-bin path is off by default, confirms every time, and only uses `SHFileOperationW` (never deletes directly)
+- **Screen capture → bubble**: timer or hotkey (`Ctrl+Alt+D`), answer stays in the bubble and out of chat context;
+  timer mode only asks when the screen actually changed (16×16 grayscale fingerprint)
 - **15 mini-games**, an art → Live2D pipeline, and a **bilingual UI (中文 / English)**
 
 **Keywords:** desktop pet · AI companion · LLM desktop assistant · DeepSeek · PySide6 · Qt for Python ·
@@ -79,7 +96,11 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 |---------|---------|---------|
 | ![双角色](screenshots/hero.png) | ![表情](screenshots/emotions.png) | ![运行截图](screenshots/screenshot.png) |
 
-### 界面一览（v2.7 现状）
+### 界面一览
+
+> ℹ️ 下面这批截图摄于 **2.7 / 6.30**，不是当前 3.0.2 的界面 ——
+> 3.0 新增的主区（待办 / 便签 / 用量分析）、引导插入状态栏等**尚未截图**。
+> 主界面骨架与上面「双角色立绘」一致，这里保留旧图是因为它们能说明功能位置。
 
 | 桌宠主界面（聊天 + 任务侧栏） | 统一设置窗口 | 好感度关系面板 | 小游戏大厅 |
 |---------|---------|---------|---------|
@@ -362,7 +383,7 @@ How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md) · Newcomer tasks: [docs/g
 
 ### 方式一：下载便携包（推荐，无需 Python）
 
-到 **[Releases 最新稳定版](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)** 下载 `DeepSeekPet_v*_portable.zip`（约 220 MB），解压后双击启动即可。
+到 **[Releases 最新稳定版](https://github.com/sjmsltx/deepseek-desktop-pet/releases/latest)** 下载 `DeepSeekPet_v*_portable.zip`（约 223 MB），解压后双击启动即可。
 首次运行在 GUI 里配置 API Key：右键桌宠 → ⚙️ 设置 → 🔑 API 设置。
 
 ### 升级到新版本（不会丢数据）
