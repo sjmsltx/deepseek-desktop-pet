@@ -260,7 +260,16 @@ def test_403_is_returned_as_is_without_retry(monkeypatch):
 
     hd, port, th = _start(enable_actions=False, monkeypatch=monkeypatch)
     try:
-        st, body = _post(port, '/api/step')
+        # ⚠ 2026-11-05 修（2688s 超长跑里连续两次误报）：**必须 attempts=1**。
+        #   `_post` 为绕开传输层偶发，默认最多重试 3 次（_TRANSPORT_ERR =
+        #   ConnectionAbortedError / ConnectionResetError / RemoteDisconnected）。
+        #   而 `calls['n']` 数的是「发出去了几次请求」⇒ 一次传输抖动就让计数变 2，
+        #   断言却报「403 被重试了」—— 把脚手架自己的重试算到产品头上，是**归因错误**。
+        #   和 `>= 400` 同一类：区分不了「产品收到 403 后重试」与「脚手架重试传输层」。
+        #   ⇒ 关掉重试：真出传输故障时抛原始异常（如实说是环境），不伪装成「产品重试了 403」。
+        #   实证：2026-11-05 22:38 那轮本用例报「实际发了 2 次请求」，但日志里没有任何
+        #     WinError 字样 —— 异常已被 _post 吞掉并重试成功，现场被抹平了。
+        st, body = _post(port, '/api/step', attempts=1)
         assert st == 403, '动作面关着却没回 403（实际 %s）' % st
         assert calls['n'] == 1, '403 被重试了（实际发了 %d 次请求）' % calls['n']
     finally:
