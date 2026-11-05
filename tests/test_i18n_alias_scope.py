@@ -126,7 +126,7 @@ def test_open_collab_runs_without_name_error(monkeypatch):
     """
     import collab_panel as _cp
     monkeypatch.setattr(_cp, '_probe', lambda *a, **k: False, raising=False)
-    # ⭐ 修正（微信侧 2026-10-04 03:5x，`WX-桌宠-20261004-26`）：⭐ **必须同时打桩 `open_collab`** ✗
+    # ⭐ 修正（外部评审 2026-10-04 03:5x，`评审-26`）：⭐ **必须同时打桩 `open_collab`** ✗
     #    —— `a2caabc` 把 `_collab_worker` 改成「服务没跑就**自动启动**」（⛔ 不再先问 ✗），
     #    故本用例的 `_Stub(confirm=False)` **已拦不住启动** ✗ → ⭐ 实测本用例**真起了服务**
     #    且**不回收**（跑完残留 `relay_server.py` 占住 **8792** ＋ 污染仓库 `collab/relay.log` ✗）。

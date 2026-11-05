@@ -182,7 +182,7 @@ def test_extract_worker_emotion_bad_type_no_crash(monkeypatch):
 
 
 def test_say_care_emotion_hint_fallback():
-    """④ WX-155 真漏洞：所有 say_care 调用方都不带 [emotion:] 标签，
+    """④ 评审-155 真漏洞：所有 say_care 调用方都不带 [emotion:] 标签，
     导致真实库 200 条 event 的 emotion 全为空串。
     """
     p = _pet()

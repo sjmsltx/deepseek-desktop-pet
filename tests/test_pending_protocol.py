@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """条款 IV（写回协议）护栏：待办／结果文件格式 ＋ 运行器行为 ＋ **硬约束** ✓。
 
-口径（`PC-…-105` §一 审定 ✓）：载荷 schema 按微信侧 `-16` §二 ＋ 我方审定：
+口径（`PC-…-105` §一 审定 ✓）：载荷 schema 按外部评审 `-16` §二 ＋ 我方审定：
   · `project_edit`：`{project_id, changes:{name?/root?/outputs?/memory_file?/roles?}}` ✓ 未知字段一律拒 ✗
   · `asset_op`：`{role, state, op, source, source_ref?, run_pipeline?}` ✓ 枚举 ∧ 内置状态不可删 ✓
   · `root` ⭐ 唯一可绝对路径（已存在目录 ✓ 只登记 ✗）；其余路径字段只允许相对 ✓
@@ -105,7 +105,7 @@ def test_asset_op_accepts_valid_and_custom_delete():
 
 
 # ── 6. ⭐ `source_ref`：**两种写法都收** ✓ 越界一律拒 ✗ ─────────────────
-#   （微信侧 `WX-…-20261004-11` §2.1 实测：裸形式 `deepseek/deepseek_idle.png` 被 400 ✗
+#   （外部评审 `评审-11` §2.1 实测：裸形式 `deepseek/deepseek_idle.png` 被 400 ✗
 #     → 但解析器本来就支持裸形式 ✗ → 校验与解析**不一致** ✗ → 本批统一为"都收" ✓）
 @pytest.mark.parametrize('ref', ['C:/x.png', '/etc/passwd', '../assets_3.0/x.png',
                                  'assets_3.0/../x.png'])
@@ -224,7 +224,7 @@ def test_op_id_and_name_shape():
 
 
 # ── ⭐⭐ B2/D3-2（2026-10-05）：claim 前置 ＋ 原子不半条 ＋ 不重复执行（成功项）──
-#    ⭐ 口径（微信侧 `WX-…-49` §1.2 ✓）：⭐ "标记消费"与"追加结果"**要么都成要么都不成** ✗
+#    ⭐ 口径（外部评审 `评审-49` §1.2 ✓）：⭐ "标记消费"与"追加结果"**要么都成要么都不成** ✗
 #    ⚠️ 夹具教训：⭐ 我方首版造的待办**schema 不对** ✗（直接写 `name` ✗ 而真实 schema 是
 #       `{project_id, changes:{...}}` ✓）⇒ ⭐ 它**本来就该失败** ⇒ ⭐ 于是"重跑"被误判成
 #       "重复执行" ✗ ✓ —— ⭐ **造夹具必须先对照真实写入器/真实 schema** ✗（与既有判例同族 ✓）。
@@ -314,7 +314,7 @@ def test_b2_success_is_not_repeated(tmp_path):
 
 
 
-# ── ⭐ B2 race 修复护栏（2026-10-05，⭐ 采纳微信侧 `WX-…-58` §二 报的抖动 ✓）──
+# ── ⭐ B2 race 修复护栏（2026-10-05，⭐ 采纳外部评审 `评审-58` §二 报的抖动 ✓）──
 #   ⭐ 根因：⭐ `claim_op` **创建即拿**✗ ⇒ "创建成功"与"写完内容"之间有窗口 ✗；
 #   ⭐ 窗口里别人读到**空文件** ⇒ `json.load` 抛错 ⇒ 旧 `except: return {}` ⇒ `ts=0`
 #   ⇒ `_claim_reclaimable` 算 `age=1e9` ⇒ ⭐ **判成陈旧 ⇒ 回收 ⇒ 双跑** ✗（实测结果 2 条 ✓）

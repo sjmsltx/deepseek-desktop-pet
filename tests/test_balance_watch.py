@@ -26,7 +26,7 @@ def _pet():
     #
     #   实测：全量跑一次 access 115→117；单跑本文件 +1（见 收件箱/07-污染定位/find_writer.py）。
     #   这是既存问题（不是今天引入），但它让「access_count」这个字段彻底不可信 ——
-    #   而 WX-172 发现 C 正要拿它判断「这条记忆是不是真被想起来过」。
+    #   而 评审-172 发现 C 正要拿它判断「这条记忆是不是真被想起来过」。
     #
     #   ⇒ 建实例**之前**把库路径指到临时目录。用模块属性而不是 monkeypatch：
     #     本函数不是 fixture，拿不到 monkeypatch。
@@ -239,7 +239,7 @@ def test_gap_still_blocks_same_moment_duplicates():
     p = _pet()
     assert p.BALANCE_WATCH_GAP > 0, 'GAP 为 0 会让手动查询与定时器各报一次'
 
-# ---------- WX-107 §2：被挡下的差额必须累计，不能丢 ----------
+# ---------- 评审-107 §2：被挡下的差额必须累计，不能丢 ----------
 
 def _fresh(p):
     """清掉内部基线，模拟「真机刚启动」"""
@@ -249,7 +249,7 @@ def _fresh(p):
 
 
 def test_small_spends_accumulate_instead_of_lost():
-    """实测缺陷（WX-107 §2）：每次别处花 ¥0.004，旧实现永远不报
+    """实测缺陷（评审-107 §2）：每次别处花 ¥0.004，旧实现永远不报
 
     旧逻辑：基线 = 上一次查询 → 被 MIN(0.01) 挡下就丢；下次 prev 已含这笔
     ⇒ 一小时 ¥0.048 一次都不报。
@@ -329,7 +329,7 @@ def test_bubble_carries_balance():
     assert '¥13.48' in bubbles[0][0], '盯梢气泡应带当前余额：%s' % bubbles[0][0]
 
 
-# ---------- WX-107 §3：跨线程转发不得丢 mark_purpose ----------
+# ---------- 评审-107 §3：跨线程转发不得丢 mark_purpose ----------
 
 def test_cross_thread_forwards_mark_purpose():
     """非主线程调 say_care(mark_purpose=False) 时，转发后仍必须是 False"""
@@ -353,12 +353,12 @@ def test_cross_thread_forwards_mark_purpose():
     p.say_care('x', 'care', False)
     assert seen.get('m') is False
 
-# ---------- WX-107 §4.4：真统计路径不得在多处硬编码 ----------
+# ---------- 评审-107 §4.4：真统计路径不得在多处硬编码 ----------
 
 def test_real_stats_path_hardcoded_only_once():
     """`os.path.join(BASE_DIR, 'api_stats.json')` 只允许出现 1 处
 
-    WX-107 §4.4 指出的隐患：conftest 的 `_isolate_api_stats` 会把
+    评审-107 §4.4 指出的隐患：conftest 的 `_isolate_api_stats` 会把
     **任何** path 都换成 tmp ⇒ 若将来又有人在别处硬编码真路径，会被夹具
     **静默吞掉**（缺陷被藏住而不是暴露）。
     这条 ratchet 把「又开一处」变成当场红。
@@ -367,7 +367,7 @@ def test_real_stats_path_hardcoded_only_once():
     n = src.count("os.path.join(BASE_DIR, 'api_stats.json')")
     assert n == 1, ('真统计路径出现了 %d 处（应为 1：PetWidget 初始化）。'
                     '新增处会被测试夹具静默吞掉，请改用统一常量' % n)
-    # WX-108 §2.2：只锁计数有弱点 —— 删一处、另处新写一处，总数仍为 1 抓不到。
+    # 评审-108 §2.2：只锁计数有弱点 —— 删一处、另处新写一处，总数仍为 1 抓不到。
     #   故再锁「它必须落在 _init_services_and_data 里」。
     _i = src.index("os.path.join(BASE_DIR, 'api_stats.json')")
     _func = src.rfind('def ', 0, _i)

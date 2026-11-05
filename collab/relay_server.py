@@ -87,7 +87,7 @@ MAX_PENDING_BYTES = 64 * 1024          # 待办载荷上限 ✓（远超真实�
 _ASSET_ROOTS = ('assets', 'assets_3.0')   # ⭐ assets 生效目录优先 ✓ 素材池次之 ✓
 
 
-# ── ⭐ 条款 E12：只读缩略图端点（微信侧 `WX-…-20` 提请补 `state` ✓ Owner 02:29 批"必须有" ✓）──
+# ── ⭐ 条款 E12：只读缩略图端点（外部评审 `评审-20` 提请补 `state` ✓ Owner 02:29 批"必须有" ✓）──
 MAX_THUMB_W = 512
 MIN_THUMB_W = 64
 _SAFE_SEG = re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
@@ -309,7 +309,7 @@ def assets_payload(base_dir: str = '') -> dict:
             rd = os.path.join(rp, role)
             if not os.path.isdir(rd):
                 continue
-            # ⭐ 微信侧 `WX-…-20261004-02` §三.1 揪出的真 bug：`_` 开头目录（如 `_raw_backup/`）
+            # ⭐ 外部评审 `评审-02` §三.1 揪出的真 bug：`_` 开头目录（如 `_raw_backup/`）
             #    会被当成**伪角色** ✗（空 states 也算一条 ✓）→ 一律跳过 ✓
             if role.startswith('_') or role.startswith('.'):
                 continue
@@ -380,7 +380,7 @@ def _pending_base() -> str:
     return os.path.join(_BASE_DIR, 'collab', 'pending')
 
 
-# ── ⭐ 批 4 前置三端点（Owner 2026-10-03 ｜ WX-桌宠-20261003-06 §五 · 我方选路 A）
+# ── ⭐ 批 4 前置三端点（Owner 2026-10-03 ｜ 评审-06 §五 · 我方选路 A）
 #   全部在契约 ④-1 已预留的白名单内 ✓ **只读** ✓ 不新增写端点 ✗（守 C1 ✓）
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -544,7 +544,7 @@ class Handler(BaseHTTPRequestHandler):
         #    后启动的会把前一个的开关改掉，前一个的 403 闸门就错了
         #    （实测：并发压力下 test 偶发红在 `assert ACTIONS_ALLOWED is False`）。
         #    改为读本服务自己的开关。
-        # 2026-10-25（WX-119 §3.1）：**兜底必须是『关』，不能是全局** ——
+        # 2026-10-25（评审-119 §3.1）：**兜底必须是『关』，不能是全局** ——
         #   原来回落到 ACTIONS_ALLOWED，而它的语义是「本进程最后一次
         #   create_server 的值」＝ **别人留下的状态**；实测裸 Handler 会
         #   直接放行（POST /api/step → 200）。安全闸门的兜底只能是 fail-closed。
@@ -662,7 +662,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.log.snapshot())
 
         if path == '/api/log.jsonl':
-            # ⭐ P0-3 后半（2026-10-05 · 我方认领自微信侧 `-40` §五.D ✓）：
+            # ⭐ P0-3 后半（2026-10-05 · 我方认领自外部评审 `-40` §五.D ✓）：
             #    ⭐ 原实现 **`fh.read()` 无任何限制** ✗ ⇒ ⭐ 日志越大响应越大（可被拿来耗资源 ✗）
             #    ⇒ ⭐ 加 `limit`（默认 200 ✓ 上限 2000 ✓）＋ ⭐ **反向按块读** ✓
             #    ⇒ ⭐ 只读"最后 N 行" ✓（⛔ 不整文件读进内存 ✗）＋ ⭐ 截断时**明说** ✓（`X-Truncated` ✓）

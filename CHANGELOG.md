@@ -572,7 +572,7 @@
 
 #### 修复（语音：让它念长文，只念了首末约 70 字）
 
-- Owner 报（经 `WX-125` 复核）：让它念《过秦论》，它写了 1419 字、最后说
+- Owner 报（经 `评审-125` 复核）：让它念《过秦论》，它写了 1419 字、最后说
   「念下来两千字出头」，而实际出声的只有开头寒暄和结尾问句共约 70 字，正文一个字没念
 - `voice_max_chars` 是**死配置**：截断日志写着「可在 config.json 改 voice_max_chars」，
   但这个属性在 `desktop_pet.py` 里**从未被赋值**（全文只有 1 处 `getattr` 读取），
@@ -659,7 +659,7 @@
     把 `HTTPException` 塞进重试范围 → `test_retry_scope_is_transport_only` 变红；
     把 `_wait_ready` 退回静默超时 → `test_wait_ready_raises_...` 变红
 - **日志隔离缺口**：定位到是 **5 个 module 级 fixture**（不是我上轮说的「6 处」）
-- `test_net_local` 顺序依赖：重置 `urllib.request._opener`（采纳 `WX-124` §9）
+- `test_net_local` 顺序依赖：重置 `urllib.request._opener`（采纳 `评审-124` §9）
 - 发布包自检增加「包内第三方库最低版本」检查（`edge_tts >= 7.3.1`）
 - README「最新版」与实际不符：三处措辞 + 资产名 / 体积（Owner 同意）
 

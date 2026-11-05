@@ -133,7 +133,7 @@ def main():
     dev_assets = os.path.join(ROOT, 'assets')
     dev_subs = sorted(d for d in os.listdir(dev_assets)) if os.path.isdir(dev_assets) else []
     for sub in dev_subs:
-        # 空目录窄修（WX-100 §5.2，2026-10-22）：zip **不存空目录**，
+        # 空目录窄修（评审-100 §5.2，2026-10-22）：zip **不存空目录**，
         # 所以「开发目录有这个子目录、包里没有」对空目录必然是误报（实测过：
         # assets/deepseek/ 是 0 文件的本机残留，却让整次自检不通过）。
         # ⚠ 这不是放宽：只放过「存在且为空」；**非空但包里没有 → 照旧判红**。

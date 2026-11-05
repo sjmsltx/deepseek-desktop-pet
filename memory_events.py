@@ -40,7 +40,7 @@ WEIGHT_NEW = 0.55
 #: 每次命中衰减的「保鲜」作用：命中一次把年龄按此折算（天）
 ACCESS_REFRESH_DAYS = 3.0
 #: 淘汰台账文件（与 memories.json 同目录）。追加式 JSONL，一行一条。
-#: ⚠ 2026-11-02 新增（Owner「淘汰可以」，WX-168 §五 建议1）：
+#: ⚠ 2026-11-02 新增（Owner「淘汰可以」，评审-168 §五 建议1）：
 #:   原来超 200 条直接切片丢弃，**丢了什么没有任何记录**，事后无法回答
 #:   「那条记忆是何时、为何没的」。台账让「遗忘」变成可追溯的行为。
 EVICTED_NAME = 'memory_evicted.jsonl'
@@ -69,7 +69,7 @@ _ID_LOCK = threading.Lock()
 def decay_factor(age_days: float) -> float:
     """时间衰减因子（0~1）。**全项目唯一一份** —— 星图亮度也从这里取，别再写第二份。
 
-    ⚠ 2026-11-02（Owner 拍板「衰减改幂律」，依据 WX-171 §二 修正二）：
+    ⚠ 2026-11-02（Owner 拍板「衰减改幂律」，依据 评审-171 §二 修正二）：
 
       旧：f(a) = 0.5^(a/30)            指数
       新：f(a) = (1 + a/T)^(-d)        幂律，T 与 d 取到 f(30) == 0.5
@@ -263,7 +263,7 @@ class MemoryEvents:
         ⚠ 纪律：调用方必须**先调本函数、再删**。顺序反了就没有「删之前一定记过」。
         ⚠ 写失败不影响淘汰（库里无限增长会让 prompt 注入爆掉，比不可追溯更糟），
           但必须落痕 —— 静默失败是最坏的一种。
-        ⚠ 字段一律 .get()：老数据有 3 种字段集（WX-172 发现 D），不许假设字段齐全。
+        ⚠ 字段一律 .get()：老数据有 3 种字段集（评审-172 发现 D），不许假设字段齐全。
         """
         if not items:
             return 0
@@ -272,7 +272,7 @@ class MemoryEvents:
         for m in items:
             try:
                 # content_hash：库删了 id 之后，靠它还能认出「当时删的是哪条内容的版本」
-                #   （WX-174 §六 第 3 条）。title + detail 拼起来取前 16 位。
+                #   （评审-174 §六 第 3 条）。title + detail 拼起来取前 16 位。
                 _raw = ((m.get('title') or '') + '\x00' + (m.get('detail') or '')).encode('utf-8')
                 _hash = hashlib.sha256(_raw).hexdigest()[:16]
                 rows.append(json.dumps({
@@ -328,7 +328,7 @@ class MemoryEvents:
     def update_evicted_committed(self, ids, committed: bool = True) -> int:
         """把台账里这些 id 的 committed 标记改掉。返回改了条数。
 
-        ⚠ 为什么要它（WX-174 §六 第 3 条）：淘汰是「先记账 → 再删」两步，
+        ⚠ 为什么要它（评审-174 §六 第 3 条）：淘汰是「先记账 → 再删」两步，
           中间被 kill 就会留下「台账说已淘汰、库里还在」的假记录。
           本方法在删除**确认成功后**才把 committed 置 True，
           对账时「committed=false 且库里没有」才是真异常。
@@ -399,7 +399,7 @@ class MemoryEvents:
              留在库里只会把真回忆挤出去，并被注入 prompt 当成旧账说出口。
           调用方若要展示（气泡 / 日志），请自行处理，不要依赖本函数落盘。
 
-        origin（v3.4，2026-10-31，WX-158 指出）：
+        origin（v3.4，2026-10-31，评审-158 指出）：
             'user' 主人说的 / 从对话里提取的 —— **默认**
             'pet'  桌宠自己推送的（定时关心、提醒）
 
@@ -456,7 +456,7 @@ class MemoryEvents:
                     except (TypeError, ValueError):
                         _ex['repeat_count'] = 1
                     # 只有「人说的」才涨权重。桌宠自己推的模板不动权重 ——
-                    # 否则定时器跑几十次就能把一条废话推到满格（WX-158 实测症状）。
+                    # 否则定时器跑几十次就能把一条废话推到满格（评审-158 实测症状）。
                     _this_origin = 'pet' if str(origin or '').strip().lower() == 'pet' else 'user'
                     _ex_origin = _ex.get('origin') or 'user'     # 老数据无此字段 ⇒ 按 user
                     if _this_origin == 'user':
@@ -550,7 +550,7 @@ class MemoryEvents:
     def _bump(self, pool, idx):
         """命中加权：在锁内改原条目（pool 里的 dict 就是 self._memories 的元素）
 
-        ⚠ 2026-11-03 补 origin 保护（WX-174 §四-b 报出，我核实成立）：
+        ⚠ 2026-11-03 补 origin 保护（评审-174 §四-b 报出，我核实成立）：
 
           `add()` 的合并路径**特意**做了「pet 不动 weight」——
             原注释：「定时关心是一句固定模板，一天触发几十次，照样能把权重推到满格。
@@ -561,7 +561,7 @@ class MemoryEvents:
 
           后果：一条 origin='pet' 的模板话被检索命中 8 次：
             0.55 + 8 × 0.06 = 1.03 → min() 截到 1.0 = WEIGHT_MAX 满格
-          正是 WX-158 要防的那个症状，从另一条路径绕回来了。
+          正是 评审-158 要防的那个症状，从另一条路径绕回来了。
 
           ⚠ 自限说明：当前 6 条 weight 全是 0.55（= WEIGHT_NEW），
             说明 `_bump` 在这个库上几乎没真正生效过 ⇒ **这是代码层不一致，不是已发生事故。**

@@ -244,7 +244,7 @@ def check_quota(actor):
 # ---------------------------------------------------------------- 成本限额（治理增强③）
 
 #: 日成本上限的**唯一**默认值（cost_limit_daily 与 cost_state 都引用它）
-#: 2026-10-21（WX-097 §5.1）：原先字面量 20 写了两处，靠注释约束等于靠人；
+#: 2026-10-21（评审-097 §5.1）：原先字面量 20 写了两处，靠注释约束等于靠人；
 #: 改一处忘另一处会让 is_default 与实际上限不一致 —— 正是 D11-3 的复发土壤。
 COST_LIMIT_DEFAULT = 20.0
 
@@ -257,7 +257,7 @@ def cost_limit_daily():
     try:
         return float(_cfg().get('cost_limit_daily', COST_LIMIT_DEFAULT) or 0)
     except Exception as _exc:
-        # 2026-10-21（WX-097 §5.1）：这里原来写死 20.0，与 COST_LIMIT_DEFAULT 各一份，
+        # 2026-10-21（评审-097 §5.1）：这里原来写死 20.0，与 COST_LIMIT_DEFAULT 各一份，
         # 改一处忘另一处会让 is_default 与实际上限不一致 —— D11-3 的复发土壤。
         _silent_log('cost_limit_daily', _exc)
         return COST_LIMIT_DEFAULT
@@ -281,7 +281,7 @@ def cost_state(path=None):
 
     ⛔ 只读，不写任何文件，不改任何默认值。
     """
-    # ⚠ 本函数 4 处兜底**必须落痕**（WX-097 §4.3）：
+    # ⚠ 本函数 4 处兜底**必须落痕**（评审-097 §4.3）：
     #   `used = 0.0` 尤其危险 —— 读不到当日花费就当 0 ⇒ 成本闸门静默放行，
     #   恰恰在数据源坏掉时护栏消失。所以这里一律 _silent_log，并有 failed 标记
     #   让调用方能区分"真没花钱"与"读不出来"。
@@ -343,7 +343,7 @@ def cost_limit_text(state=None, brief=False):
 def today_cost_ex(path=None):
     """今日累计成本 → (value, ok, err)
 
-    2026-10-21（WX-097 §4.4）：
+    2026-10-21（评审-097 §4.4）：
         原先 `today_cost()` 是 `except Exception: return 0.0` —— 读不到就当没花钱。
         对成本闸门来说这是最坏的失效方向：**数据源坏掉时护栏隐身**。
         本函数把"读不出来"与"确实是 0"分开，调用方才能区别对待。
@@ -387,7 +387,7 @@ def check_cost(estimate=0.0):
         return True, '', st.get('used') or 0.0
     if st.get('used_unknown'):
         # 读不到当日花费 ⇒ 不知道该不该拦。宁可拦住并说清，也不能当 0 放行
-        # （WX-097 §4.3：成本闸门最坏的失效方向就是在数据源坏掉时隐身）。
+        # （评审-097 §4.3：成本闸门最坏的失效方向就是在数据源坏掉时隐身）。
         return False, ('读不到今日花费（统计文件不可读），为避免超支本轮先暂停；'
                        '可到「设置 → 用量与计费」看一眼统计文件是否正常'), 0.0
     used = float(st.get('used') or 0.0)

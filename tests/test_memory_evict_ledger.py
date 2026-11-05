@@ -70,7 +70,7 @@ def test_record_before_delete(tmp_path):
 
 
 def test_ledger_tolerates_missing_fields(tmp_path):
-    """老数据有 3 种字段集（WX-172 发现 D）⇒ 缺字段不许崩，写成 null"""
+    """老数据有 3 种字段集（评审-172 发现 D）⇒ 缺字段不许崩，写成 null"""
     m, old = _mk(tmp_path, cap=2)
     try:
         m._memories = [
@@ -185,7 +185,7 @@ def test_only_eviction_path_is_touched():
                 hits.append(node.lineno)
     assert len(hits) == 1, 'record_evicted 被调用 %d 次，只该在淘汰处调一次：%r' % (len(hits), hits)
 
-# ══════════ content_hash / committed（2026-11-03，WX-174 §六 第 3 条）══════════
+# ══════════ content_hash / committed（2026-11-03，评审-174 §六 第 3 条）══════════
 
 def test_ledger_has_content_hash(tmp_path):
     """⭐ content_hash 必须存在且格式对 —— 库删了 id 之后靠它认出删的是什么。

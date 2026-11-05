@@ -89,7 +89,7 @@ def test_only_right_click_menu_passes_into_history():
 def test_greet_timer_uses_default_no_history():
     """定时器路径：经 _on_greet → say_random()（不传参 → 默认不进历史）
 
-    v3.1c（WX-107 §1）：接线由 `connect(self.say_random)` 改为 `connect(self._on_greet)`
+    v3.1c（评审-107 §1）：接线由 `connect(self.say_random)` 改为 `connect(self._on_greet)`
     —— 因为要让每次重新抽间隔（singleShot + 重排）。断言随之改为「经 _on_greet 且不传参」。
     """
     src = _src('desktop_pet.py')

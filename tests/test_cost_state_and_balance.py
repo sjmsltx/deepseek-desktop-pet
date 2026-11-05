@@ -32,7 +32,7 @@ def test_cost_state_reports_default_limit_honestly(tmp_path, monkeypatch):
     empty = tmp_path / 'config.json'
     empty.write_text('{}', encoding='utf-8')
     monkeypatch.setattr(gov, 'CONFIG_PATH', str(empty))
-    # WX-107 §4.5：自证 patch 真的打上了 —— 否则「喂空配置」没生效也可能绿
+    # 评审-107 §4.5：自证 patch 真的打上了 —— 否则「喂空配置」没生效也可能绿
     assert gov.CONFIG_PATH == str(empty), 'patch 没生效，本用例的判据不成立'
     assert gov._cfg() == {}, '读到的配置不是空（patch 打偏了）'
     st = gov.cost_state()
@@ -124,7 +124,7 @@ def _make_pet(monkeypatch, endpoint, key='sk-deepseek-test', cfg=None):
     class Stub:
         # ⚠ 关键：ai_key 与 _current_api_key() 故意都是**别家**的 key。
         #   原版把 ai_key 设成期望值，于是"代码误调 _current_api_key 并被 except 兜到
-        #   ai_key"这条路会静默通过 —— 正是 WX-097 §三 指出的没牙之处。
+        #   ai_key"这条路会静默通过 —— 正是 评审-097 §三 指出的没牙之处。
         ai_key = 'sk-relay-wrong'
         _cfg = property(lambda self: holder['cfg'])
 
@@ -173,7 +173,7 @@ def test_balance_target_key_is_deepseek_field(monkeypatch):
 def test_balance_target_key_never_follows_profile(monkeypatch):
     """key 必须始终取 deepseek_api_key，即使宿主能提供别的 key
 
-    ⛔ 这条是为「没牙」专门补的（WX-097 §三）：
+    ⛔ 这条是为「没牙」专门补的（评审-097 §三）：
        桩里 `ai_key` 与 `_current_api_key()` 都返回别家 key，
        一旦代码误调它们、又被 except 兜底，拿到就是 'sk-relay-wrong' ⇒ 必红。
     """
@@ -229,7 +229,7 @@ def test_query_balance_async_uses_target(monkeypatch):
     assert captured.get('base') == 'https://api.deepseek.com', captured
     assert captured.get('key') == 'sk-deepseek-test', captured
 
-# ── 成本闸门：读不到当日花费时必须拦（WX-098 §三，2026-10-22）──────────────
+# ── 成本闸门：读不到当日花费时必须拦（评审-098 §三，2026-10-22）──────────────
 # ⚠ 这 3 条钉的是 `check_cost` 里 `if st.get('used_unknown')` 那一支。
 #   补之前实测：把该行改成 `if False:`，本文件 13 条**全绿** —— 最核心的修复
 #   反而没有测试钉住（提交主题正是"补护栏的洞"，新修复自己漏在护栏外面）。

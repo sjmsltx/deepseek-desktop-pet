@@ -6,7 +6,7 @@
 ⭐ 后写者会**静默覆盖**前者 ✗（2026-10-04 已真实发生：当日笔记被另一条线覆盖，
 约 4 万字**不可取回** ✗）。
 
-⭐ 判据很朴素但很硬：**产出文件名必须带线名前缀** ✓（`WX-`／`PC-` ✓）。
+⭐ 判据很朴素但很硬：**产出文件名必须带线名前缀** ✓（任意 2~8 位字母 + `-`，如 `AB-` ✓）。
 ⛔ 例外要**显式登记**（如 `COLLAB.md`／台账／索引 ✓）—— ⛔ 不许"看着像就算了" ✗。
 
 ## 为什么不做成"只查某个固定目录"
@@ -30,24 +30,35 @@ import os
 import re
 import sys
 
-DEFAULT_PREFIXES = ('WX-', 'PC-')
+#: 线名前缀不写死具体线名（2026-11-06）：护栏要防的是「产出件不带可辨识前缀 ⇒ 后写者静默覆盖」，
+#: 而不是「必须叫某两个字母」。任意 2~8 位拉丁字母 + 连字符都算可辨识前缀。
+#: ⛔ 原来写死 ('WX-', 'PC-')：那是内部两条线的代号，公开仓库不该固定成某两个。
+PREFIX_RE = re.compile(r'^[A-Za-z]{2,8}-')
+#: 旧调用兼容（`scan(..., prefixes=DEFAULT_PREFIXES)` 的默认值）——
+#: 现在前缀由 PREFIX_RE 判定，这里留空元组即可。
+DEFAULT_PREFIXES = ()
 # ⭐ 显式豁免（非"产出件"的约定文件 ✓）—— 维护它就是要**动手登记** ✓ 而不是放过 ✗
 ALLOW_NAMES = {
     'COLLAB.md', 'README.md', '通道-收发台账.md', '日志互链-20261004.md',
 }
 ALLOW_PATTERNS = (
     r'^\d{4}-\d{2}-\d{2}.*\.(md|html|json)$',     # 旧的无归属日期件：先豁免，见 --strict-dates
-    # ⭐ 线名**后缀/前缀**写法（⭐ 与 `WX-`/`PC-` 前缀同为**可辨识线名** ✓ —— ⭐ 双方约定允许 ✓）
+    # ⭐ 线名**后缀/前缀**写法（⭐ 与字母前缀同为**可辨识线名** ✓ —— ⭐ 约定允许 ✓）
     #   由来：对方写入我方通道目录的件叫 `电脑侧-安全层评估…md` ✓（⭐ **线名在开头** ✗ 无 `PC-` 前缀 ✗）
     #   ⇒ ⭐ 显式登记（⛔ 不静默放过 ✗）
     #   ⚠️ 自纠：首版只写了 `.*-电脑侧` ✗ ⇒ ⭐ 漏掉“线名在开头”的写法 ⇒ 仍然报红 ✗（实测逮到 ✓）
-    r'^(微信侧|电脑侧|龙虾)[-_].*\.(md|html|json|png|jpg)$',
-    r'.*[-_](微信侧|电脑侧|龙虾)[-_].*\.(md|html|json|png|jpg)$',
+    r'^(外部评审|电脑侧|龙虾)[-_].*\.(md|html|json|png|jpg)$',
+    r'.*[-_](外部评审|电脑侧|龙虾)[-_].*\.(md|html|json|png|jpg)$',
 )
 
 
-def has_prefix(name: str, prefixes) -> bool:
-    return any(name.startswith(p) for p in prefixes)
+def has_prefix(name: str, prefixes=None) -> bool:
+    """文件名是否带可辨识的线名前缀（任意 2~8 位拉丁字母 + `-`）。"""
+    if PREFIX_RE.match(name or ''):
+        return True
+    if prefixes:                      # 兼容调用方显式传前缀
+        return any(name.startswith(p) for p in prefixes)
+    return False
 
 
 def is_allowed(name: str) -> bool:

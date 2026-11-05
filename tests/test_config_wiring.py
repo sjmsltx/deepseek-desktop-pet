@@ -62,7 +62,7 @@ def test_checker_has_teeth():
 def test_k2_write_only_attribute_is_an_orphan():
     """K2 必须把「只写不读」判成孤儿（此前会假绿）
 
-    2026-10-25（WX-119 §6.2）：`attr_used_elsewhere` 原来不区分 ast 的
+    2026-10-25（评审-119 §6.2）：`attr_used_elsewhere` 原来不区分 ast 的
     Store / Load —— 只要 `self.X` 在别处出现过就算「有人在用」。
     于是「赋值过一次但从来没人读」的属性会被判绿，而 voice_rate 那类
     漏接缺陷的另一半正是「从来没人用」。
@@ -99,7 +99,7 @@ def test_k2_write_only_attribute_is_an_orphan():
 def test_k1_never_scans_untracked_backup():
     """K1 不许把 `backup/`（gitignored、未跟踪）算成「有人读」
 
-    2026-10-25（WX-119 §6.2）：实测 `find_key_readers('display_mode')` 会命中
+    2026-10-25（评审-119 §6.2）：实测 `find_key_readers('display_mode')` 会命中
     `backup\\模型配置化改造_改造前_20260911\\desktop_pet.py:725`。
     同一份源码，**在这台机器上绿、在别人 clone 上可能红**（backup 不存在）
     ⇒ 判据不可复现 = 不是判据。

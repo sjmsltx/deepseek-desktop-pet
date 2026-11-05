@@ -805,7 +805,7 @@ committed 全为 True
 ## 十三、怎么重跑
 
 ```powershell
-$py = 'C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$py = 'C:\Users\<user>\AppData\Local\Python\pythoncore-3.14-64\python.exe'
 cd <仓库根>          # 脚本用 __file__ 推导路径，在任意 cwd 下都能跑
 
 # ① 生成语料（1200 条种子，无需 API）

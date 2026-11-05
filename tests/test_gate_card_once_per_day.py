@@ -10,7 +10,7 @@
       ③ 兜底 emit **纳入同一守卫** ✓
 
 ── ⭐ D11-2（2026-10-11，本次修）────────────────────────────
-真因（微信侧 `WX-71` 独立定位 ✓ ＋ 我方 `PC-193` 核证 ✓）：
+真因（外部评审 `评审-71` 独立定位 ✓ ＋ 我方 `评审-193` 核证 ✓）：
   ⭐ 那道门**只挂在 `_notify_cost_blocked` 内部** ✗，而 `_notify_failure_card` 有**三条** caller：
      `:1246`（内部）／ `:1302`（`source='cost_gate'` ← **只有这条带门** ✓）／
      `:3331`（`source='_post_stream'` ← ⭐ **不带门** ✗，只剩同代次去重，而每次重试都是新代次 ✗）
@@ -221,7 +221,7 @@ def test_source_guard_gate_lifted_into_single_exit():
     # ⛔ 旧位置不得再自行判日门（避免两处逻辑 ✗）
     cb = s.split('def _notify_cost_blocked(self, why):', 1)[1].split('\n    def ', 1)[0]
     assert '_gate_card_day_mark(' not in cb, \
-        '⭐ 旧位置不得再落盘判门 ✗ —— 门应收在唯一出口 ✓（微信侧 `WX-73` §3 收严②③ ✓）'
+        '⭐ 旧位置不得再落盘判门 ✗ —— 门应收在唯一出口 ✓（外部评审 `评审-73` §3 收严②③ ✓）'
     # 归类必须按 cause 细分 ✓ 不能只按 kind ✓
     assert 'def _gate_card_key_for' in s and "'余额' in _w" in s, \
         '⭐ 归类必须按 Diag.cause 细分 ✗（只按 kind 会把"上限"和"余额"压成一张 ✗）'

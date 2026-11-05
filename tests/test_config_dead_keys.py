@@ -6,7 +6,7 @@
 `K1` 查的是「config.json 有键 → 代码里有人读」。
 **反向从不查**，于是出现整整一类缺陷：代码读了、但用户永远改不了的键。
 
-`WX-124 §4.2` 报了第一个样本 `voice_fallback`（代码读 + 传参 + 4 处测试，
+`评审-124 §4.2` 报了第一个样本 `voice_fallback`（代码读 + 传参 + 4 处测试，
 但 config 无此键、settings_ui 零命中 ⇒ 用户无法设 ⇒ 恒空）。
 本文件把这一**类**做成可复跑断言。
 
@@ -22,7 +22,7 @@
 
 为什么自带实现而不调 tools/
 --------------------------
-K1r 工具尚未落地（`PC-271 §4.1` 仍待排期）。本文件先独立钉住事实。
+K1r 工具尚未落地（`评审-271 §4.1` 仍待排期）。本文件先独立钉住事实。
 将来工具的判据若与本文件不一致，两边一起红 —— 正好暴露分歧，而不是互相掩埋。
 
 ⚠ 本文件钉的是「当前已知状态」，不是「设计目标」
@@ -50,7 +50,7 @@ KNOWN_DEAD = {
     'holidays_auto_update',   # 节假日自动更新：读了，无 UI、无写入
     'use_vision',             # 图片直喂模型：UI 开关写的是「模型档案」，config 里这个键是遗留
     'voice_engine',           # 语音引擎：已被 voice_name 的 'edge:'/'offline:' 前缀取代
-    'voice_fallback',         # 离线兜底声线：WX-124 §4.2 首次报告
+    'voice_fallback',         # 离线兜底声线：评审-124 §4.2 首次报告
 }
 
 
@@ -166,8 +166,8 @@ def test_audit_respects_key_present_in_config():
 def test_voice_fallback_is_dead():
     """`voice_fallback` 必须是死的：代码读它，但没有任何入口能设它
 
-    `WX-124 §4.2` 首次报告；`PC-271 §4.1` 确认「不是用户没设，是用户根本没法设」。
-    `PC-272` 修了 `voice_max_chars` / `voice_content_mode`，**这个没修**。
+    `评审-124 §4.2` 首次报告；`评审-271 §4.1` 确认「不是用户没设，是用户根本没法设」。
+    `评审-272` 修了 `voice_max_chars` / `voice_content_mode`，**这个没修**。
     """
     dp, su, cfg = _real()
     assert 'voice_fallback' in read_keys_from_src(dp), \
@@ -182,7 +182,7 @@ def test_voice_fallback_is_dead():
 def test_voice_max_chars_and_content_mode_are_not_dead():
     """回归保护：这两个已有 UI 入口，谁删了入口就会红
 
-    `PC-272` 原文：「`voice_max_chars` 从『假配置』变成真配置（设置界面能调、
+    `评审-272` 原文：「`voice_max_chars` 从『假配置』变成真配置（设置界面能调、
     config 能写、立刻生效）」；`voice_content_mode` 顺带补了 `_load_ai_config` 读回。
     ⇒ 它们不该再被判死。若这条红了，说明入口被回退了。
     """

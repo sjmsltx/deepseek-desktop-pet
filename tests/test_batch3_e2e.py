@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Batch 3 端到端验证（2026-09-20 微信侧会话接手时做的真机验证，固化成回归测试）。
+"""Batch 3 端到端验证（2026-09-20 外部评审会话接手时做的真机验证，固化成回归测试）。
 
 覆盖三件事的**真实行为**（不是接口存在性）：
   ① 技能包生命周期：安装 → 注册 → 卸载移入停放区（只留最近 5 个）
@@ -257,7 +257,7 @@ def test_third_party_mcp_server_end_to_end(tmp_path):
         assert br.needs_confirm('mcp_fs_write_file')[0] is True
     finally:
         br.remove_server('fs')
-        # 2026-10-25（WX-119 §5）：sleep(4) 盲等等子进程死 → 轮询到清空，上限 30 秒。
+        # 2026-10-25（评审-119 §5）：sleep(4) 盲等等子进程死 → 轮询到清空，上限 30 秒。
         #   盲等在满载下会假红；判据（断开后不得残留）不变。
         _t0 = time.time()
         while True:

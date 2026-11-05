@@ -21,7 +21,7 @@ import os
 import sys
 
 # ⭐ 两条都要插：`collab/`（本模块的伙伴 ✓）＋ **仓库根**（`model_registry` 等在其下 ✓）
-#    ⚠️ 微信侧 `WX-…-20261004-07` §二 实测：只插 `collab/` ✗ → CLI 路径下
+#    ⚠️ 外部评审 `评审-07` §二 实测：只插 `collab/` ✗ → CLI 路径下
 #       `asset_ops` 惰性 `import model_registry` **必然 ModuleNotFoundError** ✗
 #       （pytest 跑时仓库根本来就在 sys.path ✓ → **测试绿／CLI 红** ✗）
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +48,7 @@ def _safe_rel(base: str, rel: str) -> str:
 def do_project_edit(base: str, payload: dict) -> tuple:
     """`project_edit`:把 `changes` **合并**进 `<base>/rt/project.json` ✓(⭐ 只改列出的字段 ✓)
 
-    新 schema(微信侧 `-16` §2.2 ✓ 我方 `-105` 已审定 ✓):
+    新 schema(外部评审 `-16` §2.2 ✓ 我方 `-105` 已审定 ✓):
       `{project_id, changes: {name?, root?, outputs?, memory_file?, roles?}}`
     · `root` ⭐ 可绝对路径(已存在目录·只登记 ✗ 不创建 ✓)
     · `outputs`/`memory_file` ⭐ 只允许相对形式 ✓
@@ -88,7 +88,7 @@ def do_project_edit(base: str, payload: dict) -> tuple:
 def do_asset_op(base: str, payload: dict, dry: bool = False) -> tuple:
     """`asset_op`：⭐ v1 **真执行**（Owner 2026-10-04 00:15「我批准」✓）。
 
-    口径（微信侧 `WX-…-20261004-02` §二 ✓）：① 先备份后写入 ✓ ② 逐文件＋逐张探针 ✓
+    口径（外部评审 `评审-02` §二 ✓）：① 先备份后写入 ✓ ② 逐文件＋逐张探针 ✓
     ③ dry-run 也落结果 ✓（由调用方标 `dry_run:true` ✓）
     实际执行在 `asset_ops.do_asset_op` ✓（本函数只做委派 ＋ 枚举兜底 ✓）
     """
@@ -151,7 +151,7 @@ def run(base: str, dry: bool = False) -> dict:
                 continue
         t = item['type']
         fn = HANDLERS.get(t)
-        # ⭐ ⭐ B11：⭐ **失败自动重放至多 `MAX_REPLAY` 次** ✗（⭐ 采纳微信侧 `WX-…-56` 草稿 6 ✓）
+        # ⭐ ⭐ B11：⭐ **失败自动重放至多 `MAX_REPLAY` 次** ✗（⭐ 采纳外部评审 `评审-56` 草稿 6 ✓）
         #   ⭐ ⚠️ 关键：⭐ 重放**在同一个 `run` 内**完成 ✗，⭐ 而**结果只落一行**终态 ✓
         #     （⭐ 判据① 明确要求：⭐ 注入必失败 ⇒ ⭐ 终态 `dead` ✓ 且 ⭐ **结果条数 = 1** ✗ 不是 N 条 ✓）
         #   ⭐ 依据：⭐ `E17.3`「⭐ **失败不算消费** ⇒ 重跑安全」✗ ✓（⭐ 故重放不违幂等 ✓）

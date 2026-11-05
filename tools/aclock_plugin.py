@@ -29,7 +29,7 @@ from tools.ac_lock import file_lock, lock_path  # noqa: E402
 
 LOCK_NAME = '测试'
 
-# ⭐ ⭐ 嵌套标记（2026-10-05，⭐ 采纳微信侧 `WX-…-63` 修法② ✓）
+# ⭐ ⭐ 嵌套标记（2026-10-05，⭐ 采纳外部评审 `评审-63` 修法② ✓）
 #   为什么：⭐ 有用例会**起子 pytest** ✗（`test_resource_hygiene.py::test_unraisable_leak_turns_run_red` ✓）
 #     ⇒ ⭐ 子进程读**同一个 `pytest.ini`** ⇒ ⭐ 继承 `addopts = -p tools.aclock_plugin` ✗
 #     ⇒ ⭐ 而"已持锁"判据只看 **自己 ＋ 直接父** ✗ ⇒ ⭐ 子 pytest 的父**不是持锁者**（持锁者可能是
@@ -46,7 +46,7 @@ _state = {'ctx': None, 'why': ''}
 def _safe_print(msg):
     """安全打印：控制台编码不支持某字符时降级为 `?`，不抛异常。
 
-    起因（2026-10-17，PC-210 实测）：中文 Windows 默认控制台是 GBK，打印 emoji
+    起因（2026-10-17，评审-210 实测）：中文 Windows 默认控制台是 GBK，打印 emoji
     （🔒 / 🔓 / ✓）会抛 `UnicodeEncodeError`，而且发生在 `pytest_unconfigure` 阶段。
     后果有两层：
       1. **每次全量跑完都异常退出**（rc 不可信）；

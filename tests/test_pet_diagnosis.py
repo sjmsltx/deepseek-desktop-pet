@@ -2,7 +2,7 @@
 """L2 v0 护栏：`pet_diagnosis` 是纯函数模块 + 四段归因分类正确 + 卡片可读
 
 范本：tests/test_foreground_privacy.py（只扫源码 / 不依赖运行环境 / 独立可回退）
-边界（微信侧 2026-09-23 89 号）：① 只做纯函数（不读文件、不出网）② 不得反向 import desktop_pet
+边界（外部评审 2026-09-23 89 号）：① 只做纯函数（不读文件、不出网）② 不得反向 import desktop_pet
 """
 from __future__ import annotations
 

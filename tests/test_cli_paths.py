@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""⭐ CLI 路径护栏（微信侧 `WX-…-20261004-07` §二.4 建议 ✓）
+"""⭐ CLI 路径护栏（外部评审 `评审-07` §二.4 建议 ✓）
 
 教训：`run_pending.py` 只把 `collab/` 插进 `sys.path` ✗ → CLI 路径下
      `asset_ops` 的惰性 `import model_registry`（在**仓库根** ✓）**必然失败** ✗；

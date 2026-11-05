@@ -61,7 +61,7 @@ def post(port, path, payload, timeout=15):
 
 
 def _resolve_git():
-    """⭐ 显式解析 git 的**绝对路径** ✗（⭐ 采纳 `WX-…-69` §3.1 ✓）。
+    """⭐ 显式解析 git 的**绝对路径** ✗（⭐ 采纳 `评审-69` §3.1 ✓）。
 
     ⭐ 为什么：⭐ 靠 PATH 短名 ⇒ ⭐ 正确性依赖运行环境 ✗；⭐ 且实测在 Python 3.14/Windows 上，
     ⭐ 显式传 `env` 时 `['git', …]` **不按 PATH 找到 exe** ✗ ⇒ ⭐ 一律解析出绝对路径后用 ✓。

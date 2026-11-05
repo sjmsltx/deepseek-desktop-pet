@@ -204,7 +204,7 @@ def test_quiet_when_user_is_reading_history():
         assert _sb(p).value() == mid, '新消息把正在看历史的用户拽走了'
         assert p.chat_new_btn.isVisible() is True, '应当亮出提示条'
         assert '新消息' in p.chat_new_btn.text()
-        # 2026-10-28（微信侧 WX-126 §1.3 建议）直接断言跟随态本身。
+        # 2026-10-28（外部评审 评审-126 §1.3 建议）直接断言跟随态本身。
         #   为什么加：只断言「位置没变 + 提示条亮了」时，若有人把 _chat_follow 翻成 True，
         #   位置不会立刻变（要等下一个流式 chunk 才拽），失败信息会报成「提示条没消失」，
         #   看的人要绕一圈才知道根因。加这一行让失败直接指向根因。

@@ -9,7 +9,7 @@ rem 那样第一行会拼成 "\Python\...\pythonw.exe" 直接找不到。用 USE
 if not exist "%PYW%" set "PYW=%USERPROFILE%\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe"
 if not exist "%PYW%" set "PYW=pythonw"
 
-rem 2026-10-31（PC-268 的教训）：清掉 PYTHONUSERBASE。
+rem 2026-10-31（评审-268 的教训）：清掉 PYTHONUSERBASE。
 rem 它会把 %APPDATA%\...\toolchain\python 塞进 sys.path 的**前面**，
 rem 于是同一个 import 可能来自另一个环境 —— 268 那次「所有声线固定为一个」
 rem 就是因为运行时加载的 edge_tts 与打包产物不一致，查错方向耗了整轮。

@@ -191,7 +191,7 @@ Python 3.14.3
 ## 八、复现
 
 ```powershell
-$py = 'C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$py = 'C:\Users\<user>\AppData\Local\Python\pythoncore-3.14-64\python.exe'
 cd <仓库根>
 
 # ①② 同义改写 + 边精度（需要 API key，约 160 次调用）

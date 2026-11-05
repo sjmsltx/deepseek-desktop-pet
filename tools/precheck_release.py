@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import re
 import subprocess
@@ -27,9 +28,40 @@ SECRET_PATTERNS = [
     (r'(?i)(secret|passwd|password)\s*[=:]\s*[\'"][^\'"\s]{8,}[\'"]', '疑似硬编码口令'),
     (r'(?i)bearer\s+[A-Za-z0-9\-_\.]{20,}', '疑似 Bearer token'),
 ]
+#: ⛔ 本机专属隐私词（真名 / 用户名）**不写在这个文件里** ——
+#:   本文件属于公开仓库，把要防的词写进来等于把被保护的东西公开 ✗
+#:   （2026-11-06 修：原来这里直接写着真名与用户名，而 ALLOWLIST 又豁免了本文件
+#:    ⇒ 这个检查脚本**永远查不出自己是泄露源**，每次都报绿）
+#:   现在改为读同目录下 `privacy_extra.json`（未纳入版本控制）。
+#:   缺失时只少这几条，其余检查照常跑。
+_PRIVACY_EXTRA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              'privacy_extra.json')
+
+
+def _load_privacy_extra():
+    """读本机专属隐私词；文件不存在返回空表（不静默改变其它判据）。"""
+    try:
+        with io.open(_PRIVACY_EXTRA, encoding='utf-8') as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except Exception as exc:
+        print('  \u26a0\ufe0f 读 %s 失败，按空表继续：%r' % (_PRIVACY_EXTRA, exc))
+        return []
+    out = []
+    for row in data.get('patterns', []):
+        pat = (row or {}).get('pattern')
+        if pat:
+            out.append((pat, (row or {}).get('note') or '本机专属隐私'))
+    return out
+
+
 PRIVACY_PATTERNS = [
-    (r'李滨宇', '真实姓名（中文）'),
-    (r'lby13', '本机用户名'),
+    # ⭐ 通用形态（与具体人无关，可以公开写在这里 ✓）
+    (r'[0-9]{5,}@qq\.com', 'QQ 邮箱（应用 GitHub noreply ✓）'),
+] + _load_privacy_extra() + [
+    # ⛔ 下面这条原本指向真名/用户名的原位，已挪到 privacy_extra.json
+    (r'[A-Za-z]:\\?Users\\?[A-Za-z0-9_.-]+', '本机绝对路径'),
     (r'[0-9]{5,}@qq\.com', 'QQ 邮箱（应用 GitHub noreply ✓）'),
     (r'[A-Za-z]:\\\\?Users\\\\?[A-Za-z0-9_.-]+', '本机绝对路径'),
     # ⭐ 2026-10-05 补：⭐ **绝对 Windows 路径** ✓（仅当**看着像本机个人目录**时才算硬缺陷 ✓）
@@ -41,14 +73,15 @@ PRIVACY_PATTERNS = [
 ]
 ALLOWLIST = [
     # ⭐ 显式登记：这些出现在"应当出现"的地方（示例/说明 ✓），不算缺陷
-    r'tools/precheck_release\.py',
+    # ⛔ 2026-11-06 删：原来这里豁免了本文件自己 ⇒ 检查器查不到自己的问题 ✗
+    #    现在本文件已不含任何真名/用户名，可以正常被扫 ✓
     r'tests/test_precheck_release\.py',
-    # ⭐ 占位而非真泄露 ✓（对方 `PC-152` §一 指出 ✓：`C:\Users\someone` 是占位 ✓）
+    # ⭐ 占位而非真泄露 ✓（对方 `评审-152` §一 指出 ✓：`C:\Users\someone` 是占位 ✓）
     r'tests/test_foreground_privacy\.py',
     # ⭐ 实测判定为**占位/合成**（非真实个人信息 ✓）—— ⭐ 登记而非放过 ✗
     r'plugins/pdf_tools/plugin\.py',      # `C:\Users\...\a.pdf` —— 省略号占位 ✓
     r'tests/test_command_gate\.py',        # 合成路径（用例夹具 ✓）
-    # ⭐ 对方 `PC-156` §3.2 报：⭐ 该检查在 `tests/` 里把**夹具假路径**当隐私 ✗（`E:\other`／`F:\env\dsh`／`Z:\不存在的目录-xyz` ✓）
+    # ⭐ 对方 `评审-156` §3.2 报：⭐ 该检查在 `tests/` 里把**夹具假路径**当隐私 ✗（`E:\other`／`F:\env\dsh`／`Z:\不存在的目录-xyz` ✓）
     #    ⇒ ⭐ 采纳建议：⭐ **泛化绝对路径项不扫 `tests/`** ✓（⭐ 但“本机个人路径（含用户目录）”仍扫 ✓ —— 那才是真风险 ✓）
     r'^tests/',
 ]
@@ -58,7 +91,7 @@ LINE_ALLOW = (r'<[^>]{2,}>', r'\.\.\.', r'某个用户', r'someone', r'示例', 
 
 
 def _resolve_git():
-    """⭐ 显式解析 git 的**绝对路径** ✗（⭐ 采纳 `WX-…-69` §3.1 ✓）。
+    """⭐ 显式解析 git 的**绝对路径** ✗（⭐ 采纳 `评审-69` §3.1 ✓）。
 
     ⭐ 为什么：⭐ 靠 PATH 短名 ⇒ ⭐ 正确性依赖运行环境 ✗；⭐ 且实测在 Python 3.14/Windows 上，
     ⭐ 显式传 `env` 时 `['git', …]` **不按 PATH 找到 exe** ✗ ⇒ ⭐ 一律解析出绝对路径后用 ✓。
@@ -147,7 +180,7 @@ def main():
         hard.append('%s:%d %s' % (f, ln, lab))
 
     # ③ 隐私不泄露（⭐ 分两档：个人路径 ⇒ 硬缺陷 ✗ ｜ 泛化绝对路径 ⇒ 需人工确认 ⚠️）
-    #    ⚠️ 自纠（对方 `PC-156` §3.2 ✓）：⭐ 泛化项**不扫 tests/** ✗（⭐ 夹具假路径会满屏误报 ⇒ 容易养成"忽略警告" ✗ ✓）
+    #    ⚠️ 自纠（对方 `评审-156` §3.2 ✓）：⭐ 泛化项**不扫 tests/** ✗（⭐ 夹具假路径会满屏误报 ⇒ 容易养成"忽略警告" ✗ ✓）
     per = scan(base, files, PRIVACY_PATTERNS[:5])
     generic = scan(base, [f for f in files if not f.startswith('tests/')],
                    [PRIVACY_PATTERNS[5]]) if len(PRIVACY_PATTERNS) > 5 else []

@@ -245,7 +245,7 @@ def test_switch_model_success_still_reports():
 def test_startup_fallback_persists_to_config():
     """降级后必须把 display_mode 写回 config —— 否则第 4 条静默路径
 
-    2026-10-25 第四条路径（微信侧 WX-119 §3.5 报；本条锁它）：
+    2026-10-25 第四条路径（外部评审 评审-119 §3.5 报；本条锁它）：
 
       _apply_display_mode 降级时只改内存 `self.display_mode = 'static'`，
       **不写 config**（函数体内 _save_cfg_value 出现 0 次）。

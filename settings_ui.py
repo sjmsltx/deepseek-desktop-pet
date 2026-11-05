@@ -804,7 +804,7 @@ class SettingsDialog(QDialog):
                                 '可在「通用 → 主动关心」关闭 ✓；成本触顶时会**自动暂停**并在次日恢复 ✓')
         f.addRow('主动关心', self.lb_care)
         self._buttons(f, '余额 / 用量', [('💰 立即查询余额', lambda: self.host._query_balance_async(True)),
-                                        # v3.1e（WX-108 §6.2）：把 **self（SettingsDialog）显式传进去**
+                                        # v3.1e（评审-108 §6.2）：把 **self（SettingsDialog）显式传进去**
                                         #   当 parent —— 设置对话框是 dlg.exec() 应用级模态，
                                         #   不传 parent 的顶层窗会被挡住（用户看得见却点不动）。
                                         #   显式传参比 activeModalWidget() 探测可靠（探测有窗口期）。
@@ -855,7 +855,7 @@ class SettingsDialog(QDialog):
                 self.cb_affmode.currentData()))
         f.addRow('好感度档位', self.cb_affmode)
 
-        # 2026-10-31（PC-237 + Owner 追加「时机可选」）：什么时候随机演动作
+        # 2026-10-31（评审-237 + Owner 追加「时机可选」）：什么时候随机演动作
         self.cb_randomaction = QComboBox()
         for label, val in (('一直演（面板开着也演）', 'always'),
                            ('只在聊天面板收起时演', 'hidden'),
@@ -1416,7 +1416,7 @@ class SettingsDialog(QDialog):
         bits = []
         bits.append('✓ 已检测到' if det['installed'] else '✗ 未检测到')
         # ⚠ 2026-11-02：目录在、启动器也在，但没找到 DSH 程序入口 ⇒ 必须说出来。
-        #   WX-166 报的那个桩就落在这个状态：界面原本只报「✓ 已检测到」，一句话都不提醒。
+        #   评审-166 报的那个桩就落在这个状态：界面原本只报「✓ 已检测到」，一句话都不提醒。
         if det.get('entry_missing'):
             bits.append('⚠ 该目录里没有 DSH 程序入口（node_modules/@deepseek-ai/dsh/lib/bin.js）')
         bits.append('位置来源：%s' % det['root_source'])
@@ -1526,7 +1526,7 @@ class SettingsDialog(QDialog):
                 self.ck_cost.setChecked(bool(_gov_r.cost_limit_enabled()))
                 self.sp_cost.setValue(float(_gov_r.cost_limit_daily() or 0))
                 # ⭐ 门槛第 1 件（Owner 2026-10-02 批）：圆桌额度回显（缺省/0 = 不限 ✓）
-                # ⭐ 条款 ③-2（`WX-桌宠-20261003-01`）：非法值必须**可见** —— 收集 problems 并在设置页明报 ✓
+                # ⭐ 条款 ③-2（`评审-01`）：非法值必须**可见** —— 收集 problems 并在设置页明报 ✓
                 try:
                     import relay_log as _rl
                     _probs = []

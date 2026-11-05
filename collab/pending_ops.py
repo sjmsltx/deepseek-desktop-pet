@@ -31,7 +31,7 @@ PROJECT_FIELDS = ('name', 'root', 'outputs', 'memory_file', 'roles')
 ASSET_OPS = ('insert', 'replace', 'add_state', 'add_role', 'delete_state',
              'run_pipeline', 'set_portrait')          # ⭐ `set_portrait` Owner 00:36 已批 ✓
 ASSET_SOURCES = ('pool', 'assets')               # ⭐ 白名单根 ✓
-# ⭐ 运行必需的**内置状态**（⛔ 不可删 ✗ —— 微信侧 `-16` §2.3#2 补的，我方漏了 ✓）
+# ⭐ 运行必需的**内置状态**（⛔ 不可删 ✗ —— 外部评审 `-16` §2.3#2 补的，我方漏了 ✓）
 BUILTIN_STATES = ('idle', 'blink', 'happy', 'angry', 'sad', 'sleep', 'hungry',
                   'eating', 'thinking', 'crying', 'cry', 'surprised', 'shy')
 _MAX_ROOT = 512
@@ -122,7 +122,7 @@ def _rel_problem(v) -> str:
 
 
 def _rel_ok(v) -> str:
-    """⭐ `source_ref` 两种写法**都收**（微信侧 `WX-…-20261004-11` §2.1 实测撞到 ✓）：
+    """⭐ `source_ref` 两种写法**都收**（外部评审 `评审-11` §2.1 实测撞到 ✓）：
 
       · 带白名单根：`assets_3.0/deepseek/deepseek_idle.png` ✓ / `assets/flash/flash_idle.png` ✓
       · ⭐ 裸形式：`deepseek/deepseek_idle.png` ✓（按 `source` 指定的根解析 ✓ 更好用 ✓）
@@ -214,7 +214,7 @@ def validate_request(req) -> tuple:
     if _p:
         return False, 'payload %s，已拒' % _p
     if t == 'project_edit':
-        # ⭐ `payload` **顶层**也要白名单（微信侧 `WX-…-20261004-09` §4.1 ✓）——
+        # ⭐ `payload` **顶层**也要白名单（外部评审 `评审-09` §4.1 ✓）——
         #    与 `changes` 同口径 ✓：不然只拦内层不拦外层 ✗ 契约扫描也没法一致 ✓
         _extra = [k for k in payload if k not in ('project_id', 'changes')]
         if _extra:
@@ -289,7 +289,7 @@ def list_pending(base_dir: str = '') -> list:
             with open(os.path.join(d, fn), encoding='utf-8') as fh:
                 req = json.load(fh)
         except Exception as exc:
-            # ⭐ ⭐ 落痕（⭐ 采纳微信侧口径 ✓）：⭐ 此处原本是 `except: continue` **完全静默** ✗
+            # ⭐ ⭐ 落痕（⭐ 采纳外部评审口径 ✓）：⭐ 此处原本是 `except: continue` **完全静默** ✗
             #   ⇒ ⭐ 现象正好是"⭐ **文件在、`run()` 却看不见**"✗ ⇒ ⭐ 极难查 ✓
             #   ⇒ ⭐ 与"⭐ 关键路径不得静默"同族 ⇒ 至少留痕 ✓（⛔ 不静默 ✓）
             print('  \u26a0\ufe0f 待办 %s **内容不可解析 ⇒ 跳过**（⭐ 文件在但用不了 ✓）：%r'
@@ -324,11 +324,11 @@ def read_results(base_dir: str = '') -> list:
 def done_op_ids(base_dir: str = '') -> set:
     """已**真被消费**的 `op_id`（⭐ 幂等依据 ✓）。
 
-    ⚠️ 必须排除两类 ✗（⭐ 微信侧两轮 QA 各揪出一类 ✓）：
+    ⚠️ 必须排除两类 ✗（⭐ 外部评审两轮 QA 各揪出一类 ✓）：
       · `dry_run:true` —— 预演不算消费 ✓
       · ⭐ `ok:false` —— **失败也不算消费** ✓（失败时**什么都没发生** ✓ → 重跑安全 ✓）
     ⭐ 否则：用户提交 → 失败 → 我们修好 bug → 用户重跑 → **幂等跳过、毫无反应** ✗
-       → 用户会以为“还没修好” ✗（`WX-…-20261004-09` §4.2 实测 ✓）
+       → 用户会以为“还没修好” ✗（`评审-09` §4.2 实测 ✓）
     """
     return {str(r.get('op_id')) for r in read_results(base_dir)
             if r.get('op_id') and not r.get('dry_run') and r.get('ok')}
@@ -368,7 +368,7 @@ def product_line(base_dir: str = '') -> str:
 #
 # ⭐ 要解决（D3-2 的前置 ✓）：⭐ 现在 `run()` 是"执行 → 落结果" ✗
 #    ⇒ ⭐ **两步之间中断** ⇒ 无结果 ⇒ ⭐ 重启会**重做一遍** ✗（**重复执行** ✗）
-# ⭐ 做法（⭐ 采纳微信侧 `WX-…-49` §1.2 判据 ✓）：
+# ⭐ 做法（⭐ 采纳外部评审 `评审-49` §1.2 判据 ✓）：
 #    · ⭐ 取待办前**先落 claim** ✓（⭐ `claims.jsonl` **只追加** ✓ 带 `pid` ＋ `ts` ✓）
 #    · ⭐ 已被 claim 且**持有者还活着** ⇒ ⭐ **明确跳过并留痕** ✗（⛔ 不静默 ✗）
 #    · ⭐ claim **持有者已死** 或**超 `CLAIM_STALE_S`** ⇒ ⭐ **可回收重取** ✓（⭐ 记痕 ✓）
@@ -443,7 +443,7 @@ def _claim_file(op_id: str, base_dir: str = '') -> str:
 def _read_claim(op_id: str, base_dir: str = '') -> dict:
     """⭐ 读 claim ✓ —— ⚠️ ⭐ **`ts` 缺失时必须用文件 `mtime` 兜底** ✗（⭐ 见下 ✓）。
 
-    ⭐ ⭐ 为什么（⭐ 这是**真 race 的根因** ✗・微信侧 `WX-…-58` §二 报的抖动 ✓）：
+    ⭐ ⭐ 为什么（⭐ 这是**真 race 的根因** ✗・外部评审 `评审-58` §二 报的抖动 ✓）：
       ⭐ `claim_op` 是"⭐ `O_EXCL` **创建即拿**"✗ ⇒ ⭐ ⭐ **"创建成功"与"写完内容"之间有窗口** ✗；
       ⭐ 窗口里别人 `O_EXCL` 撞 `FileExistsError` ⇒ ⭐ 读到**空文件** ⇒ ⭐ 旧写法给 `ts=0`
       ⇒ ⭐ `_claim_reclaimable` 算 `age = 1e9` ⇒ ⭐ ⭐ **判成陈旧 ⇒ 立刻回收** ✗
@@ -485,7 +485,7 @@ def _claim_reclaimable(pid, ts, now, stale: int = None, grace: int = None) -> bo
     age = (now - ts) if ts else 1e9
     if age > st:
         return True
-    # ⭐ ⭐ 保守化（2026-10-05，⭐ 采纳微信侧口径 ✓）：⭐ ⭐ **"pid 死"只能当参考条件** ✗
+    # ⭐ ⭐ 保守化（2026-10-05，⭐ 采纳外部评审口径 ✓）：⭐ ⭐ **"pid 死"只能当参考条件** ✗
     #   ⭐ 可回收 ⇔ ⭐ **年龄 > 宽限** ✗ 且 ⭐ ( pid 死 **或** 读不到 pid ) ✗
     #   ⛔ **不许**「pid 死 ⇒ 立刻可回收」✗（⭐ 就缺了"年龄"这道门 ✓）
     #   ⛔ **不许**「读不到 pid ⇒ 立刻可回收」✗
@@ -614,7 +614,7 @@ def release_claim(op_id: str, base_dir: str = '') -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# ⭐ B11 / `D2-4`：⭐ **失败终态 ＋ 死信（DLQ）**（⭐ 采纳微信侧 `WX-…-56` 草稿 6 ✓）
+# ⭐ B11 / `D2-4`：⭐ **失败终态 ＋ 死信（DLQ）**（⭐ 采纳外部评审 `评审-56` 草稿 6 ✓）
 #
 # ⭐ 三终态（⛔ 不许"无终态" ✗）：
 #     · `ok`     —— ⭐ 成功 ✓（⭐ 承 `E17.3`：⭐ **不重复只对成功项成立** ✗）
@@ -698,7 +698,7 @@ def next_kind(ok: bool, fails: int, base_dir: str = '', op_id: str = '',
       ⭐ 那是**方案 A 的残留** ✗（⭐ 我方 `8d8104c` 只回退了"同一次 run 内的自动重放"✗，
       ⭐ ⭐ **这条判据漏了** ✓）⇒ ⭐ 实测两行结果是 `failed` ＋ **`dead`** ✗ ⇒ ⭐ 与方案 B **冲突** ✓。
       ⭐ 另：⭐ "⭐ 自动升级状态"✗ 本身撞项目内核（⭐ `test_runner_is_human_triggered_only` ✓
-      ＋ ⭐ 微信侧判例 `J34`「⭐ 自动类提案先过"人类触发"这道门」✗ ✓）。
+      ＋ ⭐ 外部评审判例 `J34`「⭐ 自动类提案先过"人类触发"这道门」✗ ✓）。
     ⭐ `fails` 参数**保留** ✓（⭐ 调用方仍在传 ✓ 且人工标记时可参考 ✓），⭐ 但**不再影响终态** ✗。
     """
     return 'ok' if ok else 'failed'
@@ -708,7 +708,7 @@ def mark_dead(op_id: str, reason: str = '', base_dir: str = '', by: str = '') ->
 
     ⭐ 依据（⭐ 双方 2026-10-05 裁定 ✓）：
       ⭐ `dead` 是**终止态** ✗ ⇒ ⭐ 只有"⭐ **人显式标**"✗ 才能进 ✓（⛔ 不许自动升级 ✗ ——
-      ⭐ 自动类行为撞项目内核 ⭐ `test_runner_is_human_triggered_only` ✓ 与微信侧判例 `J34` ✓）。
+      ⭐ 自动类行为撞项目内核 ⭐ `test_runner_is_human_triggered_only` ✓ 与外部评审判例 `J34` ✓）。
     ⭐ 语义：
       · ⭐ 已 `ok` ✗ ⇒ ⭐ **拒绝** ✓（⭐ 成功项不可标死信 ✓ 且**给原因** ✗ ⛔ 不静默 ✓）
       · ⭐ 已在 `dead` ✗ ⇒ ⭐ **幂等** ✓（⭐ 不重复写行 ✓）

@@ -76,7 +76,7 @@ def test_game_lose_returns_to_idle():
 def test_game_win_celebration_ends_at_idle():
     """⚠️ **v6.79 缺陷 75 修订版**（原版是**假绿** ✗）：
     原断言写成 `state in ('scene','idle')` —— 而缺陷 75 恰好把 state 留在 'scene'，于是「通过」了 ✗。
-    按微信侧 88 号补的原则改严：**必须断言最终状态 == idle**，禁用或式断言。
+    按外部评审 88 号补的原则改严：**必须断言最终状态 == idle**，禁用或式断言。
     """
     p = _pet()
     p.affection.trigger = lambda role, event: {}
@@ -264,7 +264,7 @@ def test_every_state_image_call_is_paired():
     assert not offenders, '这些 _show_state_image 调用点缺 state 或缺收尾：\n  ' + '\n  '.join(offenders)
 
 
-# ---------- ⑥ pet_anim 收尾原语不得再变孤儿（微信侧 09 号建议） ----------
+# ---------- ⑥ pet_anim 收尾原语不得再变孤儿（外部评审 09 号建议） ----------
 def test_pet_anim_end_primitives_still_wired():
     """pet_anim 的三个收尾原语必须仍被 desktop_pet 的 wrapper 调用 ——
     防止「收尾逻辑搬家」后它们再次变成 0 调用点的死代码（v6.79 C 方案）。"""
@@ -276,7 +276,7 @@ def test_pet_anim_end_primitives_still_wired():
         assert wrapper in src, '缺少收尾 wrapper / 落点方法：%s' % wrapper
 
 
-# ---------- ⑦ 回待机类断言禁用或式（微信侧 88 号补的原则） ----------
+# ---------- ⑦ 回待机类断言禁用或式（外部评审 88 号补的原则） ----------
 def test_no_or_style_state_assertions():
     """护栏：'回待机 / 收尾'类断言**禁止或式**（`state in (a, b)`）——
     或式断言天然能假绿：缺陷 75 就是这么漏过去的（KeyError 恰好把 state 留在 'scene' → 断言"通过"）。

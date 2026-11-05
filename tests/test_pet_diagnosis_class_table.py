@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """L2 归因分类表护栏（护栏①静态 + ②③④动态）
 
-与微信侧《13 类归因分类表》逐字对齐（2026-09-24 WX-桌宠-01）。
+与外部评审《13 类归因分类表》逐字对齐（2026-09-24 评审-01）。
 护栏① **用 AST 抽 `Diag(...)` 的 layer 字面量** ✗ —— 不用 grep 层名（会命中 docstring/注释 = 假红 ✓）
 护栏②③④ 用**参数化行为测试**：每类一个触发样本 → 四段非空 / 无裸 HTTP 码 / 鉴权声明已保留历史
 """
@@ -18,7 +18,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 MOD = ROOT / "pet_diagnosis.py"
 
-# ── 表（与微信侧 13 类表逐行对应；in_explain_error=False 表示归 L3、不进本模块）──────
+# ── 表（与外部评审 13 类表逐行对应；in_explain_error=False 表示归 L3、不进本模块）──────
 CLASS_TABLE = [
     ("本地网络", True),
     ("上游限流", True),

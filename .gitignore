@@ -116,3 +116,6 @@ memory_evicted.jsonl
 memory_evicted.jsonl.*
 memory_evicted_facts.jsonl
 memory_evicted_facts.jsonl.*
+
+# 2026-11-06：本机专属隐私词表（含真名/用户名）—— ⛔ 绝不入库
+tools/privacy_extra.json

@@ -182,8 +182,8 @@ def test_get_state_img_scene_is_not_used_as_state_render():
     assert k_scene < k_render, 'scene 的判断写在了重绘之后，等于没挡'
 
 
-# ═══ E. 加载失败不许被缓存永久化（2026-11-05，WX-180 ⑤）═══
-# 微信侧指出 + 我实测坐实：`self.scene_imgs[key] = QPixmap(pth)` 没检查 isNull()，
+# ═══ E. 加载失败不许被缓存永久化（2026-11-05，评审-180 ⑤）═══
+# 外部评审指出 + 我实测坐实：`self.scene_imgs[key] = QPixmap(pth)` 没检查 isNull()，
 # 于是一次瞬时加载失败会让 `key in self.scene_imgs` 恒为 True ⇒ 文件修好也不再重读 ⇒
 # **该场景动作在本次会话内永久失效，要重启桌宠**。
 # 实测（改前）：第 1 次 isNull=True 已入缓存 → 换成合法 PNG → 第 2 次仍 isNull=True。
@@ -235,7 +235,7 @@ def test_all_real_scene_assets_load():
     p = _pet()
     keys = list(getattr(dp, 'SCENE_ACTIONS', {}) or {})
     assert keys, 'SCENE_ACTIONS 为空，测试前提不成立'
-    # ⚠ 2026-11-05（WX-181 ②）：只判「能读出非 null」是**假锁** ——
+    # ⚠ 2026-11-05（评审-181 ②）：只判「能读出非 null」是**假锁** ——
     #   `asset()` 对未知键会层层兜底到 `{role}_idle.png`，所以**真删掉 flash_eating.png
     #   这条测试仍会绿**（读出来的是待机图）。这和 `>= 400` 是同一类：
     #   断言区分不了「素材在」与「兜底成功」。

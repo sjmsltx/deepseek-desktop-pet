@@ -28,7 +28,7 @@
 （用来亲眼确认 33s → 0.34s 这个改动）
 
 ⚠ 必须用带 PySide6 的独立 python：
-   C:\\Users\\lby13\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe
+   C:\\Users\\<user>\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe
    不能用 AutoClaw 捆绑的 python（它带定制 Qt，透明窗口会显示白底灰框）。
 """
 import argparse

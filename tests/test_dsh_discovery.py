@@ -24,7 +24,7 @@ import dsh_adapter as ad  # noqa: E402
 def _isolate_discovery(monkeypatch):
     """所有用例都不许摸真实环境。
 
-    ⚠ 2026-10-30（WX-150 §4.1 指出）：本文件原先没有隔离 fixture，是环境依赖的根。
+    ⚠ 2026-10-30（评审-150 §4.1 指出）：本文件原先没有隔离 fixture，是环境依赖的根。
       当时 `installed()` 还有 fallback 扫进程，只要用户正用着 DSH，
       `test_installed_requires_real_marker_not_just_dir` 就会**假红**。
       现在 fallback 已去掉，但仍要把环境锁死 —— 否则测试结果取决于
@@ -58,7 +58,7 @@ def fake_dsh(tmp_path, monkeypatch):
       改名成 `.bak-test`、用例结束再改回来。实测后果 ——
       测试进程被强杀（Ctrl+C / 超时 / OOM）时 `finally` 不执行 ⇒
       真配置里留下 `{"root": "...\\Temp\\chk_real_xxx"}` 这种指向桩目录的值，
-      桌宠从此「✓ 已检测到 DSH」而入口打不开，**且不报警**（WX-166 §三 报的就是这个）。
+      桌宠从此「✓ 已检测到 DSH」而入口打不开，**且不报警**（评审-166 §三 报的就是这个）。
 
       ⇒ 改成 `monkeypatch.setattr(ad, 'USER_CONFIG_PATH', <tmp>)`：测试连摸都摸不到真文件。
         `test_dsh_panel.py` 本来就是这么写的，**本文件是漏的**。
@@ -109,7 +109,7 @@ def test_installed_false_when_config_points_to_bad_path_even_if_dsh_running(
         tmp_path, monkeypatch):
     """⭐ S1 反例：配置指向坏路径、而 DSH 正在默认目录跑着 ⇒ 必须 False
 
-    来自 WX-150 §2.1 的实测反例（我复现过）：
+    来自 评审-150 §2.1 的实测反例（我复现过）：
       旧实现 `installed()` 有「候选不合格就扫进程兜底」的 fallback ⇒
         resolve_root()  = F:/typo/dsh（坏路径，面板会用它找启动器）
         installed()     = True（fallback 扫到 D:/dsh 有标志）
@@ -207,7 +207,7 @@ def test_save_user_config_empty_means_auto(tmp_path, monkeypatch):
 
 
 def test_stub_dir_is_not_goods(tmp_path, monkeypatch):
-    """⭐ 2026-11-02 回归：桩目录不许算「已安装」（WX-166 §三 报出的真问题）
+    """⭐ 2026-11-02 回归：桩目录不许算「已安装」（评审-166 §三 报出的真问题）
 
     实测原样（本机 TEMP 里真躺着一个）：
 
@@ -280,7 +280,7 @@ def test_menu_predicate_uses_installed_not_static():
     src = io.open(p, encoding='utf-8').read()
     tree = ast.parse(src)
 
-    # ⛔ 两个坑已避开（WX-150 §3.1 指出）：
+    # ⛔ 两个坑已避开（评审-150 §3.1 指出）：
     #   1. 原先只认 `ast.Attribute`（`_ad2.DSH_ROOT`），**同模块内的裸名 `DSH_ROOT`
     #      （`ast.Name`）完全抓不到**
     #   2. 原先只扫 desktop_pet.py，没扫 dsh_adapter.py（那里有裸名用法）

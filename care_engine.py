@@ -58,7 +58,7 @@ def judge_wakeup(api_key, model, state, char_name, record_cb=None, endpoint=None
                        f'对该信号的额外规则：若属于会议/通话、游戏、视频播放 → 视为高度专注，'
                        f'默认不打扰（act=no）；若属于写代码/设计或文档办公 → 可以打扰，但 message '
                        f'必须更短更轻；若属于浏览器/终端/其他 → 忽略此信号，按原规则判断。')
-        # 2026-10-31（WX-158 §1.3 追到底）：原先这里**没有任何 emotion 要求**，
+        # 2026-10-31（评审-158 §1.3 追到底）：原先这里**没有任何 emotion 要求**，
         #   所以主唤醒路径的关心件 emotion 永远是空串（实测 32 次合并全空）。
         #   回访路径早就写了「可带[emotion:xxx]」，这里漏了。
         prompt += ('只返回 JSON：{"act":"yes"或"no","message":"要说话时的1-2句自然关心语(act=yes时)",'

@@ -108,7 +108,7 @@ def test_step_two_not_prematurely_applied():
     assert '同批' in m2 and '半拉子' in m2
 
 
-# ── 6. ⭐ 追加条款 II（采纳微信侧过目意见）在位 ──────────────────────────
+# ── 6. ⭐ 追加条款 II（采纳外部评审过目意见）在位 ──────────────────────────
 def test_contract_appendix_ii_in_place():
     m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
     m2 = _read('docs/3.0-M2-UI导出契约-冻结v1.md')
@@ -205,7 +205,7 @@ def test_contract_appendix_e5_pending_readonly_in_place():
 def test_contract_appendix_e11_write_layers_in_place():
     # ⛔ **本条只管「契约文字与顺序」**（防误删、防闸门挪位）。
     #    **闸门是否真拦得住，见 `tests/test_relay_isolation.py`** ——
-    #    微信侧 WX-119 §2.1 实测：把闸门条件掏空成 `if False:`（403 文案保留）时，
+    #    外部评审 评审-119 §2.1 实测：把闸门条件掏空成 `if False:`（403 文案保留）时，
     #    本文件四条文字判据**全绿**，唯一拦住的是那两条行为用例。
     #    ⇒ 文字判据 = 守「契约还在」；行为判据 = 守「闸门管用」。两者不可互替。
     m1 = _read('docs/3.0-M1-API契约-冻结v1.md')
@@ -242,7 +242,7 @@ def test_contract_appendix_e11_write_layers_in_place():
 def test_contract_appendix_e13_e14_in_place():
     # ⛔ **本条只管「契约文字与顺序」**（防误删、防闸门挪位）。
     #    **闸门是否真拦得住，见 `tests/test_relay_isolation.py`** ——
-    #    微信侧 WX-119 §2.1 实测：把闸门条件掏空成 `if False:`（403 文案保留）时，
+    #    外部评审 评审-119 §2.1 实测：把闸门条件掏空成 `if False:`（403 文案保留）时，
     #    本文件四条文字判据**全绿**，唯一拦住的是那两条行为用例。
     #    ⇒ 文字判据 = 守「契约还在」；行为判据 = 守「闸门管用」。两者不可互替。
     m = _read('docs/3.0-M1-API契约-冻结v1.md')
@@ -301,7 +301,7 @@ def test_contract_xvi_pinned():
     assert 'D-编号' in c, '⭐ 必须写入编号规则（引用缺陷用 D-编号）✓'
 
 
-# ── ⭐ 契约版本化 ＋ 能力开关总览（⭐ 采纳微信侧 `-51` 草稿 1／4 ✓）──
+# ── ⭐ 契约版本化 ＋ 能力开关总览（⭐ 采纳外部评审 `-51` 草稿 1／4 ✓）──
 def test_contract_versioning_and_gate_overview():
     c = _read('docs/3.0-M1-API契约-冻结v1.md')
     for k in ('契约版本化', 'v1.16', '变更历史', '兼容规则', '弃用流程', '追加性变更'):

@@ -188,7 +188,7 @@ def _audit_failure(exc, *, actor='ai.calls', action='对话', context='对话', 
     约束：不抛异常 ✓ 审计不可用不影响主流程 ✓ 归因不可用时仍写一条退化的审计 ✓
 
     v1-B：``count=False`` 表示**弃权**（本轮已被用户 /stop 顶替）→ 只留 silent 日志，
-    **不计入判错统计**（微信侧 v1-B 定案 ②）✗。
+    **不计入判错统计**（外部评审 v1-B 定案 ②）✗。
     """
     diag = None
     try:
@@ -618,7 +618,7 @@ class PetWidget(QWidget):
         self._pending_choices = None   # v6.30 情感选项
         self._choices_requested = False
         # v6.30 饱食度巡检（每 5 分钟，低饱食提示）
-        # 2026-10-31（PC-237）：隐藏面板后随机演动作。
+        # 2026-10-31（评审-237）：隐藏面板后随机演动作。
         #   237 里我承诺「先用 260 尺寸渲染 12 个动作再定池子」——已兑现：
         #   12 张动作图全是 1024×1024 正方形，260 方块内不裁切、逐个可辨，
         #   所以池子用全部 12 个（见 random_action()）。
@@ -785,7 +785,7 @@ class PetWidget(QWidget):
                              fallback_voice=str(getattr(self, 'voice_fallback', '') or ''))
         # v6.76：「朗读内容」策略（summary 要点优先 / full 全文 / manual 只念选中的）
         self._voice_summary = ''
-        # 2026-10-26（WX-125）：上一轮「原 N 字 → 实际念 M 字」的实况，下一轮对话回灌给模型
+        # 2026-10-26（评审-125）：上一轮「原 N 字 → 实际念 M 字」的实况，下一轮对话回灌给模型
         self._spoken_report = ''
         self.voice_content_mode = str(getattr(self, 'voice_content_mode', 'summary') or 'summary')
         # v6.62：峰谷计价要认法定节假日（表内置，可从公共静态 JSON 年度更新，不花搜索额度）
@@ -1064,7 +1064,7 @@ class PetWidget(QWidget):
 
     @classmethod
     def _log_startup_env(cls):
-        """启动时打一行环境信息（2026-10-28，微信侧 WX-127 §5 建议）
+        """启动时打一行环境信息（2026-10-28，外部评审 评审-127 §5 建议）
 
         ⚠ **每进程只打一次**（`_env_logged` 类属性）：
         这条若按「每个实例打一次」，跑一轮全量会往真 `logs/pet.log` 漏 6~7 条
@@ -1112,7 +1112,7 @@ class PetWidget(QWidget):
         self.timer.start(33)
 
         self.greet_timer = QTimer(self)
-        # v3.1c（WX-107 §1）：原来这个定时器是**重复**的 ⇒ randint 只抽一次、
+        # v3.1c（评审-107 §1）：原来这个定时器是**重复**的 ⇒ randint 只抽一次、
         #   之后按固定间隔重复（Owner 说的「固定刷」）。改 singleShot + 每次重排。
         self.greet_timer.setSingleShot(True)
         self.greet_timer.timeout.connect(self._on_greet)
@@ -1262,7 +1262,7 @@ class PetWidget(QWidget):
                     # v6.51 多显示器修正：原先只拿 primaryScreen 判界、且把 x<0 一律当越界，
                     # 副屏在主屏左侧时（x 恒为负）每次启动都被强行拉回主屏。
                     #
-                    # ⛔ 2026-11-01 修（WX-164 §3.3）：这里原来用 `QApplication.screenAt(左上角)`
+                    # ⛔ 2026-11-01 修（评审-164 §3.3）：这里原来用 `QApplication.screenAt(左上角)`
                     #   判「落在哪块屏」，而 `_clamp_visible` 已改用 `_nearest_screen`。
                     #   两处判据并存 = 「写两份必然只修一份」（我自己给敏感名单加 ast 护栏
                     #   要防的正是这个形状，却在自己刚写的钳制里留了同一份）。
@@ -1339,7 +1339,7 @@ class PetWidget(QWidget):
         global CHARACTERS
 
         # ══ 结构性默认值区（2026-11-02 从下面的 259 行大 try 里移出）══════════════
-        # ⚠ 起因（WX-167 §6.3，我实测核实）：这段原本写在 `try:` 的**内部**。
+        # ⚠ 起因（评审-167 §6.3，我实测核实）：这段原本写在 `try:` 的**内部**。
         #   判据 tests/test_structural_defaults.py 指出：5 个默认值的赋值点
         #   （tray / _guide_inbox / drag_to_bin / screenshot_timer / balance_watch）
         #   全部落在 try 里 ⇒ try 内任何一句先抛（某个类常量被改名、threading 被误删），
@@ -1353,7 +1353,7 @@ class PetWidget(QWidget):
         #    属性根本不存在，`_restore_saved_theme()` 读 self._saved_theme 直接 AttributeError。
         #    同一个性质的问题这一轮共照出三处（asr 段缩进、voice_fallback 构造参数、这里）。
         self._saved_theme = 'default'
-        # 2026-10-31（PC-237）：随机动作开关的**结构性默认值**。
+        # 2026-10-31（评审-237）：随机动作开关的**结构性默认值**。
         # ⛔ 必须放在这里而不是下面的 cfg 分支 —— 没有 config.json 时
         #   （首次运行 / 测试隔离）cfg 分支不进，属性不存在 ⇒ getattr 兜底成 False，
         #   等于默认关掉了 Owner 要的功能。这个坑本函数注释里已记过一次。
@@ -1397,7 +1397,7 @@ class PetWidget(QWidget):
         # 2026-11-02：v3.1 余额盯梢开关的**结构性默认值**（默认开，与 cfg.get 的默认一致）。
         # ⛔ 原先只写在下面的 cfg 分支里 ⇒ 没有 config.json 时属性不存在，
         #   而 `toggle_balance_watch` 里是 `if self.balance_watch:` ⇒ AttributeError。
-        #   这是「结构性默认值只写分支」的第 6 次（前五次见 PC-317/tray 那条注释）。
+        #   这是「结构性默认值只写分支」的第 6 次（前五次见 评审-317/tray 那条注释）。
         self.balance_watch = True
         # 2026-11-02：三个**懒路径**默认值（只在 Live2D / 打字动画里赋值）。
         #   判据 test_structural_defaults 的读点：
@@ -1451,7 +1451,7 @@ class PetWidget(QWidget):
                 #   模型若能改自己的减分档位，等于让它自己决定要不要被扣分。
                 #   只由主人在设置界面改。
                 self.affection_mode = str(cfg.get('affection_mode') or 'full').strip().lower()
-                # 2026-10-31（PC-237 Owner 需求）：面板隐藏时随机演动作，默认开
+                # 2026-10-31（评审-237 Owner 需求）：面板隐藏时随机演动作，默认开
                 # 时机档：always / hidden / off（写错的值回落默认）
                 self.random_action_when = self._normalize_random_action_mode(
                     cfg.get('random_action_when'))
@@ -1793,7 +1793,7 @@ class PetWidget(QWidget):
     def _notify_failure_card(self, diag, *, gen=None, source=''):
         """⭐ 失败卡片**唯一出口**。
 
-        去重口径（微信侧 v1-B 定案 ③）：**同一任务代次只出一张卡**；同代次内**闸门卡优先** ✓。
+        去重口径（外部评审 v1-B 定案 ③）：**同一任务代次只出一张卡**；同代次内**闸门卡优先** ✓。
         返回：``'emitted'``（真出了卡）/ ``'deduped'``（同代次已出过）/ ``'error'``（出口自身出错）
         """
         try:
@@ -2582,7 +2582,7 @@ class PetWidget(QWidget):
             'Write-Output ($_.BaseName + "`t" + $sc.TargetPath) } } }'
         )
         try:
-            # 2026-10-31（WX-152 §六）：改走 safe_spawn —— 本程序无控制台，
+            # 2026-10-31（评审-152 §六）：改走 safe_spawn —— 本程序无控制台，
             # 裸 subprocess 会给子进程新建控制台窗口（用户看到闪一下黑框）。
             # 白名单已核：powershell 在 ALLOWED_PROGRAMS 里。
             r = pl.safe_spawn(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
@@ -3300,7 +3300,7 @@ class PetWidget(QWidget):
 
     # ============ 全局快捷键（v6.12，Ctrl+Alt+P 呼出） ============
     def _tray_allowed(self):
-        """该不该真的建托盘图标（2026-11-01，按 WX-164 §五.3 的建议）
+        """该不该真的建托盘图标（2026-11-01，按 评审-164 §五.3 的建议）
 
         ⛔ 为什么需要（WX 给的实测，我复核同意）：
            · 测试里 `PetWidget()` 构造点 85 处、分布 60 个文件
@@ -3340,7 +3340,7 @@ class PetWidget(QWidget):
            我这轮两次「单跑绿、全量红」都是这个原因。
 
         判据（2026-11-01 补全：原 docstring 只写了 '0'，实际代码也支持 '1'
-              —— WX-165 §二 指出的文档漂移，同 311 那个「docstring 写 Ctrl+Alt+S、
+              —— 评审-165 §二 指出的文档漂移，同 311 那个「docstring 写 Ctrl+Alt+S、
               实际 0x44」是一类）：
           · 环境变量 `PET_LOST_TIMER=1` → **强制开**（复核「定时器会挪窗口」时用）
           · 环境变量 `PET_LOST_TIMER=0` → 强制关（调试/测试用）
@@ -3652,7 +3652,7 @@ class PetWidget(QWidget):
                                order=10, hint='待办清单（点条目可切换完成）', replace=True)
             n += 1
         except Exception as _exc:
-            # ⚠ 两个面板**各自独立** try（WX-098 §五，2026-10-22）：
+            # ⚠ 两个面板**各自独立** try（评审-098 §五，2026-10-22）：
             #   原先共用一个 try 且标签写死 ':todo' —— 状态面板失败会被记成待办面板失败，
             #   排查时被引到错模块。拆开后谁失败谁留痕，互不牵连。
             _silent_log('_register_builtin_panels:todo', _exc)
@@ -4718,7 +4718,7 @@ class PetWidget(QWidget):
                     CHARACTERS[self.current]['name'], self.current, cur_model, self.personality,
                     style_hint, lang_hint, mem_hint, todo_hint, mem_rule, plugin_rules_hint, affection_hint)},
             ] + ctx
-            # 2026-10-26（WX-125）：把「上一轮语音实际念了多少字」回灌给模型。
+            # 2026-10-26（评审-125）：把「上一轮语音实际念了多少字」回灌给模型。
             #   只回灌一次（_take_spoken_report 会清空），且只在明显少念时才有内容。
             #   放在 system 之后、对话之前，避免污染用户/助手的对话轮次。
             try:
@@ -5766,7 +5766,7 @@ class PetWidget(QWidget):
             return
         # 建不出来：退回静态 + 说清楚为什么
         self.display_mode = 'static'
-        # 2026-10-25 第四条静默路径（WX-119 §3.5）：**必须把配置也改掉**。
+        # 2026-10-25 第四条静默路径（评审-119 §3.5）：**必须把配置也改掉**。
         #   只改内存的话，_load_ai_config（8 个调用点，含 ask_ai 每次聊天前）
         #   会无条件 `self.display_mode = cfg.get('display_mode','static')`
         #   把它翻回 'live2d' ⇒ 降级只活到用户说的第一句话，之后
@@ -5787,7 +5787,7 @@ class PetWidget(QWidget):
             _silent_log('_apply_display_mode', _exc)
 
     def _set_random_action(self, mode):
-        """设置「什么时候随机演动作」（2026-10-31，PC-237 + Owner 追加时机可选）
+        """设置「什么时候随机演动作」（2026-10-31，评审-237 + Owner 追加时机可选）
 
         mode: 'always' / 'hidden' / 'off'。写错的名字返回 False 且不改档位 ——
               不能因为配置里一个字母写错就静默变成某一档。
@@ -6495,7 +6495,7 @@ class PetWidget(QWidget):
         self.peek_sleep_pixmap = QPixmap(ps) if os.path.exists(ps) else None
         pbs = asset(key, 'peek_bottom_sleep')
         self.peek_bottom_sleep_pixmap = QPixmap(pbs) if os.path.exists(pbs) else None
-        # 缺陷 1（Owner 2026-09-25 22:58 裁定）：**饥饿贴边立绘** ✓ 资产由微信侧产
+        # 缺陷 1（Owner 2026-09-25 22:58 裁定）：**饥饿贴边立绘** ✓ 资产由外部评审产
         # 命名对齐现有：flash_peek_hungry.png / flash_peek_top_hungry.png / flash_peek_bottom_hungry.png
         ph = asset(key, 'peek_hungry')
         self.peek_hungry_pixmap = QPixmap(ph) if os.path.exists(ph) else None
@@ -6523,7 +6523,7 @@ class PetWidget(QWidget):
         if key not in self.scene_imgs:
             pth = asset(self.current, key)
             if os.path.exists(pth):
-                # ⛔ 2026-11-05（WX-180 ⑤ 指出，我实测坐实）：不能直接存 QPixmap(pth)。
+                # ⛔ 2026-11-05（评审-180 ⑤ 指出，我实测坐实）：不能直接存 QPixmap(pth)。
                 #   读成 null 时若照样入缓存，`key in self.scene_imgs` 会**恒为 True** ⇒
                 #   文件明明在盘上、下一次就能读成功，代码也不再重试 ⇒
                 #   **一次瞬时加载失败 = 该场景动作在本次会话内永久失效**（要重启桌宠）。
@@ -6536,7 +6536,7 @@ class PetWidget(QWidget):
                 pm = QPixmap(pth)
                 if not pm.isNull():
                     self.scene_imgs[key] = pm
-            # v6.79（采纳微信侧 89 号加固建议）：**资源漏配不再静默** ——
+            # v6.79（采纳外部评审 89 号加固建议）：**资源漏配不再静默** ——
             # `asset()` 对任何键都会兜底到 fallback / {role}_idle.png ✗ → “漏配”永远不被发现，
             # 而它正是今天缺陷 75 的共同土壤 ✓ → 无专属素材时记一条审计 warning（每键只一次 ✓）
             try:
@@ -7005,7 +7005,7 @@ class PetWidget(QWidget):
         1. 气泡控件还没建好（启动早期）
         2. 气泡正被占用（`_speak_busy`）—— 见下
 
-        ⚠ v3.6 fix（WX-111 §2 报的 P0，我自己复现确认）：
+        ⚠ v3.6 fix（评审-111 §2 报的 P0，我自己复现确认）：
           原来只判「忙 **且** 队列满」，漏了「忙但未满」这一种。此时 say_plain
           走的是排队分支（不立即显示），本方法却返回 True ⇒ `_notify` 把状态条
           hide 掉 ⇒ **气泡还停在上一句、状态条被收起，两条通道同时不可用**，
@@ -7111,7 +7111,7 @@ class PetWidget(QWidget):
         if not text:
             return
         if threading.current_thread() is not threading.main_thread():
-            # v3.1c（WX-107 §3）：原来漏转发 mark_purpose → 非主线程调用时
+            # v3.1c（评审-107 §3）：原来漏转发 mark_purpose → 非主线程调用时
             #   重入后走默认 True ⇒ 静默打上 care 用途标（串到下一次真对话）
             self._run_on_ui(lambda t=text, k=kind, m=mark_purpose:
                             self.say_care(t, k, m))
@@ -7246,7 +7246,7 @@ class PetWidget(QWidget):
 
     def _warn_unknown_scene(self, key):
         """未登记的场景动作键（v6.79 缺陷 75）：降级保可用，同时**写审计 warning 保可诊** ——
-        未知键是「代码与数据不同步」的信号 ✗，完全静默会把它丢掉（定稿依据：微信侧 88 号 ✓）。"""
+        未知键是「代码与数据不同步」的信号 ✗，完全静默会把它丢掉（定稿依据：外部评审 88 号 ✓）。"""
         try:
             import governance as _gov
             _gov.log_event('warn', 'ui.scene', '场景动作',
@@ -7455,7 +7455,7 @@ class PetWidget(QWidget):
         #     B QWidget(dlg) 构造带 parent     → 能激活     ✓
         #     C QWidget() 无 parent            → 不能激活 ✗
         #   ⇒ 所以先探测模态窗，再决定构造参数；不能建完再 setParent。
-        # v3.1e（WX-108 §6.2）：**显式传参优先，全局探测兜底**
+        # v3.1e（评审-108 §6.2）：**显式传参优先，全局探测兜底**
         #   理由：调用方（设置面板）天然知道自己正在模态里，比瞬时探测准；
         #   探测有窗口期（exec() 之前 / show() 之后 exec() 之前 / 平台延迟）。
         #   右键菜单那条路没有 parent 可传，才落到探测。
@@ -7709,11 +7709,11 @@ class PetWidget(QWidget):
                 用户会以为「关掉设置，统计窗自己没了」。
                 setParent(None) 在 Qt 里会隐藏窗口，故随后复位位置 + show()。
 
-                v3.1e（WX-108 §6.1）两点加固：
+                v3.1e（评审-108 §6.1）两点加固：
                 1. 先记 isVisible —— 本来不可见的窗口别 show（否则意外弹出）
                 2. 顺序必须 move 在 show 之前（反了会先闪一下旧位置）
 
-                ONLY finished, NOT destroyed（v3.1f，WX-109 §4.2 报的注释反实现）
+                ONLY finished, NOT destroyed（v3.1f，评审-109 §4.2 报的注释反实现）
                    destroyed 在 C++ 析构**过程中**发出，此时回调 Qt 属未定义行为；
                    实测接上后跑全量 -> rc=0xC0000005（ACCESS_VIOLATION）。
                    且逻辑上也晚了：parent 析构时子窗口已被一起销毁，setParent 无对象可救。
@@ -9750,7 +9750,7 @@ class PetWidget(QWidget):
             ok = bool(v and v.speak(picked))
             if ok:
                 self._voice_note_actual()
-                # 2026-10-26（WX-125）：记下「原 N 字 → 实际念 M 字」，下一轮告诉模型。
+                # 2026-10-26（评审-125）：记下「原 N 字 → 实际念 M 字」，下一轮告诉模型。
                 #   只有明显少念时才留（见 _record_spoken_report 的阈值），否则是纯噪声。
                 try:
                     self._record_spoken_report(
@@ -9953,7 +9953,7 @@ class PetWidget(QWidget):
         return val
 
     def _record_spoken_report(self, source_text, picked, spoken_text):
-        """记下「原 N 字 → 实际念 M 字」，供下一轮回灌给模型（2026-10-26，WX-125）
+        """记下「原 N 字 → 实际念 M 字」，供下一轮回灌给模型（2026-10-26，评审-125）
 
         起因（Owner 实测）：让它念《过秦论》，它写了 1419 字、最后说「念下来两千字出头，
         我这边读完确实费了点劲」，而**实际只念了开头的「好，那我开念」和结尾的
@@ -10994,7 +10994,7 @@ class PetWidget(QWidget):
         if emotion:
             self._apply_emotion(emotion)
         # v6.60 批 3：主动关心走独立「关心气泡」（左侧色条 + 可点开接话 + 入回忆日志）
-        # v3.2（2026-10-31，WX-155 §4.3 指出）：这里**已经把 emotion 解析出来了**，
+        # v3.2（2026-10-31，评审-155 §4.3 指出）：这里**已经把 emotion 解析出来了**，
         #   原先只把 display 传给 say_care ⇒ 回忆里 emotion 永远是空串，
         #   而真实库实测 200 条 event 全部 emotion='' 正是这个原因。
         #   say_care 的文本里没有 [emotion:] 标签时，用这个解析结果兜底。
@@ -11219,7 +11219,7 @@ class PetWidget(QWidget):
             return
         self.chat_input.setFocus()
 
-    # ---------- 随机动作定时器（2026-10-31，PC-237 Owner 需求） ----------
+    # ---------- 随机动作定时器（2026-10-31，评审-237 Owner 需求） ----------
     #: 演动作的时机（Owner 2026-10-31：「给他做成一个可选项吧，就选择什么时候随机演动作」）
     #:   always  一直在演（**默认**）—— 面板开着也演
     #:   hidden  只在聊天面板收起时演（上一版的行为）
@@ -11249,7 +11249,7 @@ class PetWidget(QWidget):
           实测 config.json 里从未出现，也没有默认配置模板会写它
           ⇒ 没有真实配置需要迁移。
           为它保留分支的代价是：一条死配置 ＋ 一段零调用代码
-          （见 PC-298 §4.6 对「写了却零调用」的定性）。
+          （见 评审-298 §4.6 对「写了却零调用」的定性）。
         """
         s = str(value or '').strip().lower()
         return s if s in PetWidget.RANDOM_ACTION_MODES else PetWidget.RANDOM_ACTION_DEFAULT
@@ -11260,7 +11260,7 @@ class PetWidget(QWidget):
     RANDOM_ACTION_MAX_MS = 150_000
 
     # ---------- 运行中追加消息（「引导」）----------
-    #: 口径照 AutoClaw 实测（PC-309）：设置里叫「运行中追加消息」，两档
+    #: 口径照 AutoClaw 实测（评审-309）：设置里叫「运行中追加消息」，两档
     #:   queue = 等这一轮结束后再处理
     #:   guide = 立即并入当前任务（⛔ 不中断正在进行的模型请求）
     FOLLOW_UP_MODES = ('queue', 'guide')
@@ -11679,7 +11679,7 @@ class PetWidget(QWidget):
             if new_total is None:
                 return
             import datetime as _dt
-            # v3.1c（WX-107 §2）：基线 = **上次已结清**的点，与显示缓存解耦。
+            # v3.1c（评审-107 §2）：基线 = **上次已结清**的点，与显示缓存解耦。
             #   旧实现直接拿 prev（上一次查询）当基线，而 _on_balance_result 已经
             #   先 set_balance 推进了缓存 ⇒ 任何 early-return 都让这段差额**永久丢失**
             #   （小额高频：每次 ¥0.004，一小时 ¥0.048 永远不报）。
@@ -11698,7 +11698,7 @@ class PetWidget(QWidget):
                 base_total = float(prev.get('total'))
             now = _dt.datetime.now()
             # 余额上升（充值 / 回冲）→ 重置基线，不报
-            # ⚠（WX-108 §3.1）接口只给余额快照、不给交易流水，
+            # ⚠（评审-108 §3.1）接口只给余额快照、不给交易流水，
             #   **同窗口内既有充值又有消费时无法分离** —— 这段消费会被吞。
             #   无解，但必须留痕：与「窗口超限」那条对齐（同为放弃归因，
             #   不能一条留 log、一条静默，自己内部就不一致）。
@@ -12133,7 +12133,7 @@ class PetWidget(QWidget):
         """⭐ B-乙 约定（2026-09-26 修复 `emit` 真错 ✗）：消费器 `emit` 传的是 **dict** ✓
 
         原实现直接接 `ui_call_signal.emit` ✗ —— 而 host 端 `connect(lambda fn: fn())`
-        把参数当**可调用** ✗ → `TypeError: 'dict' object is not callable` ✗（微信侧真机联测实测 ✓）
+        把参数当**可调用** ✗ → `TypeError: 'dict' object is not callable` ✗（外部评审真机联测实测 ✓）
         → 此处桥接：先包成可调用，再经 `ui_call_signal` 回主线程 ✓（约定**两侧对齐** ✓）
         """
         try:
@@ -12284,7 +12284,7 @@ class PetWidget(QWidget):
 
     def _open_settings(self, page=0):
         """打开统一设置窗口（page 指定初始分类）"""
-        # v3.1e（WX-108 §6.2）：设置页里「统计悬浮窗」按钮应把 dlg 传进来
+        # v3.1e（评审-108 §6.2）：设置页里「统计悬浮窗」按钮应把 dlg 传进来
         #   （显式传参优先于 activeModalWidget 探测；设置页自己知道在模态中）
         dlg = SettingsDialog(self, MODEL_REGISTRY, parent=self)
         try:
@@ -12433,7 +12433,7 @@ class PetWidget(QWidget):
         except Exception:
             _dsh_open_panel = None
         if _dsh_open_panel is not None:
-            # ⭐ 检测不到 DSH 时**标注出来**（微信侧 `WX-…-13` §4.2 ✓ 对下载的人友好 ✓）
+            # ⭐ 检测不到 DSH 时**标注出来**（外部评审 `评审-13` §4.2 ✓ 对下载的人友好 ✓）
             _dsh_label = T('dsh_panel')
             try:
                 import dsh_adapter as _ad2
@@ -12472,7 +12472,7 @@ class PetWidget(QWidget):
     def _open_dsh_panel(self):
         """3.0（P0 **修**）：把 DSH 面板作为独立窗口打开 —— ⭐ **绝不在主线程等** ✗
 
-        Owner 2026-10-04 01:53 实测"点 DSH → 程序未响应"✗；微信侧 `WX-…-14` 确诊：
+        Owner 2026-10-04 01:53 实测"点 DSH → 程序未响应"✗；外部评审 `评审-14` 确诊：
         旧实现**同步**调用 `open_panel()`（内部 `sleep(2)` 轮询最长 45s ＋ 起 PowerShell
         冷启动 ＋ 必要时**重启 DSH 服务** ✓）→ 最坏 ≈60s ✗ → Windows 判"未响应" ✗。
 

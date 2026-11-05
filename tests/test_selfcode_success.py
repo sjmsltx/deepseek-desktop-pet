@@ -40,7 +40,7 @@ def _open_self_edit_gate(monkeypatch):
 
 
 def _sandbox(name):
-    # ⭐ 微信侧 `WX-…-20261004-02` §三.3 实测揪出的真根因：
+    # ⭐ 外部评审 `评审-02` §三.3 实测揪出的真根因：
     #   固定目录名 ＋ `rmtree(ignore_errors=True)`（**失败静默** ✗，如文件被占 ✓）
     #   ＋ `makedirs()` **无 `exist_ok`** ✗ → 一旦有遗留目录（上次被中断 ✓）
     #   → `FileExistsError` ✗ → 表现为「单跑绿 ✓ 全量红 ✗」的**假失败** ✗

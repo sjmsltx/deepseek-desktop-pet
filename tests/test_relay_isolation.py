@@ -172,12 +172,12 @@ def test_single_server_switch_matches_argument(enable, monkeypatch):
         httpd.server_close()
         th.join(timeout=5)
 
-# ---------------- ③ 兜底必须 fail-closed（2026-10-25 WX-119 §3.1） ----------------
+# ---------------- ③ 兜底必须 fail-closed（2026-10-25 评审-119 §3.1） ----------------
 
 def test_bare_handler_without_switch_attribute_is_closed(monkeypatch):
     """不带 `actions_allowed` 属性的处理器，闸门必须**关**，不许读模块级全局
 
-    背景（微信侧 WX-119 §3.1 实测）：修完实例属性之后，闸门写的是
+    背景（外部评审 评审-119 §3.1 实测）：修完实例属性之后，闸门写的是
         if not getattr(self, 'actions_allowed', ACTIONS_ALLOWED):
     兜底仍然回落到模块级全局 —— 而那个全局的语义是
     「**本进程最后一次 create_server 的值**」＝ 别人留下的状态。

@@ -952,7 +952,7 @@
     }
     var nr = c.needs_restart || [], wr = c.writable || [];
     // ⭐ 两种形状都兼容（⭐ 对方 `5d35e43` 实际发的是 `items[]` ✓ ＝ 我方 `-51` 草稿 3 ✓；
-    //    PC-165 §2.1 的 `keys{}` 作为兼容分支保留 ✓）⇒ ⭐ 免得“契约改了界面就不显示” ✗
+    //    评审-165 §2.1 的 `keys{}` 作为兼容分支保留 ✓）⇒ ⭐ 免得“契约改了界面就不显示” ✗
     var rows = [];
     if (Array.isArray(c.items)) {
       rows = c.items.map(function (it) {

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""M1 消息内核（`relay_log.py`）**边界/语义用例** —— 微信侧出题（A–I + N1–N5）。
+"""M1 消息内核（`relay_log.py`）**边界/语义用例** —— 外部评审出题（A–I + N1–N5）。
 
 配套：
   · 用例设计（冻结）：`workspace\\输出\\3.0-M1用例设计_冻结版v2_20260921.md`
@@ -16,7 +16,7 @@
 import pytest
 from pathlib import Path
 
-relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现（微信侧用例已就位，落地即生效）')
+relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现（外部评审用例已就位，落地即生效）')
 
 
 # ------------------------------------------------------------------ 夹具

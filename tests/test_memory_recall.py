@@ -194,7 +194,7 @@ def test_prompt_hint_order_is_chronological():
 def test_prompt_hint_pro_role_empty_is_safe():
     """pro 角色库内 0 条时必须返回空串（不能崩）
 
-    事实依据（WX-155 §2.2）：affection.json 顶层只有 flash，
+    事实依据（评审-155 §2.2）：affection.json 顶层只有 flash，
     pro 角色从未创建状态 ⇒ memories.json 里 role 全是 flash。
     这是「从没切过 pro」的结果，不是采集失败；这里锁住不崩。
     """

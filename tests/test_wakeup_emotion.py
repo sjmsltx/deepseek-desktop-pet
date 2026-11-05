@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""修复：唤醒路径从不产 emotion（WX-158 §1.3 追到底）
+"""修复：唤醒路径从不产 emotion（评审-158 §1.3 追到底）
 
 158 观察到「emotion 修了但库里还是 0」。我 304 只修了「解析出 emotion 却只传 display」，
 但**解析结果本身一直是 None** —— 因为主唤醒路径 care_engine.judge_wakeup 的 prompt

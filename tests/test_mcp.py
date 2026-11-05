@@ -185,7 +185,7 @@ def test_stop_terminates_child_process(tmp_path):
                            text=True).stdout
     assert str(pid) in alive, '子进程没起来？'
     conn.stop()
-    # 2026-10-25（WX-119 §5）：sleep(2) 盲等等子进程死 → 轮询 tasklist，上限 30 秒。
+    # 2026-10-25（评审-119 §5）：sleep(2) 盲等等子进程死 → 轮询 tasklist，上限 30 秒。
     #   盲等在满载下会假红；判据（断开后进程必须没了）不变。
     _t0 = time.time()
     while True:

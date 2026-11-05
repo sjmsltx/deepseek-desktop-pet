@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """⭐ C2／`D5-2`：⚙ 配置面的**只读视图**（`GET /api/config` ✓ 纯读 ✗ 不改任何东西 ✓）。
 
-⭐ 形状来源：⭐ 微信侧 `WX-桌宠-20261005-51` §草稿 3 ✓（⭐ 比 `PC-…-165` §2.1 更细 ✓ 以其为准 ✓）：
+⭐ 形状来源：⭐ 外部评审 `评审-51` §草稿 3 ✓（⭐ 比 `PC-…-165` §2.1 更细 ✓ 以其为准 ✓）：
     `{version, items:[{key,value,scope,source,restart,writable,note}], hidden:[键名…]}`
 ⭐ 三条硬约束（⭐ `PC-…-165` §2.1 ✓）：
     ① ⭐ **纯读** ✗（调用前后日志条数不变 ✓ 有护栏 ✓）
@@ -14,7 +14,7 @@ import io
 import json
 import os
 
-VERSION = 'v1.16'          # ⭐ 契约版本（⭐ 承 `WX-…-51` 草稿 1 ✓ 追加 16 次 ⇒ v1.16 ✓）
+VERSION = 'v1.16'          # ⭐ 契约版本（⭐ 承 `评审-51` 草稿 1 ✓ 追加 16 次 ⇒ v1.16 ✓）
 
 # ⭐ 敏感判据（⭐ 命中即**不入 items 的值** ✗ 只进 `hidden` 名 ✓）
 # ⚠️ 我方第一版用 `'token'` 做子串 ✓ ⇒ ⭐ **把 `max_tokens`／`roundtable_max_tokens` 也误判成密钥** ✗

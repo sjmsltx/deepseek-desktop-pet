@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`_bump` 的 origin 保护（2026-11-03，WX-174 §四-b 报出）
+"""`_bump` 的 origin 保护（2026-11-03，评审-174 §四-b 报出）
 
 ## 缺陷
 
@@ -56,7 +56,7 @@ def test_pet_entry_weight_does_not_grow_on_hit(tmp_path):
 
 
 def test_pet_entry_weight_never_reaches_max(tmp_path):
-    """把 WX-158 的症状直接写成断言：不论命中多少次，都不许到 WEIGHT_MAX。"""
+    """把 评审-158 的症状直接写成断言：不论命中多少次，都不许到 WEIGHT_MAX。"""
     ev = _ev(tmp_path)
     pool = [_mem('pet', weight=me.WEIGHT_NEW)]
     for _ in range(50):

@@ -101,7 +101,7 @@ def _post(port, path, body, connect_attempts=3):
       —— 这两种情况一律不重试，直接抛给断言。
 
     ⚠ 2026-10-31 二次修正：上一版这里整体 try/except 重试，且**`time` 未导入**
-      ⇒ 重试分支一进去就 `NameError`，从没执行过一次（WX-151 §二 指出，我实测确认）。
+      ⇒ 重试分支一进去就 `NameError`，从没执行过一次（评审-151 §二 指出，我实测确认）。
       那次报的「改后 8/8 绿」只是没撞上 10053，不是修复起了作用。
 
     ⛔ 为什么不掩盖真问题：断言仍是 `st == 202`；服务端真回错状态照样红。
@@ -114,7 +114,7 @@ def _post(port, path, body, connect_attempts=3):
             c.connect()
         except _TRANSPORT_ERR as exc:
             last = exc
-            # 留痕：重试是为了容错，不是为了消音（WX-151 §5.3）
+            # 留痕：重试是为了容错，不是为了消音（评审-151 §5.3）
             print('  ⚠ 连接未建立，重试 %d/%d：%r' % (i + 1, connect_attempts, exc))
             c.close()
             time.sleep(0.05 * (i + 1))
@@ -247,7 +247,7 @@ def test_endpoints_do_not_execute():
 
 
 
-# ── 10. ⭐ 只读 GET /api/pending（界面侧“真三态”所需 ✓ 微信侧提请 ✓）──
+# ── 10. ⭐ 只读 GET /api/pending（界面侧“真三态”所需 ✓ 外部评审提请 ✓）──
 def test_get_pending_shows_real_three_states(srv):
     """⭐ 投递 → 人触发 → 结果回写，全过程能被只读端点看见 ✓。"""
     port, base = srv

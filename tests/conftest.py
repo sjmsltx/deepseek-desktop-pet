@@ -109,7 +109,7 @@ _TEST_LOG_DIR = None
 def _isolate_governance_logs(tmp_path_factory):
     """把 governance 的日志目录指到临时目录 —— 测试**不得**污染真实审计日志
 
-    背景（WX-154 发现，2026-10-31 实测复现并定位到根因）：
+    背景（评审-154 发现，2026-10-31 实测复现并定位到根因）：
       实测跑一轮引用 governance 的 21 个测试文件，真实 logs 被写入：
           logs/audit_<今天>.jsonl  +8 行
           logs/governance.log      +1 行

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """`asset_op` 真执行护栏（Owner 2026-10-04 00:15 已批 ✓）。
 
-口径三条（微信侧 `WX-…-20261004-02` §二 ✓）：① 先备份后写入 ✓ ② 逐文件＋逐张探针 ✓
+口径三条（外部评审 `评审-02` §二 ✓）：① 先备份后写入 ✓ ② 逐文件＋逐张探针 ✓
 ③ dry-run 也落结果 ✓（且 ⭐ **不得**让真跑被幂等跳过 ✗）
 """
 import hashlib
@@ -138,7 +138,7 @@ def test_probe_passes_clean_image(tmp_path):
     assert hole < 0.5 and ma > 230, '⭐ 干净实心图应过探针 ✓'
 
 
-# ── 8. ⭐ 微信侧揪出的伪角色 bug：`_` 开头目录不得算角色 ✗ ─────────────
+# ── 8. ⭐ 外部评审揪出的伪角色 bug：`_` 开头目录不得算角色 ✗ ─────────────
 def test_assets_payload_skips_underscore_dirs(repo):
     os.makedirs(os.path.join(repo, 'assets_3.0', '_raw_backup', 'alpha'), exist_ok=True)
     _png(os.path.join(repo, 'assets_3.0', '_raw_backup', 'alpha', 'alpha_happy.png'))
@@ -245,7 +245,7 @@ def test_validation_set_portrait_payload_shape():
 
 
 
-# ── 11. ⭐ 已齐备则默认跳过（微信侧 `-20261004-08` §3.2 建议 ✓）──────────
+# ── 11. ⭐ 已齐备则默认跳过（外部评审 `-20261004-08` §3.2 建议 ✓）──────────
 def test_pipeline_skips_when_already_complete(repo):
     """齐备时不白写 ✗ 且 **mtime 不变** ✓（防"资产是否被动过"难以判断 ✗）。"""
     payload = _req(op='run_pipeline')['payload']
@@ -280,7 +280,7 @@ def test_pipeline_dry_run_says_would_run(repo):
     assert ok is True and ('dry-run' in d or '已齐备' in d), d
 
 
-# ── 12. ⭐ add_state 语义明报（微信侧 §3.1 提请 ✓ 采纳并写明 ✓）────────
+# ── 12. ⭐ add_state 语义明报（外部评审 §3.1 提请 ✓ 采纳并写明 ✓）────────
 def test_add_state_requires_first_image_with_clear_message(repo):
     """⭐ 本 op **不是**"只登记状态名" ✗ → 必须给首图 ✓，且原因说清 ✓。"""
     ok, d, arts = asset_ops.do_asset_op(
@@ -305,7 +305,7 @@ def test_add_state_succeeds_with_image(repo):
 def test_failed_op_can_be_retried_after_fix(repo):
     """⭐ 故事：投递 → 失败（源图还没到位）→ 补上源图 → **必须能重跑成功** ✓
 
-    微信侧 `WX-…-20261004-09` §4.2 实测：旧行为是"失败也记已完成" ✗ →
+    外部评审 `评审-09` §4.2 实测：旧行为是"失败也记已完成" ✗ →
     修好后重跑仍"幂等跳过、毫无反应" ✗ → 用户以为**还没修好** ✗。
     """
     d = os.path.join(repo, 'collab', 'pending')
@@ -346,7 +346,7 @@ def test_success_is_consumed(tmp_path):
     assert done == {'ok0001'}, '⭐ 只有成功且非 dry-run 才算已消费 ✓：%s' % done
 
 
-# ── 14. ⭐ payload 顶层未知字段必须拒（微信侧 §4.1 ✓ 与外层同口径 ✓）────
+# ── 14. ⭐ payload 顶层未知字段必须拒（外部评审 §4.1 ✓ 与外层同口径 ✓）────
 def test_project_edit_rejects_unknown_top_level_keys():
     req = {'type': 'project_edit', 'op_id': 'evil0001',
            'payload': {'changes': {'name': 'x'}, 'evil': 1}}
@@ -359,7 +359,7 @@ def test_project_edit_rejects_unknown_top_level_keys():
     assert ok2 is True, why2
 
 # ── ⭐ 安全（2026-10-05）：`_find_source` 的路径穿越必须被拒 ✗ ──
-#    起因：微信侧实测 `assets_3.0/../../README.md` **满足前缀但规范化后出仓库** ✗
+#    起因：外部评审实测 `assets_3.0/../../README.md` **满足前缀但规范化后出仓库** ✗
 #    ⇒ ⭐ 越界读 ＋ 拷进资产目录（且**不需 `--enable-actions`** ✗）
 def test_find_source_rejects_traversal():
     """⭐ 有牙：⭐ 4 条穿越写法**必须**被拒 ✗（真跑 ✓）。"""

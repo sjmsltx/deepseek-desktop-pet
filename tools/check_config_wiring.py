@@ -94,7 +94,7 @@ def find_key_readers(key):
             "['%s']" % key, '["%s"]' % key)
     hits = []
     for root, dirs, files in os.walk(REPO):
-        # 2026-10-25（WX-119 §6.2）：`backup/` 也必须跳过 —— 它是 gitignored、
+        # 2026-10-25（评审-119 §6.2）：`backup/` 也必须跳过 —— 它是 gitignored、
         #   未跟踪的本地目录（.gitignore:59）。扫它会让同一份代码「在这台机绿、
         #   在别人的 clone 上红」⇒ **判据不可复现 = 不是判据**。
         if any(x in root for x in ('.git', '__pycache__', 'release_build',
@@ -206,7 +206,7 @@ def attr_used_elsewhere(src, attr, skip_in_load=True):
             continue
         # self.ATTR（⚠ 只算**读**：ast.Attribute 同时用于赋值与读取，
         #   不加 ctx 判断会把「只写属性」误判成「有人在用」⇒ 假绿。
-        #   2026-10-25 WX-119 §6.2：之前是不分 ctx 的，write-only 属性全漏）
+        #   2026-10-25 评审-119 §6.2：之前是不分 ctx 的，write-only 属性全漏）
         if (isinstance(n, ast.Attribute) and n.attr == attr
                 and isinstance(n.value, ast.Name) and n.value.id == 'self'
                 and isinstance(n.ctx, ast.Load)):

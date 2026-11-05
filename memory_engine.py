@@ -338,7 +338,7 @@ def build_l0_block(facts, current, budget=320):
 def build_core_block(facts, current, budget=400):
     """【已弃用，请用 build_l0_block】核心记忆块的旧实现。
 
-    保留它只为兼容 regression_test.py；**生产路径零调用**（WX-155 §4.1 复核）。
+    保留它只为兼容 regression_test.py；**生产路径零调用**（评审-155 §4.1 复核）。
     它没有身份特判、按 importance+recency 纯排序，与 build_l0_block 语义不同 ——
     ⛔ 改「核心记忆」时请改 build_l0_block，改这里不会生效。
     """

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """`asset_op` 真执行（条款 VI/E6 · Owner 2026-10-04 00:15「我批准」✓）
 
-⭐ 三条口径（微信侧 `WX-…-20261004-02` §二 ✓ 我方采纳 ✓）：
+⭐ 三条口径（外部评审 `评审-02` §二 ✓ 我方采纳 ✓）：
   ① **先备份后写入** ✓（原件进 `_raw_backup/` ✓；`replace` ⛔ 绝不覆盖原件 ✗）
   ② **逐文件 ＋ 逐张探针** ✓（⛔ 不按目录跑 ✗ —— 免得重压已完成那批 ✗）
   ③ **dry-run 也落结果** ✓（标 `dry_run:true` ✓）
@@ -101,7 +101,7 @@ def _variants_exist(src: str) -> bool:
 def _run_pipeline(base: str, src: str, dry: bool, force: bool = False) -> tuple:
     """⭐ 逐文件跑三合一（出 `_alpha` / `_chroma` ✓）；返回 `(ok, detail)` ✓。
 
-    ⭐ 微信侧 `WX-…-20261004-08` §3.2 建议已采纳：**已齐备则默认跳过** ✗ ——
+    ⭐ 外部评审 `评审-08` §3.2 建议已采纳：**已齐备则默认跳过** ✗ ——
        否则会在齐备的格上**白写一遍** ✗（17 模型 × 多状态开销不小 ✗）
        ＋ **刷新 mtime** 会让“资产是否被动过”难以判断 ✗；要重跑请显式 `force=true` ✓。
     """
@@ -180,7 +180,7 @@ def do_set_portrait(base: str, payload: dict, dry: bool = False) -> tuple:
         return False, '档案保存失败：%s' % (getattr(reg, 'last_error', '') or '未知'), []
     detail = ('已设 %s → portrait=%r（原 %r）｜ ⚠️ **重启桌宠后生效**'
               '（契约 ③-1：启动读一次、运行中不热加载 ✓）') % (role, pfx, old)
-    # ⭐ 目录暂不存在：**只登记不拦** ✓（照微信侧口径 ✓）—— 但要**提示** ✓ 不静默 ✗
+    # ⭐ 目录暂不存在：**只登记不拦** ✓（照外部评审口径 ✓）—— 但要**提示** ✓ 不静默 ✗
     if pfx:
         ex = any(os.path.isdir(os.path.join(base, r, pfx)) for r in (EFF_NAME, POOL_NAME))
         if not ex:
@@ -213,7 +213,7 @@ def do_asset_op(base: str, payload: dict, dry: bool = False) -> tuple:
     src = _find_source(base, role, state, source, ref)
     if not src or not os.path.isfile(src):
         if op == 'add_state':
-            # ⭐ 语义写明（微信侧 `WX-…-20261004-08` §3.1 提请 ✓）：
+            # ⭐ 语义写明（外部评审 `评审-08` §3.1 提请 ✓）：
             #    ⛔ 本 op **不是**“只登记一个状态名” ✗ —— 状态的“存在”在本项目里**就是文件** ✓
             #    （没有图 ＝ 界面/渲染都看不到它 ✓ 无处可登记 ✗）→ 故 **首图必填** ✓
             return False, ('add_state 需要**首图** ✗ —— 本项目里“状态的存在”就是文件本身 ✓；'

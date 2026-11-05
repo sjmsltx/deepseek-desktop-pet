@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """L4-1 护栏：`recent_errors()` 纯函数整理层 + 与审计**同源**实测
 
-微信侧 L4-1 核验清单（2026-09-25 `WX-桌宠-20260925-11`）：
+外部评审 L4-1 核验清单（2026-09-25 `评审-11`）：
   ① 倒序 ② 条数上限 ③ 字段齐 ④ **与审计同源实测**（写一条失败 → 能查到）
 """
 from __future__ import annotations
@@ -74,7 +74,7 @@ def test_only_failure_kinds_kept():
 
 
 def test_summary_strips_layer_fragments():
-    """打磨（微信侧 2026-09-25 指出）：摘要不得残留 `未知 ｜` 这类引导词 ✗"""
+    """打磨（外部评审 2026-09-25 指出）：摘要不得残留 `未知 ｜` 这类引导词 ✗"""
     import pet_diagnosis as d
     rows = d.recent_errors([
         _rec('2026-09-25T10:00:00', detail='未知 ｜ 层=本地网络 ｜ boom'),

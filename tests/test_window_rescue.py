@@ -274,7 +274,7 @@ def test_save_position_never_writes_offscreen(tmp_path, monkeypatch):
 def test_tray_exists_without_hiding_first(tmp_path, monkeypatch):
     """托盘必须常驻 —— 原来只在 hide_to_tray 里建，平时没有入口
 
-    ⚠ 2026-11-01：离屏环境默认不建托盘（`_tray_allowed()`，见 WX-164 §五.3：
+    ⚠ 2026-11-01：离屏环境默认不建托盘（`_tray_allowed()`，见 评审-164 §五.3：
       85 处构造点 × 每实例一个 QSystemTrayIcon，全量实跑出现 No Icon set 警告）。
       这条测的是「产品在真实桌面会建」，所以用**真开关** PET_TRAY=1 打开，
       ⛔ 不手设 p.tray（那是假状态，这轮已犯四次）。
@@ -319,7 +319,7 @@ def test_tray_icon_falls_back_when_idle_missing(tmp_path, monkeypatch):
 
 # ---------- ⑨ _restore_position 必须用同一套「落在哪块屏」判据 ----------
 def test_restore_position_uses_same_screen_lookup():
-    """结构钉（WX-164 §3.3）：屏外坐标的「最近屏」判据只能有一处实现
+    """结构钉（评审-164 §3.3）：屏外坐标的「最近屏」判据只能有一处实现
 
     ⚠ 312 §一 我写过 `screenAt` 在屏外返回 None，却只改了 `_clamp_visible`。
       这正是我给敏感名单加 ast 护栏要防的「写两份必然只修一份」。

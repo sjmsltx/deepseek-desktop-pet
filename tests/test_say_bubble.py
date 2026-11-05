@@ -183,7 +183,7 @@ def test_settings_has_switch():
     assert 'ck_bubble' in src, '设置页缺 AI 气泡复选框'
     # ⚠ 只查「方法存在」不够（证伪 #5 实测证明了）：
     #   方法定义还在、只是 connect 被删 → 原断言照样绿。
-    #   必须查**真的接上了**。这与 WX-109 §4.1 是同一类错。
+    #   必须查**真的接上了**。这与 评审-109 §4.1 是同一类错。
     assert 'self.ck_bubble.toggled.connect(self._toggle_ai_bubble)' in src, \
         '复选框没接到回调（勾了不生效）'
     assert "getattr(h, 'ai_bubble', True)" in src, '_refresh 没回填当前值（开关状态显示错）'

@@ -2,7 +2,7 @@
 """启动脚本（bat）的两条纪律
 
 背景（2026-10-31）：
-1. PC-268 的教训 —— PYTHONUSERBASE 会把另一个环境的 site-packages 塞进
+1. 评审-268 的教训 —— PYTHONUSERBASE 会把另一个环境的 site-packages 塞进
    sys.path 前面，同一个 import 可能来自别处。268 那次「所有声线固定为一个」
    就是版本取自意外位置，查错方向耗了整轮。启动脚本必须清掉它。
 2. 实测 AutoClaw 的 shell 里 %LOCALAPPDATA% 是空的，原来那行会拼成

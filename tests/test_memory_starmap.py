@@ -276,7 +276,7 @@ def test_settings_entry_present():
     assert 'def _open_memory_starmap' in dsrc, 'PetWidget 缺 _open_memory_starmap'
 
 
-# ---------- 审核（WX-153 后）抓出的崩溃场景，必须逐条钉住 ----------
+# ---------- 审核（评审-153 后）抓出的崩溃场景，必须逐条钉住 ----------
 def test_render_with_hover_does_not_crash():
     """M1：悬停后绘制曾必崩（QFontMetrics.boundingRect 传 QRectF → TypeError）"""
     w = _widget()

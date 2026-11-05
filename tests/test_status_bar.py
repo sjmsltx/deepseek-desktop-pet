@@ -67,7 +67,7 @@ def test_status_bar_auto_hide_timer():
     p._notify('会自动消失')
     assert p.bubble_hide_timer.isActive(), '气泡应启动自动隐藏计时'
     _iv = p.bubble_hide_timer.interval()
-    # v3.6 fix（WX-111 §6）：原来只验下限，丢了上限 ⇒「停留 60 秒」这种 bug 抓不到。
+    # v3.6 fix（评审-111 §6）：原来只验下限，丢了上限 ⇒「停留 60 秒」这种 bug 抓不到。
     #
     # ⚠ 我第一版在这里瞎猜了个 `BUBBLE_MS_PER_CHAR` 常量（**不存在**），
     #   getattr 兜底成 200 ⇒ 算出一个假上限，注入「停留 60 秒」时**照样绿**。
@@ -82,7 +82,7 @@ def test_status_bar_auto_hide_timer():
 def test_busy_not_full_still_visible_to_user():
     """AI 说话期间（忙但队列未满）状态提示必须仍然可见（v3.6 修 P0）
 
-    事故（WX-111 §2 报的，我自己复现确认）：
+    事故（评审-111 §2 报的，我自己复现确认）：
       回落条件只写了「忙 **且** 队列满」，漏了「忙但未满」。
       此时 say_plain 走排队分支（不立即显示），本应回落状态条，
       但 _notify_via_bubble 却返回 True ⇒ _notify 把状态条 hide 掉
@@ -177,7 +177,7 @@ def test_source_guard_system_notices_moved_out():
 
 # _notify 调用点基线（2026-10-24 v3.6 实测 desktop_pet.py = 125）
 #
-# ⚠ 为什么从 55 提到 125（WX-111 §3 报的）：
+# ⚠ 为什么从 55 提到 125（评审-111 §3 报的）：
 #   原来写 `>= 55`，而实测 125 ⇒ 余量 70，**删掉 56% 的调用点都不报警**。
 #   这条护栏的用途正是「v3.3 那次迁移不能被悄悄回退」，结果它拦不住任何回退。
 #   错误消息里的「从 64 掉到」也是更早期的数字，早过时 —— 一并改掉。

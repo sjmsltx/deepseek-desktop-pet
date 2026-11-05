@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """B-乙 接入小批护栏 —— ⭐ **开关关着时行为必须与接线前完全一致** ✗（钉住 ✓）
 
-微信侧 `WX-桌宠-20260926-22` §六 决策：① 开关 = **配置文件项** ✓（`config.json` 新增 `remote_control` ✓
+外部评审 `评审-22` §六 决策：① 开关 = **配置文件项** ✓（`config.json` 新增 `remote_control` ✓
 **默认关** ✗ 最小侵入 ✓）② 设置页图形开关 = 后续小批（界面侧 ✓ 本批不做 ✗）③ 接入 = 独立小批 ✓
 ⭐ 唯一硬要求：**开关关着时行为必须与现在完全一致**✗ → 本文件用**一条用例钉住** ✓
 """
@@ -117,7 +117,7 @@ def test_factory_never_appends_or_delivers():
 
 # ── ⭐ emit 约定对齐（修 `TypeError: 'dict' object is not callable` ✗）─────
 def test_emit_convention_is_bridged_in_host():
-    """微信侧真机联测报的 `desktop_pet.py:431 TypeError: 'dict' object is not callable` ✗
+    """外部评审真机联测报的 `desktop_pet.py:431 TypeError: 'dict' object is not callable` ✗
 
     约定：**消费器 `emit` 收 dict** ✓（`rt_remote` 原样传回执 dict ✓）
     → host 端**不得**直接接 `ui_call_signal.emit` ✗（那个 lambda 会把参数当可调用 ✗）
@@ -134,7 +134,7 @@ def test_emit_convention_is_bridged_in_host():
     assert 'def _remote_on_result(self, ev):' in src
 
 
-# ── ⭐ 回执／审计落点（微信侧 §三③："回执未落盘"待查 ✓ 用例钉住 ✓）─────
+# ── ⭐ 回执／审计落点（外部评审 §三③："回执未落盘"待查 ✓ 用例钉住 ✓）─────
 def test_receipt_and_audit_landing_points(tmp_path):
     """⭐ 口径（真机联测解释 ✓）：
     · **回执** 只在 `投递` 类命令时产生 ✓ → 落 `<base>/remote/receipts.jsonl` ✓

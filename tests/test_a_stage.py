@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """A 段护栏（A5/A6/A7/A9）—— ⭐ 断言写**契约**（下限/行为）✗ 不写死数值 ✓（EXP.0109 ✓）
 
-判据来源：微信侧 `WX-桌宠-20261004-29` §一（A4–A7／A9）
+判据来源：外部评审 `评审-29` §一（A4–A7／A9）
 ⭐ 每条都要"真跑真验"✗ 静态读码不算 ✓ → 本文件既有真跑（A7/A9），也有源码级（A5/A6）。
 """
 import ast
@@ -118,7 +118,7 @@ def test_a7_kill_parent_recycles_child(tmp_path):
         except ValueError:
             return -1
 
-    # 2026-10-25（WX-119 §5）：原来是 sleep(2.0) 盲等子进程出生、sleep(3.0) 盲等它死。
+    # 2026-10-25（评审-119 §5）：原来是 sleep(2.0) 盲等子进程出生、sleep(3.0) 盲等它死。
     #   n_sleep() 本身就是可轮询的探针，盲等在满载下会假红（等出生的 2 秒尤甚）。
     #   改为轮询到条件成立为止，上限 30 秒 —— 判据不变，只是不再赌时间。
     _t0 = time.time()
@@ -222,7 +222,7 @@ def test_a4_ready_marker_written_and_cleared(tmp_path):
         assert cp.ready_info(REPO).get('port') == 8892
     finally:
         p.terminate()
-        # 2026-10-25（WX-119 §5）：sleep(2.0) 盲等等它死 → 轮询 p.poll()。
+        # 2026-10-25（评审-119 §5）：sleep(2.0) 盲等等它死 → 轮询 p.poll()。
         #   原来满载下 terminate 要几秒才生效，后续 is_ready 会拿到"服务其实还活着"。
         _t0 = time.time()
         while time.time() - _t0 < 30 and p.poll() is None:
@@ -256,7 +256,7 @@ def test_a4_guard_has_teeth():
 # ── E13.3 ⭐ `/api/health` 只读 `actions`（界面据此**事先置灰** ✗ 不必调了才发现 ✓）──
 def test_health_exposes_actions_flag(monkeypatch):
     # ⚠️ ⭐ 本用例原写法**会把模块级全局留在 `True`** ✗（⭐ 循环最后一次是 `(True, True)` ✓）；
-    #   ⭐ 微信侧 `WX-…-62` §2.2 把它列为"⭐ 已知待修点"✗ ✓（与本次那条红**无因果** ✓，
+    #   ⭐ 外部评审 `评审-62` §2.2 把它列为"⭐ 已知待修点"✗ ✓（与本次那条红**无因果** ✓，
     #   ⭐ 但它正是"⭐ 模块级可变全局 ⇒ 跨用例污染"✗ 的实例 ✓）。
     #   ⇒ ⭐ 用 `monkeypatch` 接管 ✓（⭐ 自动还原 ✓ 承 EXP.0104「⭐ mock 必须可自动恢复」✗）✓
     import relay_server as _rs
@@ -734,7 +734,7 @@ def test_p03_safe_spawn_runs_allowed():
     assert r.returncode == 0, '⭐ 登记程序应正常执行 ✓'
 
 
-# ── ⭐ P0-3 后半（我方认领自微信侧 `-40` §五.D ✓）：`/api/log.jsonl` 限量 ──
+# ── ⭐ P0-3 后半（我方认领自外部评审 `-40` §五.D ✓）：`/api/log.jsonl` 限量 ──
 def test_p03_log_jsonl_is_limited(tmp_path):
     """⭐ 有牙：⭐ 请求不传 limit ⇒ **默认 200** ✗（⭐ 原实现是**无限量** ✗ ⇒ 本用例即回归钉 ✓）。"""
     import json as _json
@@ -830,7 +830,7 @@ def test_p03_allowed_list_covers_dsh():
 
 # ── ⭐ P1-1（2026-10-05）：安全边界文档必须**在位且含关键要素** ✗ ──
 def test_p11_security_boundary_doc_exists_with_required_parts():
-    """⭐ 采纳微信侧 `WX-…-44` §四 的三条要求：⭐ 文档必须含
+    """⭐ 采纳外部评审 `评审-44` §四 的三条要求：⭐ 文档必须含
     ⭐ ① **未接白名单清单** ✗ ② ⭐ **"程序名过滤 ≠ 能力限制"** 这条根本局限 ✗
     ⭐ ③ ⭐ **真实案例** ✓（⛔ 不能只有抽象条款 ✗）。"""
     p = os.path.join(REPO, 'docs', '安全边界.md')
@@ -857,7 +857,7 @@ def test_p11_security_boundary_doc_has_no_personal_path():
     assert _up not in d, '⭐ 文档不得含本机绝对路径 ✗（案例里写 <Windows 用户名> ✓）'
 
 
-# ── ⭐ A4 改进（采纳微信侧 `WX-…-20261005-45` §二 建议 ✓）：双验加 pid 存活 ──
+# ── ⭐ A4 改进（采纳外部评审 `评审-45` §二 建议 ✓）：双验加 pid 存活 ──
 def test_a4_stale_marker_with_dead_pid_is_cleared(tmp_path):
     """⭐ 有牙：⭐ 标记里的 `pid` **已不存在** ⇒ ⭐ 判未就绪 ＋ ⭐ **自动清一次** ✗。"""
     import json as _json
@@ -955,7 +955,7 @@ def test_c2_config_endpoint_declares_writable_and_restart(tmp_path):
         '⭐ max_tokens 是数值上限 ⇒ 不应被当密钥隐藏 ✗（我方第一版误判过 ✓）'
 
 
-# ── ⭐ 草稿 2／`C5`（2026-10-05）：⭐ 错误码表（⭐ 采纳微信侧 `-51` 草稿 2 ✓）──
+# ── ⭐ 草稿 2／`C5`（2026-10-05）：⭐ 错误码表（⭐ 采纳外部评审 `-51` 草稿 2 ✓）──
 def test_c5_error_code_table_and_mapping():
     """⭐ 码表存得下 ＋ ⭐ **推不出就空**（⛔ 不硬编假码 ✗）＋ ⭐ 码→人话 ✓。"""
     import error_codes
@@ -1059,7 +1059,7 @@ def test_b9_both_poll_sites_wired():
 
 
 def test_c5_both_spawn_paths_carry_code():
-    """⭐ 采纳微信侧 `WX-…-55` §二 ✓：⭐ `safe_spawn` **与** `safe_popen` 两条路径
+    """⭐ 采纳外部评审 `评审-55` §二 ✓：⭐ `safe_spawn` **与** `safe_popen` 两条路径
     ⭐ 抛错消息**都必须带** `SPAWN-403-01` ✗（⭐ 我方首版只给了 `safe_spawn` ⇒ 漏了 ✓）。"""
     src = io.open(os.path.join(REPO, 'platform_layer.py'), encoding='utf-8').read()
     n = len(__import__('re').findall(r"\[SPAWN-403-01\]", src))
@@ -1166,7 +1166,7 @@ def _always_fail(base, payload):
     return False, '测试注入：恒失败'
 
 
-# ── ⭐ B11 方案 B 的人工入口护栏（2026-10-05，⭐ 采纳微信侧 `WX-…-61` 报的两处残留 ✓）──
+# ── ⭐ B11 方案 B 的人工入口护栏（2026-10-05，⭐ 采纳外部评审 `评审-61` 报的两处残留 ✓）──
 #   ⭐ 残留①：`:621`／`:629` 的注释与实现**相反** ✗（⭐ 说"可自动重放／超过⇒dead"✓ 而实现早回退了 ✓）
 #   ⭐ 残留②：⭐ **`mark_dead` 不存在** ✗ ⇒ ⭐ 方案 B「`dead` 只由人显式标」**没有入口** ✗
 #     ⇒ ⭐ ⭐ **没有任何路径能产生 `dead`** ✗（⭐ 死信机制形式完整但**功能不可达** ✓）。
@@ -1239,7 +1239,7 @@ def test_comments_must_not_contradict_implementation():
         assert bad not in src, '⛔ 注释与实现相反 ✗：%s' % bad
 
 
-# ── ⭐ E14.9 锁自动化的**嵌套标记**护栏（2026-10-05，⭐ 采纳微信侧 `WX-…-63` 修法② ✓）──
+# ── ⭐ E14.9 锁自动化的**嵌套标记**护栏（2026-10-05，⭐ 采纳外部评审 `评审-63` 修法② ✓）──
 # ⭐ ⭐ 事故：⭐ 那条"全量红"的真凶 = ⭐ **两条自家机制互撞** ✗ ——
 #   `test_resource_hygiene.py::test_unraisable_leak_turns_run_red` ⭐ **要起子 pytest** ✗
 #   ⇒ ⭐ 子进程继承 `addopts = -p tools.aclock_plugin` ✗ ⇒ ⭐ 而"已持锁"判据只看**自己＋直接父** ✗
@@ -1290,7 +1290,7 @@ def test_subpytest_inherits_nested_marker(tmp_path):
     assert '等 120' not in out, '⛔ 不得再出现"等 120s 超时"✗（⭐ 那就是白等 120 秒的根因 ✓）'
 
 
-# ── ⭐ 可执行路径解析护栏（2026-10-10，⭐ 采纳微信侧 `WX-…-69` §3.1 ✓）──
+# ── ⭐ 可执行路径解析护栏（2026-10-10，⭐ 采纳外部评审 `评审-69` §3.1 ✓）──
 # ⭐ 事故：⭐ 用**短名** `subprocess.run(['git', …])` ⇒ ⭐ 正确性依赖运行环境的 PATH ✗
 #   ⭐ 实测两条：① 2026-10-07 搬迁后 git 从 E 移到 D ⇒ 会话 PATH 未刷新 ⇒ `git` 找不到 ✗
 #   ⭐ ② ⭐ ⭐ Python 3.14/Windows 上，**显式传 `env` 时 `['git', …]` 并不按 PATH 找到 exe** ✗

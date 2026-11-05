@@ -93,7 +93,7 @@ def is_ready(port: int, base_dir: str = '') -> bool:
     info = ready_info(base_dir)
     if not info or int(info.get('port') or 0) != int(port):
         return False
-    # ⭐ ⭐ 采纳微信侧 `WX-…-20261005-45` §二 建议：
+    # ⭐ ⭐ 采纳外部评审 `评审-45` §二 建议：
     #   ⭐ 硬崩溃/断电后 `finally` **不执行** ✗ ⇒ 标记**必然残留** ✓
     #   ⇒ ⭐ **必须把"写标记的那个进程还活着吗"也纳入判定** ✗（⛔ 只看端口应答 ✗ ——
     #      ⭐ 若端口被**别的**进程占了，就会**误判为就绪** ✓）

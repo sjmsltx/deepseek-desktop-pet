@@ -220,7 +220,7 @@ BM25 不注入、向量注入 = 11 条（31%→36% 净增来自其中一部分�
 ## 七、复现
 
 ```powershell
-$py = 'C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$py = 'C:\Users\<user>\AppData\Local\Python\pythoncore-3.14-64\python.exe'
 cd D:\ai工作站\desktop-pet
 
 # 主表：基线复现 + 阈值扫描 + 逐条对比 + 契约细节

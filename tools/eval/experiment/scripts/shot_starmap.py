@@ -2,7 +2,7 @@
 """星图离屏渲染截图 + 深度数值核对（2026-11-03）
 
 ⚠ 必须用带 PySide6 的独立 python（GUI 项目规矩）：
-   C:\\Users\\lby13\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe
+   C:\\Users\\<user>\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe
 
 ⚠ offscreen 平台不加载 Windows 系统字体 ⇒ 中文全变方框，看不出效果。
    这里显式 addApplicationFont 注入 msyh.ttc，让截图可判读。

@@ -121,7 +121,7 @@ def _running_dsh_processes(timeout: int = 15) -> list:
     return found
 
 
-# 2026-10-30 修（WX-150 §3.3）：原来只用静态 `LOG_CANDIDATES`，而同一类功能的
+# 2026-10-30 修（评审-150 §3.3）：原来只用静态 `LOG_CANDIDATES`，而同一类功能的
 # `read_token_url()` 用 `_candidate_logs()`（先发现值、再静态候选）。
 # ⇒ DSH 装在别处、没配端口、进程没在跑时，会去默认位置读一个可能不存在的旧日志，
 #   拿不到端口 → 回落 3080。改成与 `read_token_url` 同一口径。
@@ -176,7 +176,7 @@ def discover(force: bool = False) -> dict:
         port, port_src = int(proc_port), '运行中进程的 --port'
     elif _port_from_logs(root):
         # ⚠ 必须把已算好的 root 传进去：不传的话它会走 resolve_root() → 递归回本函数。
-        # ⚠ 2026-10-31 更正（WX-151 §六 指出）：**这里实际调了两次**
+        # ⚠ 2026-10-31 更正（评审-151 §六 指出）：**这里实际调了两次**
         #   （elif 判一次、取值再一次），之前注释写「合并成一次」是假的。
         #   两次都是读本地日志文件，实测代价约 5 毫秒，不值得为它改流程；
         #   但注释必须说实话，否则下一个人读到这里会算错。
@@ -215,7 +215,7 @@ def installed(force: bool = False) -> bool:
 
     ⚠ 口径（2026-10-30 二审后定）：**只有一个定义 —— `_has_marker(resolve_root())`**。
 
-    第一版我写成「按优先级选一个候选，不合格就扫进程兜底」，被 WX-150 §2.1 用实测
+    第一版我写成「按优先级选一个候选，不合格就扫进程兜底」，被 评审-150 §2.1 用实测
     反例否掉了（我自己也复现过）：配置 root 指向坏路径、而 DSH 正在默认目录跑着时，
     `resolve_root()` 返回坏路径但 fallback 扫到进程 ⇒ 本函数返回 True
     ⇒ **菜单说「已检测到」，面板拿坏路径去拉 → 打不开**。
@@ -240,7 +240,7 @@ def installed(force: bool = False) -> bool:
             return _INSTALLED_CACHE['val']
     try:
         if force:
-            # ⚠ 2026-10-31（WX-152 §四 指出，我实测确认）：
+            # ⚠ 2026-10-31（评审-152 §四 指出，我实测确认）：
             #   `resolve_root()` **没有 force 参数**，它只能吃 `discover()` 的 30 秒缓存
             #   ⇒ 原来写 `_has_marker(resolve_root())` 时，force 只穿透了「本层缓存」，
             #     下游 discover 缓存照样命中 ⇒ 签名说「强制重算」，实际重算不到底。
@@ -258,7 +258,7 @@ def installed(force: bool = False) -> bool:
 def _has_marker(root: str) -> bool:
     """目录里有 DSH 的**真实**标志吗（只做 os.path 检查，不起进程）
 
-    ⚠ 2026-11-02 收紧（WX-166 §三 报出、我核实成立）：
+    ⚠ 2026-11-02 收紧（评审-166 §三 报出、我核实成立）：
       原来只要 `node_modules/@deepseek-ai/dsh` **存在**、或根目录有 `start-dsh.ps1`，
       就算「已安装」。实测反例（本机真发生过）——某次测试在 TEMP 造的桩：
 
@@ -271,7 +271,7 @@ def _has_marker(root: str) -> bool:
 
     ⇒ 现在要求**能真跑起来的证据**，不再把上面那两样单独算数：
       ① npm 包入口 `node_modules/@deepseek-ai/dsh/lib/bin.js`
-         （0.1.5-rc.2 与 0.2.1-rc.5 都有它 —— 微信侧 2026-11-01 实测，跨版本稳定）
+         （0.1.5-rc.2 与 0.2.1-rc.5 都有它 —— 外部评审 2026-11-01 实测，跨版本稳定）
       ② 根目录的 npm bin 垫片 `dsh.cmd` / `dsh.ps1`（只有真装过才会生成）
 
     ⛔ 别再往回加「目录存在就算」：桩最容易造的就是空目录。
@@ -309,7 +309,7 @@ def installed_detail(serving_timeout: float = None, force: bool = False) -> dict
     ok = installed(force=force)
     # ⚠ 2026-11-02：`installed` 收紧成「有真程序入口」。
     #   但「目录在、启动器在、入口不在」与「压根没装」是两件事，
-    #   一律报「✗ 未检测到」等于把线索藏起来（WX-166 报的那个桩正是这样）。
+    #   一律报「✗ 未检测到」等于把线索藏起来（评审-166 报的那个桩正是这样）。
     #   ⇒ 单独给个标记，让界面能说清「缺的是哪一样」。
     entry_missing = False
     try:

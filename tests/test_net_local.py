@@ -170,7 +170,7 @@ def local_server():
 def test_dead_proxy_env_would_break_plain_urllib(local_server, monkeypatch):
     """先证明这个配置**真的会让裸 urllib 坏**（否则下面的对照没有意义）
 
-    ⛔ 顺序依赖坑（2026-10-26，微信侧 WX-124 §9 报，我已三步实测复现）：
+    ⛔ 顺序依赖坑（2026-10-26，外部评审 评审-124 §9 报，我已三步实测复现）：
 
       `urllib.request.urlopen` 第一次调用时把默认 opener 缓存到模块全局
       `urllib.request._opener`；而 `build_opener()` 里的 `ProxyHandler` 在

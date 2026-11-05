@@ -216,7 +216,7 @@ fp32(90.5MB) 差 4 倍，足以区分；误差带 ±25% 容得下同量化的不
 ## 八、复现
 
 ```powershell
-$py = 'C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$py = 'C:\Users\<user>\AppData\Local\Python\pythoncore-3.14-64\python.exe'
 cd D:\ai工作站\desktop-pet
 
 & $py tools\eval\experiment\scripts\reverify_threshold.py   # ①统计 ②逐条 ④审计 ⑤守卫

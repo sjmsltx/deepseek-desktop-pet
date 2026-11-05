@@ -79,7 +79,7 @@ c.save()                  # 失败不抛，原因在 c.save_error
 ### 4.1 单测
 
 ```
-C:\Users\lby13\AppData\Local\Python\pythoncore-3.14-64\python.exe -m pytest tests\test_memory_embed.py -q
+C:\Users\<user>\AppData\Local\Python\pythoncore-3.14-64\python.exe -m pytest tests\test_memory_embed.py -q
 23 passed in 2.14s        （0 skipped —— 能力段真跑了模型）
 ```
 

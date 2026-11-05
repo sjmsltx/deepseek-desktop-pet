@@ -170,7 +170,7 @@ def open_panel(url: str = None, start_budget: int = 40, poll: float = 0.3,
         start_budget = timeout_ready          # ⭐ 兼容旧调用 ✓
     """打开 DSH 面板窗口。返回 (ok, 说明文字)。
 
-    ⭐ P0 修复（Owner 2026-10-04 01:53「程序未响应」✓ 微信侧 `WX-…-14` 确诊 ✓）：
+    ⭐ P0 修复（Owner 2026-10-04 01:53「程序未响应」✓ 外部评审 `评审-14` 确诊 ✓）：
 
       · ⛔ **默认不自动启动** ✗（`allow_start=False`）—— 服务没跑就**立刻返回** ✓
         由调用方**先问用户** ✓（⛔ 不擅自重启用户正在用的服务 ✗）

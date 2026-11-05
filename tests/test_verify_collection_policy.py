@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """R1 护栏：**脚本式检查模块**不得被 pytest 收集（否则断言失败会炸整套测试 ✗）
 
-背景：2026-09-25 微信侧独立核验时撞到 `INTERNALERROR`（`tests/test_pet_selfcode.py:82` 的
+背景：2026-09-25 外部评审独立核验时撞到 `INTERNALERROR`（`tests/test_pet_selfcode.py:82` 的
 `sys.exit(1)`）→ **整套测试一条都跑不起来** ✗（外部看成"测试挂了"）。
 
 根因：这些文件是**脚本**（模块级代码 + `sys.exit()`），却被 `pytest.ini` 的 `testpaths = tests`

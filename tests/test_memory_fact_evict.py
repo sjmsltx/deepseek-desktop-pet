@@ -359,7 +359,7 @@ def test_structure_worth_true_at_high_density():
     st = mfe.capacity_status(fs, cap=100)
     assert st["density"] == 8.0 and st["structure_worth"] is True, st
 
-# ═══ bump 缺陷的回归锁（WX-178 §一，2026-11-04）═══
+# ═══ bump 缺陷的回归锁（评审-178 §一，2026-11-04）═══
 # 这五条锁住「bump 不许抹平 importance」。
 # 缺陷原状：存量条目无 weight ⇒ bump 后一律 0.55+0.06=0.61，与 importance 无关，
 # 导致 imp=5 从 1.00 掉到 0.61、一年后「命中过的」反而低于「没命中的」、

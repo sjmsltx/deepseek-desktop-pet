@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""敏感文件判据必须「一条判据、两个入口」（2026-11-01，WX-163 §二）
+"""敏感文件判据必须「一条判据、两个入口」（2026-11-01，评审-163 §二）
 
-## 微信侧实测的事实（这份文件就是把它们钉住）
+## 外部评审实测的事实（这份文件就是把它们钉住）
 `read_own_file` 原来自带一份黑名单，但：
   · 漏了 `memory.json`（43 条 facts）和 `balance_history.json` ⇒ **能读全文**
   · shell 路径完全不知道黑名单 ⇒ `Get-Content config.json` 免确认，`.ssh/id_rsa` 也能读
@@ -88,7 +88,7 @@ def test_read_own_file_blocks_the_two_that_leaked():
     for name in ('memory.json', 'balance_history.json'):
         out = str(pet_docs.read_own_file(name, BASE))
         assert '敏感文件拒绝读取' in out, (
-            '%s 仍能被 read_file 读全文（WX-163 实测这条路漏了）' % name)
+            '%s 仍能被 read_file 读全文（评审-163 实测这条路漏了）' % name)
 
 
 def test_read_own_file_still_allows_normal_files():
@@ -148,5 +148,5 @@ def test_no_second_hardcoded_blacklist():
             if len(vals & NAMES) >= 3:
                 offenders.append('%s:%d' % (os.path.basename(path), node.lineno))
     assert not offenders, (
-        '又在别处写了一份敏感文件名清单：%r —— 两份必然只修一份（WX-163 §2.1 的原始病因）'
+        '又在别处写了一份敏感文件名清单：%r —— 两份必然只修一份（评审-163 §2.1 的原始病因）'
         % offenders)

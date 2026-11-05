@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""测试不得污染真实 logs/（WX-154 的防回归）
+"""测试不得污染真实 logs/（评审-154 的防回归）
 
 根因（2026-10-31 实测定位）：
     test_failure_audit.py 曾用「裸赋值 gov.log_event + importlib.reload(gov) 恢复」。

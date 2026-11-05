@@ -115,7 +115,7 @@ def test_source_guard_parent_at_construction():
     assert 'win.setParent(_modal)' not in src, \
         '运行时 setParent 对模态无效（实测 A/B/C 对照），不许用'
 
-# ---------- WX-108 §6.2：显式传参优先，探测兜底 ----------
+# ---------- 评审-108 §6.2：显式传参优先，探测兜底 ----------
 
 def test_explicit_parent_wins_over_probe(monkeypatch):
     """传入的 parent 应优先于 activeModalWidget 探测（调用方更知道自己在哪）"""
@@ -153,7 +153,7 @@ def test_probe_still_works_as_fallback(monkeypatch):
 
 
 def test_release_does_not_show_hidden_window(monkeypatch):
-    """WX-108 §6.1-1：本来不可见的窗，释放时不该被 show 出来（否则意外弹出）"""
+    """评审-108 §6.1-1：本来不可见的窗，释放时不该被 show 出来（否则意外弹出）"""
     from PySide6.QtWidgets import QApplication, QDialog
 
     p = _pet()
@@ -173,7 +173,7 @@ def test_release_does_not_show_hidden_window(monkeypatch):
 def test_release_only_on_finished_not_destroyed():
     """释放回调**只接 finished**，不接 destroyed（v3.1e 实测结论）
 
-    WX-108 §6.1-3 建议同时接 `destroyed` 兜底。我试过，**会崩**：
+    评审-108 §6.1-3 建议同时接 `destroyed` 兜底。我试过，**会崩**：
     接上后跑全量 → rc=0xC0000005（ACCESS_VIOLATION），
     且稳定停在 test_settings_dialog_does_not_write_config（真建 SettingsDialog）。
 
@@ -188,7 +188,7 @@ def test_release_only_on_finished_not_destroyed():
     src = open(os.path.join(BASE, 'desktop_pet.py'), encoding='utf-8').read()
     assert "_modal.finished.connect(_release_from_modal)" in src, 'finished 释放回调没了'
 
-    # v3.1f（WX-109 §4.1）：原护栏是 A or B 短路 + 切片范围错，
+    # v3.1f（评审-109 §4.1）：原护栏是 A or B 短路 + 切片范围错，
     #   实测 A/B/C 三种绕过写法**全部穿过**（拦不住）：
     #     A `_modal.destroyed.connect(...)` 直接写            -> PASS
     #     B `getattr(_modal, 'destroyed').connect(...)`       -> PASS

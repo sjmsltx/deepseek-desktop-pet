@@ -175,7 +175,7 @@ def test_chart_no_matplotlib():
     ⚠ 必须先剥注释与 docstring 再匹配 —— 本轮实测踩到：
       stats_ui.py 的注释里写着「为什么不引 matplotlib」，
       直接全文搜会把说明文字判成违规（假红）。
-      这与 WX-109 §4.1 那条「护栏命中 docstring」是同一类错。
+      这与 评审-109 §4.1 那条「护栏命中 docstring」是同一类错。
     """
     import re
     src = open(os.path.join(BASE, 'stats_ui.py'), encoding='utf-8').read()
@@ -185,12 +185,12 @@ def test_chart_no_matplotlib():
     assert 'matplotlib' not in body.lower(), '不许引 matplotlib（注释里提它没问题，代码里 import 才判红）'
     assert 'QPainter' in body, '应使用 Qt 自绘'
 
-# ---------- v3.6d：用量分析窗的模态处理（WX-112 §5 提醒，同一个坑第二次）----------
+# ---------- v3.6d：用量分析窗的模态处理（评审-112 §5 提醒，同一个坑第二次）----------
 
 def test_open_usage_stats_passes_parent_at_construction():
     """「用量分析」新窗必须**构造时**传 parent，否则会重演「看得见点不动」
 
-    背景：WX-112 §5 扫了 `stats_ui.py` 没看到 `activeModalWidget`，
+    背景：评审-112 §5 扫了 `stats_ui.py` 没看到 `activeModalWidget`，
           判断「大概率重演老 A7 的模态阻塞」，让我自查。
     我核实：处理在**宿主侧** `_open_usage_stats`（不在 stats_ui.py 里）——
           `_modal = parent or QApplication.activeModalWidget()`
