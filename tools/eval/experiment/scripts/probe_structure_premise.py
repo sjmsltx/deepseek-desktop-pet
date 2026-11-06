@@ -54,6 +54,29 @@ import memory_embed as mem              # noqa: E402
 V3 = json.loads(io.open(os.path.join(RES, 'library-labels-v3.json'), encoding='utf-8').read())
 RG = json.loads(io.open(os.path.join(RES, 'real-groups.json'), encoding='utf-8').read())
 
+# ⛔ 2026-11-06 补（WX-182 ②）：标签文件必须对应**当前**记忆库，否则算出来的密度是别人的。
+#   起因：`source_memory_sha256` 加进来第一次就记错了（抄的是回填前的旧 sha），
+#   等于这个字段白加。只改值不改校验的话，下次回填还会忘 —— 所以这里硬校验。
+def _check_source():
+    rec = (RG.get('source_memory_sha256') or '').strip()
+    if not rec:
+        return
+    import hashlib
+    mp = os.path.join(REPO, 'memory.json')
+    if not os.path.exists(mp):
+        print('  ⚠ 找不到 memory.json，跳过指纹校验')
+        return
+    with open(mp, 'rb') as _fh:
+        actual = hashlib.sha256(_fh.read()).hexdigest()
+    if actual != rec:
+        raise SystemExit(
+            '标签文件与 memory.json 不匹配（标签记 %s，实际 %s）\n'
+            '  ⇒ 先重标或重生成 real-groups.json，别拿旧标签算新库的密度。'
+            % (rec[:12], actual[:12]))
+
+
+_check_source()
+
 
 def norm(s):
     s = (s or '').strip().lower()
@@ -136,6 +159,19 @@ def main():
                            'object': L.get('object') or '',
                            'importance': f.get('importance', 3)})
 
+    # ⛔ 2026-11-06 补（WX-182 ⑤）：无标签条目**不许**静默并进同一个空键 `G:`。
+    #   原来 `rl.get(id) or {}` 会让缺标签的条目 topic='' ⇒ 全落到 'G:' ⇒
+    #   看起来像「一件事有 N 个面向」，而实际是「这 N 条没有标签」。
+    #   2026-11-05 就是这个形状骗过一次（3 条同 id 副本被并成 1 组，算出假的 1.11）。
+    #   ⇒ 直接停，让人先重标；不静默、不猜。
+    _nolabel = [it['id'] for it in real_items if not it['topic'].strip()]
+    if _nolabel:
+        raise SystemExit(
+            '有 %d 条 active 记忆没有标签：%r\n'
+            '  ⇒ 若继续，它们会被并进同一个空键 "G:"，看着像「一件事有 N 个面向」。\n'
+            '  ⇒ 先重标 real-groups.json（同时更新 source_memory_sha256），再跑本脚本。'
+            % (len(_nolabel), _nolabel[:5]))
+
     print('=' * 104)
     print('不同分组口径下的「可归并程度」')
     print('=' * 104)
@@ -148,7 +184,10 @@ def main():
     out['syn_object'] = analyse('合成库 按 object', syn_items,
                                 lambda x: ('O:' + norm(x['object'])) if norm(x['object'])
                                 else 'T:' + norm(x['topic']))
-    out['real_llm'] = analyse('真实库 LLM 分组(18组)', real_items, lambda x: 'G:' + norm(x['topic']))
+    # 组数动态算（原来硬编码 18 组，实际早已是 21 组）
+    _n_real_groups = len({norm(x['topic']) for x in real_items})
+    out['real_llm'] = analyse('真实库 LLM 分组(%d组)' % _n_real_groups, real_items,
+                              lambda x: 'G:' + norm(x['topic']))
     out['real_v3topic'] = analyse('真实库 v3 topic', real_items, lambda x: 'T:' + norm(x['topic']))
     out['real_object'] = analyse('真实库 按 object', real_items,
                                  lambda x: ('O:' + norm(x['object'])) if norm(x['object'])

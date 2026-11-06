@@ -97,8 +97,14 @@ def _hash(p):
 
 
 # ---------- A. 核心：scene 下 animate 不许改图 ----------
-def test_animate_does_not_overwrite_scene():
-    p = _pet()
+def test_animate_does_not_overwrite_scene(tmp_path, monkeypatch):
+    # ⚠ 2026-11-06：原来用 _pet()（真实饱食度）且没屏蔽 6 秒收尾定时器。
+    #   慢跑全量时 `_app.processEvents()` 会把时间拖过 6 秒 ⇒ `_end_scene` 先触发
+    #   ⇒ 低饱食回 'hungry' ⇒ 断言 `p.state == 'scene'` 红（实测报 'hungry' == 'scene'）。
+    #   这不是图片加载问题，是**测试依赖真实时钟与真实饱食度**。
+    #   修：固定饱食度 + 本用例屏蔽收尾（产品行为不动）。
+    p = _pet_not_hungry(tmp_path)
+    monkeypatch.setattr(p, '_end_scene', lambda: None)   # 必须在 play_scene 之前
     p.play_scene('eating')
     _app.processEvents()
     h_scene = _hash(p)
@@ -110,9 +116,11 @@ def test_animate_does_not_overwrite_scene():
         'animate() 把动作图覆盖了 —— 这正是 Owner 看到「冒了气泡但动作没变」的原因')
 
 
-def test_scene_image_differs_from_idle():
+def test_scene_image_differs_from_idle(tmp_path, monkeypatch):
     """先证明「动作图 ≠ 待机图」，否则上一条断言可能是假绿"""
-    p = _pet()
+    # ⚠ 2026-11-06：同样固定饱食度并屏蔽收尾定时器（理由同上一条）
+    p = _pet_not_hungry(tmp_path)
+    monkeypatch.setattr(p, '_end_scene', lambda: None)
     h_idle = _hash(p)
     p.play_scene('eating')
     _app.processEvents()
