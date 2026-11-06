@@ -164,9 +164,12 @@ def md_table_from_text(text):
     return md_table(m) if m else text
 
 
-def split_blocks(text):
-    """把 markdown 拆成渲染块（转发 chat_render.split_rich_blocks）"""
-    return split_rich_blocks(text)
+def split_blocks(text, with_span=False):
+    """把 markdown 拆成渲染块（转发 chat_render.split_rich_blocks）
+
+    with_span=True 时每块带 (start, end) 原文区间（v3.6 流式增量渲染用）
+    """
+    return split_rich_blocks(text, with_span=with_span)
 
 
 def split_typewriter_blocks(text):

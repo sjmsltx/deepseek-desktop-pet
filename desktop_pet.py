@@ -541,6 +541,13 @@ class PetWidget(QWidget):
     stream_signal = Signal(str)     # v6.40 流式正文 chunk
     reasoning_signal = Signal(str)  # v6.40 流式思考 chunk
     stream_done_signal = Signal()   # v6.40 流式结束
+    # v3.6（2026-11-06）：agent 循环每轮开始（参数=轮号，从 1 起）。
+    #   思考过程要分父子层级，就得知道「现在是第几轮」——reasoning 是一整段无结构文本，
+    #   模型不给层级，只有 worker 的循环知道。这是树形折叠唯一可靠的切分点。
+    round_begin_signal = Signal(int)
+    #: v3.6：工具调用留给思考树（参数=工具名, 结果摘要）。与 round_begin 配套：
+    #:   轮是父，工具是它的子节点 —— 这样「工具调用」在界面上有位置、可展开。
+    tool_trace_signal = Signal(str, str)
     wakeup_signal = Signal(str)    # 主动消息（心跳/回访触发）
     confirm_signal = Signal(object)  # 危险操作确认请求（跨线程回调）
     weather_signal = Signal(str)   # 早安日报天气结果（跨线程安全）
@@ -664,11 +671,20 @@ class PetWidget(QWidget):
         self.stream_signal.connect(self._on_stream)
         self.reasoning_signal.connect(self._on_reasoning)
         self.stream_done_signal.connect(self._on_stream_done)
+        self.round_begin_signal.connect(self._on_round_begin)
+        self.tool_trace_signal.connect(self._on_tool_trace)
         self._stream_active = False
         self._stream_rendered = False
         self._stream_text = ''
         self._stream_label = None
         self._thinking_label = None
+        # v3.6：思考过程树（轮次为父、工具为子；见 chat_trace / _chat_type_stream_begin）
+        self._trace_tree = None
+        self._trace_round = 0          # 当前轮号（0 = 还没有轮）
+        self._trace_round_t0 = 0.0     # 当前轮开始时刻（算耗时）
+        # v3.6：增量重渲染已覆盖到 _stream_text 的哪个长度（见 _maybe_incremental_render）
+        #   0 = 富文本块还没接过任何内容，流式 label 负责显示全文。
+        self._stream_render_len = 0
         # AI 回复信号（类级定义，connect 跨线程槽）
         self.ai_reply_signal.connect(self._display_ai_reply)
         self.ai_status_signal.connect(self._update_ai_status)
@@ -2486,6 +2502,14 @@ class PetWidget(QWidget):
         images：v6.62 新增，本地图片路径列表 → 直接送模型看图（不再先 OCR 成文字）
         """
         self._load_ai_config()  # 热加载：每次聊天前刷新 config.json（改配置无需重启）
+        # v3.6 fix：用户消息入历史的**唯一入口**（原先 ask_ai 内部与 _send_choice 各 append 一次，
+        #   且 L4627 还额外 `+ [当前消息]` ⇒ ctx 里同一条消息出现 2~3 次，AI 以为用户连说两遍）。
+        #   放在 ai_enabled/busy 判定之前：未配置、引导并入、排队三条早退路径也要保住用户说的话。
+        self._close_pending_user_msg()
+        self.chat_history_msgs.append({'role': 'user', 'content': text})
+        self._save_chat_memory()
+        # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
+        self._summarize_old()
         if not self.ai_enabled:
             self._append_chat('桌宠', '还没配置 AI 呢！在 config.json 里加 deepseek_api_key 就能和我聊天了')
             return
@@ -2512,12 +2536,16 @@ class PetWidget(QWidget):
         self._chat_type_bubble = None
         self._thinking_label = None
         self._thinking_toggle = None
+        self._trace_tree = None
+        self._trace_round = 0
+        self._trace_round_t0 = 0.0
         self._stream_label = None
         self._stream_active = False
         self._stream_text = ''
         self._stream_pending = ''
         self._thinking_pending = ''
         self._stream_rendered = False
+        self._stream_render_len = 0
         self._run_task(text, images)
 
     def _vision_ready(self):
@@ -3681,11 +3709,13 @@ class PetWidget(QWidget):
             # 星图天生要大画布，侧栏 186px 绝对放不下 —— 与「只装侧栏放不下的东西」判据一致。
             # ⛔ 独立弹窗入口（_open_memory_starmap）不删：两个入口共用同一控件。
             import memory_starmap as _sms
+            import starmap_panel as _smp
             T4 = self._t
 
-            def _make_starmap(host, _m=_sms):
-                stars, dead, raw = _m.load_stars()
-                return _m.MemoryStarMap(None, stars=stars, dead=dead, raw_events=raw)
+            def _make_starmap(host, _p=_smp):
+                # v3.6（2026-11-06）：星图原先完全不看 role ⇒ 换形象/模型后主区记忆不变。
+                #   现在由面板自己读 host.current，并在顶部给出「当前 / 全部」切换器。
+                return _p.StarmapPanel(host)
 
             _pr.register_panel('starmap', T4('main_starmap'), _make_starmap,
                                order=40, hint=T4('main_starmap_hint'), replace=True)
@@ -4566,6 +4596,8 @@ class PetWidget(QWidget):
         self._chat_type_bubble = None
         self._thinking_label = None
         self._stream_label = None
+        self._trace_tree = None
+        self._trace_round = 0
 
     def ui_thinking_toggle(self):
         """测试用：思考区折叠按钮句柄（点它验证折叠/展开）"""
@@ -4612,19 +4644,20 @@ class PetWidget(QWidget):
             # v3.6：新一轮 → 允许 AI 再说一次气泡（频次闸按轮次算）
             self._bubble_said_gen = None
             aborted = False          # v6.53：流内被取消标志（避免后续再发请求）
-            # v6.43 fix：闭合悬空任务——上次中断遗留的 user 无 assistant 回复，
-            # 不闭合则下次对话 AI 会误继续执行旧任务（如：卡住的"找文件夹"在你说 evening 时复活）
-            self._close_pending_user_msg()
-            # v6.40 fix：用户消息立即入历史并保存（AI 回复中断/进程退出也不丢用户说的话）
-            self.chat_history_msgs.append({'role': 'user', 'content': text})
-            self._save_chat_memory()
-            # 旧消息超 20 条 → 先滚动摘要（不阻塞主流程）
-            self._summarize_old()
+            # v3.6：用户消息与悬空闭合已在 ask_ai 入口完成（含未配置/引导/排队三条早退路径），
+            #   此处**不得**再 append 一次 —— 否则 ctx 末尾会出现两条一模一样的 user 消息。
             # 意图预判：秒出状态提示（猜测，工具确认后覆盖）
             gs = self._guess_status(text)
             self.ai_status_signal.emit(gs[1] if getattr(self, 'language', 'zh') == 'en' else gs[0])
-            # 上下文：最近 10 条 + 当前消息
-            ctx = self.chat_history_msgs[-30:] + [{'role': 'user', 'content': text}]
+            # 上下文：最近 30 条（当前消息已在末尾 —— ask_ai 入口已入历史）
+            # v3.6 fix：原先写成 `[-30:] + [{'role':'user','content':text}]` ⇒ ctx 末尾两条一模一样，
+            #   AI 会理解成「你连说两遍」。点选项路径（_send_choice）更糟，会重复 3 次。
+            #   兜底：直接调 _ai_worker / _run_task 的场景（内部调用、测试）历史末尾不是本条时补上，
+            #   但只在**末尾确实不是它**时才补 —— 否则又变回重复。
+            ctx = self.chat_history_msgs[-30:]
+            _last = ctx[-1] if ctx else {}
+            if not (_last.get('role') == 'user' and _last.get('content') == text):
+                ctx = ctx + [{'role': 'user', 'content': text}]
             # v6.62：官方称带 tools 时应回传历史思考内容（只补上一轮，已截断）
             if getattr(self, 'pass_reasoning_history', True):
                 ctx = self._with_reasoning_history(ctx)
@@ -4730,11 +4763,13 @@ class PetWidget(QWidget):
             # 最多 5 轮工具调用；空回复自动重试（防截断/空content）
             final_reply = None
             empty_retries = 0
-            for _ in range(5):
+            for _round_i in range(5):
                 # v6.43：被新任务取代或 /stop → 静默退出（不 emit 内容）
                 if getattr(self, '_ai_generation', 0) != getattr(self, '_cur_gen', -1):
                     self._log_ai_abort('round-boundary')
                     return
+                # v3.6：告诉 UI「现在是第几轮」——思考树按它分父子层级
+                self.round_begin_signal.emit(_round_i + 1)
                 # ⭐ 2026-11-01 引导注入点：「上一轮工具执行完、下一轮请求发出前」。
                 #   与 AutoClaw 的「引导」同语义 —— **不取消正在进行的请求**
                 #   （那边 tooltip 原文：「提交请求，但不中断模型运行」），
@@ -4834,6 +4869,13 @@ class PetWidget(QWidget):
                     st = TOOL_STATUS.get(name, (f'正在执行 {name}', f'Running {name}'))
                     self.ai_status_signal.emit((st[1] if is_en else st[0]) + '…')
                     result_text = self._execute_tool(name, args)
+                    # v3.6：把工具调用挂到思考树（工具是当轮的子节点）
+                    try:
+                        if result_text != '__CHOICES__':
+                            self.tool_trace_signal.emit(
+                                str(name), str(result_text or '')[:400])
+                    except Exception as _exc:
+                        _silent_log('tool_trace:emit', _exc)
                     if result_text == '__CHOICES__':
                         # v6.30 情感选项：保留 AI 简短正文，暂停对话流等用户点击
                         final_reply = (msg.get('content') or '').strip()
@@ -4976,11 +5018,36 @@ class PetWidget(QWidget):
         # v6.76：增量渲染的进度跟踪（每个气泡重新计数）
         self._stream_done_blocks = 0
         self._stream_last_render = 0.0
+        self._stream_render_len = 0
         import datetime as _dt
         ts = _dt.datetime.now().strftime('%m-%d %H:%M')
         self._remove_status_line()
         self._chat_type_bubble, self._chat_type_content = self._new_bubble('桌宠', ts, is_user=False, text='')
         # 思考折叠区（同卡片顶部，AutoClaw 风格）
+        # v3.6（2026-11-06）：由「单按钮 + 单 label」改为**树** ——
+        #   父 = 第 N 轮推理，子 = 工具调用（可继续下分到工具结果）；
+        #   某轮完成 → 该轮收起；整棵树完成 → 根收起（其下子节点随之不可见）。
+        # ⛔ 外部折叠按钮仍用 QPushButton 且文字格式不变（💭 思考过程 ▼/▶）：
+        #   regression_test 的 B2/B3/B5 与 ui_probe 都按这个文案/行为断言。
+        thinking_label = None
+        trace_tree = None
+        self._trace_tree = None
+        try:
+            import chat_trace as _ct
+            trace_tree = _ct.TraceTree(
+                self,
+                title='💭 思考过程',
+                node_style_cb=lambda _w: (
+                    'color:%s; font-size:12px; background:%s;'
+                    ' border-radius:6px; padding:4px;'
+                    % (self._tk('ui_status_text'), self._tk('ui_input_bg'))),
+                on_expand_changed=self._trace_on_expand)
+            # 根节点的按钮由外部 QPushButton 代替（两者都控同一件事）
+            trace_tree.root.button.setVisible(False)
+            trace_tree.set_expanded(True)
+            self._trace_tree = trace_tree
+        except Exception as _exc:
+            _silent_log('_chat_type_stream_begin:trace', _exc)
         try:
             head = self._chat_type_bubble.layout().itemAt(0).layout()
             thinking_toggle = QPushButton('💭 思考过程 ▼')
@@ -4991,30 +5058,49 @@ class PetWidget(QWidget):
                 % (self._tk('ui_status_text'), self._tk('ui_accent_soft'))))
             thinking_toggle.setCursor(Qt.PointingHandCursor)
             thinking_toggle._collapsed = False
+
             def _toggle():
                 # v6.40 fix：闭包捕获本气泡局部变量（旧代码引用 self._thinking_* 最新值，
                 # 导致多轮对话后旧气泡的折叠按钮操作的是最新气泡——旧对话无法折叠）
                 collapsed = not getattr(thinking_toggle, '_collapsed', False)
                 thinking_toggle._collapsed = collapsed
-                if thinking_label is not None:
+                if trace_tree is not None:
+                    trace_tree.set_expanded(not collapsed)   # 树根收起 = 所有轮次不可见
+                elif thinking_label is not None:
                     thinking_label.setVisible(not collapsed)
                 thinking_toggle.setText('💭 思考过程 ▶' if collapsed else '💭 思考过程 ▼')
+
             thinking_toggle.clicked.connect(_toggle)
             head.insertWidget(2, thinking_toggle)
-            head.insertStretch(3, 1)
+            # 收起后的摘要（「2 轮 · 1 次工具」）单放一个 label：
+            #   不改按钮文字，既有测试按 `text().endswith('▶')` 断言，改文案会误伤。
+            summary_lbl = QLabel('')
+            self._set_themed_qss(summary_lbl, lambda: (
+                'color:%s; font-size:11px;' % self._tk('ui_status_text')))
+            head.insertWidget(3, summary_lbl)
+            self._think_summary_lbl = summary_lbl
+            head.insertStretch(4, 1)
+            # 把本气泡的按钮/摘要绑到本气泡的树上（回调据此更新，不串到别的气泡）
+            if trace_tree is not None:
+                trace_tree.owner_toggle = thinking_toggle
+                trace_tree.owner_summary = summary_lbl
             self._thinking_toggle = thinking_toggle
             self._thinking_collapsed = False
         except Exception:
             self._thinking_toggle = None
-        thinking_label = QLabel('')
-        thinking_label.setWordWrap(True)
-        thinking_label.setTextFormat(Qt.PlainText)
-        self._set_themed_qss(thinking_label, lambda: (
-            'color:%s; font-size:12px; background:%s; border-radius:6px; padding:6px;'
-            % (self._tk('ui_status_text'), self._tk('ui_input_bg'))))
-        thinking_label.hide()  # 无思考时不占位
-        self._chat_type_content.addWidget(thinking_label)
-        self._thinking_label = thinking_label
+        if trace_tree is not None:
+            self._chat_type_content.addWidget(trace_tree)
+        else:
+            # 树建不起来时的兜底：老的单 label（至少不丢思考内容）
+            thinking_label = QLabel('')
+            thinking_label.setWordWrap(True)
+            thinking_label.setTextFormat(Qt.PlainText)
+            self._set_themed_qss(thinking_label, lambda: (
+                'color:%s; font-size:12px; background:%s; border-radius:6px; padding:6px;'
+                % (self._tk('ui_status_text'), self._tk('ui_input_bg'))))
+            thinking_label.hide()  # 无思考时不占位
+            self._chat_type_content.addWidget(thinking_label)
+            self._thinking_label = thinking_label
         # 正文流式区
         self._stream_label = QLabel('')
         self._stream_label.setWordWrap(True)
@@ -5033,7 +5119,21 @@ class PetWidget(QWidget):
         """主线程槽：流式正文 chunk → 直接渲染（真流式，无卡顿）"""
         try:
             if not self._stream_active:
-                if (getattr(self, '_thinking_label', None) is not None
+                # v3.6：同一轮内的续写先复用已有 label。
+                #   `_on_stream_done` 在每次轮请求前都会发（清状态行用），它把 active 置 False，
+                #   但不该因此重建控件 —— 旧实现就这么干，结果每轮多一个空 label（实测）。
+                _lb = getattr(self, '_stream_label', None)
+                _can_reuse = False
+                try:
+                    _can_reuse = (_lb is not None and _lb.parent() is not None)
+                except Exception as _exc:
+                    # Qt 对象已销毁时 .parent() 会抛 RuntimeError —— 不复用即可，但要留痕
+                    # （tests/test_silent_guard.py 明令禁止新增静默点）
+                    _silent_log('_on_stream:reuse_check', _exc)
+                    _can_reuse = False
+                if _can_reuse:
+                    pass                     # 复用本气泡里已有的正文 label
+                elif (getattr(self, '_thinking_label', None) is not None
                         and getattr(self, '_chat_type_content', None) is not None
                         and self._thinking_label.parent() is not None):
                     # v6.40 fix：工具调用轮次续用——思考区已在本气泡，复用气泡只重建正文 label
@@ -5061,7 +5161,10 @@ class PetWidget(QWidget):
                 return
             self._stream_text += cleaned
             if self._stream_label is not None:
-                self._stream_label.setText(self._stream_text)
+                # v3.6 fix：只显示「富文本块还没画到的尾巴」——
+                #   原先 setText(self._stream_text) 在增量重渲染之后会把**全文**再塞一遍，
+                #   而富文本块已经把前几块画过了 ⇒ 气泡里内容重复（Owner 报的“渲染不完全”）。
+                self._stream_label.setText(self._stream_text[getattr(self, '_stream_render_len', 0):])
                 self._chat_scroll_bottom(force=False)   # 2026-10-27：每个 chunk 都滚会把用户拉回
             # ★ v6.76 增量 markdown 渲染：不等全文，按“整块+节流”边出边渲染
             self._maybe_incremental_render()
@@ -5093,19 +5196,34 @@ class PetWidget(QWidget):
             text = getattr(self, '_stream_text', '') or ''
             if not text.strip() or not self._has_md_markup(text):
                 return
-            blocks = self._split_rich_blocks(text)
+            blocks = self._split_rich_blocks(text, with_span=True)
             done_blocks = max(0, len(blocks) - 1)      # 最后一块可能还没写完 → 先不提交
+            # v3.6：但「最后一块已闭合的代码块」是例外 —— 围栏已收尾就不算半成品。
+            #   不把这种算完成，代码块要等到下一块内容出现才渲染成卡片，
+            #   流式期间会多一段「围栏原样显示」的空窗（test_incremental_render 实测）。
+            if blocks:
+                _k, _c, _s0, _s1 = blocks[-1]
+                _seg = text[_s0:_s1]
+                if (_k == 'code' and _seg.rstrip().endswith('```')
+                        and _seg.count('```') >= 2):
+                    done_blocks = len(blocks)
             if done_blocks <= 0 or done_blocks <= getattr(self, '_stream_done_blocks', 0):
                 return
             now = _t.monotonic()
             if now - getattr(self, '_stream_last_render', 0.0) < 0.2:
                 return
+            # v3.6 fix：只渲染**已完成块**，尾巴（含未闭合的代码块/表格）留给流式 label。
+            #   cut = 最后一个已完成块在原文中的结束位置。
+            #   原先 _rerender_rich(text) 传全文 ⇒ 未闭合的代码块也被画成代码卡，
+            #   后续 chunk 又把剩余原文当普通文本输出 ⇒ 代码被切成两半。
+            cut = blocks[done_blocks - 1][3]
             self._stream_done_blocks = done_blocks
             self._stream_last_render = now
-            self._rerender_rich(text)
+            self._rerender_rich(text[:cut])
             # 重渲染清掉了所有正文控件 → 重建流式 label 接着接 chunk
             self._stream_label = self._stream_new_label()
-            self._stream_label.setText(text.split('\n\n')[-1] if '\n\n' in text else text)
+            self._stream_render_len = cut
+            self._stream_label.setText(text[cut:])
             self._chat_scroll_bottom(force=False)   # 2026-10-27：同 _on_stream
         except Exception as _exc:
             _silent_log('_maybe_incremental_render', _exc)
@@ -5116,6 +5234,10 @@ class PetWidget(QWidget):
             if self._thinking_label is None:
                 self._chat_type_stream_begin()
                 self._stream_rendered = True
+            # v3.6：没有轮次信息（直接调本方法、不经 worker 的场景，如回归脚本 B2/B5）
+            #   归到第 1 轮，否则 _thinking_label 一直是 None → 思考内容读不到。
+            if self._thinking_label is None and getattr(self, '_trace_tree', None) is not None:
+                self._on_round_begin(1)
             if self._thinking_label is None:
                 return
             combined = getattr(self, '_thinking_pending', '') + chunk
@@ -5123,12 +5245,107 @@ class PetWidget(QWidget):
             self._thinking_pending = pending
             if not cleaned:
                 return
-            if not self._thinking_label.isVisible():
-                self._thinking_label.show()
-            self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + cleaned)
+            # v3.6：写进「当前轮」节点（而不是一直往同一个 label 追加）
+            #   多轮工具调用时，旧实现会把两轮思考粘成一段（实测：
+            #   「轮1思考：…轮2思考：…」），没法分层。
+            node = self._trace_current_node()
+            if node is not None:
+                node.append_text(cleaned)
+            else:
+                if not self._thinking_label.isVisible():
+                    self._thinking_label.show()
+                self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + cleaned)
             self._chat_scroll_bottom(force=False)   # 2026-10-27：思考流也不打扰
         except Exception:
             pass
+
+    # ---------- v3.6：思考过程树（轮次 + 工具） ----------
+    def _trace_on_expand(self, tree):
+        """树的根展开态变了 → 同步**该气泡**的按钮箭头 + 摘要
+
+        ⚠ 不能取 `self._thinking_toggle`：那是**最新气泡**的按钮。
+        多气泡时点旧气泡会改到新气泡的按钮（regression_test B3 实测就是这个）。
+        所以每个气泡把自己的按钮/摘要 label 绑在树对象上（owner_toggle / owner_summary）。
+        """
+        try:
+            expanded = bool(getattr(getattr(tree, 'root', None), 'expanded', False))
+            tog = getattr(tree, 'owner_toggle', None)
+            if tog is not None:
+                tog._collapsed = not expanded
+                tog.setText('💭 思考过程 ▼' if expanded else '💭 思考过程 ▶')
+            lbl = getattr(tree, 'owner_summary', None)
+            if lbl is not None:
+                sm = getattr(getattr(tree, 'root', None), 'summary', '') or ''
+                lbl.setText('' if expanded else sm)
+        except Exception as _exc:
+            _silent_log('_trace_on_expand', _exc)
+
+    def _trace_current_node(self):
+        """当前轮的树节点；没有树就返回 None（走老的单 label 路径）"""
+        tree = getattr(self, '_trace_tree', None)
+        n = getattr(self, '_trace_round', 0)
+        if tree is None or not n:
+            return None
+        return tree.round_node(n)
+
+    def _on_round_begin(self, n):
+        """agent 循环每轮开始（worker 线程 emit，主线程执行）
+
+        轮次是思考过程唯一的可靠父子切分点（reasoning 本身无结构），
+        见 chat_trace 模块头的说明。
+        """
+        import time as _t
+        try:
+            n = int(n)
+            if getattr(self, '_trace_tree', None) is None:
+                self._chat_type_stream_begin()
+                self._stream_rendered = True
+            tree = self._trace_tree
+            if tree is None:
+                return
+            prev = getattr(self, '_trace_round', 0)
+            # 上一轮还没收尾（正常流程不会，兜底）：先按耗时收起来
+            if prev and prev != n:
+                t0 = getattr(self, '_trace_round_t0', 0.0)
+                tree.end_round(prev, seconds=(_t.monotonic() - t0) if t0 else None)
+            node = tree.begin_round(n)
+            prev_round = getattr(self, '_trace_round', 0)
+            self._trace_round = n
+            self._trace_round_t0 = _t.monotonic()
+            # v3.6：新一轮 → 正文从零开始（旧的留在气泡里不动）。
+            #   原先 `_stream_text` 跨轮累积，新 label 一建出来就带着上一轮全文 ⇒ 重复。
+            if n > 1 and prev_round != n:
+                self._stream_text = ''
+                self._stream_render_len = 0
+                self._stream_done_blocks = 0
+                self._stream_last_render = 0.0
+                self._stream_pending = ''
+                self._stream_label = None
+                self._stream_active = False
+            self._thinking_label = node.label      # 探针/旧路径读它 = 当前轮内容
+            # 新一轮开始 → 展开，让使用者看见实时推理
+            tree.set_expanded(True)
+            tog = getattr(self, '_thinking_toggle', None)
+            if tog is not None:
+                tog._collapsed = False
+                tog.setText('💭 思考过程 ▼')
+        except Exception as _exc:
+            _silent_log('_on_round_begin', _exc)
+
+    def _on_tool_trace(self, name, result):
+        """在当轮节点下挂一个工具子节点（名 + 结果摘要）"""
+        try:
+            node = self._trace_current_node()
+            if node is None:
+                return
+            summary = str(result or '').replace('\n', ' ').strip()
+            if len(summary) > 40:
+                summary = summary[:40] + '…'
+            child = node.add_child('调用 %s' % str(name or '工具'), expanded=False,
+                                   summary=summary)
+            child.set_text(str(result or '')[:2000])
+        except Exception as _exc:
+            _silent_log('_on_tool_trace', _exc)
 
     def _on_stream_done(self):
         """主线程槽：流式结束（清状态行；思考区保留在卡片内可折叠）"""
@@ -5143,14 +5360,18 @@ class PetWidget(QWidget):
             if _flush_tail:
                 self._stream_text += _flush_tail
                 if self._stream_label is not None:
-                    self._stream_label.setText(self._stream_text)
+                    # v3.6：只补未渲染的尾巴（原先 setText 全文 ⇒ 与富文本块重复）
+                    self._stream_label.setText(
+                        self._stream_text[getattr(self, '_stream_render_len', 0):])
                     self._chat_scroll_bottom(force=False)   # 2026-10-27：收尾刷新同样按跟随态
         if getattr(self, '_thinking_pending', ''):
             _think_tail = pb.strip_say_bubble(self._thinking_pending)
             self._thinking_pending = ''
             if _think_tail and self._thinking_label is not None:
                 self._thinking_label.setText('💭 ' + self._thinking_label.text()[2:] + _think_tail)
-        self._stream_label = None
+        # v3.6：**不**清 `_stream_label` 引用 —— 同一轮内还有 chunk 要续写（见 _on_stream），
+        #   清掉会让 _on_stream 每轮新建 label，旧 label（往往是空的）留在布局里堆积。
+        #   实测多点一行这个赋值，多轮工具调用后正文区会多出一个空 label。
         try:
             self._remove_status_line()
         except Exception:
@@ -5168,19 +5389,25 @@ class PetWidget(QWidget):
         if content is None:
             return
         thinking = getattr(self, '_thinking_label', None)
+        # v3.6：思考区现在是树 —— 要保护的是整棵树（label 只是树里某个节点的一部分）。
+        #   只保 label 会把树的根控件 deleteLater 掉 ⇒ 折叠区在重渲染后整个消失。
+        trace_tree = getattr(self, '_trace_tree', None)
         while content.count():
             item = content.takeAt(0)
             w = item.widget()
-            if w is thinking:
+            if w is thinking or (trace_tree is not None and w is trace_tree):
                 continue  # v6.40 fix：思考区保留，不被重渲染清掉（否则折叠后无法展开）
             if w:
                 w.deleteLater()
         blocks = self._split_rich_blocks(text)
         for kind, c in blocks:
             self._render_one_block(content, kind, c)
-        if thinking is not None:
-            content.insertWidget(0, thinking)  # 思考区保持在正文上方
-            thinking.setVisible(not getattr(self, '_thinking_collapsed', False) and bool(thinking.text().strip()))
+        keep = trace_tree if trace_tree is not None else thinking
+        if keep is not None:
+            content.insertWidget(0, keep)  # 思考区保持在正文上方
+            if trace_tree is None:
+                thinking.setVisible(not getattr(self, '_thinking_collapsed', False)
+                                    and bool(thinking.text().strip()))
         self._chat_scroll_bottom()
 
     def _has_md_markup(self, text):
@@ -5247,6 +5474,19 @@ class PetWidget(QWidget):
             #   在流式路径下永远是“原始 .md”（使用者的“有时不渲染”就是这个：
             #   取决于内容里有没有代码块/表格，他出选项那次内容恰好都是普通 markdown）
             #   新版：只要看出 markdown 迹象就重渲染。
+            # v3.6：整轮对话结束 → 思考树 finish（根自动收起，其下轮次/工具一并不可见）
+            try:
+                if getattr(self, '_trace_tree', None) is not None:
+                    _n = getattr(self, '_trace_round', 0)
+                    _t0 = getattr(self, '_trace_round_t0', 0.0)
+                    if _n and _t0:
+                        import time as _tm
+                        self._trace_tree.end_round(_n, seconds=_tm.monotonic() - _t0)
+                    # finish() 内部经 set_expanded(False) 触发 _trace_on_expand，
+                    # 自动把外部按钮箭头与摘要同步 —— 这里不再手写按钮文字
+                    self._trace_tree.finish()
+            except Exception as _exc:
+                _silent_log('_display_ai_reply:trace_finish', _exc)
             if self._has_md_markup(_display):
                 try:
                     self._rerender_rich(_display)
@@ -7938,10 +8178,14 @@ class PetWidget(QWidget):
                 self._register_theme_widget(w, 'factory', False)   # 卡片：走 apply_theme()
         return made
     @staticmethod
-    def _split_rich_blocks(text):
+    def _split_rich_blocks(text, with_span=False):
         """把 markdown 拆成渲染块（拆至 chat_render.split_rich_blocks）
-        （实现已搬至 pet_bubble.split_blocks）"""
-        return pb.split_blocks(text)
+        （实现已搬至 pet_bubble.split_blocks）
+
+        with_span=True → [(kind, content, start, end), ...]，start/end 是原文区间
+        （v3.6：流式增量渲染要知道「已画到原文哪个位置」）
+        """
+        return pb.split_blocks(text, with_span=with_span)
     def _render_one_block(self, content_layout, kind, content):
         """渲染单个块到内容区（文本/代码卡片/表格卡片）
         （实现已搬至 pet_bubble.render_one_block）"""
@@ -12255,8 +12499,7 @@ class PetWidget(QWidget):
         except Exception:
             pass
         self._append_chat('我', text)
-        self.chat_history_msgs.append({'role': 'user', 'content': text})
-        self._save_chat_memory()
+        # 不在此处入历史：ask_ai 内部会 append（v3.6 fix，原先两处都 append ⇒ ctx 里重复 3 次）
         self.ask_ai(text)
 
     # ---------- 回忆相册（v6.30 Phase3） ----------

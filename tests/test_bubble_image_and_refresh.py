@@ -153,14 +153,33 @@ def test_no_reload_when_files_unchanged(tmp_maps):
     assert w._layout == before, '文件没变却重排了（会白抖一下）'
 
 
-def test_reload_uses_instance_paths(tmp_maps):
-    """刷新必须读实例自己的文件，不能回落到仓库默认路径"""
+def test_reload_uses_instance_paths(tmp_maps, monkeypatch):
+    """刷新必须读实例自己的文件，不能回落到仓库默认路径
+
+    v3.6（2026-11-06）：原先用字符串 grep（`'load_stars(self._facts_path, '
+    'self._events_path)' in src`）锁实现 —— 本轮把调用改成多行（要加 role 参数）
+    就误报了。改成**行为级**验证：拦住 load_stars 看它真收到了什么。
+    这也是「验产物内容不验壳」的口径。
+    """
     mp, ep = tmp_maps
     w = _map(mp, ep)
     assert w._facts_path == mp and w._events_path == ep
-    src = open(os.path.join(BASE, 'memory_starmap.py'), encoding='utf-8').read()
-    assert 'load_stars(self._facts_path, self._events_path)' in src, \
-        'reload 没使用实例路径'
+
+    import memory_starmap as _sms
+    calls = []
+    real = _sms.load_stars
+
+    def _spy(*a, **k):
+        calls.append((a, k))
+        return real(*a, **k)
+
+    monkeypatch.setattr(_sms, 'load_stars', _spy)
+    w.reload_data()
+
+    assert calls, 'reload_data 没有调用 load_stars'
+    a, k = calls[-1]
+    assert a and a[0] == mp, 'reload 没用实例的 facts 路径：args=%r' % (a,)
+    assert len(a) > 1 and a[1] == ep, 'reload 没用实例的 events 路径：args=%r' % (a,)
 
 
 def test_auto_timer_is_running(tmp_maps):

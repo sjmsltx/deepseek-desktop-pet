@@ -54,14 +54,30 @@ def _widget_types(pet):
     return out
 
 
-def test_incremental_render_builds_rich_blocks_midstream(pet):
+def test_incremental_render_builds_rich_blocks_midstream(pet, monkeypatch):
+    """流式期间就该出现富文本控件
+
+    ⚠ 必须固定时间源：本功能有 200ms 节流（`_maybe_incremental_render`），
+    靠 `time.sleep(0.07)` 撞窗口的结果随机器快慢变化 ——
+    实测同一份代码，4 片喂完时「片 4 与片 2 的间隔」恰好压在 0.2s 临界，
+    处理耗时稍快就被节流拦住、代码块永远没渲染成卡片（2026-11-06）。
+    这里让 `monotonic` 每次调用推进 0.5s，与真实耗时解耦。
+    """
+    import time as _time_mod
+    clock = [1000.0]
+
+    def _fake_monotonic():
+        clock[0] += 0.5
+        return clock[0]
+
+    monkeypatch.setattr(_time_mod, 'monotonic', _fake_monotonic)
+
     pet._chat_type_stream_begin()
     pet._stream_active = True
     pet._stream_rendered = False
     pet._stream_text = ''
     for i in range(0, len(REPLY), 20):
         pet._on_stream(REPLY[i:i + 20])
-        time.sleep(0.07)          # 越过 200ms 节流窗口的分片
     assert pet._stream_done_blocks > 0, '流式期间没有提交任何已完成块 → 增量渲染没生效'
     types = _widget_types(pet)
     assert types, '气泡里没有正文控件'

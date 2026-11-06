@@ -350,14 +350,39 @@ def _is_noise(title, detail=''):
         return ('别处用了' in t) or ('余额 ¥' in t) or ('今天是' in t) or ('当前设置了' in t)
 
 
-def load_stars(facts_path=FACTS_PATH, events_path=EVENTS_PATH):
-    """读真实数据 → 星点列表。不编造任何一条。"""
+def _role_match(obj, role):
+    """该条记忆对 role 这个角色是否可见（与注入侧同口径）
+
+    · role 为 None → 全部可见（星图的「全部角色」视图）
+    · facts（带 fact=True）→ `roles` 缺省视为 both，只认 both 或本角色
+      口径来源：memory_engine.build_l0_block
+    · events → 严格相等，缺省 role 的条目不属任何角色
+      口径来源：MemoryEvents.recent / hint_block（两处都是 `m.get('role') == role`）
+    """
+    if role is None:
+        return True
+    if obj.get('fact'):
+        return str(obj.get('roles', 'both')) in ('both', str(role))
+    return str(obj.get('role')) == str(role)
+
+
+def load_stars(facts_path=FACTS_PATH, events_path=EVENTS_PATH, role=None):
+    """读真实数据 → 星点列表。不编造任何一条。
+
+    role：None = 全部角色（不过滤）；否则只读该角色**注入时会用到**的那些。
+      过滤口径见 _role_match —— 与 memory_engine / memory_events 对齐，
+      否则星图与注入口径不一致（Owner：换了形象主区记忆没变）。
+    """
     stars, dead, raw_events = [], [], 0
     try:
         mj = json.load(open(facts_path, encoding='utf-8'))
+        n_skipped = 0
         for f in mj.get('facts', []):
             c = (f.get('content') or '').strip()
             if not c:
+                continue
+            if not _role_match(dict(f, fact=True), role):
+                n_skipped += 1
                 continue
             st = f.get('status', 'active')
             # key 唯一化：同名内容可能有多条（如「用户喜欢冰美式咖啡」×2），
@@ -380,6 +405,8 @@ def load_stars(facts_path=FACTS_PATH, events_path=EVENTS_PATH):
         for i, m in enumerate(ev):
             t = (m.get('title') or '').strip()
             d = (m.get('detail') or '').strip()
+            if not _role_match(m, role):
+                continue
             # 去重口径与 prompt_hint 一致：按 (title, detail)。
             #   同名同内容的重复提醒（如「记得站起来活动一下」×11）没有新信息，
             #   若按 (title, time) 保留，星图上会出现 11 个一模一样的点。
@@ -401,6 +428,8 @@ def load_stars(facts_path=FACTS_PATH, events_path=EVENTS_PATH):
         _log.warning('星图读取 memories.json 失败（星图将只显示事实记忆）：%s', _exc)
     # merged 通过 raw_events 与最终条数的差体现，这里额外带出精确值
     globals()['_LAST_MERGED'] = merged if 'merged' in dir() else 0
+    # 本次按角色过滤掉了多少条 facts（供面板副标题披露「另一个角色还有 N 条」）
+    globals()['_LAST_SKIPPED'] = n_skipped if 'n_skipped' in dir() else 0
     return stars, dead, raw_events
 
 
@@ -408,17 +437,22 @@ class MemoryStarMap(QWidget):
     """记忆星图控件（只读可视化）"""
 
     def __init__(self, parent=None, stars=None, dead=None, raw_events=0,
-                 facts_path=None, events_path=None):
+                 facts_path=None, events_path=None, role=None):
         super().__init__(parent)
         # 记住本实例读的是哪两个文件 —— reload_data / 指纹都必须用它们，
         #   否则传了自定义路径的实例（测试 / 多库）刷新时会读错文件。
         self._facts_path = facts_path or FACTS_PATH
         self._events_path = events_path or EVENTS_PATH
+        #: 当前视角的角色（None = 全部角色）。
+        #:   v3.6（2026-11-06）：原先星图完全不看 role ⇒ 换形象后记忆区不变，
+        #:   与注入侧（build_l0_block / MemoryEvents.recent）口径不一致。
+        self.role = role
         self.setMinimumSize(900, 620)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
         if stars is None:
-            stars, dead, raw_events = load_stars(self._facts_path, self._events_path)
+            stars, dead, raw_events = load_stars(self._facts_path, self._events_path,
+                                                 role=self.role)
         self.stars = stars or []
         self.dead = dead or []
         self.raw_events = raw_events
@@ -593,8 +627,12 @@ class MemoryStarMap(QWidget):
         self._layout = pos
 
     def _current_sig(self):
-        """两份数据文件的 (mtime, size) 指纹 —— 变了说明有新记忆"""
-        sig = []
+        """两份数据文件的 (mtime, size) 指纹 + 当前 role —— 任一变了就重载
+
+        v3.6：role 必须进指纹。否则换形象后两个文件都没变 ⇒ _maybe_reload 永远
+        不触发 ⇒ 星图还显示上一个角色的记忆（Owner 报的就是这个现象）。
+        """
+        sig = [('role', self.role)]
         for p in (self._facts_path, self._events_path):
             try:
                 st = os.stat(p)
@@ -614,10 +652,24 @@ class MemoryStarMap(QWidget):
         if self.reload_data():
             self._data_sig = sig
 
+    def set_role(self, role):
+        """切换视角角色并重载（role=None → 全部角色）。返回是否真的换了。
+
+        ⚠ 换了就要清布局缓存：星点集合变了，但尺寸没变，缓存 key 会把旧布局当成新的。
+        reload_data 内部已清（_layout / _lod_cache / _edge_src_ref…），这里只负责
+        「换 role → 更新指纹 → 重载」。
+        """
+        if role == self.role:
+            return False
+        self.role = role
+        self._data_sig = self._current_sig()   # 先把新指纹记下，避免 _maybe_reload 又重载一次
+        return self.reload_data()
+
     def reload_data(self):
         """重新读盘并重排布局；返回是否成功。供定时器与手动刷新共用。"""
         try:
-            stars, dead, raw = load_stars(self._facts_path, self._events_path)
+            stars, dead, raw = load_stars(self._facts_path, self._events_path,
+                                          role=self.role)
         except Exception as _exc:
             _log.warning('星图自动刷新读取失败（保留旧数据）：%s', _exc)
             return False

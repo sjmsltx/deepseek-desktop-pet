@@ -16,46 +16,66 @@ import re
 from pet_theme import color as _T  # v6.58 主题化（HTML 内联色）
 
 
-def split_rich_blocks(text):
-    """把 markdown 拆成渲染块：(类型, 内容)。类型 text=连续段落(保留空行分段) code=代码块 table=表格块"""
-    blocks = []
-    lines = str(text).split('\n')
-    i, n = 0, len(lines)
-    buf = []
+def split_rich_blocks(text, with_span=False):
+    """把 markdown 拆成渲染块：(类型, 内容)。类型 text=连续段落(保留空行分段) code=代码块 table=表格块
 
-    def flush():
-        if buf:
-            blocks.append(('text', '\n'.join(buf)))
-            buf.clear()
+    with_span=True 时每块返回 (类型, 内容, start, end)，start/end 是该块在**原文**中的字符区间
+    [start, end)。
+
+    v3.6（2026-11-06）：流式增量渲染需要知道「富文本块已经画到原文哪个位置」，
+    否则只能拿已完成块的 content 长度当偏移 —— 而 code/table 块的 content 去掉了围栏，
+    长度与原文对不上，会把代码块切成两半（前半进代码卡、后半当普通文本流式输出）。
+    """
+    t = str(text)
+    lines = t.split('\n')
+    n = len(lines)
+    # 每行在原文中的起始偏移（最后一行无换行也成立）
+    offs, _p = [], 0
+    for _ln in lines:
+        offs.append(_p)
+        _p += len(_ln) + 1
+
+    blocks, spans = [], []
+    i, seg_start = 0, 0
+
+    def _line_end(k):
+        """第 k 行在原文中的结束偏移（不含行尾换行符）"""
+        return offs[k] + len(lines[k])
+
+    def _text_block(upto):
+        if upto > seg_start:
+            blocks.append(('text', '\n'.join(lines[seg_start:upto])))
+            spans.append((offs[seg_start], _line_end(upto - 1)))
 
     while i < n:
         line = lines[i]
         s = line.strip()
         if s.startswith('```'):
-            flush()
-            code_lines = [line]
-            i += 1
-            while i < n and not lines[i].strip().startswith('```'):
-                code_lines.append(lines[i])
-                i += 1
-            if i < n:
-                code_lines.append(lines[i])
-                i += 1
+            _text_block(i)
+            j = i + 1
+            while j < n and not lines[j].strip().startswith('```'):
+                j += 1
+            end = j + 1 if j < n else j        # 含结束围栏；未闭合则到末尾
+            code_lines = lines[i:end]
             body = code_lines[1:-1] if len(code_lines) >= 2 else code_lines
             blocks.append(('code', '\n'.join(body).strip('\n')))
+            spans.append((offs[i], _line_end(end - 1)))
+            i = seg_start = end
         elif s.startswith('|'):
-            flush()
-            tbl = [line]
-            i += 1
-            while i < n and lines[i].strip().startswith('|'):
-                tbl.append(lines[i])
-                i += 1
-            blocks.append(('table', '\n'.join(tbl)))
+            _text_block(i)
+            j = i + 1
+            while j < n and lines[j].strip().startswith('|'):
+                j += 1
+            blocks.append(('table', '\n'.join(lines[i:j])))
+            spans.append((offs[i], _line_end(j - 1)))
+            i = seg_start = j
         else:
-            buf.append(line)
             i += 1
-    flush()
-    return blocks
+    _text_block(n)
+
+    if not with_span:
+        return blocks
+    return [(k, c, s0, s1) for (k, c), (s0, s1) in zip(blocks, spans)]
 
 
 def split_md_blocks(text):

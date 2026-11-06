@@ -142,7 +142,14 @@ def test_spoken_report_injected_before_request_loop():
                     and isinstance(n.func.value, ast.Name) and n.func.value.id == 'messages'):
                 insert_line = n.lineno
         if isinstance(n, ast.For) and loop_line is None:
-            if isinstance(n.target, ast.Name) and n.target.id == '_':
+            # 漏斗用 iter 是 range(...) 作锚点，而不是循环变量名叫 `_`：
+            #   「变量名」是无关的实现细节 —— 本轮把 `for _ in range` 改成
+            #   `for _round_i in range`（要拿轮号给思考树分父子），
+            #   这条测试就误报了（2026-11-06）。
+            #   实测 `_ai_worker` 内只有一个 range 循环，就是请求循环。
+            it = n.iter
+            if (isinstance(it, ast.Call) and isinstance(it.func, ast.Name)
+                    and it.func.id == 'range'):
                 loop_line = n.lineno
 
     assert msg_assign and take_line and insert_line and loop_line
