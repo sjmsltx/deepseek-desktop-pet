@@ -119,3 +119,8 @@ memory_evicted_facts.jsonl.*
 
 # 2026-11-06：本机专属隐私词表（含真名/用户名）—— ⛔ 绝不入库
 tools/privacy_extra.json
+
+# 向量检索模型（bge-small-zh int8，23MB）—— 二进制大件不入库，
+# 获取方式见 models/README.md
+models/**/*.onnx
+models/**/tokenizer.json

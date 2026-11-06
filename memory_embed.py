@@ -44,6 +44,12 @@ MAX_TOKENS = 128
 
 #: 单条文本的余弦下限。
 #:
+#: ⚠ 2026-11-06：**这个固定值已退为参考值**，生产路径改用下面的自适应阈值。
+#: 原因（实测，见 `记忆线-20261106/vec_study.py`）：
+#:   库 21 条 → 负样本误注入 7/42、无关查询 2/18
+#:   库 521 条 → 负样本 34/42、无关查询 16/18   （召回几乎不变：5/6 与 10/12）
+#: 固定阈值在库变大后必然失效：库里条目越多，任何一句都能找到“有点像”的邻居。
+#:
 #: ⛔ **这个数只在下列条件下成立**，换条件必须重校准（2026-11-04 复验）：
 #:   · 模型文件：`Xenova/bge-small-zh-v1.5` 的 **int8** 量化版（22.9MB）
 #:     —— 实测 fp32（90.5MB）的余弦整体低约 0.0196，top1 排序虽完全一致（12/12），
@@ -67,6 +73,94 @@ CALIBRATION = {
     'verified_on': '2026-11-04',
     'band': (0.440, 0.515),   # 留出集 11/12 的阈值区间
 }
+
+
+# ---------------- 自适应阈值（2026-11-06）----------------
+#
+# 为什么不再用固定余弦下限：实测（`记忆线-20261106/vec_study.py`，同一套查询）
+#
+#     库条数   固定 0.51 的负样本误注入   无关查询
+#     21       7/42                       2/18
+#     121      29/42                      9/18
+#     321      33/42                      15/18
+#     521      34/42                      16/18
+#
+#   召回几乎不变（开发 5/6、留出 10/12），**精度崩了**。
+#   机制：库越大，任何一句都能找到一个"有点像"的邻居 —— 固定阈值分不清
+#   「这条对我特别相关」与「这条在这么多邻居里排第一」。
+#
+# 所以阈值改为**按本库自身的相似度分布定标**：拿本次查询与全库的余弦分布，
+# 要求 top1 是**离群点**（z 分数），而不是超过某个绝对余弦。
+# z 天然随库规模收紧：邻居越多，随机就能撞到的高分越多，z 门槛自动变高。
+#
+# z 门槛本身还随库条数缓增（对数），因为极值效应比 z 归一化剩下的那部分更顽固：
+#
+#     z_min(N) = Z0 + SLOPE * ln(N / REF_N)
+#
+# 参数由实测点拟合（判据：留出集不掉到 BM25 以下，同时负样本误注入最小）：
+#     N=21  → 2.75     N=121 → 4.0     N=321 → 4.7     N=521 → 5.0
+#
+# 实测效果（单向量 + 本阈值，库 21 → 521）：
+#     负样本误注入 4 → 2 /42      （固定阈值是 7 → 34）
+#     无关查询     0 → 3 /18      （固定阈值是 2 → 16）
+#     留出集       8 → 3 /12      （召回随规模回落到 BM25 水平，这是代价，不掩饰）
+#     真实对话注入 10 → 4 /45     （22% → 9%）
+#
+# ⚠ 诚实的边界：**相似度本身分不开「问概念」与「问我」**。
+#   z 阈值只能保证「不随库变大而无脑放开」，不能把召回和精度同时保住。
+#   概念提问另有 `is_definition_question()` 守卫（产品契约），两道一起用。
+
+#: 库规模为本数时的 z 门槛（校准点）
+ADAPTIVE_REF_N = 21
+#: 校准点上的 z 门槛（2026-11-06 由 2.75 调到 2.5：配合下面的绝对下限后，
+#: 留出集 +2 条、负样本只多 1 条；网格实测见 memory_embed 顶部说明）
+ADAPTIVE_Z0 = 2.5
+#: **第二信号**：绝对余弦下限。
+#:
+#: 为什么光有 z 不够：迁移后实测这对——
+#:     f03「明天下午三点提醒我开会」top1=0.492 z=2.70（无关，必须挡）
+#:     h08「我读大几了来着」        top1=0.584 z=2.66（真召回，不该挡）
+#: z 分不开，余弦分得开。所以两个都要过。
+#:
+#: 数值依据（库 18 条时的 top1 分布）：
+#:   无关查询 max 0.515 / false 组 max 0.492 / 真召回 min（有效命中）0.511
+#:   ⇒ 0.50 卡在 0.492 与 0.511 之间，两侧余量各约 0.01。
+#: ⚠ 余量很小：换模型或换 fp32 版必须重测（见 CALIBRATION 的说明）。
+ADAPTIVE_ABS_FLOOR = 0.50
+
+#: **第三判据**：明显胜出旁路。
+#: top1 比第二名高出这么多时，即使没过 z/余弦下限也接纳（只对 top1 生效）。
+#: 依据（库 18 条实测）：真召回 gap 0.022~0.117，假查询最大 0.073 ⇒ 0.10 在两者之间。
+#: 库大时 gap 天然塌到 0.02~0.03（318 条时留出中位 0.030），这条自动失效 —— 不会放大误注入。
+ADAPTIVE_GAP_BYPASS = 0.10
+#: 每翻 e 倍的 z 增量
+ADAPTIVE_SLOPE = 0.70
+#: 上限：防止库极大时门槛高到永不注入
+ADAPTIVE_Z_MAX = 6.0
+#: 下限：再小就与固定阈值无异（低于 1.5 时负样本 41/42，实测）
+ADAPTIVE_Z_MIN = 1.5
+#: 低于这个条数时 z 分数不可靠，改用绝对余弦阈值
+#: （n 条样本的 |z| 上限 = sqrt(n-1)：n=10 时才 3.0，n=2 时只有 1.0）
+MIN_N_FOR_Z = 10
+
+
+def adaptive_z_threshold(n):
+    """按库条数给出 z 门槛。n 为该库**参与检索**的条目数。
+
+    ⚠ 小于参考条数时**不放松**（回到 Z0）：校准就是在 21 条上做的，
+      比它更小的库没有依据说"可以更松"。
+      实测（2026-11-06）：存量迁移把库从 21 条降到 18 条后，
+      formula 给出 2.63（< Z0）⇒ 多注入一条，FALSE 从 1.0 掉到 0.75（无关问句命中了）。
+    """
+    import math
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        n = ADAPTIVE_REF_N
+    if n <= ADAPTIVE_REF_N:
+        return ADAPTIVE_Z0
+    z = ADAPTIVE_Z0 + ADAPTIVE_SLOPE * math.log(float(n) / ADAPTIVE_REF_N)
+    return max(ADAPTIVE_Z_MIN, min(ADAPTIVE_Z_MAX, z))
 
 
 def calibration_warning(onnx_mb):
@@ -117,9 +211,21 @@ def _find_model_dir(explicit=None):
 
     返回 (dir, 说明)。找不到时 dir 为 None，说明写具体缺什么。
     """
-    cands = []
+    # 显式指定 ⇒ 只看它。指错了必须报错，不许静默换成别的模型
+    #   （2026-11-06 实测：显式目录不存在时会继续落到 models/，
+    #     用户以为在测 A，实际跑的是 B —— 这类"以为"最费时间）
     if explicit:
-        cands.append(('参数指定', explicit))
+        onnx = os.path.join(explicit, 'model.onnx')
+        tok = os.path.join(explicit, 'tokenizer.json')
+        if os.path.exists(onnx) and os.path.exists(tok):
+            return explicit, ''
+        missing = [n for n, p in (('model.onnx', onnx), ('tokenizer.json', tok))
+                   if not os.path.exists(p)]
+        return None, ('参数指定的模型目录 %s 下缺 %s；'
+                      '可用 %s 指定正确目录，或把 model.onnx + tokenizer.json '
+                      '放进 models/bge-small-zh-v1.5/'
+                      % (explicit, ' / '.join(missing), ENV_MODEL_DIR))
+    cands = []
     env = os.environ.get(ENV_MODEL_DIR)
     if env:
         cands.append(('环境变量 %s' % ENV_MODEL_DIR, env))
@@ -274,6 +380,56 @@ class Embedder(object):
         if is_definition_question(query):
             return []
         return self.top_k(query, vecs, texts, k=k, threshold=threshold)
+
+    def search_adaptive(self, query, vecs, texts, k=3, threshold=None,
+                        definition_guard=True):
+        """自适应阈值检索：top1 必须是**本库分布里的离群点**，而不是过某个绝对余弦。
+
+        参数：
+            threshold: 显式指定 z 门槛；None 时按库条数用 `adaptive_z_threshold(len(vecs))`
+            definition_guard: 是否先过「概念提问」守卫（默认是 —— 产品契约）
+
+        返回 [{'index','score','z','text'}]，按余弦降序；不可用时返回 []。
+
+        两个判据同时要求（都是单调的，所以可以 break）：
+          · z >= 自适应门槛          —— 在这么多邻居里够不够突出
+          · score >= ADAPTIVE_ABS_FLOOR —— 绝对亲密度够不够
+
+        ⚠ 只用 z 不行：库 18 条时「明天下午三点提醒我开会」z=2.70 比真召回
+          「我读大几了来着」z=2.66 还高，但余弦 0.492 < 0.584，加下限才分得开。
+        """
+        if definition_guard and is_definition_question(query):
+            return []
+        sims = self.score(query, vecs)
+        if sims is None or len(sims) == 0:
+            return []
+        np = self._np
+        n = int(len(sims))
+        # 极小库：z 不可用（n 条样本的 |z| 上限是 sqrt(n-1)，n=2 时最大 1.0，
+        #   任何门槛都够不到 ⇒ 永不注入）。样本不足就退回绝对余弦阈值。
+        if n < MIN_N_FOR_Z and threshold is None:
+            return self.top_k(query, vecs, texts, k=k, threshold=DEFAULT_THRESHOLD)
+        zmin = adaptive_z_threshold(n) if threshold is None else float(threshold)
+        mu = float(sims.mean())
+        sd = float(sims.std()) or 1e-6
+        order = np.argsort(-sims)
+        # 明显胜出：库里就这一条明显对得上（只看 top1）
+        clear_winner = False
+        if len(order) >= 2:
+            clear_winner = (float(sims[int(order[0])]) - float(sims[int(order[1])])
+                            ) >= ADAPTIVE_GAP_BYPASS
+        out = []
+        for rank, i in enumerate(order):
+            s = float(sims[int(i)])
+            z = (s - mu) / sd
+            ok = (z >= zmin and s >= ADAPTIVE_ABS_FLOOR)
+            if not ok and not (rank == 0 and clear_winner):
+                break
+            out.append({'index': int(i), 'score': round(s, 4), 'z': round(z, 3),
+                        'text': texts[int(i)] if int(i) < len(texts) else ''})
+            if len(out) >= k:
+                break
+        return out
 
 
 class VectorCache(object):

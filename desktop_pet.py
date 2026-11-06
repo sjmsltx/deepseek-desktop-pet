@@ -55,6 +55,10 @@ from recycle_box import (human_size as _human_size,
                          refuse_reason as _recycle_reason)
 
 from memory_engine import build_l0_block
+# v3.7（2026-11-06）：写入边界 —— 决定这条记忆该进 facts 还是 events
+import memory_write_policy as mwp
+import memory_ledger as mledger
+import memory_usage as musage
 from memory_events import is_recomputable_notice
 import memory_fact_evict as _mfe      # 事实层权重/淘汰（2026-11-04）
 from code_checker import check_python_blocks
@@ -682,6 +686,9 @@ class PetWidget(QWidget):
         self._trace_tree = None
         self._trace_round = 0          # 当前轮号（0 = 还没有轮）
         self._trace_round_t0 = 0.0     # 当前轮开始时刻（算耗时）
+        # v3.7：本轮注入的记忆（供「注入但未引用」回填）——
+        #   ⚠ 必须在 __init__ 给默认值：只在分支里赋值会漏（本项目重复踩过 5 次）
+        self._mem_usage_turn = None
         # v3.6：增量重渲染已覆盖到 _stream_text 的哪个长度（见 _maybe_incremental_render）
         #   0 = 富文本块还没接过任何内容，流式 label 负责显示全文。
         self._stream_render_len = 0
@@ -2539,6 +2546,7 @@ class PetWidget(QWidget):
         self._trace_tree = None
         self._trace_round = 0
         self._trace_round_t0 = 0.0
+        self._mem_usage_turn = None      # 防止上一轮的注入记录串到这一轮
         self._stream_label = None
         self._stream_active = False
         self._stream_text = ''
@@ -3096,6 +3104,20 @@ class PetWidget(QWidget):
         except Exception:
             return ''
 
+    def _write_policy_event(self, dec):
+        """把判定为 event 的记忆写进时间线（而不是常驻 facts 池）。
+
+        与 `_extract_worker` 里处理 events 的分支同口径：role 按当前形象、
+        emotion 留空（抽取阶段不猜情绪）、affection 记当时值。
+        """
+        try:
+            payload = mwp.event_payload(dec)
+            self.memories.add(self.current, payload['type'],
+                              payload['title'], payload['detail'],
+                              emotion='', affection_at=self._affection_now())
+        except Exception as _exc:
+            _silent_log('_write_policy_event', _exc)
+
     def _extract_worker(self):
         """抽取线程：最近对话 → LLM 提炼事实/事件 → 写回 memory.json / memories.json"""
         try:
@@ -3107,22 +3129,74 @@ class PetWidget(QWidget):
                                  if f.get('status', 'active') == 'active')
             result = extract_memories(self._extract_chat, dialogue, existing)
             changed = False
+            # v3.7（2026-11-06）：写入边界。facts 是**常驻可检索池** ——
+            #   一条一次性的事（今天/第N次/满分）写进去，此后每个相关提问都会把它抬出来。
+            #   判据与实测见 memory_write_policy 模块头。
             for f in result.get('facts', []):
+                # 容忍模型偶尔把 facts 写成纯字符串（实测风险：整批抽取会因 AttributeError
+                # 被外层 except 吃掉，等于这一轮什么都没记住）
+                if isinstance(f, str):
+                    f = {'content': f, 'importance': 3}
+                if not isinstance(f, dict):
+                    continue
                 content = str(f.get('content', '')).strip()
-                if content:
+                if not content:
+                    continue
+                dec = mwp.classify(content, self.memory_facts)
+                mledger.append('write', {
+                    'stage': 'extract.facts', 'target': dec['target'],
+                    'reason': dec['reason'], 'hits': dec['hits'][:6],
+                    'text': dec['text'][:160],
+                    'trimmed': [t[:80] for t in (dec.get('trimmed') or [])],
+                    'role': self.current,
+                })
+                if dec.get('trimmed'):
+                    content = dec['text']          # 剥掉"助手主张"子句后的文本
+                if dec['existing'] is not None:
+                    # 同一件事已被记过 → 只累加证据，不新增（库里已有 3 组此类重复）
+                    ex = dec['existing']
+                    mwp.bump_evidence(ex)
+                    self.memory_facts, _msg = remember_fact(
+                        self.memory_facts, 'update', content,
+                        int(ex.get('importance', 3)), fid=ex.get('id'), role='both')
+                    changed = True
+                    continue
+                if dec['target'] == mwp.TARGET_FACT:
                     self.memory_facts, _msg = remember_fact(
                         self.memory_facts, 'add', content, f.get('importance', 3), role='both')
                     changed = True
+                elif dec['target'] == mwp.TARGET_EVENT:
+                    self._write_policy_event(dec)
+                # drop：不写任何记忆（台账里已有记录，可回溯"为什么没记"）
             for u in result.get('update_facts', []):
+                if isinstance(u, str):
+                    continue                      # 没有 id 的 update 无意义
+                if not isinstance(u, dict):
+                    continue
                 fid = str(u.get('id', ''))
                 content = str(u.get('content', '')).strip()
                 if fid and content:
+                    # 更新也过一遍边界：只剥"助手主张"子句，不改目标层
+                    #   （已有 id 说明用户/模型认定这是同一件事，否决更新会丢信息）
+                    _dec = mwp.classify(content, None)
+                    if _dec.get('trimmed'):
+                        content = _dec['text']
+                        mledger.append('write', {
+                            'stage': 'extract.update', 'target': 'fact_keep',
+                            'reason': _dec['reason'], 'text': content[:160],
+                            'trimmed': [t[:80] for t in _dec['trimmed']],
+                            'role': self.current,
+                        })
                     self.memory_facts, _msg = remember_fact(
                         self.memory_facts, 'update', content, fid=fid, role='both')
                     changed = True
             if changed:
                 self._save_memory()
             for e in result.get('events', []):
+                if isinstance(e, str):
+                    e = {'title': e, 'detail': ''}
+                if not isinstance(e, dict):
+                    continue
                 title = str(e.get('title', '')).strip()
                 if title:
                     try:
@@ -4693,6 +4767,14 @@ class PetWidget(QWidget):
                 # v6.53：没过闸门 → 返回空表 → 本轮不注入检索记忆（治记忆过拟合）
                 rel = search_memory_for_injection(self.memory_facts, text, top_k=3,
                                                   rerank=self._rerank_memories)
+                # v3.7（2026-11-06）：「注入但未引用」埋点 —— 回复落地后回填
+                #   （见 _display_ai_reply）。埋点失败绝不许影响对话。
+                try:
+                    self._mem_usage_turn = musage.record_injection(
+                        rel, text, role=getattr(self, 'current', ''))
+                except Exception as _exc:
+                    self._mem_usage_turn = None
+                    _silent_log('_ai_worker:mem_usage', _exc)
                 if rel:
                     rel_block = '\n'.join(f'★{c.get("importance", 3)} {c["text"]}' for c in rel)
                     mem = (rel_block + '\n\n' + mem) if mem else rel_block
@@ -5433,6 +5515,14 @@ class PetWidget(QWidget):
 
     def _display_ai_reply(self, reply):
         """主线程槽：显示 AI 回复（解析情绪标签切换立绘）"""
+        # v3.7：「注入但未引用」回填 —— 本次回复有没有用上注入的记忆
+        try:
+            _turn = getattr(self, '_mem_usage_turn', None)
+            if _turn:
+                musage.record_reply(_turn, reply)
+                self._mem_usage_turn = None
+        except Exception as _exc:
+            _silent_log('_display_ai_reply:mem_usage', _exc)
         # v6.42 fix：任何回复路径先清状态行（工具轮耗尽/超时后的非流式回复会残留 ⏳）
         try:
             self._remove_status_line()

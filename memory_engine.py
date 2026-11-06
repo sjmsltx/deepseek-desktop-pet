@@ -14,10 +14,15 @@ memory_engine.py — 记忆引擎（Phase 1 重构）
 - 注入预算分层（core 常驻 + 检索 top-k + 情景最近）由调用方（主文件）组合
 """
 import datetime
+import hashlib
 import json
+import logging
 import math
 import re
 import unicodedata
+
+#: 本模块是纯逻辑，但向量组件是可选件 —— 它挂掉时必须留痕，不许静默降级
+_log = logging.getLogger('pet.memory_engine')
 
 # ---------- 分词 ----------
 
@@ -210,12 +215,127 @@ def search_memory(facts, query, top_k=3, rerank=None, min_matched=0, min_coverag
     return cands[:top_k]
 
 
-def search_memory_for_injection(facts, query, top_k=3, rerank=None):
+# ---------------- 向量检索（可选组件，缺失即回退）----------------
+#
+# 2026-11-06 接入。为什么加它：BM25 的天花板是字面匹配 ——
+#   闸门全关时留出集也只有 42%（「我大几」vs「用户是大二学生」没有共同 2-gram）。
+# 实测（同一套数据，库 21 条）：BM25 留出 3/12；向量 + 自适应阈值 8/12。
+#
+# 为什么阈值不能写死：库变大后任何一句都能找到"有点像"的邻居，
+#   固定 0.51 的负样本误注入从 7/42 涨到 34/42。改用按本库分布定标的 z 门槛后，
+#   同一区间内压回 4/42 → 2/42（细节见 memory_embed.adaptive_z_threshold）。
+
+#: 向量矩阵缓存：facts 内容一变就重建（键是内容指纹，不是文件修改时间）
+_VEC_CACHE = {'fp': '', 'mat': None, 'texts': [], 'ids': []}
+
+
+def _vector_fingerprint(active):
+    """按 (id, content) 算指纹。内容被改写但 id 不变时也要重算，所以不能只看 id。"""
+    h = hashlib.sha1()
+    for f in active:
+        h.update(('%s\x00%s\x01' % (f.get('id'), f.get('content'))).encode('utf-8'))
+    return h.hexdigest()
+
+
+def vector_matrix(embedder, active):
+    """取（或重建）与 active 逐行对齐的向量矩阵。不可用返回 (None, None)。"""
+    if embedder is None or not getattr(embedder, 'ok', False):
+        return None, None
+    fp = _vector_fingerprint(active)
+    if _VEC_CACHE['fp'] == fp and _VEC_CACHE['mat'] is not None:
+        return _VEC_CACHE['mat'], _VEC_CACHE['texts']
+    texts = [(f.get('content') or '').strip() for f in active]
+    mat = embedder.encode(texts)
+    if mat is None or len(mat) != len(texts):
+        return None, None
+    _VEC_CACHE.update({'fp': fp, 'mat': mat, 'texts': texts,
+                       'ids': [f.get('id') for f in active]})
+    return mat, texts
+
+
+def search_memory_vector(facts, query, top_k=3, rerank=None, embedder=None):
+    """向量检索（自适应阈值）。**组件不可用返回 None** ⇒ 调用方回退 BM25。
+
+    返回形状与 search_memory 一致（id/text/importance/updated_at/score），
+    另带 'z'（该条在本库分布里的 z 分数）与 'via'='vector'，便于 UI / 台账显示。
+    """
+    active = [f for f in facts if f.get('status', 'active') == 'active']
+    if not active:
+        return []
+    try:
+        import memory_embed as _me
+    except Exception as exc:
+        # 组件缺失（没装依赖/文件被删）→ 回退 BM25。必须留痕，否则"怎么突然不准了"无从查
+        _log.info('向量组件不可用，本次回退 BM25：%s', exc)
+        return None
+    emb = embedder or _me.get_embedder()
+    if emb is None or not getattr(emb, 'ok', False):
+        return None
+    if _me.is_definition_question(query):
+        return []                        # 契约：问概念时不抬记忆（两条路同口径）
+    mat, texts = vector_matrix(emb, active)
+    if mat is None:
+        return None
+    hits = emb.search_adaptive(query, mat, texts, k=max(top_k, 3))
+    if not hits:
+        return []
+    cands = []
+    for h in hits:
+        f = active[h['index']]
+        cands.append({'id': f.get('id'), 'text': (f.get('content') or ''),
+                      'importance': f.get('importance', 3),
+                      'updated_at': f.get('updated_at', ''),
+                      'score': h['score'], 'z': h['z'], 'via': 'vector'})
+    if rerank is not None:
+        try:
+            picked_ids = rerank(query, cands)
+            by = {c['id']: c for c in cands}
+            picked = [by[i] for i in picked_ids if i in by][:top_k]
+            if picked:
+                return picked
+        except Exception as exc:
+            # 重排失败就用原序 —— 但不许静默（否则"重排到底有没有生效"永远查不出来）
+            _log.warning('向量重排失败，按原序返回：%s', exc)
+    return cands[:top_k]
+
+
+def search_memory_for_injection(facts, query, top_k=3, rerank=None, vector=None):
     """v6.53：**注入专用**检索 —— 带相关性闸门，没命中就返回空表（调用方本轮不注入）。
-    治理目标：不让“勉强相关”的记忆每轮都跑进上下文（记忆过拟合/过依赖）。"""
-    return search_memory(facts, query, top_k=top_k, rerank=rerank,
-                         min_matched=GATE_MIN_MATCHED, min_coverage=GATE_MIN_COVERAGE,
-                         keep_ratio=GATE_KEEP_RATIO)
+    治理目标：不让"勉强相关"的记忆每轮都跑进上下文（记忆过拟合/过依赖）。
+
+    vector（2026-11-06）：
+        None / 'auto'（默认）  两条路取并集：字面精确（BM25+闸门）∪ 语义（自适应阈值）。
+                          为什么默认并集：单用向量会丢掉字面精确命中 ——
+                          实测 r06「我的桌宠模型姐姐叫什么」BM25 命中了「Pro 模型姐姐的
+                          名字叫大蓝」，而单向量**不注入**（它认为「我的名字叫小蓝」更像）。
+                          并集：开发 6/6、留出 9/12（单向量 5/6、8/12；纯 BM25 2/6、3/12）。
+                          代价：负样本误注入 21 条 5/42、321 条 10/42（单向量 4 / 3）。
+        'vector'     只用向量（精度优先；321 条时负样本 3/42，但会丢字面精确命中）
+        'off'        强制 BM25（出问题时可一键回到旧行为）
+        'union'      与默认同义（显式写法）
+    """
+    def _bm25():
+        return search_memory(facts, query, top_k=top_k, rerank=rerank,
+                             min_matched=GATE_MIN_MATCHED,
+                             min_coverage=GATE_MIN_COVERAGE,
+                             keep_ratio=GATE_KEEP_RATIO)
+
+    mode = 'union' if vector in (None, 'auto', 'union') else str(vector)
+    if mode == 'off':
+        return _bm25()
+    try:
+        got = search_memory_vector(facts, query, top_k=top_k, rerank=rerank)
+    except Exception as exc:
+        # 任何意外都回退，绝不因向量挂掉而不答话 —— 但要留痕
+        _log.warning('向量检索异常，本轮回退 BM25：%s', exc)
+        got = None
+    if got is None:
+        return _bm25()
+    if mode == 'vector':
+        return got
+    seen = {str(c.get('id')) for c in (got or [])}
+    extra = [c for c in _bm25() if str(c.get('id')) not in seen]
+    return (list(got or []) + extra)[:top_k]
 
 
 # ---------- 自动抽取 ----------
@@ -223,10 +343,18 @@ def search_memory_for_injection(facts, query, top_k=3, rerank=None):
 EXTRACT_PROMPT = """你是记忆抽取器。从下面的对话中，提炼值得长期记住的信息，输出 JSON。
 规则（faithful 原则）：
 1. 只提炼「用户明确表达或可可靠推断」的信息，不脑补；
-2. 事实类（用户偏好/身份/日程/重要事件/任务）→ facts；
-3. 事件类（一次性的共同经历，如「今天一起玩了扫雷」）→ events；
-4. 与已有记忆重复或冲突的 → 在 update_facts 里给 id 和新内容；
-5. 输出格式（严格 JSON）：
+2. facts 只收**稳定属性**：身份/称呼、长期偏好、常住地、长期习惯、稳定兴趣与能力。
+   每条必须做到「脱离这段对话也能独立读懂」——不出现没有先行词的「它/这个/那个」；
+3. 下面这些**不要写进 facts**（写进 events，或不写）：
+   · 一次性进展/里程碑：今天…、第 N 次…、满分/通关/完成了/拿到了；
+   · 正在进行的具体任务：正在做…、这几天在做…、这周在学…（状态会过期）；
+   · 我自己（助手）的建议、评价、方案：「适合…」「建议…」「优于…」；
+   · 对产品/系统的评测：「实测效果好」「功能正常」；
+4. events 收「某一次发生的事」：一起做了什么、聊到什么、完成/达成什么、遇到的状况。
+   title 写简短标题（≤28 字），detail 保留能回想起来的关键信息；
+5. 与已有记忆重复或冲突的 → 在 update_facts 里给 id 和新内容，**不要另起一条**；
+6. 用户的表述与旧记忆冲突时，以用户**最新**表述为准；
+7. 输出格式（严格 JSON）：
 {{"facts": [{{"content": "...", "importance": 1-5}}],
   "events": [{{"title": "简短标题", "detail": "描述",
                "emotion": "这段对话的主导情绪，1-2个词，如 开心/心疼/惊讶/温柔/平静"}}],
