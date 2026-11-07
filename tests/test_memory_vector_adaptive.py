@@ -6,7 +6,7 @@
 Owner：「向量接产品 + 自适应阈值。留出集 R@3 从 3/12 提到 11/12，组件写好了但没接。
 卡在『阈值随库规模漂移』—— 库小时 0.51 合适，库大了区分度从 0.107 掉到 0.022。」
 
-实测（`记忆线-20261106/vec_study.py`，固定 0.51）：
+实测（固定余弦 0.51 的对照实验，脚本见 `tools/eval/experiment/`）：
     库 21 条  → 负样本误注入 7/42、无关查询 2/18
     库 521 条 → 负样本误注入 34/42、无关查询 16/18   召回几乎不变
 ⇒ 固定阈值必然随库增长失效。改为按本库相似度分布定标的 z 门槛。
@@ -233,3 +233,58 @@ def test_negatives_do_not_explode_with_library_growth():
         % e_big)
     assert e_big <= e_small + 2, (
         '向量多带的误注入从 %d 涨到 %d —— 它应该与库规模无关' % (e_small, e_big))
+
+# ---------- D. 极小库走产品入口（2026-11-08） ----------
+def test_small_library_through_product_entry_does_not_raise():
+    """库 < MIN_N_FOR_Z 时，向量结果里没有 z —— 产品入口不许因此抛 KeyError。
+
+    起因（外部复核指出）：`search_adaptive` 在 n < MIN_N_FOR_Z 时退回绝对阈值分支，
+    该分支走 `top_k`，返回形状只有 index/score/text，**没有 z**。
+    而 `search_memory_vector` 直接取 `h['z']` ⇒ KeyError，再被上层兜底吞掉、
+    静默退回 BM25 ⇒ 新装用户（记忆 < 10 条）语义检索完全不生效，
+    日志只说「向量检索异常」，排查方向会被带偏。
+
+    ⚠ 本用例走的是**产品函数** search_memory_vector，不是内层 search_adaptive ——
+      原来那条 test_small_library_falls_back_to_absolute 只测内层，
+      所以外层这个 KeyError 一直没被测到。
+    """
+    if not _emb().ok:
+        pytest.skip('无模型')
+    facts = [
+        {'id': 'f1', 'content': '用户爱吃重庆合川桃片，偏好甜味、老工艺', 'status': 'active'},
+        {'id': 'f2', 'content': '用户是大二学生，专业是地理信息科学', 'status': 'active'},
+        {'id': 'f3', 'content': '用户对古典诗词有兴趣，常让桌宠讲解', 'status': 'active'},
+        {'id': 'f4', 'content': '用户的笔记本电脑是 ThinkPad', 'status': 'active'},
+        {'id': 'f5', 'content': '用户喜欢玩《战争雷霆》解压', 'status': 'active'},
+    ]
+    assert len(facts) < mb.MIN_N_FOR_Z, '前置条件变了：库条数必须小于 %d' % mb.MIN_N_FOR_Z
+    # ⚠ 问句必须与库内某条足够接近：小库走绝对阈值 0.51，泛问句（如「我平时吃什么零食」）
+    #   根本过不了线 ⇒ 走不到 h['z'] 那一行，测不出原缺陷。
+    #   实测（2026-11-08，5 条库）：「我平时吃什么零食」0 条；下面这句 0.993 过线。
+    got = me.search_memory_vector(facts, '用户爱吃重庆合川桃片', top_k=2)
+    assert got is not None, '返回 None 表示被当成组件不可用了'
+    assert got, '5 条库语义召回应能命中桃片那条（走绝对阈值分支）'
+    for c in got:
+        assert 'z' in c, '小库分支缺 z 字段：%r' % (sorted(c.keys()),)
+        assert c['z'] == 0.0, '小库分支的 z 应为占位 0.0，实际 %r' % (c['z'],)
+        assert c.get('via') == 'vector'
+
+
+def test_small_library_injection_finds_target():
+    """极小库走完整注入入口，必须真的把目标记忆抬出来（不是只不抛异常）。"""
+    if not _emb().ok:
+        pytest.skip('无模型')
+    facts = [
+        {'id': 'f1', 'content': '用户爱吃重庆合川桃片，偏好甜味、老工艺', 'status': 'active'},
+        {'id': 'f2', 'content': '用户是大二学生，专业是地理信息科学', 'status': 'active'},
+        {'id': 'f3', 'content': '用户对古典诗词有兴趣，常让桌宠讲解', 'status': 'active'},
+        {'id': 'f4', 'content': '用户的笔记本电脑是 ThinkPad', 'status': 'active'},
+    ]
+    got = me.search_memory_for_injection(facts, '用户爱吃重庆合川桃片', top_k=2)
+    assert got, '4 条库在这个问句上没召回，说明向量路被 KeyError 掉了'
+    assert any('桃片' in str(c.get('text', c.get('content', ''))) for c in got), (
+        '没打到目标记忆：%r' % ([c.get('text') for c in got],))
+    # ⭐ 关键断言：必须是**向量**给的，不能是 KeyError 之后 BM25 兜底的
+    #   （只断言「召回到了」没有牙 —— 兜底路径同样能召回，注入缺陷时仍然绿）
+    assert any(c.get('via') == 'vector' for c in got), (
+        '召回不是向量路给的 ⇒ 说明向量那一步抛异常被兜底了：%r' % (got,))

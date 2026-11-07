@@ -28,6 +28,16 @@ $env:PET_EMBED_DIR = '<你的模型目录>'
 二进制大件（23 MB）不适合进 Git。`.gitignore` 已排除
 `models/**/*.onnx` 与 `models/**/tokenizer.json`，只保留本说明。
 
+### 缺模型时测试会怎样（2026-11-08 补）
+
+`tests/test_memory_eval.py` 里有 6 条用例依赖本模型：5 个召回指标基线
+（`R@1` / `R@3` / `H_R@1` / `H_R@3` / `H_R@3_pure`）+ 一条开发集词汇空白用例。
+
+缺模型时这 6 条**显式 skip 并写明原因**，不是失败 —— 让「环境缺件」和「代码回归」
+在输出里长得不一样。其余指标（`FALSE` / `NOISE` / `EVID` / `SUPERSEDED`）不依赖模型，照常跑。
+
+⇒ 干净克隆下应看到 `14 passed, 6 skipped`，**0 failed**。
+
 ### 模型与阈值的对应关系
 
 阈值是在 **int8 版**上校准的。换成 fp32 版余弦整体会低约 0.02，同一处判定会掉出

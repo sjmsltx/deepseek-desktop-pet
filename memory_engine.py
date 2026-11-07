@@ -258,6 +258,10 @@ def search_memory_vector(facts, query, top_k=3, rerank=None, embedder=None):
 
     返回形状与 search_memory 一致（id/text/importance/updated_at/score），
     另带 'z'（该条在本库分布里的 z 分数）与 'via'='vector'，便于 UI / 台账显示。
+
+    ⚠ 库 < MIN_N_FOR_Z 条时 search_adaptive 退回绝对阈值分支，那一支不产出 z，
+      所以这里必须 `.get('z', 0.0)` —— 直接取 h['z'] 会抛 KeyError，再被上层兜底
+      吞掉、静默退回 BM25（新装用户语义检索完全不生效，日志只说「向量检索异常」）。
     """
     active = [f for f in facts if f.get('status', 'active') == 'active']
     if not active:
@@ -285,7 +289,7 @@ def search_memory_vector(facts, query, top_k=3, rerank=None, embedder=None):
         cands.append({'id': f.get('id'), 'text': (f.get('content') or ''),
                       'importance': f.get('importance', 3),
                       'updated_at': f.get('updated_at', ''),
-                      'score': h['score'], 'z': h['z'], 'via': 'vector'})
+                      'score': h['score'], 'z': h.get('z', 0.0), 'via': 'vector'})
     if rerank is not None:
         try:
             picked_ids = rerank(query, cands)

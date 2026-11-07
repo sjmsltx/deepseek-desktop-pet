@@ -124,3 +124,9 @@ tools/privacy_extra.json
 # 获取方式见 models/README.md
 models/**/*.onnx
 models/**/tokenizer.json
+
+# 会话工具的本地运行产物（2026-11-08 补）
+# 实测：tools/eval/experiment/.zwork/ 下存在内部协作文档（含工作安排与评审往来）。
+# 当前**没有**被 git 跟踪（ls-files 计数 0），但本文件此前未排除它 ⇒
+# 任何人一次 `git add -A` 就会把这类内部件推进公开仓库。加一行防御，不产生副作用。
+.zwork/

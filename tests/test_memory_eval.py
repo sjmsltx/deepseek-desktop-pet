@@ -77,7 +77,7 @@ if _TOOLS not in sys.path:
 BASELINE = {
     # 2026-11-06 上调：接入向量检索（自适应阈值）后，同一套用例、同一个库
     #   R@1 2/6→6/6、R@3 2/6→6/6、H_R@1 2/12→10/12、H_R@3 3/12→10/12、纯检索 1/5→6/7
-    #   ⚠ 2026-11-07 更正（评审-183 §三/§5.2）：这行原来写 9/12 与 3/5，与下面常量（10/12、6/7）
+    #   ⚠ 2026-11-07 更正（外部复核指出）：这行原来写 9/12 与 3/5，与下面常量（10/12、6/7）
     #     以及 L188 的「到 10/12」互相矛盾。常量为准，注释是旧的。
     #   ⚠ 纯检索分母 5→7 的原因**未查明**（已排除 11-06 迁到 events 的那 3 条：
     #     它们是 GIS 分析/matplotlib/Python 关卡，不在任何 holdout 用例的答案里）。
@@ -97,6 +97,33 @@ BASELINE = {
 
 #: 容差：eval 侧把比率 round 到 3 位小数，比较时留够余量。
 TOL = 1e-3
+
+
+#: 依赖向量模型的召回指标。没有模型时这几项必然掉，且掉的原因与环境有关、
+#: 与代码无关 —— 一律 skip 并说明，别让「环境缺件」长得像「回归」。
+#:
+#: 2026-11-08 加（外部复核指出）：缺模型时这里会 6 红
+#: （5 个召回基线 + test_gap_a_dev_vocabulary_holes），报错还写着
+#: 「说明向量检索没生效或被回退」—— 看起来像退化，实际只是没放模型。
+#: 公开仓库的「全绿」口径必须能在干净克隆上复现，所以这里改成显式 skip。
+_RECALL_METRICS = frozenset({'R@1', 'R@3', 'H_R@1', 'H_R@3', 'H_R@3_pure'})
+
+_NO_MODEL_REASON = (
+    '缺向量模型（models/bge-small-zh-v1.5/ 下需 model.onnx + tokenizer.json，'
+    '或设 PET_EMBED_DIR）。召回基线与该环境无关，故跳过；'
+    '取模型步骤见 models/README.md。FALSE/NOISE/EVID 等不依赖模型的指标照常跑。')
+
+
+def _model_available():
+    """向量模型是否可用。取不到就当不可用（不抛异常，免得整批红在导入上）。"""
+    try:
+        import memory_embed
+        return bool(memory_embed.get_embedder().ok)
+    except Exception as exc:
+        import logging
+        logging.getLogger('tests.memory_eval').warning(
+            '探测向量模型失败，按不可用处理：%r', exc)
+        return False
 
 
 @pytest.fixture(scope='module')
@@ -124,6 +151,8 @@ def test_eval_runs_on_real_library(result):
                                     'EVID', 'FALSE', 'NOISE', 'SUPERSEDED'])
 def test_not_below_baseline(result, metric):
     """每一类都不许低于基线。改检索/闸门/衰减后跑一遍就知道有没有把东西弄坏。"""
+    if metric in _RECALL_METRICS and not _model_available():
+        pytest.skip(_NO_MODEL_REASON)
     got = result['counts'][metric]
     want = BASELINE[metric]
     assert got >= want - TOL, (
@@ -169,9 +198,13 @@ def test_gap_a_dev_vocabulary_holes(result):
     ⛔ 不要把旧断言加回来：那会要求 R@3 掉回 33% 才算通过。
     真正防退化的是上面的 test_not_below_baseline。
     """
+    if not _model_available():
+        pytest.skip(_NO_MODEL_REASON)
     assert result['counts']['R@3'] >= 1.0 - 1e-9, (
         '开发集 R@3 掉到 %.0f%%（基线 100%%），说明向量检索没生效或被回退' %
         (result['counts']['R@3'] * 100))
+
+
 def test_holdout_never_used_for_tuning():
     """⭐ 结构钉：留出集不许被调参代码读到。
 
