@@ -49,6 +49,27 @@ EVICTED_MAX_LINES = 5000
 
 _TYPES = {'milestone', 'event', 'user_mark', 'memory'}
 
+
+def _is_critical_event(m):
+    """这条 event 是否属于「失效代价高」（不该被 200 条滚动淘汰挤掉）。
+
+    2026-11-07 加。起因：写入边界会把「用户正在服药，每天两次」这类判进 events，
+    而本层原本只认 pinned —— 服药/用药类会按插入顺序被淘汰（评审-183 §一/§1.2）。
+
+    判据复用 memory_fact_evict 的词表，但**只在本层（淘汰保护）使用**，
+    不在写入侧用于分层：实测在 classify 里按 critical 返 fact 会新增 6 条误杀。
+    """
+    try:
+        import memory_fact_evict as _mfe
+    except Exception as exc:
+        # ⛔ 不能裸 return —— test_silent_guard 会判「新增静默失败点」
+        #    （2026-11-07 实测：这条正是被护栏抓出来的，基线内已知 510 处、我新增 1 处）
+        _log.warning('critical 词表不可用，本条不享受淘汰豁免：%r', exc)
+        return False
+    title = m.get('title') or ''
+    detail = m.get('detail') or ''
+    return _mfe.is_critical_text('%s %s' % (title, detail))
+
 # ---------- 可重算播报过滤（v3.1 P0 止血，2026-10-31）----------
 # 背景：余额盯梢每 5 分钟上报一次 → 写进回忆 → prompt_hint 原样注入 system prompt，
 #   且提示词写着「可以自然提及」⇒ 模型每轮被喂三条过期账，并被鼓励说出口。
@@ -481,9 +502,18 @@ class MemoryEvents:
                 #   先占掉 pinned 的位子，剩余名额给其余条目按「旧→新」淘汰。
                 pinned = [m for m in self._memories if m.get('pinned')]
                 others = [m for m in self._memories if not m.get('pinned')]
-                keep = max(0, MAX_MEMORIES - len(pinned))
-                kept = others[-keep:] if keep else []
-                merged = [m for m in self._memories if m in pinned or m in kept]
+                # 2026-11-07 补（评审-186 §一 指出的真缺陷）：**critical 条目也豁免**。
+                #   写入边界会把「用户正在服药」这类判进 events，而本层原本只认 pinned
+                #   ⇒ 服药/用药类会按插入顺序被滚动淘汰。
+                #   ⚠ 用 is_critical_text(title+detail) 而不是在写入侧返 fact：
+                #     实测在 classify 里按 critical 返 fact 会新增 6 条误杀
+                #     （「助手建议我服用维生素」「用户怕打针」等被钉死）。
+                crit = [m for m in others if _is_critical_event(m)]
+                normal = [m for m in others if not _is_critical_event(m)]
+                keep = max(0, MAX_MEMORIES - len(pinned) - len(crit))
+                kept = normal[-keep:] if keep else []
+                merged = [m for m in self._memories
+                          if m in pinned or m in crit or m in kept]
                 new_list = merged[-MAX_MEMORIES:] if len(merged) > MAX_MEMORIES else merged
                 # 2026-11-02（Owner「淘汰可以」）：**先记账、再删**。
                 #   算出「原来有、现在没有」的那些 = 真正被淘汰的，先写台账。

@@ -627,3 +627,42 @@ def test_critical_known_gap_is_documented():
     assert not mfe.protected(f), \
         '若这条被保护了，说明词表扩过头（需同步更新本测试与注释）'
 
+
+# ---------- 7. 交界：critical 进 events 后不被滚动淘汰（2026-11-07） ----------
+
+def test_critical_event_survives_rolling_eviction(tmp_path):
+    """critical 条目被写入边界判进 events 后，不能被 200 条滚动淘汰挤掉。
+
+    起因（评审-183 §一 / 评审-186 §一）：写入边界会把「用户正在服药，每天两次」
+    判成 event/session，而 events 层原本只认 pinned ⇒ 服药类会被按顺序淘汰。
+    修法在 events 层加 critical 豁免（不在写入侧返 fact —— 那样会新增 6 条误杀）。
+    """
+    store = mev.MemoryEvents(str(tmp_path))
+    store.add('flash', 'event', '用户正在服药，每天两次', '每天两次')
+    for i in range(mev.MAX_MEMORIES + 30):
+        store.add('flash', 'event', '普通事件 %d' % i, '细节')
+    items = store.all()
+    assert len(items) == mev.MAX_MEMORIES
+    crit = [m for m in items if '服药' in (m.get('title') or '')]
+    assert crit, 'critical 条目被滚动淘汰了 —— events 层的 critical 豁免失效'
+
+
+def test_is_critical_text_accepts_plain_string():
+    """纯文本入口存在且能吃 str（is_critical 只吃 dict，会 AttributeError）"""
+    assert mfe.is_critical_text('用户正在服用降压药') is True
+    assert mfe.is_critical_text('用户怕打针') is True
+    assert mfe.is_critical_text('今天天气不错') is False
+    assert mfe.is_critical_text('') is False
+    assert mfe.is_critical_text(None) is False
+
+
+def test_new_critical_words_do_not_reach_write_policy():
+    """新增的 4 个词只用于淘汰保护，不许影响写入分层。
+
+    实测（评审-186 §三）：若在 classify 里按 critical 返 fact，
+    「助手建议我服用维生素」「用户怕打针」等 6 条会被钉死在 facts 里。
+    """
+    import memory_write_policy as mwp
+    for text in ('助手建议我服用维生素', '他建议我服用维生素'):
+        assert mwp.classify(text)['target'] != mwp.TARGET_FACT, \
+            '%r 被钉进 facts —— 新词表漏到写入侧了' % text

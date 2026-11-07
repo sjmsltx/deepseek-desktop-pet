@@ -138,7 +138,24 @@ def fact_effective_weight(f, now=None):
 _CRITICAL_PATTERNS = (
     '过敏', '忌口', '禁用', '不能吃', '不能碰', '不可吃',
     '用药', '服药', '病历', '病史', '身份证', '密码', '紧急联系',
+    # 2026-11-07 补：服药/用药的常见同义说法。
+    # ⚠ 这 4 个词**只用于淘汰保护**，不用于写入侧分层 —— 实测（评审-186 §三）
+    #   若在 classify 里按它返 fact，会把「助手建议我服用维生素」「用户怕打针」
+    #   「用户觉得医院输液太贵」这类 6 条钉死在 facts 里，永不淘汰。
+    #   淘汰保护侧的误保护代价只是「一条 event 不被挤掉」，远小于分层错的代价。
+    '服用', '输液', '打针', '过敏源',
 )
+
+
+def is_critical_text(text):
+    """纯文本版 is_critical —— events 的 title/detail 没有 content 字段。
+    2026-11-07 加：写入边界会把 critical 条目判进 events，而 events 层原本
+    完全没有 critical 保护，进 events 就等于等着被 200 条滚动淘汰。
+    """
+    t = str(text or '')
+    if not t:
+        return False
+    return any(p in t for p in _CRITICAL_PATTERNS)
 
 
 def is_critical(f):
