@@ -174,16 +174,47 @@ def test_evicted_recent_empty_when_no_file(tmp_path):
 
 
 def test_only_eviction_path_is_touched():
-    """结构钉：台账逻辑只许出现在淘汰路径上（防有人顺手在检索/写入里也记一笔）"""
+    """结构钉：台账逻辑只许出现在**淘汰路径**上（防有人顺手在检索/写入里也记一笔）。
+
+    ⚠ 2026-11-08 把判据从「只调一次」改成「都在同一个函数内」，不是放松，是改准：
+    这条钉的原意是**位置**（不许出现在淘汰路径之外），原先却写成了**次数**。
+    critical 溢出要和普通滚动分开记 reason（外部复核必改①），
+    那必然是两个调用点；两个都在 add() 的淘汰块里，原意完好。
+
+    现在断言三件事：
+      ① 调用点都在同一个函数内（否则就是散落在别处）
+      ② 那个函数是 add（淘汰逻辑所在）
+      ③ 调用点落在同一个 if 块的可疑范围外 —— 由 ① ② 覆盖，不额外做脆弱判断
+    """
     src = io.open(os.path.join(BASE, 'memory_events.py'), encoding='utf-8').read()
     import ast as _ast
     tree = _ast.parse(src)
-    hits = []
+
+    def _func_of(lineno):
+        best = None
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                if node.lineno <= lineno <= (node.end_lineno or node.lineno):
+                    if best is None or node.lineno > best.lineno:
+                        best = node
+        return best
+
+    calls = []
     for node in _ast.walk(tree):
         if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute):
             if node.func.attr == 'record_evicted':
-                hits.append(node.lineno)
-    assert len(hits) == 1, 'record_evicted 被调用 %d 次，只该在淘汰处调一次：%r' % (len(hits), hits)
+                calls.append(node.lineno)
+
+    assert calls, '台账一次都没记 —— 淘汰路径上的调用被删了？'
+    owners = {_func_of(ln).name for ln in calls if _func_of(ln) is not None}
+    assert len(owners) == 1, (
+        'record_evicted 出现在多个函数里 %r（行号 %r）—— 台账只许在淘汰路径上记'
+        % (sorted(owners), calls))
+    assert owners == {'add'}, (
+        'record_evicted 出现在 %r，淘汰路径在 add；别处记台账会污染「删之前一定记过」'
+        % (sorted(owners),))
+    assert len(calls) <= 3, (
+        'record_evicted 有 %d 个调用点，多得不合理：%r' % (len(calls), calls))
 
 # ══════════ content_hash / committed（2026-11-03，评审-174 §六 第 3 条）══════════
 

@@ -22,6 +22,17 @@ import time
 _log = logging.getLogger('pet.memory_events')
 
 MAX_MEMORIES = 200          # 滚动淘汰上限
+#: 给普通事件保留的底线名额（2026-11-08 加）。
+#:
+#: 为什么需要：critical 条目只进不出 —— 它豁免淘汰，而词表命中是单向累积的。
+#: 一旦攒到接近上限，就会把普通事件全部挤掉：keep = max(0, 上限 - pinned - crit) = 0。
+#: 实测：写入 250 条 critical + 10 条普通 => 库内 200 条全是 critical，普通 0 条。
+#: 而且最旧的 critical 还会被 merged[-上限:] 从头部静默截掉。
+#:
+#: 所以 critical 最多占「预算 - 本值」，超出的按新增顺序取最新的；
+#: 被淘汰的 critical 以 reason='critical_overflow' 单独记台账，不和普通滚动混在一起。
+#: 设为 0 退回旧行为（不保留底线），便于对照。
+RESERVE_NORMAL = 20
 INJECT_COUNT = 3            # prompt 注入最近 N 条
 HALF_LIFE_DAYS = 30.0           # 权重衰减半衰期（天）—— 两种模型下语义相同
 #: 衰减模型（Owner 2026-11-02 拍板：改幂律）
@@ -510,7 +521,21 @@ class MemoryEvents:
                 #     （「助手建议我服用维生素」「用户怕打针」等被钉死）。
                 crit = [m for m in others if _is_critical_event(m)]
                 normal = [m for m in others if not _is_critical_event(m)]
-                keep = max(0, MAX_MEMORIES - len(pinned) - len(crit))
+                # 2026-11-08（外部复核指出的退化边界）：critical 累积没有出口。
+                #   它豁免淘汰，而词表命中是单向累积的；攒到接近上限就会把普通事件
+                #   全部挤掉（keep = max(0, 上限 - pinned - crit) = 0）。
+                #   实测 250 条 critical + 10 条普通 => 普通剩 0 条，且最旧的 critical
+                #   会被 merged[-上限:] 从头部静默截掉。
+                #   处置：给普通留 RESERVE_NORMAL 的底线；critical 超过「预算 - 底线」
+                #   时按新增顺序保留最新的，被淘汰的单独记台账 critical_overflow。
+                budget = MAX_MEMORIES - len(pinned)
+                crit_cap = max(0, budget - RESERVE_NORMAL) if RESERVE_NORMAL > 0 else budget
+                if len(crit) > crit_cap:
+                    crit_dropped = crit[:len(crit) - crit_cap]
+                    crit = crit[-crit_cap:] if crit_cap else []
+                else:
+                    crit_dropped = []
+                keep = max(0, budget - len(crit))
                 kept = normal[-keep:] if keep else []
                 merged = [m for m in self._memories
                           if m in pinned or m in crit or m in kept]
@@ -522,7 +547,19 @@ class MemoryEvents:
                 try:
                     gone = [m for m in self._memories if m not in new_list]
                     if gone:
-                        self.record_evicted(gone, reason='overflow', kept=len(new_list))
+                        # critical 溢出要和普通滚动分开记：前者是「保护把容量吃掉了」，
+                        # 后者是「正常淘汰」。混成一行以后查不清是哪一种。
+                        _drop_ids = {id(m) for m in crit_dropped}
+                        _crit_gone = [m for m in gone if id(m) in _drop_ids]
+                        _rest_gone = [m for m in gone if id(m) not in _drop_ids]
+                        if _crit_gone:
+                            self.record_evicted(_crit_gone, reason='critical_overflow',
+                                                kept=len(new_list))
+                            _log.warning('critical 超出容量上限，按新增顺序淘汰最旧的 %d 条（上限 %d）',
+                                         len(_crit_gone), crit_cap)
+                        if _rest_gone:
+                            self.record_evicted(_rest_gone, reason='overflow',
+                                                kept=len(new_list))
                         _rec_ids = [m.get('id') for m in gone]
                 except Exception as exc:
                     _log.warning('淘汰台账环节异常（淘汰照常进行）：%r', exc)
