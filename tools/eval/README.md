@@ -12,6 +12,7 @@
 | `audit_facts.py` | facts 库体检：自足性 / 一次性 / 可检索性三类客观标记，输出候选清单（不替代人判断） |
 | `dup_jaccard_exp.py` | 近重复判据实验：原始 Jaccard vs 去泛用词 Jaccard，看真假配对分不分得开 |
 | `memory_usage_report.py` | 「注入但未引用」统计（需要先攒真实使用数据；口径见 `memory_usage.py` 头部偏差清单） |
+| `extract_ab.py` | 抽取提示词 A/B 对照：同一批对话、只换提示词，看伪影率。读本地对话记录，**结果落 `logs/` 不入库** |
 
 ## 两条纪律
 
