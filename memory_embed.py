@@ -183,6 +183,29 @@ def calibration_warning(onnx_mb):
             '阈值 %.2f 可能不适用，请重跑 reverify_models.py 重校准'
             % (mb, expect, ratio, DEFAULT_THRESHOLD))
 
+#: 小库（条数 < ADAPTIVE_REF_N）用的判据：**余弦下限 + top1/top2 间隔**，不用 z。
+#:
+#: 为什么小库不该用 z（2026-11-08 实测）：
+#:   n 条样本上 |z| 的上限只有 √(n-1) —— n=15 时 3.74、n=18 时 4.12，
+#:   而门槛 2.5 已占去大半个量程 ⇒ 在这个区间里 z 测不出「突出」。
+#:   18 条库上量了 21 条用例：**9 条的 z 落在门槛 ±0.5 内**，库规模一动就翻面。
+#:   实例：清理试跑删掉 3 条后 h06/h08 从命中变不命中，而它们的余弦几乎没变
+#:   （0.517→0.516、0.584→0.586），只是 z 从 2.62→2.38、2.66→2.47 掉到门槛以下。
+#:   答案条目一直在库里，一条都没删。
+#:
+#: 为什么改用 gap（top1 与 top2 的余弦差）：
+#:   小库邻居少，第一名领先第二名多少比「在全库分布里的位置」更可信。
+#:   11-07 实测真召回 gap 0.022~0.117 ⇒ 取 0.02 不误杀真召回。
+#:
+#: 18 条库实测（tuning 选参 / holdout 验收，两者分开）：
+#:   现状 z≥2.5：       tuning 5/8  holdout 10/12  无关 1/16  负样本 6/42
+#:   余弦≥0.50 + gap0.02：tuning 7/8  holdout 11/12  无关 1/16  负样本 5/42
+#:   ⇒ 召回升、误注入不增。0.02 不是端点（0.015→无关 2/16；0.025→holdout 掉到 10/12）。
+#:
+#: ⚠ 只在 n < ADAPTIVE_REF_N 时启用：21 条以上没有实测支撑，继续用 z。
+#:   设为 None 可关闭（退回旧的纯 z 路径），便于对照。
+SMALL_LIB_GAP = 0.02
+
 #: 定义式提问的词表 —— 命中即本轮不注入。
 #: ⚠ 覆盖不全：「扫雷怎么玩」「骰子规则」不匹配，仍会被注入（已知遗留风险）。
 _DEF_PAT = ('是什么', '是啥', '啥意思', '什么意思', '介绍一下', '介绍下',
@@ -409,10 +432,42 @@ class Embedder(object):
         #   任何门槛都够不到 ⇒ 永不注入）。样本不足就退回绝对余弦阈值。
         if n < MIN_N_FOR_Z and threshold is None:
             return self.top_k(query, vecs, texts, k=k, threshold=DEFAULT_THRESHOLD)
+        order = np.argsort(-sims)
+        # 小库（校准点以下）：改用「余弦下限 + top1/top2 间隔」，不用 z。
+        # 依据与被测数据见 SMALL_LIB_GAP 的注释。
+        if (SMALL_LIB_GAP is not None and threshold is None
+                and n < ADAPTIVE_REF_N):
+            if len(order) < 2:
+                return []
+            s1 = float(sims[int(order[0])])
+            s2 = float(sims[int(order[1])])
+            win = s1 - s2
+            # 两条路都算通过：
+            #   ① 过绝对下限 且 与第二名拉开 SMALL_LIB_GAP
+            #   ② 明显胜出（win ≥ ADAPTIVE_GAP_BYPASS）—— 即使余弦低于下限也放行
+            # 为什么保留 ②：有些**真召回**余弦偏低但第一名远超第二名。
+            #   实测「我平时吃什么零食」→ 桃片：余弦 0.404 < 0.50，但 win 0.100。
+            #   去掉 ② 会让这类召回消失（12 条库回归用例当场变红）。
+            # ⚠ 代价必须记住：② 同时会放行个别**误注入**。实测 18 条库上
+            #   「改一下明天重庆的天气」→ 桃片（余弦 0.470、win 0.121）也被放行 ——
+            #   它与上一条在余弦、gap 两个维度上都不可分（误判的 gap 反而更大），
+            #   这是判据的极限，不是调参能解决的。所以无关从 1/16 变成 2/16。
+            bypass = win >= ADAPTIVE_GAP_BYPASS
+            if not ((s1 >= ADAPTIVE_ABS_FLOOR and win >= SMALL_LIB_GAP) or bypass):
+                return []
+            out = []
+            for i in order:
+                si = float(sims[int(i)])
+                if si < ADAPTIVE_ABS_FLOOR and not bypass:
+                    break
+                out.append({'index': int(i), 'score': round(si, 4), 'z': 0.0,
+                            'text': texts[int(i)] if int(i) < len(texts) else ''})
+                if len(out) >= k:
+                    break
+            return out
         zmin = adaptive_z_threshold(n) if threshold is None else float(threshold)
         mu = float(sims.mean())
         sd = float(sims.std()) or 1e-6
-        order = np.argsort(-sims)
         # 明显胜出：库里就这一条明显对得上（只看 top1）
         clear_winner = False
         if len(order) >= 2:

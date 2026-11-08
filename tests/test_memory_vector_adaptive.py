@@ -95,8 +95,15 @@ def test_adaptive_picks_only_outliers():
 
 
 def test_adaptive_picks_clear_outlier():
-    """有一个明显离群点 → 只取它"""
-    sims = [0.30] * 20
+    """有一个明显离群点 → 只取它，且 z 达标。
+
+    ⚠ 库规模取 ADAPTIVE_REF_N + 20（46 条），**必须在校准点以上**：
+    2026-11-08 起小库（< ADAPTIVE_REF_N）改走「余弦+gap」分支、不再产出 z，
+    本条断言的 z 只对 z 分支成立。原来用 20 条 —— 那正好落在小库区间，
+    改判据后 z 恒为占位 0.0 ⇒ 该用例当场变红（红的原因是用例位置错了，不是功能坏了）。
+    """
+    n = mb.ADAPTIVE_REF_N + 20
+    sims = [0.30] * n
     sims[7] = 0.78
     st = _Stub(sims)
     got = st.search_adaptive('q', None, ['t%d' % i for i in range(len(sims))])
@@ -288,3 +295,94 @@ def test_small_library_injection_finds_target():
     #   （只断言「召回到了」没有牙 —— 兜底路径同样能召回，注入缺陷时仍然绿）
     assert any(c.get('via') == 'vector' for c in got), (
         '召回不是向量路给的 ⇒ 说明向量那一步抛异常被兜底了：%r' % (got,))
+
+
+# ---------- E. 小库判据（余弦 + gap，不用 z），2026-11-08 ----------
+def _stub_with(sims):
+    st = _Stub(sims)
+    return st
+
+
+def test_small_library_uses_gap_not_z():
+    """小库（< ADAPTIVE_REF_N）走「余弦 + gap」分支：不产出 z，z 恒为 0.0。
+
+    起因：z 在 n 条样本上上限只有 √(n-1)（n=15 时 3.74、n=18 时 4.12），
+    门槛 2.5 已占去大半量程 ⇒ 18 条库上 9/21 条用例的 z 落在门槛 ±0.5 内，
+    库规模一动就翻面（清理删 3 条后 h06/h08 从命中变不命中，而余弦几乎没变）。
+    """
+    n = mb.ADAPTIVE_REF_N - 3          # 18 条，在小库区间内
+    sims = [0.0] * n
+    sims[0], sims[1] = 0.80, 0.60      # 明显胜出
+    st = _stub_with(sims)
+    got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
+    assert got, '小库在明显胜出时应当注入'
+    assert got[0]['z'] == 0.0, '小库分支不该产出 z 值，实际 %r' % (got[0]['z'],)
+
+
+def test_small_library_rejects_when_gap_too_small():
+    """小库：top1 与 top2 咬得太近（< SMALL_LIB_GAP）时不注入。
+
+    这是小库判据的核心约束：没有明显第一名就当作「说不清」。
+    """
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0], sims[1] = 0.70, 0.70 - (mb.SMALL_LIB_GAP / 2.0)
+    st = _stub_with(sims)
+    got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
+    assert got == [], 'gap 不足时仍注入：%r' % (got,)
+
+
+def test_small_library_rejects_below_abs_floor_without_clear_winner():
+    """小库：低于绝对下限、且没有明显胜出时，不注入。
+
+    ⚠ 注意「且没有明显胜出」这个前提。小库分支保留了 `ADAPTIVE_GAP_BYPASS` 旁路：
+    gap ≥ 0.10 时即使余弦低于下限也放行 —— 因为有些**真召回**就是这样
+    （实测「我平时吃什么零食」→ 桃片：余弦 0.404 < 0.50，但 gap 0.100）。
+    本条构造的是「低于下限 + 与第二名咬得很近」，两个条件都不满足，应当拒绝。
+    """
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0] = mb.ADAPTIVE_ABS_FLOOR - 0.05
+    sims[1] = sims[0] - 0.01            # gap 0.01 < 旁路阈值 0.10
+    st = _stub_with(sims)
+    got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
+    assert got == [], '低于下限且无明确胜出，仍注入：%r' % (got,)
+
+
+def test_small_library_clear_winner_bypasses_floor():
+    """小库：明显胜出时绕过绝对下限（这条旁路必须留着，否则真召回会丢）。"""
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0] = mb.ADAPTIVE_ABS_FLOOR - 0.05   # 低于下限
+    sims[1] = sims[0] - 0.15                 # 但 gap 0.15 ≥ 旁路 0.10
+    st = _stub_with(sims)
+    got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
+    assert got, '明显胜出却被下限拦住 —— 旁路失效了'
+    assert got[0]['index'] == 0
+
+
+def test_large_library_still_uses_z():
+    """库 ≥ ADAPTIVE_REF_N 时必须仍走 z 分支（新分支不许外溢到校准点以上）。"""
+    n = mb.ADAPTIVE_REF_N + 20
+    sims = [0.0] * n
+    sims[0] = 0.80
+    st = _stub_with(sims)
+    got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
+    assert got, '大库明显离群点没被选中'
+    assert got[0]['z'] != 0.0, '大库仍应走 z 分支（不该返回占位 0.0）'
+
+
+def test_small_lib_gap_can_be_disabled():
+    """SMALL_LIB_GAP=None 时退回旧的纯 z 路径（便于对照与回滚）。"""
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0], sims[1] = 0.80, 0.60
+    orig = mb.SMALL_LIB_GAP
+    try:
+        mb.SMALL_LIB_GAP = None
+        st = _stub_with(sims)
+        got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
+        if got:
+            assert got[0]['z'] != 0.0, '关闭后应走 z 分支'
+    finally:
+        mb.SMALL_LIB_GAP = orig
