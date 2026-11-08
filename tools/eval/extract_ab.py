@@ -212,23 +212,48 @@ def run_one(prompt_text, dialogue, key, max_tokens=400, temperature=None):
 #   不是用户的稳定属性），但第一版判据识别不出。
 #   ⇒ 补「持有 / 手中有一份 / 在做 / 分析了 / 拿着」，并用 9 条已知正负样本校准（9/9）。
 #   ⚠ 这是**扩充到已知两类**，不是为了让某一臂好看 —— 修正后两臂仍是 1:1 打平（见报告）。
+#: ── 三级判据（2026-11-08 从两级扩到三级）──────────────────────────
+#:
+#: 两级（伪影 / 非伪影）有个致命缺陷：它把「用户与重庆有关联，**可能**是重庆人」
+#: 也算进「有效」—— 那是抽取自己在猜，不是记忆。这类条目进了库只会污染检索。
+#:
+#: 三级：
+#:   bad    伪影：把「我们一起在做的事」记成用户属性 / 寒暄记成人格 / 助手主张记成属性
+#:   weak   抽到自己都没把握（含「可能 / 也许 / 大概」）—— 方向对但不可用
+#:   useful 用户的稳定属性、偏好、身份、习惯
+#:
+#: ⚠ 标定方式与局限：判据先在 18 条**已有**抽取结果上用人工期望值标定，18/18 一致。
+#:   但这批样本是我「先看了内容再写正则」⇒ 有过拟合风险，
+#:   所以本判据只能用来**同一批数据上比较两臂的相对差**，不能当绝对准确率。
+#:   报告里必须写这一句。
 GREETING_PAT = re.compile(r'(语气|友善|温暖|关心他人|有礼貌|客气|寒暄|问候|说话方式)')
 PROJECT_PAT = re.compile(
     r'(记忆机制|技术实现|功能细节|代码|实现细节|架构'
     r'|持有|手中有一份|手里有一份|拥有一份|在做|分析了|拿着)')
-#: project 型还要求出现「态度/行为」词，单凭「代码」二字不算
 _PROJECT_VERB = re.compile(
     r'(关注|询问|了解|确认|讨论|研究|持有|手中有一份|手里有一份|在做|分析|拥有|拿着)')
+_ADVICE_PAT = re.compile(r'(适合|建议|优于|不如|更合理|值得)')
+_UNCERTAIN_PAT = re.compile(r'(可能|也许|大概|似乎|好像是|或是)')
+
+
+def grade_fact(text):
+    """三级判定，返回 (级别, 理由码)。级别：bad / weak / useful"""
+    t = str(text or '')
+    if PROJECT_PAT.search(t) and _PROJECT_VERB.search(t):
+        return 'bad', 'project'
+    if GREETING_PAT.search(t):
+        return 'bad', 'greeting'
+    if _ADVICE_PAT.search(t):
+        return 'bad', 'advice'
+    if _UNCERTAIN_PAT.search(t):
+        return 'weak', 'uncertain'
+    return 'useful', ''
 
 
 def classify_fact(text):
-    """返回 'greeting' / 'project' / ''（非伪影）。两类都是明确的错误形态。"""
-    t = str(text or '')
-    if GREETING_PAT.search(t):
-        return 'greeting'
-    if PROJECT_PAT.search(t) and _PROJECT_VERB.search(t):
-        return 'project'
-    return ''
+    """兼容旧调用：返回 'greeting' / 'project' / ''（只有 bad 级才非空）。"""
+    lvl, reason = grade_fact(text)
+    return reason if lvl == 'bad' else ''
 
 
 def main(argv=None):
@@ -310,37 +335,55 @@ def main(argv=None):
     for arm in ('old', 'new'):
         sub = [r for r in rows if r['arm'] == arm]
         total = sum(len(r['facts']) for r in sub)
-        g = pj = 0
+        cnt = {'bad': 0, 'weak': 0, 'useful': 0}
         detail = []
         for r in sub:
             for c in r['facts']:
-                k = classify_fact(c)
-                if k == 'greeting':
-                    g += 1
-                    detail.append((r['window'], k, c))
-                elif k == 'project':
-                    pj += 1
-                    detail.append((r['window'], k, c))
-        bad = g + pj
-        summary[arm] = {'runs': len(sub), 'facts': total, 'greeting': g,
-                        'project': pj, 'bad': bad, 'useful': total - bad,
-                        'rate': (bad / total) if total else 0.0,
-                        'useful_per_run': ((total - bad) / len(sub)) if sub else 0.0}
-        print('%s：%d 次抽取，facts 共 %d 条 ＝ 有效 %d + 伪影 %d（greeting %d + project %d）'
-              % (arm, len(sub), total, total - bad, bad, g, pj))
-        for w, k, c in detail:
-            print('    段%d [%s] %s' % (w, k, c[:70]))
+                lvl, reason = grade_fact(c)
+                cnt[lvl] += 1
+                if lvl != 'useful':
+                    detail.append((r['window'], lvl, reason, c))
+        summary[arm] = {'runs': len(sub), 'facts': total,
+                        'bad': cnt['bad'], 'weak': cnt['weak'], 'useful': cnt['useful'],
+                        'bad_rate': (cnt['bad'] / total) if total else 0.0,
+                        'useful_rate': (cnt['useful'] / total) if total else 0.0,
+                        'useful_per_run': (cnt['useful'] / len(sub)) if sub else 0.0}
+        print('%s：%d 次抽取，facts %d 条 ＝ useful %d / weak %d / bad %d'
+              % (arm, len(sub), total, cnt['useful'], cnt['weak'], cnt['bad']))
+        for w, lvl, reason, c in detail:
+            print('    段%d [%s/%s] %s' % (w, lvl, reason, c[:66]))
         print()
 
     o, n = summary['old'], summary['new']
-    print('伪影率：  旧 %.0f%% → 新 %.0f%%（差 %+.1f 个百分点）'
-          % (o['rate'] * 100, n['rate'] * 100, (n['rate'] - o['rate']) * 100))
-    print('有效事实：旧 %d 条（%.1f 条/次）→ 新 %d 条（%.1f 条/次）'
-          % (o['useful'], o['useful_per_run'], n['useful'], n['useful_per_run']))
+    print('%-12s %-14s %-14s %s' % ('指标', '旧 prompt', '新 prompt', '判定'))
+    print('-' * 66)
+    print('%-12s %-14s %-14s' % ('useful 条数', o['useful'], n['useful']))
+    print('%-12s %-14s %-14s' % ('weak 条数', o['weak'], n['weak']))
+    print('%-12s %-14s %-14s' % ('bad 条数', o['bad'], n['bad']))
+    print('%-12s %-14.0f%% %-14.0f%% %s' % ('bad 占比', o['bad_rate'] * 100,
+                                            n['bad_rate'] * 100,
+                                            '↓ 更好' if n['bad_rate'] < o['bad_rate'] else
+                                            ('持平' if n['bad_rate'] == o['bad_rate'] else '↑ 更差')))
+    print('%-12s %-14.0f%% %-14.0f%% %s' % ('useful 占比', o['useful_rate'] * 100,
+                                            n['useful_rate'] * 100,
+                                            '↑ 更好' if n['useful_rate'] > o['useful_rate'] else
+                                            ('持平' if n['useful_rate'] == o['useful_rate'] else '↓ 更差')))
     print()
-    print('⛔ 两个指标必须一起看：伪影率下降若靠「少抽」换来，那是拿召回换精度，'
-          '不是改进。只看伪影率会得出相反结论。')
-    print('样本：%d 段 × 2 = %d 次抽取，**只能看方向，不是统计结论**' % (len(wins), len(rows)))
+    # 判据（先定）：bad 占比下降 且 useful 条数不减超 20%
+    ok_bad = n['bad_rate'] < o['bad_rate']
+    ok_use = n['useful'] >= o['useful'] * 0.8
+    verdict = '通过' if (ok_bad and ok_use) else '不通过'
+    print('判据（跑之前就定好）：①bad 占比下降 ②useful 条数不低于旧臂的 80%%')
+    print('  ① %s    ② %s（%d vs 阈值 %.1f）'
+          % ('满足' if ok_bad else '不满足', '满足' if ok_use else '不满足',
+             n['useful'], o['useful'] * 0.8))
+    print('  ⇒ 结论：%s' % verdict)
+    print()
+    print('⛔ 两个指标必须一起看：bad 下降若靠「少抽」换来，那是拿召回换精度，不是改进。')
+    print('⚠ 判据局限：三级判据是在 18 条已有结果上人工标定的（18/18 一致），')
+    print('   但那批样本是「先看内容再写正则」⇒ 有过拟合风险。只能比较两臂相对差，不能当绝对准确率。')
+    print('样本：%d 段 × 2 臂 × %d 遍 = %d 次抽取，**只能看方向，不是统计结论**'
+          % (len(wins), max(1, args.repeat), len(rows)))
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     # ⛔ 必须用 with 块写入（关闭交给上下文管理器）。写成单表达式链会在长驻进程里
