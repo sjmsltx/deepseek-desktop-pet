@@ -35,24 +35,27 @@ def ev(tmp_path):
     return me.MemoryEvents(str(tmp_path / 'm.json'))
 
 
-TITLE = '关心：记得站起来活动一下'
+# ⚠ 2026-11-08 换素材：原来用「关心：记得站起来活动一下」，但久坐关心模板
+#   现在被 is_recomputable_notice 挡掉、add() 直接返回 {} ⇒ 本文件全部 IndexError。
+#   换成另一条 pet 固定模板测同一机制（合并/权重/来源都不受影响）。
+TITLE = '提醒：该喝水了'
 
 
 # ---------- A. 桌宠自推：只记次数，不动权重 ----------
 def test_pet_push_does_not_inflate_weight(ev):
-    ev.add('flash', 'event', TITLE, '记得站起来活动一下', origin='pet')
+    ev.add('flash', 'event', TITLE, '该喝水了，别等渴了', origin='pet')
     w0 = ev.all('flash')[0]['weight']
     for _ in range(30):
-        ev.add('flash', 'event', TITLE, '记得站起来活动一下', origin='pet')
+        ev.add('flash', 'event', TITLE, '该喝水了，别等渴了', origin='pet')
     e = ev.all('flash')[0]
     assert e['weight'] == pytest.approx(w0, abs=1e-9), (
         '桌宠自推 30 次把权重从 %r 推到 %r —— 这正是 158 反对的那件事' % (w0, e['weight']))
 
 
 def test_pet_push_still_counts_repeats(ev):
-    ev.add('flash', 'event', TITLE, '记得站起来活动一下', origin='pet')
+    ev.add('flash', 'event', TITLE, '该喝水了，别等渴了', origin='pet')
     for _ in range(5):
-        ev.add('flash', 'event', TITLE, '记得站起来活动一下', origin='pet')
+        ev.add('flash', 'event', TITLE, '该喝水了，别等渴了', origin='pet')
     e = ev.all('flash')[0]
     assert int(e.get('repeat_count') or 0) == 5, \
         '重复推送次数没记下来：%r' % (e.get('repeat_count'),)

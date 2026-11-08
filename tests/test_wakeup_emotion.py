@@ -110,7 +110,10 @@ def test_end_to_end_emotion_reaches_memory(tmp_path):
     p._save_cfg_value = lambda *a, **k: True
     p.memories = me.MemoryEvents(str(tmp_path / 'm.json'))
 
-    wrapped = p._wrap_wakeup_with_emotion('记得站起来活动一下', 'calm')
+    # ⚠ 2026-11-08 换素材：原来用「记得站起来活动一下」，但久坐关心模板
+    #   现在被 is_recomputable_notice 挡掉、add() 返回 {} ⇒ 端到端断言「没写进回忆」。
+    #   换成另一条不会被挡的 pet 模板；测的是 emotion 落库链路，与句子无关。
+    wrapped = p._wrap_wakeup_with_emotion('提醒：该喝水了', 'calm')
     p._display_wakeup(wrapped)
 
     items = p.memories.all(p.current)

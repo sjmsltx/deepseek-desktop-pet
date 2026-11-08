@@ -75,3 +75,30 @@ def test_existing_auto_patterns_still_work():
     """既有的两类（日期 / 提醒条数）不许在加新规则时被弄坏。"""
     assert mev.is_recomputable_notice('今天是 10月31日 星期六', '')
     assert mev.is_recomputable_notice('当前设置了 0 条提醒', '')
+
+def test_standup_template_is_blocked():
+    """久坐关心的**另一种话术**也要挡：「主动关心：记得站起来活动一下」。
+
+    为什么单列：这条没有分钟数，上一版只匹配「连续坐 N 分钟」时漏了它。
+    库里确实留过一条（2026-10-30 10:56），清理时才看见。
+    """
+    for title, detail in (
+            ('主动关心：记得站起来活动一下', '记得站起来活动一下'),
+            ('记得站起来活动一下', ''),
+            ('提醒：记得起身活动活动', ''),
+    ):
+        assert mev.is_recomputable_notice(title, detail), (
+            '这句固定关心模板没被挡住：%r' % title)
+
+
+def test_narration_about_standing_up_is_not_swallowed():
+    """**叙述句**不许被吞 —— 「站起来活动」出现在真回忆里时是叙述，不是模板。
+
+    ⚠ 这条是收窄判据的守门人：判据只能要求带「记得」这个祈使前缀。
+    不能单用「起来活动」—— 它会命中「站**起来活动**」，把下面这类真事吞掉（实测过）。
+    """
+    for text in ('用户说他站起来活动了一下腰',
+                 '用户站起来活动时把水杯碰倒了',
+                 '用户今天起来活动了个够'):
+        assert not mev.is_recomputable_notice(text, ''), (
+            '叙述句被误当模板吞了：%r' % text)

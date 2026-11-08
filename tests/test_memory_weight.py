@@ -191,9 +191,14 @@ def test_same_content_merges_instead_of_duplicating(ev):
     实测背景：删掉 174 条机械播报后剩 26 条，其中 24 条是同一句
     「主动关心：记得站起来活动一下」—— 每 5~20 分钟写一条。
     Owner 要的是「记得有这回事」，不是「记得说过 24 次」。
+
+    ⚠ 2026-11-08 换素材：上面那句正是现在被 is_recomputable_notice 挡掉的
+    久坐关心模板（不再入库，Owner 报障「星图里混进在桌前坐了几十分钟」）。
+    本条测的是**合并机制**，与具体句子无关 ⇒ 换成另一条 pet 固定模板，
+    断言一条没动。
     """
     for _ in range(5):
-        ev.add('flash', 'event', '主动关心：记得站起来活动一下', '记得站起来活动一下')
+        ev.add('flash', 'event', '提醒：该喝水了', '该喝水了，别等渴了')
     items = ev.all('flash')
     assert len(items) == 1, '同一句攒成了 %d 条' % len(items)
     it = items[0]
@@ -203,9 +208,9 @@ def test_same_content_merges_instead_of_duplicating(ev):
 
 def test_merge_updates_last_access_not_first_time(ev):
     """time 语义是「第一次」，last_access 是「最近一次」"""
-    ev.add('flash', 'event', '记得站起来活动一下', '')
+    ev.add('flash', 'event', '该喝水了，别等渴了', '')
     t0 = ev.all('flash')[0]['time']
-    ev.add('flash', 'event', '记得站起来活动一下', '')
+    ev.add('flash', 'event', '该喝水了，别等渴了', '')
     it = ev.all('flash')[0]
     assert it['time'] == t0, 'time 被改了（它应保持首次时间）'
     assert it['last_access'], 'last_access 未更新'
@@ -226,7 +231,7 @@ def test_merge_respects_role(ev):
 
 
 def test_merge_keeps_emotion_hint(ev):
-    ev.add('flash', 'event', '记得站起来活动一下', '', emotion='')
-    ev.add('flash', 'event', '记得站起来活动一下', '', emotion='关心')
+    ev.add('flash', 'event', '该喝水了，别等渴了', '', emotion='')
+    ev.add('flash', 'event', '该喝水了，别等渴了', '', emotion='关心')
     it = ev.all('flash')[0]
     assert it['emotion'] == '关心', '合并时情绪没补上'
