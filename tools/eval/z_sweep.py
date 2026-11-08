@@ -19,10 +19,24 @@
 - **`holdout` 只在最后验收时跑一次**，不参与任何选择
 - 报结果必须两者分开写，不许混成一个数
 
+## ⚠ 小库区间（< ADAPTIVE_REF_N = 21 条）本表无效
+
+2026-11-08 补（外部复核指出）：z 门槛 ≥ `MIN_N_FOR_Z` 且库 < 校准点时，
+产品走的是「余弦 + gap」分支，**z 根本不参与判定**。
+此时 ② 表会出现「九行完全相同」，脚本却仍从平表里「选出门槛」——
+那是幻觉，不是选参。我用它当过一次依据，注释里的数因此错位。
+
+所以：
+
+- `--small-gap 0.02`（默认）= 产品现行路径。**此模式 ② 表无效**，看 ① 临界带与 ③ 库规模即可
+- `--small-gap none` = 强制旧 z 路径（`SMALL_LIB_GAP=None`）。此模式 ② 表才有意义
+- 选参时两组都跑：先用 z 路径看门槛，再用 gap 路径看间隙，别把两者混成一张表
+
 ## 用法
 
-    python tools/eval/z_sweep.py                 # 全表
-    python tools/eval/z_sweep.py --sizes 15,18   # 只看指定库规模
+    python tools/eval/z_sweep.py                       # 全表（现行 gap 路径）
+    python tools/eval/z_sweep.py --small-gap none      # 强制旧 z 路径，② 表才有意义
+    python tools/eval/z_sweep.py --sizes 15,18         # 只看指定库规模
 """
 import argparse
 import io
@@ -101,6 +115,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='z 门槛临界带扫描')
     ap.add_argument('--sizes', default='',
                     help='逗号分隔的库规模（默认只用真实库；给数字则按顺序截取前 N 条）')
+    ap.add_argument('--small-gap', default='0.02',
+                    help='小库判据：数值=走「余弦+gap」现行路径；none=强制旧 z 路径。'
+                         '默认 0.02（= 产品现值）')
     args = ap.parse_args(argv)
 
     cases, negatives = load_cases()
@@ -110,11 +127,28 @@ def main(argv=None):
         raise SystemExit('cases.json 里没有 tuning 段，先补调参集')
 
     facts = load_facts()
+
+    # 小库判据开关：决定 ② 表在本库规模下有没有意义
+    orig_small_gap = mb.SMALL_LIB_GAP
+    if str(args.small_gap).lower() in ('none', 'null', ''):
+        mb.SMALL_LIB_GAP = None
+        small_mode = 'off'
+    else:
+        mb.SMALL_LIB_GAP = float(args.small_gap)
+        small_mode = 'on'
+
     emb = mb.get_embedder()
     if not emb.ok:
         raise SystemExit('向量模型不可用：%s' % (emb.reason or '未知'))
 
     print('库：%d 条 active' % len(facts))
+    if small_mode == 'on' and len(facts) < mb.ADAPTIVE_REF_N:
+        print('⚠ 小库判据已启用（SMALL_LIB_GAP=%r）且库 < 校准点 %d ⇒'
+              % (mb.SMALL_LIB_GAP, mb.ADAPTIVE_REF_N))
+        print('  **② 门槛扫描表无效**：z 不参与判定，各行必然相同。'
+              '要看 z 请加 --small-gap none')
+    elif small_mode == 'off':
+        print('小库判据已关闭（SMALL_LIB_GAP=None）⇒ 走旧 z 路径，② 表有意义')
     print('调参集 tuning：%d 条（只用于选参）' % len(tuning))
     print('验收集 holdout：%d 条（只在最后跑一次）' % len(holdout))
     print()
@@ -145,7 +179,10 @@ def main(argv=None):
     # ---------- ② 门槛移动：tuning 选参，holdout 验收 ----------
     print()
     print('=' * 96)
-    print('② 门槛扫描（固定库 %d 条）—— 左半选参、右半验收' % len(facts))
+    z_effective = not (small_mode == 'on' and len(facts) < mb.ADAPTIVE_REF_N)
+    print('② 门槛扫描（固定库 %d 条）—— 左半选参、右半验收%s'
+          % (len(facts), '' if z_effective else
+             '  ⚠ 本表无效：小库分支不看 z，各行必然相同'))
     print('=' * 96)
     orig = mb.adaptive_z_threshold
     print('%-8s %-12s %-12s %-12s %-10s' % ('z门槛', 'tuning(选参)', 'holdout(验收)', '无关/16', '负样本/42'))
@@ -173,12 +210,20 @@ def main(argv=None):
             best = (key, zt, th, tn, hh, hn, of, ng)
     _, zt_b, th_b, tn_b, hh_b, hn_b, of_b, ng_b = best
     print()
-    print('按「tuning 命中最多、噪声最少、门槛最保守」选出的门槛：%.1f' % zt_b)
-    print('  该门槛下 tuning %d/%d、holdout %d/%d（验收，非选参）、无关 %d/16、负样本 %d/42'
-          % (th_b, tn_b, hh_b, hn_b, of_b, ng_b))
-    print('  当前生产值 2.5 下：tuning %s、holdout %s'
-          % (next(('%d/%d' % (r[1], r[2])) for r in rows if abs(r[0] - 2.5) < 1e-9),
-             next(('%d/%d' % (r[3], r[4])) for r in rows if abs(r[0] - 2.5) < 1e-9)))
+    if not z_effective:
+        print('⛔ 不给出「选出的门槛」：库 %d 条 < 校准点 %d，小库分支不看 z，'
+              % (len(facts), mb.ADAPTIVE_REF_N))
+        print('   这张表九行相同，从中选门槛是幻觉。要看 z 请加 --small-gap none。')
+        print('   现行判据看 ① 的临界带与 gap 分布，不看本表。')
+        zt_b = None
+    if zt_b is not None:
+        print('按「tuning 命中最多、噪声最少、门槛最保守」选出的门槛：%.1f' % zt_b)
+    if zt_b is not None:
+        print('  该门槛下 tuning %d/%d、holdout %d/%d（验收，非选参）、无关 %d/16、负样本 %d/42'
+              % (th_b, tn_b, hh_b, hn_b, of_b, ng_b))
+        print('  当前生产值 2.5 下：tuning %s、holdout %s'
+              % (next(('%d/%d' % (r[1], r[2])) for r in rows if abs(r[0] - 2.5) < 1e-9),
+                 next(('%d/%d' % (r[3], r[4])) for r in rows if abs(r[0] - 2.5) < 1e-9)))
 
     # ---------- ③ 库规模移动的影响 ----------
     if args.sizes:
@@ -199,6 +244,7 @@ def main(argv=None):
         print()
         print('⚠ 这个扫描只是「截取前 N 条」的粗略模拟，不是真实清理（清理会按内容挑，不是按顺序）。')
         print('   它的用途是说明「同一门槛在相邻库规模上结论会翻」，不能当作清理效果预测。')
+    mb.SMALL_LIB_GAP = orig_small_gap
     return 0
 
 

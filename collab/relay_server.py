@@ -523,6 +523,39 @@ class Handler(BaseHTTPRequestHandler):
         return layer if layer in LAYERS else ''
 
     # ---- 路由 ----
+    def _drain_body(self, limit: int = 1 << 20) -> int:
+        """有界排空请求体，返回读掉的字节数。
+
+        为什么需要：不读请求体就回包，未读数据留在接收缓冲，`close` 时
+        Windows 发 RST，客户端读状态行抛 ConnectionAbortedError（10053）。
+        「有界」是因为不能为排空被超大 Content-Length 拖住 —— 读满 limit 就停。
+
+        与 `_post_pending` 413 分支里的排空同源；抽成方法后两处可共用一套。
+        """
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except (TypeError, ValueError) as exc:
+            # 落痕而非静默：Content-Length 非法 ⇒ 无法确定要排空多少，
+            # 这与「连接会不会被 RST」直接相关，静默掉以后查不清。
+            self._log_error('Content-Length 非法，按 0 处理（不排空请求体）', exc)
+            n = 0
+        if n <= 0:
+            return 0
+        left = min(n, limit)
+        got = 0
+        try:
+            while left > 0:
+                chunk = self.rfile.read(min(65536, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
+                got += len(chunk)
+        except OSError as exc:
+            # 排空失败本身要留痕：它意味着这次连接可能被 RST（客户端先断了）。
+            self._log_error('排空请求体失败（该连接可能被 RST）', exc)
+        return got
+
+
     def _json_body(self) -> dict:
         try:
             n = int(self.headers.get('Content-Length') or 0)
@@ -549,6 +582,14 @@ class Handler(BaseHTTPRequestHandler):
         #   create_server 的值」＝ **别人留下的状态**；实测裸 Handler 会
         #   直接放行（POST /api/step → 200）。安全闸门的兜底只能是 fail-closed。
         if not getattr(self, 'actions_allowed', False):
+            # ⚠️ 2026-11-08：**必须先有界排空请求体，再回 403**。
+            #   与下面 `_post_pending` 的 413 分支同一个病、同一个修法：
+            #   不读请求体就回包 ⇒ 未读数据留在接收缓冲 ⇒ close 时 Windows 发 RST ⇒
+            #   客户端读状态行时抛 ConnectionAbortedError（WinError 10053）。
+            #   外部复核对照实验（各 400 次）：不排空 403×397 + 10053×3；
+            #   先排空 403×400、零异常。现象是「单跑绿、全量里偶发红」——
+            #   CPU 竞争会放大这个竞态。
+            self._drain_body()
             return self._err(403, '动作端点未开启（需服务端 --enable-actions）')
         body = self._json_body()
         try:

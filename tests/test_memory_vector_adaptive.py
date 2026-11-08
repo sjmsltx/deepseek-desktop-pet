@@ -24,6 +24,9 @@ import json
 import os
 import sys
 
+import types
+
+import numpy as np
 import pytest
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -382,7 +385,77 @@ def test_small_lib_gap_can_be_disabled():
         mb.SMALL_LIB_GAP = None
         st = _stub_with(sims)
         got = st.search_adaptive('q', None, ['t%d' % i for i in range(n)])
-        if got:
-            assert got[0]['z'] != 0.0, '关闭后应走 z 分支'
+        # ⚠ 2026-11-08：原来写 `if got:` 包住断言 —— got 为空时整个断言被跳过，
+        #   等于一条空测试。外部复核指出。现在先断言「确实注入了」再断言走的是 z 分支。
+        assert got, '关闭小库判据后应当走 z 分支并注入，实际返回空'
+        assert got[0]['z'] != 0.0, '关闭后应走 z 分支（z 不该是占位 0.0）'
     finally:
         mb.SMALL_LIB_GAP = orig
+
+
+# ---------- F. 旁路只许放行第一名（2026-11-08，外部复核必改①）----------
+def _embedder_with(sims):
+    """造一个只喂固定相似度的 Embedder（走产品 search_adaptive 本体）"""
+    st = mb.Embedder.__new__(mb.Embedder)
+    st._np = np
+    arr = np.array(sims, dtype=np.float64)
+    st.score = types.MethodType(lambda self, q, vecs: arr, st)
+    return st
+
+
+def _texts(n):
+    return ['t%d' % i for i in range(n)]
+
+
+def test_bypass_releases_only_one_item_when_top_is_below_floor():
+    """明显胜出但 top1 低于下限时，只放行 top1 —— 不许把 k 条都放进来。
+
+    改前实测：k=3 返回 3 条，第 3 条余弦 0.0000（完全无关的条目被注入）。
+    """
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0], sims[1] = 0.45, 0.30        # win = 0.15 ≥ 旁路 0.10；两者都 < 0.50
+    st = _embedder_with(sims)
+    for k in (1, 2, 3):
+        got = st.search_adaptive('q', None, _texts(n), k=k)
+        assert len(got) == 1, (
+            'k=%d 时放行了 %d 条 —— 旁路只许放行第一名（改前的缺陷正是放行 k 条）'
+            % (k, len(got)))
+        assert got[0]['index'] == 0
+
+
+def test_bypass_never_injects_zero_similarity_items():
+    """余弦 0.0000 的条目绝不能被注入 —— 这是最坏的一种「放行」。
+
+    改前 k=3 时它确实注入了（第 3 条）。这条直接钉住那个具体后果。
+    """
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0], sims[1] = 0.45, 0.30
+    st = _embedder_with(sims)
+    got = st.search_adaptive('q', None, _texts(n), k=5)
+    zeros = [g for g in got if g['score'] <= 0.0]
+    assert not zeros, '注入了余弦 0 的条目：%r' % (zeros,)
+
+
+def test_normal_path_still_returns_up_to_k_when_all_above_floor():
+    """不触发旁路、多条都过下限时，仍然要能返回 k 条。
+
+    ⚠ 这条防的是「为了修旁路把正常路径改成只返 1 条」——最常见的连带伤害。
+    """
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0], sims[1], sims[2] = 0.90, 0.80, 0.70   # 全部 ≥ 0.50
+    st = _embedder_with(sims)
+    got = st.search_adaptive('q', None, _texts(n), k=3)
+    assert len(got) == 3, '正常路径应返回 3 条，实际 %d' % len(got)
+
+
+def test_bypass_does_not_apply_when_win_is_small():
+    """窗口不够大时，即使 top1 过下限也不该走旁路（旁路是给「明显胜出」用的）。"""
+    n = mb.ADAPTIVE_REF_N - 3
+    sims = [0.0] * n
+    sims[0], sims[1] = 0.45, 0.45 - (mb.ADAPTIVE_GAP_BYPASS / 2)
+    st = _embedder_with(sims)
+    got = st.search_adaptive('q', None, _texts(n), k=3)
+    assert got == [], 'win 不足却注入了：%r' % (got,)

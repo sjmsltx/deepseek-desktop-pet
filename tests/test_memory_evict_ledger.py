@@ -174,30 +174,36 @@ def test_evicted_recent_empty_when_no_file(tmp_path):
 
 
 def test_only_eviction_path_is_touched():
-    """结构钉：台账逻辑只许出现在**淘汰路径**上（防有人顺手在检索/写入里也记一笔）。
+    """结构钉：台账调用只许出现在**淘汰 if 块**内。
 
-    ⚠ 2026-11-08 把判据从「只调一次」改成「都在同一个函数内」，不是放松，是改准：
-    这条钉的原意是**位置**（不许出现在淘汰路径之外），原先却写成了**次数**。
-    critical 溢出要和普通滚动分开记 reason（外部复核必改①），
-    那必然是两个调用点；两个都在 add() 的淘汰块里，原意完好。
+    ⚠ 判据演进（2026-11-08，外部复核用 AST 变异实测指出我上一版改松了）：
+      旧版：`record_evicted` 调用次数 == 1
+            问题：区分 critical 溢出与普通滚动必须两个调用点 ⇒ 误报
+      我上一版：都在同一个函数内、且是 add、总数 ≤ 3
+            问题：**放过「在 add 内、淘汰块之前无条件记一笔」这种变异** ——
+                  而那条正是本钉 docstring 说要防的（每次写入都记一行台账）
+      现行：每个调用点必须落在 `if len(self._memories) > MAX_MEMORIES:` 的区间内
+            比次数精确，且不受调用点数量变化影响
 
-    现在断言三件事：
-      ① 调用点都在同一个函数内（否则就是散落在别处）
-      ② 那个函数是 add（淘汰逻辑所在）
-      ③ 调用点落在同一个 if 块的可疑范围外 —— 由 ① ② 覆盖，不额外做脆弱判断
+    变异实测（三种变异 × 三版判据）：
+        V0 现状                        旧判据 红 / 我上一版 过 / 现行 过
+        V1 add 内、淘汰块之前无条件记     旧判据 红 / 我上一版 **过** / 现行 红
+        V3 add 之外新函数里记            旧判据 红 / 我上一版 红 / 现行 红
     """
     src = io.open(os.path.join(BASE, 'memory_events.py'), encoding='utf-8').read()
     import ast as _ast
     tree = _ast.parse(src)
 
-    def _func_of(lineno):
-        best = None
-        for node in _ast.walk(tree):
-            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-                if node.lineno <= lineno <= (node.end_lineno or node.lineno):
-                    if best is None or node.lineno > best.lineno:
-                        best = node
-        return best
+    evict_ranges = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.If) and isinstance(node.test, _ast.Compare):
+            seg = _ast.get_source_segment(src, node.test) or ''
+            if '_memories' in seg and 'MAX_MEMORIES' in seg:
+                evict_ranges.append((node.lineno, node.end_lineno or node.lineno))
+
+    assert evict_ranges, (
+        '找不到淘汰 if 块（`if len(self._memories) > MAX_MEMORIES:`）——'
+        '淘汰逻辑被重构了？这条钉需要同步更新，而不是删掉')
 
     calls = []
     for node in _ast.walk(tree):
@@ -206,15 +212,13 @@ def test_only_eviction_path_is_touched():
                 calls.append(node.lineno)
 
     assert calls, '台账一次都没记 —— 淘汰路径上的调用被删了？'
-    owners = {_func_of(ln).name for ln in calls if _func_of(ln) is not None}
-    assert len(owners) == 1, (
-        'record_evicted 出现在多个函数里 %r（行号 %r）—— 台账只许在淘汰路径上记'
-        % (sorted(owners), calls))
-    assert owners == {'add'}, (
-        'record_evicted 出现在 %r，淘汰路径在 add；别处记台账会污染「删之前一定记过」'
-        % (sorted(owners),))
-    assert len(calls) <= 3, (
-        'record_evicted 有 %d 个调用点，多得不合理：%r' % (len(calls), calls))
+
+    outside = [c for c in calls
+               if not any(lo <= c <= hi for lo, hi in evict_ranges)]
+    assert not outside, (
+        'record_evicted 出现在淘汰 if 块之外（行 %r）；淘汰块区间 %r。'
+        '台账只许在「算完哪些要淘汰」之后记 —— 放在块外会导致每次写入都记一行、'
+        '记的还是没被淘汰的条目' % (outside, evict_ranges))
 
 # ══════════ content_hash / committed（2026-11-03，评审-174 §六 第 3 条）══════════
 

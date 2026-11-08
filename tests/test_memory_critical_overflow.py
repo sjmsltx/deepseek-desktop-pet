@@ -152,3 +152,80 @@ def test_reserve_normal_is_positive_by_default():
     """产品默认值必须是正的 —— 设 0 等于把这条修复关掉。"""
     assert mev.RESERVE_NORMAL > 0, '默认 RESERVE_NORMAL=%r，修复等于没开' % (mev.RESERVE_NORMAL,)
     assert mev.RESERVE_NORMAL < mev.MAX_MEMORIES, '底线不该吃满整个上限'
+
+# ---------- G. pinned 多时 critical 不许排在普通之后（2026-11-08）----------
+
+def _fill_with_pinned(tmp_path, cap, pinned_n, n_crit, n_normal):
+    """先把库填到 cap 并把前 pinned_n 条标 pinned，再写 critical 与普通事件"""
+    st = mev.MemoryEvents(str(tmp_path / 'p.json'))
+    for i in range(cap):
+        st.add('flash', 'event', '普通甲 %d' % i, 'x')
+    for m in st.all()[:pinned_n]:
+        m['pinned'] = True
+    st._save()
+    for i in range(n_crit):
+        st.add('flash', 'event', '用户正在服药第%d次' % i, '每天两次')
+    for i in range(n_normal):
+        st.add('flash', 'event', '普通乙 %d' % i, 'x')
+    return st
+
+
+def test_critical_not_zeroed_when_pinned_eats_capacity(tmp_path):
+    """pinned 占满额度时，critical 仍须保住 MIN_CRIT_SLOTS 个槽位。
+
+    改前实测（上限 60、底线 20、pinned=50）：critical **0** 条、普通 10 条 ——
+    「失效代价高」的保护反而被普通事件挤空了。
+    改后：critical 5 条（= MIN_CRIT_SLOTS）、普通 5 条。
+    """
+    old_cap, old_res, old_min = (mev.MAX_MEMORIES, mev.RESERVE_NORMAL,
+                                 mev.MIN_CRIT_SLOTS)
+    mev.MAX_MEMORIES, mev.RESERVE_NORMAL = 60, 20
+    try:
+        st = _fill_with_pinned(tmp_path, 60, 50, 30, 5)
+        items = st.all()
+        crit = [m for m in items if mev._is_critical_event(m)]
+        assert crit, ('pinned=50 时 critical 被清空 —— 优先级反了'
+                      '（critical 应至少保住 MIN_CRIT_SLOTS=%d 个）' % mev.MIN_CRIT_SLOTS)
+        assert len(crit) >= min(mev.MIN_CRIT_SLOTS,
+                                max(0, 60 - 50)), 'critical 保留数低于最少槽位：%d' % len(crit)
+    finally:
+        mev.MAX_MEMORIES, mev.RESERVE_NORMAL, mev.MIN_CRIT_SLOTS = old_cap, old_res, old_min
+
+
+def test_critical_survives_when_budget_below_reserve(tmp_path):
+    """budget 小于 RESERVE_NORMAL 时（pinned=55、上限 60），critical 仍不许归零。
+
+    这是最紧的一档：旧算法 crit_cap = max(0, 5-20) = 0 ⇒ critical 全灭。
+    """
+    old_cap, old_res, old_min = (mev.MAX_MEMORIES, mev.RESERVE_NORMAL,
+                                 mev.MIN_CRIT_SLOTS)
+    mev.MAX_MEMORIES, mev.RESERVE_NORMAL = 60, 20
+    try:
+        st = _fill_with_pinned(tmp_path, 60, 55, 20, 5)
+        crit = [m for m in st.all() if mev._is_critical_event(m)]
+        assert crit, 'budget(5) < RESERVE_NORMAL(20) 时 critical 被全灭'
+    finally:
+        mev.MAX_MEMORIES, mev.RESERVE_NORMAL, mev.MIN_CRIT_SLOTS = old_cap, old_res, old_min
+
+
+def test_reserve_normal_still_works_when_capacity_is_plenty(tmp_path):
+    """额度充裕时，普通事件仍要拿到 RESERVE_NORMAL 的底线。
+
+    ⚠ 这条防的是「为了保 critical 把普通底线丢了」——反向的连带伤害。
+    """
+    old_cap, old_res = mev.MAX_MEMORIES, mev.RESERVE_NORMAL
+    mev.MAX_MEMORIES, mev.RESERVE_NORMAL = 60, 10
+    try:
+        st = _fill_with_pinned(tmp_path, 60, 0, 100, 10)
+        normal = [m for m in st.all()
+                  if not mev._is_critical_event(m) and not m.get('pinned')]
+        assert len(normal) >= min(10, mev.RESERVE_NORMAL), (
+            '额度充裕时普通事件应保住底线，实际 %d 条' % len(normal))
+    finally:
+        mev.MAX_MEMORIES, mev.RESERVE_NORMAL = old_cap, old_res
+
+
+def test_min_crit_slots_is_sane():
+    """MIN_CRIT_SLOTS 必须为正且不超过上限，否则修复等于没开或吃满全库。"""
+    assert mev.MIN_CRIT_SLOTS > 0, 'MIN_CRIT_SLOTS=%r，critical 仍会被清空' % (mev.MIN_CRIT_SLOTS,)
+    assert mev.MIN_CRIT_SLOTS < mev.MAX_MEMORIES

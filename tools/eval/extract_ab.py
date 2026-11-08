@@ -233,6 +233,11 @@ PROJECT_PAT = re.compile(
 _PROJECT_VERB = re.compile(
     r'(关注|询问|了解|确认|讨论|研究|持有|手中有一份|手里有一份|在做|分析|拥有|拿着)')
 _ADVICE_PAT = re.compile(r'(适合|建议|优于|不如|更合理|值得)')
+#: 「我们正在分析的那份材料」——prompt 里逐字写出过这个禁例，
+#: 原判据漏判（「用户在分析某区域的行政区划数据」被判 useful）。
+#: 判据要点：动词是「分析/处理/在看/整理」这类**共同作业**，宾语是数据类名词。
+_WORKON_PAT = re.compile(r'(分析|处理|在看|整理|查看|清洗)')
+_DATAOBJ_PAT = re.compile(r'(数据|区划|矢量|表格|文件|代码|素材|excel|xlsx|csv)', re.I)
 _UNCERTAIN_PAT = re.compile(r'(可能|也许|大概|似乎|好像是|或是)')
 
 
@@ -241,6 +246,12 @@ def grade_fact(text):
     t = str(text or '')
     if PROJECT_PAT.search(t) and _PROJECT_VERB.search(t):
         return 'bad', 'project'
+    # 「我们在分析的那份材料」= 共同作业，不是用户属性。
+    # ⚠ 这条 2026-11-08 补：prompt 里逐字写过这个禁例，原判据却把
+    #   「用户在分析某区域的行政区划数据」判成 useful ⇒ 新臂若仍产出这句，
+    #   A/B 会把它算成「有效事实」，让「噪音清零」这个结论不可靠。
+    if _WORKON_PAT.search(t) and _DATAOBJ_PAT.search(t):
+        return 'bad', 'workon'
     if GREETING_PAT.search(t):
         return 'bad', 'greeting'
     if _ADVICE_PAT.search(t):
@@ -369,17 +380,51 @@ def main(argv=None):
                                             '↑ 更好' if n['useful_rate'] > o['useful_rate'] else
                                             ('持平' if n['useful_rate'] == o['useful_rate'] else '↓ 更差')))
     print()
-    # 判据（先定）：bad 占比下降 且 useful 条数不减超 20%
-    ok_bad = n['bad_rate'] < o['bad_rate']
+    # 判据（先定）：坏条目（bad + weak）占比下降 且 useful 条数不减超 20%
+    #
+    # ⚠ 2026-11-08 改：原先只看 bad 占比 ⇒ 把伪影「加两个字」降级成 weak 就能让
+    #   bad 率归零并且判定通过（weak 既不进分子也不算 useful）。
+    #   现在 weak 计入分子：「说不清的回忆」同样是噪声。
+    def _bad_ish(arm):
+        d = summary[arm]
+        tot = d['facts']
+        return ((d['bad'] + d['weak']) / tot) if tot else 0.0
+
+    o_badish, n_badish = _bad_ish('old'), _bad_ish('new')
+    ok_bad = n_badish < o_badish
     ok_use = n['useful'] >= o['useful'] * 0.8
     verdict = '通过' if (ok_bad and ok_use) else '不通过'
-    print('判据（跑之前就定好）：①bad 占比下降 ②useful 条数不低于旧臂的 80%%')
-    print('  ① %s    ② %s（%d vs 阈值 %.1f）'
-          % ('满足' if ok_bad else '不满足', '满足' if ok_use else '不满足',
-             n['useful'], o['useful'] * 0.8))
+    print('判据（跑之前就定好）：①(bad+weak) 占比下降 ②useful 条数不低于旧臂的 80%%')
+    print('  ① %s（旧 %.0f%% → 新 %.0f%%）'
+          % ('满足' if ok_bad else '不满足', o_badish * 100, n_badish * 100))
+    print('  ② %s（%d vs 阈值 %.1f）'
+          % ('满足' if ok_use else '不满足', n['useful'], o['useful'] * 0.8))
     print('  ⇒ 结论：%s' % verdict)
     print()
     print('⛔ 两个指标必须一起看：bad 下降若靠「少抽」换来，那是拿召回换精度，不是改进。')
+    # 6.1 共线自检：判据词表与本轮被改的 prompt 有多少重合
+    try:
+        _p = me.EXTRACT_PROMPT if hasattr(me, 'EXTRACT_PROMPT') else ''
+    except Exception:
+        _p = ''
+    if _p:
+        _pats = {'GREETING_PAT': GREETING_PAT, 'PROJECT_PAT': PROJECT_PAT,
+                 'PROJECT_VERB': _PROJECT_VERB, 'ADVICE_PAT': _ADVICE_PAT,
+                 'WORKON_PAT': _WORKON_PAT}
+        _rows = []
+        for _name, _pat in _pats.items():
+            _words = [w for w in (_pat.pattern.strip('()').split('|')) if w]
+            _inprompt = [w for w in _words if w and w in _p]
+            _rows.append((_name, len(_words), len(_inprompt)))
+        _tot = sum(r[1] for r in _rows)
+        _dup = sum(r[2] for r in _rows)
+        print('⚠ 共线自检：判据词表共 %d 个词，其中 %d 个直接出现在 prompt 里（%.0f%%）'
+              % (_tot, _dup, (_dup * 100.0 / _tot) if _tot else 0))
+        for _name, _n, _d in _rows:
+            if _d:
+                print('    %-14s %d/%d 与 prompt 重合' % (_name, _d, _n))
+        print('  ⇒ 重合度高意味着「bad 率下降」可能是同源造成的，不是独立证据。')
+        print('    独立证据请看上面的「信息点」口径，不要只看这一组比例。')
     print('⚠ 判据局限：三级判据是在 18 条已有结果上人工标定的（18/18 一致），')
     print('   但那批样本是「先看内容再写正则」⇒ 有过拟合风险。只能比较两臂相对差，不能当绝对准确率。')
     print('样本：%d 段 × 2 臂 × %d 遍 = %d 次抽取，**只能看方向，不是统计结论**'

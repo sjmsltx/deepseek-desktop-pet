@@ -33,6 +33,14 @@ MAX_MEMORIES = 200          # 滚动淘汰上限
 #: 被淘汰的 critical 以 reason='critical_overflow' 单独记台账，不和普通滚动混在一起。
 #: 设为 0 退回旧行为（不保留底线），便于对照。
 RESERVE_NORMAL = 20
+#: 极度紧张时给 critical 保留的最少槽位（2026-11-08 加）。
+#:
+#: 为什么需要：pinned 一多，budget = 上限 - pinned 就小；若 budget ≤ RESERVE_NORMAL，
+#: crit_cap = max(0, budget - RESERVE_NORMAL) = 0 ⇒ critical（服药/过敏）全被清空，
+#: 而普通事件保留 —— 优先级反了。critical 保护的原意就是「失效代价高，先保它」。
+#: 实测（上限 60、底线 20）：pinned=50 ⇒ budget=10 ⇒ 旧算法 crit_cap=0、critical 0 条；
+#:   新算法 reserve=min(20, max(0,10-5))=5、crit_cap=5 ⇒ critical 保住 5 条。
+MIN_CRIT_SLOTS = 5
 INJECT_COUNT = 3            # prompt 注入最近 N 条
 HALF_LIFE_DAYS = 30.0           # 权重衰减半衰期（天）—— 两种模型下语义相同
 #: 衰减模型（Owner 2026-11-02 拍板：改幂律）
@@ -529,7 +537,16 @@ class MemoryEvents:
                 #   处置：给普通留 RESERVE_NORMAL 的底线；critical 超过「预算 - 底线」
                 #   时按新增顺序保留最新的，被淘汰的单独记台账 critical_overflow。
                 budget = MAX_MEMORIES - len(pinned)
-                crit_cap = max(0, budget - RESERVE_NORMAL) if RESERVE_NORMAL > 0 else budget
+                # 先给 critical 留最少槽位，再用剩余额度给普通留底线。
+                # ⚠ 顺序不许反：写成 max(0, budget - RESERVE_NORMAL) 时，
+                #   pinned 一多 crit_cap 会先归零 ⇒ critical 全灭而普通保留，
+                #   与「失效代价高的先保」正好相反（2026-11-08 外部复核指出）。
+                if RESERVE_NORMAL > 0:
+                    reserve = min(RESERVE_NORMAL,
+                                  max(0, budget - MIN_CRIT_SLOTS))
+                    crit_cap = max(0, budget - reserve)
+                else:
+                    crit_cap = budget
                 if len(crit) > crit_cap:
                     crit_dropped = crit[:len(crit) - crit_cap]
                     crit = crit[-crit_cap:] if crit_cap else []

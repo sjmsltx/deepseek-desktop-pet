@@ -197,10 +197,22 @@ def calibration_warning(onnx_mb):
 #:   小库邻居少，第一名领先第二名多少比「在全库分布里的位置」更可信。
 #:   11-07 实测真召回 gap 0.022~0.117 ⇒ 取 0.02 不误杀真召回。
 #:
-#: 18 条库实测（tuning 选参 / holdout 验收，两者分开）：
-#:   现状 z≥2.5：       tuning 5/8  holdout 10/12  无关 1/16  负样本 6/42
-#:   余弦≥0.50 + gap0.02：tuning 7/8  holdout 11/12  无关 1/16  负样本 5/42
-#:   ⇒ 召回升、误注入不增。0.02 不是端点（0.015→无关 2/16；0.025→holdout 掉到 10/12）。
+#: 18 条库实测（tuning 选参 / holdout 验收，两者分开；2026-11-08 重测）：
+#:
+#:   配置                         tuning  holdout  无关(句/条)  负样本(句/条)  噪声条  低于下限
+#:   A 旧 z 路径（SMALL_LIB_GAP=None） 5/8    10/12    1/16 / 1     6/42 / 6       7       2
+#:   B gap0.02 + 旁路（曾上线）        7/8    11/12    2/16 / 4     6/42 / 15     19      12
+#:   C gap0.02（无旁路）              7/8    11/12    1/16 / 1     5/42 / 6       7       0
+#:   D gap0.02 + 旁路只放行 top1（现行）7/8    11/12    2/16 / 2     6/42 / 7       9       2
+#:
+#: ⇒ 现行配置 = D。相对 A：召回 +3（tuning +2、holdout +1），噪声条目 7→9。
+#:   相对 B（曾上线的那版）：召回完全相同，噪声条目 19→9。
+#:
+#: ⚠ 别拿「句数」当代价：无关问句只从 1 涨到 2，但注入的**条目**从 1 涨到 4（B 臂）。
+#:   「判据被绕过的那一支」会把噪声从「偶尔一条」变成「每条 2~3 条」，只看句数看不出来。
+#: ⚠ 0.02 不是端点：0.015→无关 2/16；0.025→holdout 掉到 10/12。
+#: ⚠ 别把 C（无旁路）当更优：C 指标最好，但 12 条合成库那条真召回用例会红 ——
+#:   那是一条真实存在的召回路径（余弦 0.404 低于下限但 gap 0.100），不是测试造出来的。
 #:
 #: ⚠ 只在 n < ADAPTIVE_REF_N 时启用：21 条以上没有实测支撑，继续用 z。
 #:   设为 None 可关闭（退回旧的纯 z 路径），便于对照。
@@ -451,14 +463,25 @@ class Embedder(object):
             # ⚠ 代价必须记住：② 同时会放行个别**误注入**。实测 18 条库上
             #   「改一下明天重庆的天气」→ 桃片（余弦 0.470、win 0.121）也被放行 ——
             #   它与上一条在余弦、gap 两个维度上都不可分（误判的 gap 反而更大），
-            #   这是判据的极限，不是调参能解决的。所以无关从 1/16 变成 2/16。
+            #   这是判据的极限，不是调参能解决的。
+            #   口径（与文件顶部那张表一致，别只看句数）：无关 问句 1→2、条目 1→2；
+            #   负样本 问句 6/42（不变）、条目 6→7；噪声条目合计 7→9。
             bypass = win >= ADAPTIVE_GAP_BYPASS
             if not ((s1 >= ADAPTIVE_ABS_FLOOR and win >= SMALL_LIB_GAP) or bypass):
                 return []
             out = []
-            for i in order:
+            for rank, i in enumerate(order):
                 si = float(sims[int(i)])
-                if si < ADAPTIVE_ABS_FLOOR and not bypass:
+                if si < ADAPTIVE_ABS_FLOOR:
+                    # 旁路**只放行第一名**（rank == 0），其余一律按下限停。
+                    # ⚠ 这里曾经写成 `and not bypass`：bypass 为真时 break 永不触发，
+                    #   循环会一路填满 k 条 —— 实测 k=3 时返回 [0.45, 0.30, 0.0000]，
+                    #   余弦 0.0000 的条目也被注入了。真实 18 条库上这让噪声条目
+                    #   从 7 涨到 19（其中 12 条低于下限），而召回只多 3 条。
+                    #   改成只放行 top1 后：召回不变，噪声条目 19→9。
+                    if bypass and rank == 0:
+                        out.append({'index': int(i), 'score': round(si, 4), 'z': 0.0,
+                                    'text': texts[int(i)] if int(i) < len(texts) else ''})
                     break
                 out.append({'index': int(i), 'score': round(si, 4), 'z': 0.0,
                             'text': texts[int(i)] if int(i) < len(texts) else ''})
