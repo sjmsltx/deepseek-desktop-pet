@@ -116,6 +116,17 @@ LIVE2D_MODEL = os.path.join(BASE_DIR, 'assets', 'live2d', 'mao', 'Mao.model3.jso
 ASSETS = os.path.join(BASE_DIR, 'assets')
 ASSETS_POOL = os.path.join(BASE_DIR, 'assets_3.0')   # ⭐ 素材池（Owner 2026-10-03 批「接入」✓ 未跟踪 ✓ 零拷贝）
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
+
+#: 记忆抽取/摘要用的采样温度。**固定 0，不受设置里的「采样温度」影响。**
+#:
+#: 为什么必须固定（2026-11-08 实测）：
+#:   原来这条请求没传 temperature，走 API 默认值（偏高）。同一段对话、同一提示词跑两遍，
+#:   3 段里只有 1 段抽出相同结果，另一段的条目数在 1 与 0 之间跳。
+#:   后果不是「有点随机」，而是**任何对抽取策略的改动都无法验证** —— 条数一跳，
+#:   「改好了还是变差了」全成噪声（我据此做过一次 A/B，结论不可用）。
+#: 语义上也该固定：记忆写入是「记录事实」，不是「创作」，同一段对话不该每次抽出不同的条目。
+#: 设置里的「采样温度」只作用于主对话，与本常量无关（那条走的是另一条调用路径）。
+EXTRACT_TEMPERATURE = 0.0
 # D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态**（跨重启/多实例有效 ✓；
 # ⛔ 不写 config.json ✗ —— 守 09-25「挂起不落盘」口径 ✓）
 GATE_CARD_STATE_PATH = os.path.join(BASE_DIR, 'logs', 'gate_card_state.json')
@@ -3097,7 +3108,11 @@ class PetWidget(QWidget):
                                'messages': messages, 'max_tokens': max_tokens,
                                # v6.62：官方结构化输出 —— 抽取提示词里已含“JSON”字样，
                                # 让模型直接吐合法 JSON，不再靠正则抠（抠失败就静默丢记忆）
-                               'response_format': {'type': 'json_object'}}).encode()
+                               'response_format': {'type': 'json_object'},
+                               # 2026-11-08：固定低温。不传会走 API 默认值 ⇒ 同一段对话
+                               #   每次抽出不同条目，抽取策略的任何改动都无法验证。
+                               #   理由与被测数据见 EXTRACT_TEMPERATURE 常量注释。
+                               'temperature': EXTRACT_TEMPERATURE}).encode()
             resp = chat_completions(self._current_api_key(), data)
             self._record_api_usage(resp)
             return resp['choices'][0]['message'].get('content') or ''

@@ -215,6 +215,53 @@ def test_extract_chat_uses_json_object(monkeypatch):
     assert seen['payload']['response_format'] == {'type': 'json_object'}
 
 
+def test_extract_chat_pins_temperature(monkeypatch):
+    """抽取请求必须带固定温度（EXTRACT_TEMPERATURE），不许走 API 默认值。
+
+    2026-11-08 实测的代价：不传 temperature 时，同一段对话、同一提示词跑两遍，
+    3 段里只有 1 段抽出相同结果，另一段条目数在 1 与 0 之间跳。
+    那不是「有点随机」，而是**任何抽取策略的改动都无法验证** ——
+    条数一跳，「改好了还是变差了」全成噪声（据此做过一次 A/B，结论直接作废）。
+    """
+    import desktop_pet as dp
+    p = _pet()
+    seen = {}
+
+    def fake_post(key, data, **kw):
+        seen['payload'] = json.loads(data.decode('utf-8'))
+        return {'choices': [{'message': {'content': '{}'}}], 'usage': {}}
+
+    monkeypatch.setattr(dp, 'chat_completions', fake_post)
+    p._extract_chat([{'role': 'user', 'content': 'x'}], 400)
+    assert 'temperature' in seen['payload'], '抽取请求没带 temperature —— 会走 API 默认值'
+    assert seen['payload']['temperature'] == dp.EXTRACT_TEMPERATURE
+    assert seen['payload']['temperature'] == 0.0, '记忆写入要确定，抽取温度应为 0'
+
+
+def test_extract_temperature_independent_of_chat_setting(monkeypatch):
+    """设置里的「采样温度」只作用于主对话，不许影响抽取。
+
+    产品里存在 self.temperature（设置界面可调），它走的是主对话那条请求路径。
+    抽取是「记录事实」不是「创作」，必须与它解耦 —— 否则用户把主对话调热，
+    记忆抽取会跟着变得不可复现。
+    """
+    import desktop_pet as dp
+    p = _pet()
+    seen = []
+
+    def fake_post(key, data, **kw):
+        seen.append(json.loads(data.decode('utf-8')))
+        return {'choices': [{'message': {'content': '{}'}}], 'usage': {}}
+
+    monkeypatch.setattr(dp, 'chat_completions', fake_post)
+    for temp in (0.0, 0.7, 1.5):
+        p.temperature = temp
+        p._extract_chat([{'role': 'user', 'content': 'x'}], 400)
+    temps = [pl.get('temperature') for pl in seen]
+    assert temps == [dp.EXTRACT_TEMPERATURE] * 3, (
+        '抽取温度跟着主对话设置变了：%r（应恒为 %r）' % (temps, dp.EXTRACT_TEMPERATURE))
+
+
 def test_parse_rerank_ids_variants():
     p = _pet()
     assert p._parse_rerank_ids('{"ids": [2, 4]}') == [2, 4]

@@ -38,6 +38,29 @@
    据此推断「库内 67% ⇒ 抽了 10 倍」。**那个 7% 是样本选择造成的。**
    换成本地两份真实对话记录（52 条）算，桌宠话题占 **33%** ⇒ 偏斜是 2 倍级别，不是 10 倍。
 
+## 实测结果二（2026-11-08 晚，固定温度后重跑）
+
+固定 temperature=0 后伪影**变得可复现**（两臂两遍都一致：old 1/1、new 0/0），
+但逐段看内容后发现一件更要紧的事 —— **新提示词是靠「少抽」换来「不抽错」**：
+
+```
+段1  old 3 条（含 1 条 project 伪影）  new 2 条（无伪影）   ← 真的挡住了
+段3  old 1 条（桌宠命名，有效）        new 0 条            ← 漏抽
+段4  old 1 条（桌宠命名，有效）        new 0 条            ← 漏抽
+段6  old 1 条（喜欢成语接龙，有效）    new 0 条            ← 漏抽
+─────────────────────────────────────────────────────────
+合计 old 8 条 = 有效 7 + 伪影 1
+     new 3 条 = 有效 3 + 伪影 0
+```
+
+⇒ **新臂精度 100%，但有效事实从 7 条掉到 3 条。**
+
+⚠ **只报伪影率会得出完全相反的结论**：「0% vs 14%」听起来是改进，
+   但代价是一半以上的有效记忆没记下来。这两件事必须一起报。
+
+⇒ 所以本脚本的统计段同时给「伪影数」与「有效事实数」，
+   **不许只贴伪影率**（这个坑我自己刚踩过）。
+
 ## 判据（**先定后看，不事后调**）
 
 主指标：**伪影率** = 伪影条数 / 总 facts 条数
@@ -300,23 +323,33 @@ def main(argv=None):
                     detail.append((r['window'], k, c))
         bad = g + pj
         summary[arm] = {'runs': len(sub), 'facts': total, 'greeting': g,
-                        'project': pj, 'bad': bad,
-                        'rate': (bad / total) if total else 0.0}
-        print('%s：%d 次抽取，facts 共 %d 条，伪影 %d（greeting %d + project %d）'
-              % (arm, len(sub), total, bad, g, pj))
+                        'project': pj, 'bad': bad, 'useful': total - bad,
+                        'rate': (bad / total) if total else 0.0,
+                        'useful_per_run': ((total - bad) / len(sub)) if sub else 0.0}
+        print('%s：%d 次抽取，facts 共 %d 条 ＝ 有效 %d + 伪影 %d（greeting %d + project %d）'
+              % (arm, len(sub), total, total - bad, bad, g, pj))
         for w, k, c in detail:
             print('    段%d [%s] %s' % (w, k, c[:70]))
         print()
 
     o, n = summary['old'], summary['new']
-    print('伪影率：旧 %.0f%% → 新 %.0f%%（差 %+.1f 个百分点）'
+    print('伪影率：  旧 %.0f%% → 新 %.0f%%（差 %+.1f 个百分点）'
           % (o['rate'] * 100, n['rate'] * 100, (n['rate'] - o['rate']) * 100))
+    print('有效事实：旧 %d 条（%.1f 条/次）→ 新 %d 条（%.1f 条/次）'
+          % (o['useful'], o['useful_per_run'], n['useful'], n['useful_per_run']))
+    print()
+    print('⛔ 两个指标必须一起看：伪影率下降若靠「少抽」换来，那是拿召回换精度，'
+          '不是改进。只看伪影率会得出相反结论。')
     print('样本：%d 段 × 2 = %d 次抽取，**只能看方向，不是统计结论**' % (len(wins), len(rows)))
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    io.open(args.out, 'w', encoding='utf-8').write(json.dumps(
-        {'old_rev': OLD_REV, 'windows': len(wins), 'window_size': WINDOW,
-         'summary': summary, 'rows': rows}, ensure_ascii=False, indent=2))
+    # ⛔ 必须用 with 块写入（关闭交给上下文管理器）。写成单表达式链会在长驻进程里
+    #    留下未关闭句柄，tests/test_product_open_hygiene.py 会判红
+    #    （2026-11-08 正是它抓到我这里；顺带一提，注释里也别照抄那种写法，同样会被匹配到）
+    with io.open(args.out, 'w', encoding='utf-8') as fh:
+        fh.write(json.dumps(
+            {'old_rev': OLD_REV, 'windows': len(wins), 'window_size': WINDOW,
+             'summary': summary, 'rows': rows}, ensure_ascii=False, indent=2))
     print()
     print('原始响应已存：%s' % args.out)
     return 0
