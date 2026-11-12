@@ -288,10 +288,23 @@ def test_rerank_memories_json_payload_and_pick(monkeypatch):
     assert seen['payload']['response_format'] == {'type': 'json_object'}
     assert 'JSON' in seen['payload']['messages'][0]['content']
     assert picked == ['b', 'a'], '顺序应按相关度保留'
-    # 解析失败 → 兜底取前三条
+    # 2026-11-12 改期望：解析失败 / 模型弃权 ⇒ **返回空列表，不再兜底取前三条**。
+    #
+    #   原断言是 `== ['a', 'b', 'c']`（兜底三条）。改它不是为了迁就实现，而是
+    #   产品行为的有意变更：
+    #     · 兜底会让上层「空列表 = 不注入」的语义永远失效（四层兜底最里面一层）
+    #     · 提示词写着「宁缺毋滥，不相关的不选」，而旧实现结构上不可能不选
+    #   外部复核两轮指出，实测弃权时改前注入 3 条、改后 0 条。
     monkeypatch.setattr(dp, 'chat_completions',
                         lambda k, d, **kw: {'choices': [{'message': {'content': '呃'}}], 'usage': {}})
-    assert p._rerank_memories('问题', cands) == ['a', 'b', 'c']
+    assert p._rerank_memories('问题', cands) == [], (
+        '解析失败应当弃权返回空，不再硬塞前三条')
+
+    # 模型明确说「都不相关」同理 —— 这是弃权的主要路径
+    monkeypatch.setattr(dp, 'chat_completions',
+                        lambda k, d, **kw: {'choices': [{'message': {'content': '{"ids": []}'}}],
+                                            'usage': {}})
+    assert p._rerank_memories('问题', cands) == [], '模型说都不相关时不该硬塞'
 
 
 # ---------------------------------------------------------------- ④ 档案层

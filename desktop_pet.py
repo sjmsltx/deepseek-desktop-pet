@@ -1409,6 +1409,13 @@ class PetWidget(QWidget):
         self._followup_alt = False
         # 2026-11-01（Owner 需求二：读屏截图 → 气泡反馈）
         # ⛔ 定时截图**默认关**：截图是敏感能力，必须由主人显式打开。
+        # 2026-11-12：记忆注入的 LLM 重排开关，**默认关**。
+        #   依据（两边各自实测）：19 条库上开与关在 78 条查询上逐项相同
+        #   （holdout 11/12、tuning 7/8、误注入 8/58，只有 avg 0.50 vs 0.49 的差），
+        #   而代价是每次查询多一次 LLM 调用、其中 49% 返回空、71% 的调用只有
+        #   1 条候选（1 条时挑与不挑必然相同）。
+        #   ⛔ 不删代码：库长大后才有实测收益（300 条以上），留开关便于回头看。
+        self.rerank_memory = False
         self.screenshot_timer = False
         self.screenshot_interval = 60          # 秒，下限 30
         self.screenshot_region = 'full'        # full | pet（只截桌宠附近）
@@ -1499,6 +1506,8 @@ class PetWidget(QWidget):
                 self.follow_up_mode = self._normalize_follow_up_mode(
                     cfg.get('follow_up_mode'))
                 # 2026-11-01：读屏截图（定时/快捷键 → 气泡反馈）
+                # 2026-11-12：重排开关（默认关，见 __init__ 处的依据说明）
+                self.rerank_memory = bool(cfg.get('rerank_memory', False))
                 self.screenshot_timer = bool(cfg.get('screenshot_timer', False))
                 try:
                     self.screenshot_interval = max(30, min(3600, int(
@@ -2251,6 +2260,23 @@ class PetWidget(QWidget):
         self._notify('已设为：' + label)
         self.say_plain('好，运行中追加消息改成「%s」' % label, immediate=True)
         return m
+
+    def _set_rerank_memory(self, enabled):
+        """设置「检索重排」开关（GUI 入口调用）。
+
+        2026-11-12 加。默认关的理由写在 __init__ 里：
+        19 条库 × 78 条查询上开与关逐项相同，而代价是每次检索多一次模型调用、
+        其中 49% 返回空、71% 的调用只有 1 条候选（1 条时挑与不挑必然相同）。
+
+        ⛔ 不要因为「反正没差别」就删掉这段代码 —— 库到 300 条以上才有实测收益。
+        """
+        self.rerank_memory = bool(enabled)
+        self._save_cfg_value('rerank_memory', self.rerank_memory)
+        if self.rerank_memory:
+            self._notify('检索重排已开启（每次检索多一次模型调用）')
+        else:
+            self._notify('检索重排已关闭')
+        return self.rerank_memory
 
     def _guide_queued_task(self, item):
         """把排队中的某条任务改成「引导」并入当前任务（队列右键菜单调用）"""
@@ -3067,7 +3093,31 @@ class PetWidget(QWidget):
         return [int(n) for n in _re.findall(r'\d+', text)]
 
     def _rerank_memories(self, query, candidates):
-        """LLM 重排：候选记忆 → 选最相关 top-3（8 选 3 把关，复用 deepseek_client）"""
+        """LLM 重排：候选记忆 → 选最相关 top-3（复用 deepseek_client）
+
+        ⚠ 2026-11-12 三处更正（外部复核指出，我实测确认）：
+
+        ① **不是「8 选 3」**。原 docstring 这么写，实测候选 1~3 条
+           （19 条库 × 78 查询：min=1 中位=1 max=3，其中 71% 只有 1 条）。
+           因为 BM25 粗筛的 top-8 已被 search_memory 的闸门砍过一轮。
+
+        ② **候选 ≤1 条时直接返回，不调 LLM**（见方法体开头）。
+
+        ③ **模型弃权时必须返回空列表**。原来写 `picked or candidates[:3]`，
+           等于「模型说都不相关也硬塞前三条」⇒ 弃权信号传不到上层，
+           上层「空列表 = 不注入」的语义因此永远不触发。
+
+        ⛔ 仍未修：`max_tokens=60` 被推理 token 吃满（实测 49% 返回空）。
+           改它要同时评估误注入，属另一件事。
+        """
+        # 2026-11-12：候选 ≤1 条时无可重排对象 —— 挑与不挑结果必然相同。
+        #   实测 35 次调用里 25 次（71%）是这种情况；78 条查询对比
+        #   「跳过」与「不跳过」，注入结果逐条相同（0 条差异）⇒ 零行为变更。
+        if not candidates:
+            return []
+        if len(candidates) <= 1:
+            return [candidates[0]['id']]
+
         try:
             lines = '\n'.join(f'{i + 1}. {c.get("text", "")}' for i, c in enumerate(candidates))
             prompt = (f'用户问：{query}\n候选记忆：\n{lines}\n'
@@ -3082,9 +3132,14 @@ class PetWidget(QWidget):
             self._record_api_usage(resp)
             nums = self._parse_rerank_ids(resp['choices'][0]['message'].get('content') or '')
             picked = [candidates[i - 1]['id'] for i in nums if 1 <= i <= len(candidates)]
-            return picked or [c['id'] for c in candidates[:3]]
-        except Exception:
-            return [c['id'] for c in candidates[:3]]
+            # 模型说「都不相关」⇒ 返回空列表（弃权）。
+            #   ⛔ 不许写 `picked or candidates[:3]`：那等于替模型做决定，
+            #   而且会让上层「空列表 = 不注入」的语义永远收不到信号。
+            return picked[:3]
+        except Exception as _exc:
+            # 异常同弃权：宁可这轮不注入，也不注入未被判断过的记忆。必须留痕。
+            _silent_log('_rerank_memories:rerank', _exc)
+            return []
 
     def _maybe_extract_memory(self):
         """低频触发自动抽取：距上次 ≥30 分钟且对话 ≥4 轮"""
@@ -4781,7 +4836,7 @@ class PetWidget(QWidget):
                 # BM25 粗筛 + 相关性闸门 + LLM 重排 top-3（memory_engine）
                 # v6.53：没过闸门 → 返回空表 → 本轮不注入检索记忆（治记忆过拟合）
                 rel = search_memory_for_injection(self.memory_facts, text, top_k=3,
-                                                  rerank=self._rerank_memories)
+         rerank=(self._rerank_memories if getattr(self, 'rerank_memory', False) else None))
                 # v3.7（2026-11-06）：「注入但未引用」埋点 —— 回复落地后回填
                 #   （见 _display_ai_reply）。埋点失败绝不许影响对话。
                 try:

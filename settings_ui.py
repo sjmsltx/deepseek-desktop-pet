@@ -890,6 +890,19 @@ class SettingsDialog(QDialog):
                 self.cb_followup.currentData()))
         f.addRow('运行中追加消息', self.cb_followup)
 
+        # 2026-11-12：LLM 检索重排开关，**默认关**。
+        #   开与关在 19 条库 / 78 条查询上逐项相同（11/12、7/8、8/58），
+        #   代价是每次检索多一次模型调用、其中 49% 返回空、71% 的调用只有 1 条候选。
+        #   ⛔ 默认关不代表它没用：库到 300 条以上才有实测收益，那时可以打开。
+        self.ck_rerank = QCheckBox('开启（每次检索多一次模型调用）')
+        self.ck_rerank.setToolTip(
+            '让模型在注入前先挑一遍「哪几条真能回答这个问题」。\n'
+            '当前库只有二十来条时开与关结果一样，白付一次调用，所以默认关。\n'
+            '记忆多到几百条以后再打开。')
+        self.ck_rerank.toggled.connect(
+            lambda on: not self._building and self.host._set_rerank_memory(on))
+        f.addRow('检索重排', self.ck_rerank)
+
         self._buttons(f, '提醒与待办', [('⏰ 提醒管理', self.host._open_reminder_manager),
                                         ('📋 待办管理', self.host._open_todo_manager)])
         self._buttons(f, '聊天记录', [('📤 导出聊天记录', self.host._export_chat),
@@ -1598,6 +1611,10 @@ class SettingsDialog(QDialog):
             self.cb_affmode.setCurrentIndex(_idx if _idx >= 0 else 0)
             # 运行中追加消息（2026-11-01）：回填当前档位
             _fm = getattr(h, 'follow_up_mode', 'queue')
+
+            # 2026-11-12：检索重排开关（默认关）
+
+            self.ck_rerank.setChecked(bool(getattr(h, 'rerank_memory', False)))
             _ifm = self.cb_followup.findData(_fm)
             self.cb_followup.setCurrentIndex(_ifm if _ifm >= 0 else 0)
             # 读屏截图（2026-11-01）

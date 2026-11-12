@@ -208,11 +208,18 @@ def search_memory(facts, query, top_k=3, rerank=None, min_matched=0, min_coverag
         picked_ids = rerank(query, cands)
         by_id = {c['id']: c for c in cands}
         picked = [by_id[i] for i in picked_ids if i in by_id][:top_k]
-        if picked:
-            return picked
-    except Exception:
-        pass
-    return cands[:top_k]
+        # 2026-11-12：**空列表 = 重排明确说「都不相关」⇒ 真的不注入**。
+        #   原来这里 `if picked: return picked` 之后落到 `return cands[:top_k]`，
+        #   把弃权当成「按 BM25 序取前 k」—— 实测同一份数据两种顺序：
+        #     rerank=None → 按 importance 重排；弃权 → 纯 BM25 序。
+        #   即「弃权」实际变成了「换一种排序」，比不启用更差。
+        return picked
+    except Exception as exc:
+        # 异常也按弃权处理：兜底会把「未被判断过的记忆」注入上下文，
+        # 而本函数的产品口径是宁缺毋滥。宁可这轮不注入，也不注入错的。
+        # 但必须留痕 —— 否则「重排到底有没有生效」永远查不出来。
+        _log.warning('重排调用异常，本轮不注入（按弃权处理）：%s', exc)
+        return []
 
 
 # ---------------- 向量检索（可选组件，缺失即回退）----------------
@@ -295,11 +302,13 @@ def search_memory_vector(facts, query, top_k=3, rerank=None, embedder=None):
             picked_ids = rerank(query, cands)
             by = {c['id']: c for c in cands}
             picked = [by[i] for i in picked_ids if i in by][:top_k]
-            if picked:
-                return picked
+            # 2026-11-12：同 search_memory —— 空列表是弃权，不许兜底。
+            #   这是外部复核指出的「第三层兜底」：我原来只找到两层，
+            #   而默认 union 模式下，向量路这一层也在路径上。
+            return picked
         except Exception as exc:
-            # 重排失败就用原序 —— 但不许静默（否则"重排到底有没有生效"永远查不出来）
-            _log.warning('向量重排失败，按原序返回：%s', exc)
+            _log.warning('向量重排异常，本路不注入（按弃权处理）：%s', exc)
+            return []
     return cands[:top_k]
 
 
@@ -364,6 +373,12 @@ EXTRACT_PROMPT = """你是记忆抽取器。从下面的对话中，提炼值得
      ⛔ 明确禁止这么写（都是错的，实跑里反复出现）：「用户手里有一份某地矢量数据」
        「用户持有一份项目代码」「用户在分析某区域的行政区划数据」
        —— 那是我们共同处理的素材，不是用户属性；
+   · **第一人称表述**：记忆条目一律用第三人称。
+     ⛔ 不许写「我的名字叫小蓝」「我喜欢吃桃片」这类第一人称句子 ——
+     「我」在记忆库里指谁有歧义：是用户在自述，还是桌宠在自述？
+     实测后果：库里一条「我的名字叫小蓝（桌宠自述）」会被当成「用户的名字」，
+     问「我名字？」时把它当答案返回（实体混淆）。
+     ✅ 正确写法：「桌宠的名字叫小蓝」/「用户爱吃桃片」—— 主语明确。
    · **一句寒暄或客套**：例如「注意身体健康哟」「早上好」。一句问候不构成稳定人格，
      不要据此写「用户说话语气友善」「用户关心他人」这类属性；
 4. events 收「某一次发生的事」：一起做了什么、聊到什么、完成/达成什么、遇到的状况。

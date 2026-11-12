@@ -297,3 +297,73 @@ def test_pure_recall_is_a_subset(result):
     # 且纯检索用例集必须是留出集子集
     assert pure_ids <= {x['id'] for x in result['holdout']}, '纯检索用例不在留出集里' 
 
+# ---------- 实体区分：问本人属性时，他人属性不许被当成答案（2026-11-12 补）----------
+
+@pytest.mark.xfail(strict=True, reason=(
+    '已知缺陷：问「我名字？」的 top1 是「Pro 模型姐姐的名字叫大蓝」——'
+    '把「她」的名字当成「我」的答案。用户本名库里不存在，正确答案是不返回。'
+    '修复要动检索层（识别人称，或给 fact 加实体标签），属另一件事。'
+    '⚠ strict=True：修好后会 XPASS 报错，强制回来删掉本标记。'))
+def test_entity_absent_needles_are_respected():
+    """问「我」的属性时，**top1 不许是他人**（实体混淆）。
+
+    为什么补这条：`entity` 段 2026-11-03 就建了，`_meta` 写着
+    「问本人属性时他人属性不许压过本人」，但此前**没有任何行为判据**
+    —— 只有 `len(entity) >= 4` 这种数量断言。规矩有声明、没执行。
+
+    判据只查 top1，不查 top2/top3：注入三条里出现相关记忆是正常的，
+    真正的「压过」是**第一位就是别人**。
+
+    实测（2026-11-12，表述改成第三人称之后）：
+        问「我名字？」  top1 = Pro 模型姐姐的名字叫大蓝
+        问「我的名字」  top1 = Pro 模型姐姐的名字叫大蓝
+    """
+    import json as _json
+    import memory_engine as _me
+    import os as _os
+
+    base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    cases = _json.load(io.open(_os.path.join(base, 'tools', 'eval', 'cases.json'),
+                               encoding='utf-8'))
+    facts_path = _os.path.join(base, 'memory.json')
+    facts = [f for f in _json.load(io.open(facts_path, encoding='utf-8'))['facts']
+             if f.get('status') == 'active']
+
+    offenders = []
+    checked = 0
+    for c in cases.get('entity', []):
+        absent = c.get('expect_absent') or []
+        if not absent:
+            continue
+        checked += 1
+        got = _me.search_memory_for_injection(facts, c['query'], top_k=3) or []
+        if not got:
+            continue          # 不注入＝没混淆，通过
+        top1 = str(got[0].get('text') or '')
+        hit = [w for w in absent if w in top1]
+        if hit:
+            offenders.append((c['id'], c['query'], hit, top1[:60]))
+
+    assert checked > 0, 'entity 段没有任何带 expect_absent 的用例 —— 判据空转'
+    assert not offenders, (
+        '问本人属性，top1 却是他人 %d 处：\n%s\n'
+        '这是「实体混淆」：问「我」返回「她」。'
+        % (len(offenders),
+           '\n'.join('  %s %r 命中 %r ← %r' % o for o in offenders)))
+
+
+def test_entity_section_has_behavioral_cases():
+    """结构锁：entity 段必须至少有一条带 expect_absent 的用例。
+
+    防的是「以后有人把 expect_absent 删了，判据静默空转」。
+    """
+    import json as _json
+    import os as _os
+
+    base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    cases = _json.load(io.open(_os.path.join(base, 'tools', 'eval', 'cases.json'),
+                               encoding='utf-8'))
+    with_absent = [c for c in cases.get('entity', []) if c.get('expect_absent')]
+    assert with_absent, (
+        'entity 段没有一条带 expect_absent 的用例 —— '
+        '「问本人属性时他人属性不许压过本人」这条口径等于没执行')
