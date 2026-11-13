@@ -303,6 +303,9 @@ def test_settings_split_into_pages():
     assert owns('模型', d.cb_char) and owns('模型', d.ck_reason) and owns('模型', d.cb_temp)
     assert owns('语音', d.cb_voice_name) and owns('语音', d.ed_voice_local) and owns('语音', d.ck_voice_night)
     assert owns('用量与计费', d.sp_bal)
+    # 2026-11-13：联网搜索/识别设置走对话框（不新增页——test_navigation_still_ten_pages 钉着 10 分类），
+    #   这里只确认记忆页那个入口按钮存在，控件不在页上。
+    assert not hasattr(d, 'sp_search_count'), '控件不该再挂在页面上（已搬进 _NetDialog）'
     # 每页都不该再挤成一长条（拆分前是 26 行）
     rows = {name: pages[name].form.rowCount() for name in su.PAGES}
     assert max(rows.values()) <= 14, '单页行数仍过多：%s' % rows

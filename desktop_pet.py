@@ -1416,6 +1416,19 @@ class PetWidget(QWidget):
         #   1 条候选（1 条时挑与不挑必然相同）。
         #   ⛔ 不删代码：库长大后才有实测收益（300 条以上），留开关便于回头看。
         self.rerank_memory = False
+        # 2026-11-13：截图识别后端。'local' = Windows 自带（免费、不出机器）；
+        #   'deepseek' = 官方识别（更准，但图片会上传、按页计费）。
+        # ⛔ 必须在 __init__ 有默认值 —— 只在 _set_ocr_backend 里赋值的话，
+        #   没动过设置的用户拿到的是 getattr 兜底值，属于「结构性默认值只写在分支里」那个坑。
+        self.ocr_backend = 'local'
+        # 2026-11-13：联网搜索的四个可调参数（设置 →「联网与识别」）。
+        # ⛔ 同一条纪律：结构性默认值写在 try 之外，没有 config.json 时也必须存在。
+        #   （我第一版把它们只写在读取分支里，真机一跑 AttributeError —— 项目踩过 5 次的坑）
+        self.search_count = 5
+        self.search_min_rerank = 1.5
+        self.search_need_content = False
+        self.search_gap_ms = 50
+        self.read_url_max_chars = 6000
         self.screenshot_timer = False
         self.screenshot_interval = 60          # 秒，下限 30
         self.screenshot_region = 'full'        # full | pet（只截桌宠附近）
@@ -1508,6 +1521,27 @@ class PetWidget(QWidget):
                 # 2026-11-01：读屏截图（定时/快捷键 → 气泡反馈）
                 # 2026-11-12：重排开关（默认关，见 __init__ 处的依据说明）
                 self.rerank_memory = bool(cfg.get('rerank_memory', False))
+                # 2026-11-13：联网搜索参数 + OCR 后端
+                self.ocr_backend = str(cfg.get('ocr_backend', 'local') or 'local').strip().lower()
+                if self.ocr_backend not in ('local', 'deepseek'):
+                    self.ocr_backend = 'local'
+                try:
+                    self.search_count = max(1, min(50, int(cfg.get('search_count', 5) or 5)))
+                except (TypeError, ValueError):
+                    self.search_count = 5
+                try:
+                    self.search_min_rerank = max(0.0, min(3.0, float(cfg.get('search_min_rerank', 1.5))))
+                except (TypeError, ValueError):
+                    self.search_min_rerank = 1.5
+                self.search_need_content = bool(cfg.get('search_need_content', False))
+                try:
+                    self.search_gap_ms = max(0, min(2000, int(cfg.get('search_gap_ms', 50) or 0)))
+                except (TypeError, ValueError):
+                    self.search_gap_ms = 50
+                try:
+                    self.read_url_max_chars = max(500, min(60000, int(cfg.get('read_url_max_chars', 6000) or 6000)))
+                except (TypeError, ValueError):
+                    self.read_url_max_chars = 6000
                 self.screenshot_timer = bool(cfg.get('screenshot_timer', False))
                 try:
                     self.screenshot_interval = max(30, min(3600, int(
@@ -2260,6 +2294,109 @@ class PetWidget(QWidget):
         self._notify('已设为：' + label)
         self.say_plain('好，运行中追加消息改成「%s」' % label, immediate=True)
         return m
+
+    # ---------- 2026-11-13：联网搜索与 OCR 后端（设置界面调用）----------
+    #: 可调的搜索参数与取值范围（越界一律夹紧，不抛错 —— 界面控件已限幅，
+    #: 但配置文件可能被手改，这里兜一层）
+    _SEARCH_OPT_RANGE = {
+        'search_count': (1, 50),
+        'search_min_rerank': (0.0, 3.0),
+        'search_gap_ms': (0, 2000),
+    }
+
+    def _set_search_opt(self, key, value):
+        """保存一个搜索参数（设置 →「记忆与数据」→「联网与识别」）。
+
+        为什么要有这层：这些值直接决定搜索行为与花销，
+        不能只放在源文件里让人手改（Owner 2026-08-02 的偏好）。
+        """
+        k = str(key or "")
+        if k not in ("search_count", "search_min_rerank", "search_gap_ms",
+                     "search_need_content", "read_url_max_chars"):
+            return None
+        if k == "search_need_content":
+            val = bool(value)
+        elif k == "read_url_max_chars":
+            try:
+                val = int(value)
+            except (TypeError, ValueError):
+                return None
+            val = max(500, min(60000, val))
+        elif k == "search_min_rerank":
+            try:
+                val = round(float(value), 1)
+            except (TypeError, ValueError):
+                return None
+            lo, hi = self._SEARCH_OPT_RANGE[k]
+            val = max(lo, min(hi, val))
+        else:
+            try:
+                val = int(value)
+            except (TypeError, ValueError):
+                return None
+            lo, hi = self._SEARCH_OPT_RANGE[k]
+            val = max(lo, min(hi, val))
+        try:
+            setattr(self, k, val)
+            self._save_cfg_value(k, val)
+        except Exception as exc:
+            _silent_log('_set_search_opt.save', exc)
+            return None
+        return val
+
+    def _ocr_pick(self, path):
+        """按当前 ocr_backend 设置识别一张图（统一入口，2026-11-13）
+
+        原来各处直接调 `self._ocr_pick(path)`，现在多一个后端维度。
+        集中到这里：调用点不用各自判断后端，也避免漏改某一处。
+        """
+        try:
+            import platform_layer as _pl
+        except Exception as exc:
+            _silent_log('_ocr_pick.import', exc)
+            return ''
+        backend = str(getattr(self, 'ocr_backend', None)
+                       or getattr(self, 'ocr_backend', 'local'))
+        key = ''
+        if backend == 'deepseek':
+            key = (self._api_key_for_field('deepseek_api_key') or '').strip()
+        # 走平台抽象层（v6.73 就把 OCR 收口在这里了，别绕过）
+        fn = getattr(_pl, 'ocr_image', None)
+        if fn is None:
+            _silent_log('_ocr_pick.missing', Exception('platform_layer 没有 ocr_image'))
+            return ''
+        try:
+            import inspect as _insp
+            _params = _insp.signature(fn).parameters
+            _rich = all(k in _params for k in ('backend', 'api_key', 'base_dir'))
+        except (TypeError, ValueError):
+            _rich = False
+        if _rich:
+            return fn(path, OCR_PS1, backend=backend, api_key=key,
+                      base_dir=BASE_DIR)
+        # 老签名（两参）：说明平台层没升级 —— 留痕，别静默退回
+        _silent_log('_ocr_pick.old_signature',
+                    Exception('platform_layer.ocr_image 仍是两参签名，本次只用本机识别'))
+        return fn(path, OCR_PS1)
+
+    def _set_ocr_backend(self, backend):
+        """OCR 后端：local（Windows 自带）/ deepseek（官方识别）
+
+        本机免费、不出机器；DeepSeek 更准但图片会上传、按页计费。
+        默认 local —— 换走云端要用户自己选，不能替用户决定。
+        """
+        val = str(backend or "").strip().lower()
+        if val not in ("local", "deepseek"):
+            val = "local"
+        self.ocr_backend = val
+        self.ocr_backend = val
+        try:
+            self._save_cfg_value('ocr_backend', val)
+        except Exception as exc:
+            _silent_log('_set_ocr_backend.save', exc)
+        self._notify('截图识别：%s' % ('DeepSeek（会上传图片）'
+                                      if val == 'deepseek' else '本机 Windows 识别'))
+        return val
 
     def _set_rerank_memory(self, enabled):
         """设置「检索重排」开关（GUI 入口调用）。
@@ -4021,67 +4158,82 @@ class PetWidget(QWidget):
         2026-10-19 从 Tavily 换成 DeepSeek 官方（Owner 批准，方案 A）：
           · 复用已有的 DeepSeek Key —— 用户不用再单独注册 Tavily
           · 与模型无关：搜索是本地发 HTTP，不是让模型调用内置工具
-            （对比：官方内置 web_search 只在 deepseek-v4-pro 生效，
-             走方案 B 就得强制用户换到贵 3.4~7.5 倍的模型）
-          · 官方 QPS 仅 5，函数内做节流；401/402/429 分别说清原因
+        2026-11-13 复核后更正两处：
+          · 原注释「内置 web_search 只在 deepseek-v4-pro 生效」**不再成立** ——
+            官方指南明确写用 deepseek-flash，内置工具在 Flash 上也生效。
+            但结论仍是「本地发 HTTP」：可控（能设条数/筛分数）、成本透明、
+            且服务端内置工具会接管 max_tokens 等参数。
+          · 原注释「官方 QPS 仅 5」与官方文档（Search 100 / Fetch 25）不符。
+            实测 40 并发全部 200（约 57 QPS）⇒ 200ms 强制间隔严了约 20 倍。
+            现按配置 search_gap_ms（默认 50ms）节流，仍留余量。
+
+        可调参数（设置 → 联网 里改）：search_count / search_need_content /
+        search_min_rerank / search_gap_ms。
         """
         import time as _time
-        import urllib.error as _ue
-        import urllib.request as _ur
 
         key = (self._api_key_for_field('deepseek_api_key') or '').strip()
         if not key:
             return ('（联网搜索需要 DeepSeek API Key：请在 设置 里填写。'
                     '搜索复用这把 Key，不需要另外注册其他搜索服务）')
 
-        # 官方限速 QPS 5 ⇒ 两次调用至少间隔 200ms，避免 429
+        # 节流：按配置的间隔（默认 50ms），不再写死 200ms
+        try:
+            gap = max(0, min(2000, int(getattr(self, 'search_gap_ms', 50)))) / 1000.0
+        except Exception as exc:
+            _silent_log('_web_search.gap', exc)
+            gap = 0.05
         now = _time.monotonic()
         last = getattr(self, '_last_search_ts', 0.0)
-        if 0 <= now - last < 0.2:
-            _time.sleep(0.2 - (now - last))
+        if gap > 0 and 0 <= now - last < gap:
+            _time.sleep(gap - (now - last))
         self._last_search_ts = _time.monotonic()
 
-        payload = json.dumps({'query': query, 'count': 5}).encode()
-        req = _ur.Request(
-            'https://api.deepseek.com/v1/tools/search',
-            data=payload,
-            headers={'Authorization': 'Bearer ' + key,
-                     'Content-Type': 'application/json'})
         try:
-            with _ur.urlopen(req, timeout=20) as resp:
-                raw = resp.read()
-        except _ue.HTTPError as e:
-            code = e.code
-            if code == 401:
-                return '（搜索失败：DeepSeek Key 无效或已过期，请到 设置 重新填写）'
-            if code == 402:
-                return '（搜索失败：DeepSeek 账户余额不足，充值后再试）'
-            if code == 429:
-                return '（搜索失败：搜索接口限流（每秒最多 5 次），稍等片刻再试）'
-            return '（搜索失败：HTTP %d）' % code
-        except (_ue.URLError, TimeoutError) as e:
-            _silent_log('_web_search.network', e)
-            return '（搜索失败：网络异常（%s），请检查网络后重试）' % type(e).__name__
+            import deepseek_tools as _dt
+        except Exception as _exc:
+            _silent_log('_web_search.import', _exc)
+            return '（搜索失败：缺少 deepseek_tools 模块）'
 
         try:
-            data = json.loads(raw.decode())
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            _silent_log('_web_search.parse', e)
-            return '（搜索失败：搜索服务返回格式异常）'
+            count = int(getattr(self, 'search_count', 5) or 5)
+        except Exception as exc:
+            _silent_log('_web_search.count', exc)
+            count = 5
+        need_content = bool(getattr(self, 'search_need_content', False))
+        try:
+            min_rr = float(getattr(self, 'search_min_rerank', 1.5))
+        except Exception as exc:
+            _silent_log('_web_search.min_rerank', exc)
+            min_rr = 1.5
 
-        results = data.get('results') or []
+        try:
+            results, err = _dt.search(query, count=count, need_content=need_content,
+                                     min_rerank=(min_rr if min_rr > 0 else None),
+                                     key=key, timeout=20)
+        except Exception as _exc:
+            _silent_log('_web_search.call', _exc)
+            return '（搜索失败：%s）' % str(_exc)[:120]
+        if err:
+            return '（搜索失败：%s）' % err
+        # results 已由 _dt.search 返回（含 min_rerank 过滤）
         if not results:
             return '（搜索无结果）'
 
         out = []
-        for r in results[:5]:
+        show_n = max(1, min(20, count))      # 只给模型看前 count 条（多的留在结果里）
+        for r in results[:show_n]:
             title = (r.get('title') or '').strip()
             url = (r.get('url') or '').strip()
             # summary（约 600-800 字）比 snippet（约 100 字）信息量大；截断控制 token
             body = (r.get('summary') or r.get('snippet') or '').strip()
             body = ' '.join(body.split())      # 压掉原网页里的换行，避免输出格式错乱
             meta = ' · '.join(x for x in ((r.get('site_name') or '').strip(),
-                                          (r.get('date') or '')[:10]) if x)
+                                          (r.get('date') or '')[:10],
+                                          ('权威 %s' % r.get('authority')
+                                           if r.get('authority') not in (None, -1) else ''),
+                                          ('%.2f' % float(r.get('rerank_score') or 0)
+                                           if r.get('rerank_score') is not None else '')) if x)
             head = '- %s' % title + ('（%s）' % meta if meta else '')
             out.append('%s\n  %s\n  %s' % (head, url, body[:300]))
         return '\n'.join(out)
@@ -4215,6 +4367,7 @@ class PetWidget(QWidget):
         'skill_run': '_tool_skill_run',
         'uninstall_plugin': '_tool_uninstall_plugin',
         'web_search': '_tool_web_search',
+        'read_url': '_tool_read_url',
         'write_clipboard': '_tool_write_clipboard',
         'write_config': '_tool_write_config',
         'write_file': '_tool_write_file',
@@ -4508,6 +4661,49 @@ class PetWidget(QWidget):
 
     def _tool_web_search(self, args):
         return self._web_search(args.get('query', ''))
+
+    def _tool_read_url(self, args):
+        """读一个网页 → Markdown 正文（2026-11-13，DeepSeek Fetch API）
+
+        为什么加：此前项目里**没有任何「读网页正文」的能力** —— 搜索只给
+        snippet/summary，模型拿不到页面内容。官方 Fetch 接口正好补这个空白。
+
+        费用：5 元/千次成功请求（失败/取不到正文不计费）。
+        返回上限：截断到 max_chars（默认 6000 字），避免一次吃爆上下文。
+        """
+        url = str(args.get('url') or '').strip()
+        if not url:
+            return '（读链接失败：没有给 url）'
+        key = (self._api_key_for_field('deepseek_api_key') or '').strip()
+        if not key:
+            return '（读链接需要 DeepSeek API Key：请在 设置 里填写）'
+        try:
+            import deepseek_tools as _dt
+        except Exception as _exc:
+            _silent_log('_tool_read_url.import', _exc)
+            return '（读链接失败：缺少 deepseek_tools 模块）'
+        try:
+            max_chars = int(args.get('max_chars') or getattr(self, 'read_url_max_chars', 6000))
+        except Exception as exc:
+            _silent_log('_tool_read_url.max_chars', exc)
+            max_chars = 6000
+        max_chars = max(500, min(60000, max_chars))
+        try:
+            title, content, err = _dt.fetch(url, key=key, timeout=45)
+        except Exception as _exc:
+            _silent_log('_tool_read_url.call', _exc)
+            return '（读链接失败：%s）' % str(_exc)[:120]
+        if err:
+            return '（读链接失败：%s）' % err
+        if not (content or '').strip():
+            return '（读链接失败：这一页没有可提取的正文）'
+        body = content.strip()
+        cut = len(body) > max_chars
+        returned = body[:max_chars] + ('\n\n…（正文共 %d 字，已截断到 %d 字）'
+                                   % (len(body), max_chars) if cut else '')
+        head = title.strip() if title else url
+        return '【%s】\n%s\n\n%s' % (head, url, returned)
+
 
     def _tool_search_code(self, args):
         return search_code(args.get('keyword', ''), base_dir=BASE_DIR)
@@ -4815,7 +5011,7 @@ class PetWidget(QWidget):
                     for _p in images:
                         try:
                             _fallback.append('【%s OCR】\n%s'
-                                             % (os.path.basename(str(_p)), pl.ocr_image(_p, OCR_PS1)))
+                                             % (os.path.basename(str(_p)), self._ocr_pick(_p)))
                         except Exception:
                             _fallback.append('【%s】（OCR 失败）' % os.path.basename(str(_p)))
                     if _fallback:
@@ -9334,7 +9530,7 @@ class PetWidget(QWidget):
                 Image.open(path).convert('RGB').save(dst, 'PNG')
                 self._notify('🔍 正在识别图片文字…' if not is_en else '🔍 Recognizing text…')
                 import threading
-                threading.Thread(target=lambda: self.ocr_signal.emit(pl.ocr_image(dst, OCR_PS1)), daemon=True).start()
+                threading.Thread(target=lambda: self.ocr_signal.emit(self._ocr_pick(dst)), daemon=True).start()
             except Exception as e:
                 self._notify(f'图片处理失败：{e}' if not is_en else f'Image error: {e}')
         elif ext in ('.txt', '.md', '.log', '.json', '.csv', '.py', '.ps1', '.bat', '.ini', '.cfg', '.yml', '.yaml'):
@@ -9526,7 +9722,7 @@ class PetWidget(QWidget):
                                             endpoint=self._request_endpoint())
                     text = (resp['choices'][0]['message'].get('content') or '').strip()
                 else:
-                    ocr = pl.ocr_image(path, OCR_PS1)
+                    ocr = self._ocr_pick(path)
                     ocr = (ocr or '').strip()
                     text = (('屏幕上是：' + ocr[:60]) if ocr else '这张截图里没识别到文字')
             except Exception as exc:
@@ -9745,7 +9941,7 @@ class PetWidget(QWidget):
                         else:
                             for a in images:
                                 try:
-                                    ocr_text = pl.ocr_image(a['path'], OCR_PS1)
+                                    ocr_text = self._ocr_pick(a['path'])
                                     parts.append(f'【图片 {a["name"]} OCR】\n{ocr_text}')
                                 except Exception:
                                     parts.append(f'【图片 {a["name"]}】（OCR 失败）')
@@ -10227,9 +10423,9 @@ class PetWidget(QWidget):
                      else '🔇 已关闭朗读回复')
 
     def _set_asr_backend(self, backend):
-        """设置语音识别后端（v6.77）：auto / winh / whisper / http"""
+        """设置语音识别后端（v6.77）：auto / winh / whisper / http / deepseek"""
         val = str(backend or '').strip().lower()
-        if val not in ('auto', 'winh', 'whisper', 'http'):
+        if val not in ('auto', 'winh', 'whisper', 'http', 'deepseek'):
             val = 'auto'
         self.asr_backend = val
         try:
@@ -10242,7 +10438,8 @@ class PetWidget(QWidget):
         except Exception:
             pass
         self._notify('语音识别后端：%s' % {'auto': '系统（WinRT→SAPI）', 'winh': '系统 Win+H 应急',
-                                          'whisper': '本地 whisper', 'http': '联网接口'}[val])
+                                          'whisper': '本地 whisper', 'http': '联网接口',
+                                          'deepseek': 'DeepSeek 官方（准，按小时计费）'}[val])
         return val
 
     def _set_asr_extra(self, **kw):

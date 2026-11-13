@@ -25,6 +25,9 @@
    后续批次把实现搬进来,宿主方法改成调用本层(迁移顺序见 `docs/平台抽象层-20260920.md`)。
 """
 import ctypes
+import logging
+
+_log = logging.getLogger('pet.platform')
 import os
 import sys
 import shutil
@@ -202,14 +205,31 @@ def busy_hint(process=None):
         return ''
 
 
-def ocr_image(path, ps1_path=None):
-    """本地 OCR 一张图;失败返回 ''(调用方应自行降级提示)"""
+def ocr_image(path, ps1_path=None, backend=None, api_key='', base_dir=''):
+    """识别一张图；失败返回 ''(调用方应自行降级提示)
+
+    2026-11-13：加 backend / api_key / base_dir。
+      backend=None 或 'local' → 本机 Windows 自带（原行为，不变）
+      backend='deepseek'       → 官方 OCR（1.5 元/千页，图片会上传）
+    ⛔ 本函数是项目里 OCR 的**唯一收口**（v6.73 批次3 定的），
+       调用方不要绕过它直接 import pet_docs。
+    """
     if not is_windows():
         return ''
     try:
         from pet_docs import ocr_image as _ocr
-        return _ocr(path, ps1_path) or ''
-    except Exception:
+        return _ocr(path, ps1_path, backend=backend, api_key=api_key,
+                    base_dir=base_dir) or ''
+    except TypeError:
+        # 兼容老签名（万一有别的分支还留着 pet_docs 的旧版本）
+        _log.warning('pet_docs.ocr_image 不接受 backend 参数，退回本机识别')
+        try:
+            return _ocr(path, ps1_path) or ''
+        except Exception as exc:
+            _log.warning('OCR 失败：%s', exc)
+            return ''
+    except Exception as exc:
+        _log.warning('OCR 失败：%s', exc)
         return ''
 
 

@@ -97,6 +97,10 @@ VOICE_CHOICES = (
     ('offline:Huihui', '离线 · 慧慧（女声，不联网）', 'offline'),
     ('offline:Yaoyao', '离线 · 瑶瑶（女声，不联网）', 'offline'),
     ('offline:Kangkang', '离线 · 康康（男声，不联网）', 'offline'),
+    # 2026-11-13：DeepSeek 官方 TTS。实测只有这两个音色，且**不支持调语速**，
+    #   所以放在离线声线之后 —— 定位是「edge 不通时的第三条路」，不是默认。
+    ('deepseek:stella', 'DeepSeek · 海星（女声，不支持调速）', 'deepseek'),
+    ('deepseek:tide', 'DeepSeek · 暗潮（男声，不支持调速）', 'deepseek'),
 )
 DEFAULT_VOICE = 'edge:zh-CN-XiaoxiaoNeural'
 
@@ -613,7 +617,7 @@ def parse_voice_spec(spec):
     if ':' in s:
         eng, _, name = s.partition(':')
         eng = eng.strip().lower()
-        if eng in ('edge', 'offline', 'winrt', 'sapi', 'local'):
+        if eng in ('edge', 'offline', 'winrt', 'sapi', 'local', 'deepseek'):
             return ('offline' if eng in ('winrt', 'sapi') else eng), name.strip()
     # 只写了声线名（兼容旧配置：Huihui 这类就是离线声线）
     if s in ('Huihui', 'Yaoyao', 'Kangkang'):
@@ -793,7 +797,7 @@ class VoiceIO:
         本地服务 → 在线 → 离线：逐级降级，保证“总有声音”，但优先用用户自己的声音。
         """
         want = self.engine
-        if want in ('edge', 'offline', 'local'):
+        if want in ('edge', 'offline', 'local', 'deepseek'):
             return [want, 'offline'] if want != 'offline' else ['offline']
         spec_engine, _ = parse_voice_spec(self.voice)
         if spec_engine == 'local':
@@ -878,6 +882,52 @@ class VoiceIO:
             return False, '在线合成失败：%s%s' % (str(e)[:100], edge_tts_version_hint())
         if not os.path.exists(out_path) or os.path.getsize(out_path) < 256:
             return False, '在线合成没有产出音频'
+        return True, ''
+
+    def _synth_deepseek(self, text, out_path):
+        """DeepSeek 官方 TTS（2026-11-13 加）。产出 WAV。返回 (是否成功, 错误)
+
+        定位：edge 不通时的第三条在线路。实测只有 2 个音色、**不支持语速**，
+        所以不设为默认（edge_tts 免费且音色多、能调速）。
+
+        ⚠ 实测：返回的 WAV 里 data 段长度写的是 0xFFFFFFFF（流式占位值）。
+          原样落盘即可播放（播放器按文件长度读），但**不要**用它算时长。
+        """
+        try:
+            import deepseek_tools as _dt
+        except Exception as e:
+            _log.debug('deepseek_tools 不可用：%s', e)
+            return False, '缺少 deepseek_tools 模块：%s' % e
+        _, vname = parse_voice_spec(self.voice)
+        voice = (vname or 'stella').strip().lower()
+        if voice not in _dt.TTS_VOICES:
+            voice = 'stella'
+            self.last_error = '设定的声线不在 DeepSeek 可选范围，已用 stella'
+        key = ''
+        try:
+            key = _dt.api_key(self.base_dir)
+        except Exception as e:
+            _log.debug('取 Key 失败：%s', e)
+        if not key:
+            return False, 'DeepSeek TTS 需要 API Key（设置 → 模型 里填）'
+        try:
+            audio, _ctype, err = _dt.tts(text, voice=voice, fmt='wav',
+                                        filter_markdown=True, key=key,
+                                        timeout=self.timeout)
+        except Exception as e:
+            _log.debug('DeepSeek 合成异常：%s', e)
+            return False, 'DeepSeek 合成异常：%s' % str(e)[:100]
+        if err:
+            return False, 'DeepSeek 合成失败：%s' % err
+        if not audio or len(audio) < 256:
+            return False, 'DeepSeek 合成没有产出音频'
+        try:
+            with open(out_path, 'wb') as f:
+                f.write(audio)
+        except Exception as e:
+            _log.debug('写音频失败：%s', e)
+            return False, '写音频失败：%s' % str(e)[:100]
+        self.actual_voice = voice
         return True, ''
 
     def _synth_local(self, text, base):
@@ -977,7 +1027,15 @@ class VoiceIO:
         """按引擎顺序合成一句，返回 (path, kind, engine)；全失败返回 (None, '', '')"""
         last_err = ''
         for idx, engine in enumerate(self.engine_plan()):
-            if engine == 'local':
+            if engine == 'deepseek':
+                wav = base + '.wav'
+                ok, err = self._synth_deepseek(text, wav)
+                if ok:
+                    self._mark_engine(idx, 'deepseek', last_err)
+                    return wav, 'wav', 'deepseek'
+                last_err = err
+                self.fell_back = True
+            elif engine == 'local':
                 path, kind, err = self._synth_local(text, base)
                 if path:
                     self._mark_engine(idx, 'local', last_err)
@@ -1035,6 +1093,10 @@ class VoiceIO:
         elif eng == 'local':
             label = '本地自建声线'
             if want_eng != 'local':
+                changed = True
+        elif eng == 'deepseek':
+            label = 'DeepSeek 声线（%s）' % (voice or '?')
+            if want_eng != 'deepseek':
                 changed = True
         else:
             label = '未知'

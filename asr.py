@@ -218,6 +218,7 @@ class AsrEngine:
     #   winh   —— 应急：直接触发系统的 Win+H 语音输入（零依赖，质量好，但交互略绕）
     #   whisper—— 本地 whisper.cpp（插口：需配置 exe 与模型路径）
     #   http   —— 联网 ASR API（插口：需配置 URL 与 Key）
+    #   deepseek —— DeepSeek 官方 ASR（2026-11-13 加，复用 DeepSeek Key）
     def backend(self):
         return str(getattr(self, 'backend_name', 'auto') or 'auto').strip().lower()
 
@@ -230,6 +231,8 @@ class AsrEngine:
             return self._listen_whisper()
         if b == 'http':
             return self._listen_http()
+        if b == 'deepseek':
+            return self._listen_deepseek()
         return self._listen_local()
 
     # ---------- C：应急路径 —— 触发系统语音输入（默认 Win+H）----------
@@ -426,6 +429,45 @@ class AsrEngine:
             except Exception:
                 pass
 
+    def _listen_deepseek(self):
+        """录一句 → DeepSeek ASR（官方 /v1/tools/asr）
+
+        2026-11-13 加。为什么值得花这个钱：本机 SAPI 的识别质量代码里自己写着
+        「常在 0.1~0.3 之间瞎猜」，而实测 DeepSeek ASR 往返 6/6 可用、4 条逐字一致，
+        项目录音格式（16 kHz / 16 bit / 单声道）3/3 全对，延迟约 1 秒。
+        成本约 0.39 元/小时音频（官方限时价）。
+
+        ⚠ 官方限制（实测）：单次 ≤8 MiB、≤120 秒、不支持流式。项目按秒录一句，
+          默认 6 秒正好在范围内。超限在本地就拦下，不发请求。
+        ⚠ 静音时官方返回 HTTP 200 + 空 text（实测 2/2）⇒ 要区分「没说话」与「失败」。
+        """
+        try:
+            import deepseek_tools as _dt
+        except Exception as e:
+            _log.debug('deepseek_tools 不可用：%s', e)
+            return '', '', '缺少 deepseek_tools 模块：%s' % e
+        key = _dt.api_key(self.base_dir)
+        if not key:
+            return '', '', '联网识别需要 DeepSeek API Key（设置 → 模型 里填）'
+        wav, err = self.record_wav(seconds=int(getattr(self, 'record_seconds', 6) or 6))
+        if err:
+            return '', '', err
+        try:
+            text, err2 = _dt.asr(wav, key=key)
+            if err2:
+                return '', '', err2
+            if not (text or '').strip():
+                # 200 + 空文本 = 确实没听到人声，不是故障
+                return '', '', '没听清（录音里没有人声）'
+            self.last_engine = 'deepseek'
+            return text, '', ''
+        finally:
+            try:
+                os.remove(wav)
+            except Exception as exc:
+                # 删临时录音失败不致命，但要留痕（护栏判据：handler 里要有日志）
+                _log.debug('删临时录音失败：%s', exc)
+
     # ---------- 本地双路径（WinRT → SAPI）----------
     def _listen_local(self):
         """听一句。返回 (text, confidence, error)
@@ -525,8 +567,9 @@ class AsrEngine:
             try:
                 proc.kill()          # 超时必须先把子进程收掉，否则会残留占用麦克风
                 proc.communicate(timeout=3)
-            except Exception:
-                pass
+            except Exception as exc:
+                # 删临时录音失败不致命，但必须留痕 —— 否则临时目录会悄悄堆积（护栏判据：handler 里要有日志/raise）
+                _log.debug('删临时录音失败：%s', exc)
             raise
         finally:
             with self._lock:

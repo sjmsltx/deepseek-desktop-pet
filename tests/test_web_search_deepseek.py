@@ -129,9 +129,22 @@ def test_throttle_sleeps_when_too_fast(monkeypatch):
 # ============ 结构钉：不许再走回 Tavily ============
 
 def test_source_no_longer_uses_tavily_endpoint():
-    src = io.open(desktop_pet.__file__, encoding='utf-8').read()
-    assert 'api.tavily.com' not in src, '搜索不应再请求 Tavily 端点'
-    assert 'api.deepseek.com/v1/tools/search' in src, '应当走 DeepSeek 官方 Search'
+    """确认不再打 Tavily、并且确实走官方 Search。
+
+    2026-11-13：五个接口的 URL 已集中到 `deepseek_tools.py`（单一来源），
+    `desktop_pet.py` 改为 import 它。所以这里两个文件都看 ——
+    测试意图（不打 Tavily、走官方 Search）不变，只是 URL 搬了家。
+    """
+    import deepseek_tools
+    srcs = [io.open(desktop_pet.__file__, encoding='utf-8').read(),
+            io.open(deepseek_tools.__file__, encoding='utf-8').read()]
+    for src in srcs:
+        assert 'api.tavily.com' not in src, '搜索不应再请求 Tavily 端点'
+    joined = '\n'.join(srcs)
+    # 地址在新模块里是拼出来的（BASE + '/v1/tools/search'），所以分段断言：
+    # 意图是「确实指向 DeepSeek 官方 Search」，不是要求某个字面量整串出现。
+    assert 'api.deepseek.com' in joined, '应当指向 DeepSeek 官方域名'
+    assert '/v1/tools/search' in joined, '应当走官方 Search 路径'
 
 
 def test_search_uses_profile_key_resolver():

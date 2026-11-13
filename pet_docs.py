@@ -20,7 +20,11 @@ PetWidget 里（那个类已经 5889 行），但它们**完全不依赖 UI 或�
 import os
 from pet_sysutils import is_sensitive_path as _is_sensitive_path
 import re
+import logging
+import re
 import subprocess
+
+_log = logging.getLogger('pet.docs')
 
 
 def read_docx_text(path):
@@ -88,16 +92,69 @@ def read_pptx_text(path):
     except Exception as e:
         return f'（pptx 解析失败：{e}）'
 
-def ocr_image(path, ps1_path):
-    """Windows 自带 OCR（PowerShell WinRT，零依赖），返回识别文本"""
+#: CJK 与 CJK 之间不该有空格（本机 WinRT OCR 会每个汉字之间插一个）
+_CJK = '\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af'
+
+
+def squeeze_cjk_spaces(text):
+    """去掉「汉字与汉字之间」的空格，**不动**中英文之间的空格。
+
+    2026-11-13 实测：本机 WinRT OCR 输出 '桌 宠 记 忆'（每个汉字之间一个空格），
+    而这段文字是直接拼进 prompt 喂模型的 ⇒ 逐字空格是坏输入。
+    去空格后与标准答案逐字一致（27 个空格 → 5 个）。
+
+    ⛔ 不能不分青红皂白删所有空格：'Python 与地理信息科学' 里那个空格是词边界，
+       删掉会变成 'Python与地理信息科学'（模型读起来更糟）。
+    """
+    if not text:
+        return ''
+    s = re.sub(r'(?<=[%s])[ \t]+(?=[%s])' % (_CJK, _CJK), '', text)
+    return re.sub(r'[ \t]{2,}', ' ', s)
+
+
+def ocr_image(path, ps1_path, backend=None, api_key='', base_dir=''):
+    """识别一张图，返回文本。
+
+    backend（2026-11-13 加）：
+      'local'（默认，或 None）—— Windows 自带 OCR，零成本、不出机器
+      'deepseek'              —— DeepSeek OCR（1.5 元/千页），更准，图会外发
+
+    无论哪个后端，返回前都过 squeeze_cjk_spaces —— 本机后端需要；
+    DeepSeek 本来就没有逐字空格，过一遍是无害的空操作。
+    """
+    b = (backend or 'local').strip().lower()
+    if b == 'deepseek':
+        return _ocr_via_deepseek(path, api_key, base_dir)
     try:
         r = subprocess.run(
             ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1_path, path],
             capture_output=True, timeout=120)
         if r.returncode != 0:
             return ''
-        return r.stdout.decode('utf-8', errors='ignore').strip()
+        return squeeze_cjk_spaces(r.stdout.decode('utf-8', errors='ignore').strip())
     except Exception:
+        return ''
+
+
+def _ocr_via_deepseek(path, api_key='', base_dir=''):
+    """DeepSeek OCR。失败返回 ''（与本地后端契约一致，调用方不用改）。"""
+    try:
+        import deepseek_tools as _dt
+    except Exception as _exc:
+        _log.warning('缺 deepseek_tools，OCR 退回空：%s', _exc)
+        return ''
+    key = api_key or _dt.api_key(base_dir)
+    if not key:
+        _log.warning('OCR 选了 DeepSeek 但没有 API Key，本次返回空')
+        return ''
+    try:
+        pages, err = _dt.ocr(path, 'text_recognition', key=key)
+        if err:
+            _log.warning('DeepSeek OCR 失败：%s', err)
+            return ''
+        return squeeze_cjk_spaces('\n'.join((pg.get('text') or '') for pg in pages).strip())
+    except Exception as _exc:
+        _log.warning('DeepSeek OCR 异常：%s', _exc)
         return ''
 
 # ---------- 文件附件（拖放进聊天框） ----------

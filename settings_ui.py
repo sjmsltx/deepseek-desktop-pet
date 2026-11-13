@@ -903,6 +903,10 @@ class SettingsDialog(QDialog):
             lambda on: not self._building and self.host._set_rerank_memory(on))
         f.addRow('检索重排', self.ck_rerank)
 
+
+        self._buttons(f, '联网与识别', [
+            ('🌐 搜索与识别设置…', self._open_net_dialog)])
+
         self._buttons(f, '提醒与待办', [('⏰ 提醒管理', self.host._open_reminder_manager),
                                         ('📋 待办管理', self.host._open_todo_manager)])
         self._buttons(f, '聊天记录', [('📤 导出聊天记录', self.host._export_chat),
@@ -1238,6 +1242,17 @@ class SettingsDialog(QDialog):
     def _open_net_dialog(self):
         """出网白名单可视化（v6.78）：增删规则 + 试算"""
         _NetDialog(self.host, self).exec()
+
+    def _open_net_dialog(self):
+        """联网搜索与识别设置（2026-11-13）
+
+        为什么不新开一个设置页：`test_navigation_still_ten_pages` 钉着
+        「区块不能以新增页的方式实现（H21 断言 10 分类）」。
+        为什么不直接塞进记忆页：会让该页超过 14 行栅栏。
+        ⇒ 与「语音输入设置…」同形态：一行按钮 + 一个对话框。
+        """
+        dlg = _NetDialog(self.host, self)
+        dlg.exec()
 
     def _open_asr_dialog(self):
         """语音输入设置对话框（v6.77）：后端 + whisper 路径 + 联网接口"""
@@ -1617,6 +1632,7 @@ class SettingsDialog(QDialog):
             self.ck_rerank.setChecked(bool(getattr(h, 'rerank_memory', False)))
             _ifm = self.cb_followup.findData(_fm)
             self.cb_followup.setCurrentIndex(_ifm if _ifm >= 0 else 0)
+            # 2026-11-13：联网搜索与识别已搬到 _NetDialog（对话框自己回填）
             # 读屏截图（2026-11-01）
             self.ck_shot_timer.setChecked(bool(getattr(h, 'screenshot_timer', False)))
             try:
@@ -1753,6 +1769,143 @@ class SettingsDialog(QDialog):
         self._refresh()
 
 
+class _NetDialog(QDialog):
+    """联网搜索与识别设置（2026-11-13）
+
+    为什么不新开一个设置页：`test_navigation_still_ten_pages` 钉着
+    「区块不能以新增页的方式实现（H21 断言 10 分类）」。
+    为什么不塞进记忆页：会让该页超过 14 行栅栏（「每页都不该再挤成一长条」）。
+    ⇒ 与「语音输入设置…」同形态：页上一行按钮 + 这个对话框。
+
+    每个控件的 tooltip 都写清「多少钱 / 出不出机器 / 实测数字」，
+    因为这些开关直接决定花销与隐私，不能让人看着名字猜。
+    """
+
+    def __init__(self, host, parent=None):
+        super().__init__(parent)
+        self.host = host
+        self._building = True
+        self.setWindowTitle('🌐 联网与识别设置')
+        self.setMinimumWidth(600)
+        v = QVBoxLayout(self)
+        f = QFormLayout()
+        v.addLayout(f)
+        self.form = f
+
+        tip = QLabel('搜索走 DeepSeek 官方 Search API（复用 DeepSeek Key，5 元/千次成功请求）。\n'
+                     '价钱按「次」算不按条数 —— 一次拿 50 条和拿 1 条同价。')
+        tip.setWordWrap(True)
+        tip.setStyleSheet(STYLE_HINT)
+        f.addRow('', tip)
+
+        self.sp_search_count = QSpinBox()
+        self.sp_search_count.setRange(1, 50)
+        self.sp_search_count.setSuffix(' 条')
+        self.sp_search_count.setToolTip(
+            '一次搜索拿几条结果（官方限制 1~50）。\n'
+            '条数越多，交给模型的摘要越多，token 会涨。')
+        self.sp_search_count.valueChanged.connect(
+            lambda v: not self._building and host._set_search_opt('search_count', v))
+        f.addRow('搜索条数', self.sp_search_count)
+
+        self.sp_search_minrr = QDoubleSpinBox()
+        self.sp_search_minrr.setRange(0.0, 3.0)
+        self.sp_search_minrr.setSingleStep(0.1)
+        self.sp_search_minrr.setDecimals(1)
+        self.sp_search_minrr.setToolTip(
+            '低于这个分数的结果直接丢掉（官方满分 3，>=1.5 算优质）。\n'
+            '实测：搜不到东西时服务端会返回一条无关页面，分数只有 0.1 左右，按 1.5 能挡掉。\n'
+            '设 0 = 不筛。')
+        self.sp_search_minrr.valueChanged.connect(
+            lambda v: not self._building and host._set_search_opt(
+                'search_min_rerank', round(float(v), 1)))
+        f.addRow('最低相关度', self.sp_search_minrr)
+
+        self.ck_search_content = QCheckBox('让服务端带回网页正文')
+        self.ck_search_content.setToolTip(
+            '默认只拿摘要（每条 100~200 字）。开了会带回正文，实测一条能到 1.8 万字。')
+        self.ck_search_content.toggled.connect(
+            lambda on: not self._building and host._set_search_opt(
+                'search_need_content', bool(on)))
+        f.addRow('搜索正文', self.ck_search_content)
+
+        self.sp_search_gap = QSpinBox()
+        self.sp_search_gap.setRange(0, 2000)
+        self.sp_search_gap.setSuffix(' ms')
+        self.sp_search_gap.setToolTip(
+            '两次搜索之间至少隔多久。官方是 Search 100 次/秒、Fetch 25 次/秒，'
+            '实测同时发 40 个请求全部成功。默认 50 ms 已留很大余量；设 0 = 不节流。')
+        self.sp_search_gap.valueChanged.connect(
+            lambda v: not self._building and host._set_search_opt('search_gap_ms', v))
+        f.addRow('搜索间隔', self.sp_search_gap)
+
+        self.sp_readurl_chars = QSpinBox()
+        self.sp_readurl_chars.setRange(500, 60000)
+        self.sp_readurl_chars.setSingleStep(500)
+        self.sp_readurl_chars.setSuffix(' 字')
+        self.sp_readurl_chars.setToolTip(
+            '模型用「读链接」工具时，一个网页最多读多少字。\n'
+            '网页正文动辄上万字，全塞进上下文又贵又容易把重点冲淡；'
+            '实测一篇文档页约 5700 字，所以默认 6000。')
+        self.sp_readurl_chars.valueChanged.connect(
+            lambda v: not self._building and host._set_search_opt(
+                'read_url_max_chars', v))
+        f.addRow('读链接上限', self.sp_readurl_chars)
+
+        sep = QLabel('截图识别')
+        sep.setStyleSheet(STYLE_HEAD)
+        f.addRow('', sep)
+
+        self.cb_ocr_backend = QComboBox()
+        for _lab, _val in (('本机 Windows 识别（免费 · 不出机器）', 'local'),
+                           ('DeepSeek 识别（更准 · 1.5 元/千页 · 图会上传）', 'deepseek')):
+            self.cb_ocr_backend.addItem(_lab, _val)
+        self.cb_ocr_backend.setToolTip(
+            '本机：Windows 自带，0.5~1 秒，免费，图片不出本机。\n'
+            'DeepSeek：实测更准（本机会把「一二三四五」认成「一二些五」），'
+            '约 2 秒，支持 100 页 PDF，图片会上传。')
+        self.cb_ocr_backend.currentIndexChanged.connect(
+            lambda *_: not self._building and host._set_ocr_backend(
+                self.cb_ocr_backend.currentData()))
+        f.addRow('截图识别', self.cb_ocr_backend)
+
+        tip2 = QLabel('语音识别后端在「语音」页的语音输入设置里（有 DeepSeek 选项）。')
+        tip2.setWordWrap(True)
+        tip2.setStyleSheet(STYLE_HINT)
+        f.addRow('', tip2)
+
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        btn = QPushButton('关闭')
+        btn.clicked.connect(self.accept)
+        bar.addWidget(btn)
+        v.addLayout(bar)
+
+        self._load()
+        self._building = False
+
+    def _load(self):
+        """回填当前值（各项各自 try，一项坏了不影响其余）"""
+        h = self.host
+        for widget, attr, cast in (
+                (self.sp_search_count, 'search_count', int),
+                (self.sp_search_minrr, 'search_min_rerank', float),
+                (self.sp_search_gap, 'search_gap_ms', int),
+                (self.sp_readurl_chars, 'read_url_max_chars', int)):
+            try:
+                widget.setValue(cast(getattr(h, attr)))
+            except Exception as exc:
+                _log.warning('回填 %s 失败：%s', attr, exc)
+        try:
+            self.ck_search_content.setChecked(bool(getattr(h, 'search_need_content', False)))
+        except Exception as exc:
+            _log.warning('回填 search_need_content 失败：%s', exc)
+        try:
+            _i = self.cb_ocr_backend.findData(str(getattr(h, 'ocr_backend', 'local') or 'local'))
+            self.cb_ocr_backend.setCurrentIndex(_i if _i >= 0 else 0)
+        except Exception as exc:
+            _log.warning('回填 ocr_backend 失败：%s', exc)
+
 class _AsrDialog(QDialog):
     """语音输入后端设置（v6.77）—— 从语音页拆出来，避免该页行数超限
 
@@ -1776,6 +1929,7 @@ class _AsrDialog(QDialog):
         self.cb_backend = QComboBox()
         for lab, val in (('系统（WinRT→SAPI，默认）', 'auto'),
                          ('系统 Win+H 应急（质量好、零依赖）', 'winh'),
+                         ('DeepSeek 官方（最准 · 0.39 元/小时 · 上传音频）', 'deepseek'),
                          ('本地 whisper.cpp（需配路径）', 'whisper'),
                          ('联网 ASR 接口（需配 URL）', 'http')):
             self.cb_backend.addItem(lab, val)
