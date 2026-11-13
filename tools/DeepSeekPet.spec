@@ -23,6 +23,39 @@ SKIP_MODULES = [
 ]
 excludes = ['PySide6.' + m for m in SKIP_MODULES]
 
+# 2026-11-13：排除**与桌宠无关**的重量级库。
+#
+# 起因：v3.0.3 打完 554.3 MB（解压 1256 MB），v3.0.2 是 223.7 / 383。
+#   多出来的全是 torch 361 + llvmlite 115 + cv2 111 + scipy 72 + transformers 36
+#   + sklearn 12 + pandas 13 + matplotlib 12（单位 MB，解压后）。
+#
+# 根因：11-06 接入向量检索（memory_embed）后 import onnxruntime / tokenizers，
+#   PyInstaller 顺着 hook 把 transformers → torch → torchvision 整条链收了进来。
+#   **源码里一处都没有 import torch / transformers / sklearn / pandas / llvmlite**，
+#   全仓扫描确认过。
+#
+# 关键：向量检索要模型文件（models/bge-small-zh-v1.5/model.onnx），
+#   而 .gitignore 排除了它 ⇒ 包里本来就没有模型 ⇒ 打包版一直走 BM25 降级。
+#   即这 730 MB 是「为一个在包里跑不起来的组件带的行李」。
+#
+# 保留 onnxruntime + tokenizers + numpy（约 67 MB）：
+#   用户自己放模型（PET_EMBED_DIR）时向量检索仍可用。
+#
+# ⚠ scipy：只有 collab/asset_ops.py 与 eval 脚本用；collab_panel 是点菜单才加载的
+#   辅助工具，不在桌宠主路径上。真需要时会 ImportError 并在提示里显形，不静默。
+HEAVY_EXCLUDES = [
+    # 深度学习 / NLP —— 一条都不 import
+    'torch', 'torchvision', 'torchaudio', 'transformers', 'datasets',
+    'accelerate', 'huggingface_hub', 'hf_xet', 'safetensors', 'sentencepiece',
+    # 科学计算 / 数据处理 —— 只 memory_embed 用 numpy
+    'scipy', 'sklearn', 'pandas', 'matplotlib', 'seaborn', 'plotly', 'bokeh',
+    'sympy', 'pyarrow', 'llvmlite', 'numba', 'numpy.f2py', 'numpy.distutils',
+    # 其它大件
+    'cv2', 'tensorflow', 'keras', 'jax', 'IPython', 'jupyter', 'notebook',
+    'pytest', 'sphinx', 'docutils', 'PIL.ImageQt', 'wx',
+]
+excludes += HEAVY_EXCLUDES
+
 # collect_all 之后按路径片段过滤掉用不到的重量级件
 SKIP_PATH_PARTS = (
     '/PySide6/qml/', 'PySide6/qml',
