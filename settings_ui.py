@@ -898,7 +898,10 @@ class SettingsDialog(QDialog):
         self.ck_rerank.setToolTip(
             '让模型在注入前先挑一遍「哪几条真能回答这个问题」。\n'
             '当前库只有二十来条时开与关结果一样，白付一次调用，所以默认关。\n'
-            '记忆多到几百条以后再打开。')
+            '\n'
+            '⚠ 现在打开会有个后果：重排请求的输出上限只有 60 token，实测 49% 会返回空；\n'
+            '而「返回空」现在的含义是这一轮不注入记忆 —— 也就是约一半轮次没有记忆。\n'
+            '等输出上限修好（或记忆库长到几百条）再打开。')
         self.ck_rerank.toggled.connect(
             lambda on: not self._building and self.host._set_rerank_memory(on))
         f.addRow('检索重排', self.ck_rerank)

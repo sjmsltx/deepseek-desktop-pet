@@ -16,7 +16,7 @@
 import pytest
 from pathlib import Path
 
-relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现（外部评审用例已就位，落地即生效）')
+relay = pytest.importorskip('relay_log', reason='relay_log.py 缺失（正常仓库里应有）')
 
 
 # ------------------------------------------------------------------ 夹具

@@ -90,7 +90,8 @@ def api_key(base_dir=''):
         p = os.path.join(base_dir or os.path.dirname(os.path.abspath(__file__)),
                          'config.json')
         if os.path.isfile(p):
-            d = json.loads(io.open(p, encoding='utf-8').read())
+            with io.open(p, encoding='utf-8') as f:
+                d = json.loads(f.read())
             k = str(d.get('deepseek_api_key') or '').strip()
             if k:
                 return k
@@ -318,7 +319,10 @@ def ocr(file_path, purpose='text_recognition', key='', timeout=T_OCR,
     if size == 0:
         return [], '文件是空的'
     try:
-        data = io.open(p, 'rb').read()
+        # ⛔ 不许写成「open 后直接 .read()」的一行式 —— 长驻进程里是真实句柄泄漏
+        #   （tests/test_product_open_hygiene.py 钉着这条）
+        with io.open(p, 'rb') as f:
+            data = f.read()
     except Exception as exc:
         _log.warning('读文件失败 %s：%s', p, exc)
         return [], '读文件失败：%s' % exc
@@ -434,7 +438,8 @@ def asr(file_path, key='', timeout=T_ASR):
     if info and info['seconds'] > ASR_MAX_SECONDS:
         return '', ('录音 %.0f 秒，超过 120 秒上限 —— 请缩短' % info['seconds'])
     try:
-        data = io.open(p, 'rb').read()
+        with io.open(p, 'rb') as f:      # 同上：不许一行式 open
+            data = f.read()
     except Exception as exc:
         _log.warning('读录音失败 %s：%s', p, exc)
         return '', '读录音失败：%s' % exc

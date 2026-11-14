@@ -20,8 +20,9 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
-relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现')
-srv = pytest.importorskip('collab.relay_server', reason='collab/relay_server.py 尚未实现')
+relay = pytest.importorskip('relay_log', reason='relay_log.py 缺失（正常仓库里应有）')
+srv = pytest.importorskip('collab.relay_server',
+                            reason='collab/relay_server.py 缺失（正常仓库里应有）')
 
 
 def _get(url):

@@ -16,7 +16,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
-relay = pytest.importorskip('relay_log', reason='relay_log.py 尚未实现')
+relay = pytest.importorskip('relay_log', reason='relay_log.py 缺失（正常仓库里应有）')
 
 
 def test_concluded_state_survives_reload(tmp_path):
