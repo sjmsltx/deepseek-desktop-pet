@@ -1,0 +1,92 @@
+{
+ "_meta": {
+  "生成时间": "2026-11-14 19:10",
+  "用途": "rrrank 请求参数的确定性 2×2 与质量/弃权拆分实测数据，供以后复核",
+  "模型": "deepseek-flash",
+  "库": "memory.json（生产库 45 条 / active 19）",
+  "为什么入库": "单测无法验证「连跑两次结果相同」（要真调模型、要花钱联网），所以把实测数据固化，并由测试断言本文件的关键结论字段存在",
+  "⚠ 小样本": "确定性 2×2 每格 5 用例 × 6 次；质量对照 10 条 answerable × 3 遍。结论方向可靠，绝对值不宜当基准"
+ },
+ "determinism_2x2": {
+  "A 开思考 temp=0": {
+   "n_calls": 30,
+   "avg_variants": 1.2,
+   "avg_stable_pct": 96.7,
+   "per_case_variants": {
+    "recall/r01": 1,
+    "recall/r06": 1,
+    "holdout/h01": 1,
+    "holdout/h03": 1,
+    "holdout/h07": 2
+   }
+  },
+  "B 开思考 不传temp": {
+   "n_calls": 30,
+   "avg_variants": 1.2,
+   "avg_stable_pct": 93.3,
+   "per_case_variants": {
+    "recall/r01": 1,
+    "recall/r06": 1,
+    "holdout/h01": 1,
+    "holdout/h03": 1,
+    "holdout/h07": 2
+   }
+  },
+  "C 关思考 temp=0": {
+   "n_calls": 30,
+   "avg_variants": 1.0,
+   "avg_stable_pct": 100.0,
+   "per_case_variants": {
+    "recall/r01": 1,
+    "recall/r06": 1,
+    "holdout/h01": 1,
+    "holdout/h03": 1,
+    "holdout/h07": 1
+   }
+  },
+  "D 关思考 不传temp": {
+   "n_calls": 30,
+   "avg_variants": 1.6,
+   "avg_stable_pct": 86.7,
+   "per_case_variants": {
+    "recall/r01": 1,
+    "recall/r06": 2,
+    "holdout/h01": 1,
+    "holdout/h03": 1,
+    "holdout/h07": 3
+   }
+  }
+ },
+ "quality_abstain": {
+  "n_answerable": 10,
+  "n_negative": 5,
+  "note_answerable": "只含「候选≥2 且 top-3 含答案」的用例；候选≤1 时 _rerank_memories 直接返回不调模型，不计入",
+  "note_negative": "负样本候选是手工固定的 3 条（本库太小，无关问句召回不到 ≥2 条），口径弱于 answerable",
+  "groups": {
+   "关思考/answerable": {
+    "n_calls": 30,
+    "abstain": 0,
+    "abstain_pct": 0.0,
+    "hit": 30
+   },
+   "关思考/negative": {
+    "n_calls": 15,
+    "abstain": 15,
+    "abstain_pct": 100.0,
+    "hit": 0
+   },
+   "开思考/answerable": {
+    "n_calls": 30,
+    "abstain": 2,
+    "abstain_pct": 6.7,
+    "hit": 28
+   },
+   "开思考/negative": {
+    "n_calls": 15,
+    "abstain": 15,
+    "abstain_pct": 100.0,
+    "hit": 0
+   }
+  }
+ }
+}

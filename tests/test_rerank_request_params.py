@@ -151,6 +151,72 @@ def test_thinking_fields_shape_matches_product_helper(dp):
         '两处必须一致，否则 rerank 的「关思考」会悄悄失效' % (off, dp.RERANK_THINKING_FIELDS))
 
 
+def test_comment_states_temperature_depends_on_thinking_off():
+    """注释必须写明「温度只在关思考后生效」。
+
+    为什么不只靠 test_temperature_is_explicitly_zero：那条只校验
+    「字段发了、值=0.0」。如果有人把 thinking 改回 enabled，它**照样绿**，
+    而温度已静默失效（官方文档：思考模式下 temperature 不生效）、
+    结果重新不确定。
+
+    单测也验不了「结果稳不稳」——那要真调模型、花钱联网。
+    所以判据定为：**前提必须写在人会读到的地方**。
+    谁想打开 thinking，读到这段注释就知道「温度不能兜底」。
+    """
+    with io.open(os.path.join(ROOT, 'desktop_pet.py'), encoding='utf-8') as f:
+        src = f.read()
+    # 精确取「常量块标题 → 定义」这一段，不用固定字符窗口
+    #   （上一版用 i-2600 硬窗口，取不准，且断言找不到实际用词）
+    head = src.find('#: 检索重排')
+    tail = src.find('RERANK_TEMPERATURE = 0.0')
+    assert 0 < head < tail, '常量注释块定位失败 head=%d tail=%d' % (head, tail)
+    block = src[head:tail]
+
+    assert '关思考之后才生效' in block, '常量注释没写明温度依赖关思考'
+    assert ('不会生效' in block) or ('静默失效' in block), \
+        '常量注释没写明「思考模式下 temperature 不生效」'
+    assert 'rerank-determinism-20261114.json' in block, '常量注释没指向实测数据集'
+
+    j = src.find('def _rerank_memories')
+    assert j > 0
+    doc = src[j:j + 6000].split('"""')[1]
+    assert ('静默失效' in doc) or ('不生效' in doc), 'docstring 没写明温度在开思考时失效'
+
+
+def test_determinism_dataset_is_consistent():
+    """实测数据集必须存在，且结论方向与注释一致。
+
+    这条锁保护的是**证据本身**：文件在仓库里、字段完整、方向对。
+    若有人重跑数据后结论反了，这条会红，逼他同时改注释 ——
+    防「注释说 A、数据说 B」。
+    """
+    import json
+    p = os.path.join(ROOT, 'tools', 'eval', 'experiment', 'results',
+                     'rerank-determinism-20261114.json')
+    assert os.path.isfile(p), '实测数据集不见了：%s' % p
+    with io.open(p, encoding='utf-8') as f:
+        d = json.load(f)
+    det = d['determinism_2x2']
+    c = det['C 关思考 temp=0']
+    dg = det['D 关思考 不传temp']
+    a = det['A 开思考 temp=0']
+    b = det['B 开思考 不传temp']
+
+    assert c['avg_variants'] <= dg['avg_variants'], (
+        '数据说「关思考+temp0」(%s) 不比「关思考不传temp」(%s) 更稳，'
+        '与注释结论相反，必须同时改注释' % (c['avg_variants'], dg['avg_variants']))
+    assert c['avg_stable_pct'] >= 99.0, 'C 组不是完全稳定：%r' % c['avg_stable_pct']
+
+    assert abs(a['avg_variants'] - b['avg_variants']) <= 0.35, (
+        '开思考下传/不传温度差异过大（%s vs %s），与「温度被忽略」不符'
+        % (a['avg_variants'], b['avg_variants']))
+
+    q = d['quality_abstain']['groups']
+    assert '关思考/answerable' in q and '关思考/negative' in q, '缺类型拆分数据'
+    assert q['关思考/negative']['abstain_pct'] > q['关思考/answerable']['abstain_pct'], (
+        '负样本弃权率没高于 answerable —— 「空 = 设计生效」的结论就不成立')
+
+
 def test_docs_no_longer_claim_the_old_bug():
     """docstring 与 tooltip 不许再把「60 token / 49%」当现状描述。
 
