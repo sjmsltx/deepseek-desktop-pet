@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """A 组的回归锁（2026-11-14）
 
+⚠ 2026-11-14 晚更新：rerank 两条锁已随实测结论改写（原文见文件内说明）。
+  锁钉的应该是当前事实，不是我当时下的结论。
+
 光改一遍文字没用 —— 这些文字的特殊之处是「改错了不会报错，只会误导人」。
 所以每条都加一个断言，把它们钉住。
 
@@ -23,30 +26,33 @@ def _read(rel):
     return io.open(os.path.join(ROOT, rel), encoding='utf-8').read()
 
 
-def test_rerank_docstring_states_the_coupling():
-    """`max_tokens=60` 不是「另一件事」—— 它是启用 rerank 的前置条件。
+def test_rerank_docstring_records_the_real_root_cause():
+    """docstring 必须写清「根因是没关思考」，不许把 60 当现状。
 
-    为什么钉它：弃权语义修好后，60 token 导致的 49% 空返回会从「硬塞三条」
-    变成「一条不注入」。这句话如果退回旧表述，将来有人打开开关就会踩。
+    ⚠ 本条 2026-11-14 改写过一次。上一版钉的是「60 是启用前置条件」，
+    那个定性被实测推翻：真因是请求没关思考，推理 token 与正文共享
+    max_tokens，60 被推理一个人吃光（实测 27/29 截断）。
+    锁跟着事实走，不跟着我的旧结论走。
     """
     src = _read('desktop_pet.py')
     i = src.find('def _rerank_memories')
     assert i > 0
-    doc = src[i:i + 3000]
-    assert '前置条件' in doc, 'docstring 没写明 max_tokens 是启用前置条件'
-    assert '49%' in doc, 'docstring 没写 49% 这个实测数'
-    assert '改它要同时评估误注入，属另一件事' not in doc, (
-        'docstring 退回了「属另一件事」的旧判断 —— 那个判断在弃权修好后已失效')
+    doc = src[i:i + 4000].split('"""')[1]
+    assert '关思考' in doc, 'docstring 没写真正的根因（关思考）'
+    assert 'RERANK_THINKING_FIELDS' in doc, 'docstring 没指向实际生效的常量'
+    assert '未修' not in doc, 'docstring 还写着「未修」（已修）'
+    assert '属另一件事' not in doc, 'docstring 退回了「属另一件事」的旧判断'
 
 
-def test_rerank_tooltip_warns_about_half_silent():
-    """设置界面的开关 tooltip 必须说清「约一半轮次不注入」。"""
+def test_rerank_tooltip_says_abstain_is_normal():
+    """tooltip 必须说清「空 = 模型主动弃权，属正常」，不许再拿 60/49% 吓人。"""
     src = _read('settings_ui.py')
     i = src.find('ck_rerank.setToolTip')
     assert i > 0
     tip = src[i:i + 700]
-    assert '49%' in tip, 'tooltip 没写 49%'
-    assert '不注入' in tip, 'tooltip 没说清「不注入」这个后果'
+    assert '弃权' in tip, 'tooltip 没说清「空」是弃权'
+    assert '60 token' not in tip, 'tooltip 还把 60 token 当现状'
+    assert '49%' not in tip, 'tooltip 还把 49% 当现状'
 
 
 def test_importorskip_reasons_are_not_stale():

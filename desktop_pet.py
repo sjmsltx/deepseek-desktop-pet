@@ -127,6 +127,27 @@ CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 #: 语义上也该固定：记忆写入是「记录事实」，不是「创作」，同一段对话不该每次抽出不同的条目。
 #: 设置里的「采样温度」只作用于主对话，与本常量无关（那条走的是另一条调用路径）。
 EXTRACT_TEMPERATURE = 0.0
+
+#: 检索重排（rerank）请求的固定参数。**不受设置里的「思考模式 / 思考强度 / 采样温度」影响。**
+#:
+#: 为什么要写死（2026-11-14 三轮实测，29 用例 × 5 档 max_tokens）：
+#:   ① 必须关思考。这个请求原先没走 `_thinking_fields()`，走的是 API 默认
+#:      （思考开启 + effort=high），而推理 token 与正文**共享** max_tokens：
+#:          默认思考 + mt=60  ⇒ 27/29 截断，正文 0 字，拿到 1 条
+#:          默认思考 + mt=800 ⇒ 仍有 1/29 截断（false/f03 该例推理要 >800）
+#:          关思考   + mt=60  ⇒ 0 截断，正文 10~15 字
+#:      ⇒ **抬上限治不好**（某些输入的推理长度没有上界），关思考才是有界的解。
+#:      这一档任务只是「从 2~3 条候选里挑编号」，不需要推理链。
+#:   ② 上限给 200 而不是 60：关思考后正文实测 10~15 字，200 是余量。
+#:      max_tokens 不按上限计费，只按实际输出计费 ⇒ 留余量不额外花钱。
+#:   ③ 温度必须固定 0，理由同 EXTRACT_TEMPERATURE：原来没传 ⇒ 走 API 默认偏高 ⇒
+#:      同一候选集两次跑出 13 与 16 条不同结果 ⇒ 任何改动都无法验证。
+#:
+#: ⚠ 修完后仍有约 55% 返回空，但那是**真弃权**（模型输出 `{"ids": []}`），
+#:   不是截断。设计如此，不是故障（上层语义：空 = 这一轮不注入）。
+RERANK_THINKING_FIELDS = {'thinking': {'type': 'disabled'}}
+RERANK_MAX_TOKENS = 200
+RERANK_TEMPERATURE = 0.0
 # D1（2026-09-26）：闸门卡片“当日同因只一张”的**落盘态**（跨重启/多实例有效 ✓；
 # ⛔ 不写 config.json ✗ —— 守 09-25「挂起不落盘」口径 ✓）
 GATE_CARD_STATE_PATH = os.path.join(BASE_DIR, 'logs', 'gate_card_state.json')
@@ -3244,18 +3265,31 @@ class PetWidget(QWidget):
            等于「模型说都不相关也硬塞前三条」⇒ 弃权信号传不到上层，
            上层「空列表 = 不注入」的语义因此永远不触发。
 
-        ⛔ **未修，且它现在是启用本功能的前置条件**（2026-11-14 更正）：
-           `max_tokens=60` 会被推理 token 吃满，实测 49% 的调用返回空。
+        ④ **请求参数已修**（2026-11-14，三轮实测 29 用例 × 5 档 max_tokens）。
 
-           原 docstring 写「属另一件事」——**那个判断在弃权语义修好后失效了**：
+           原先的定性是「`max_tokens=60` 太小，要抬到 800」。**实测证明方向错了**：
 
-               修弃权前：模型返回空(49%) → `picked or candidates[:3]` 硬塞 3 条
-               修弃权后：模型返回空(49%) → `return picked`（空）→ 一条不注入
+               默认思考 · mt=60   ⇒ 27/29 截断，正文 0 字，只拿到 1 条
+               默认思考 · mt=800  ⇒ 仍有 1/29 截断（false/f03 推理就要 >800）
+               关思考   · mt=60   ⇒ 0 截断，正文 10~15 字
 
-           ⇒ 谁在 60 未修前打开 `rerank_memory`，会得到「记忆近一半轮次不工作」
-             的产品，而日志里只有一条 warning，极难归因。
+           根因不是上限，是**这个请求没关思考**：思考相关字段全项目由
+           `_thinking_fields()` 统一装配，本方法没调它 ⇒ 走 API 默认
+           （思考开启 + effort=high）⇒ 推理与正文共享 max_tokens，推理一个人
+           就要 100~400 个，60 直接被它吃光。
+           抬上限治不好 —— 某些输入的推理长度没有上界。故改为关思考
+           （见 `RERANK_THINKING_FIELDS`：这一档任务只是挑编号，不需要推理链）。
 
-           ⇒ 纪律：**先把 max_tokens 修到够用（外部实测建议 800），再谈启用**。
+           顺带修温度：原来没传 `temperature` ⇒ 走 API 默认偏高 ⇒ 同一候选集
+           两次跑出 13 与 16 条不同结果 ⇒ 任何改动都无法验证。
+           与 `EXTRACT_TEMPERATURE` 同一理由，故固定 `RERANK_TEMPERATURE`。
+
+           ⚠ 修完仍有约 55% 返回空，但那是**真弃权**（正文是 `{"ids": []}`），
+             不是截断 —— 模型判断这几条都不相关。设计如此，不是故障。
+
+           ⚠ 质量对照样本不足：候选里确实含正确答案的用例只有 2 条，
+             关思考与开思考都是 6/6 全对、零分歧。只能说「未发现退化」，
+             **不能**说「关思考不掉质量」。
         """
         # 2026-11-12：候选 ≤1 条时无可重排对象 —— 挑与不挑结果必然相同。
         #   实测 35 次调用里 25 次（71%）是这种情况；78 条查询对比
@@ -3272,9 +3306,13 @@ class PetWidget(QWidget):
                       f'只输出 JSON（不要其它文字）：{{"ids": [编号, ...]}}，按相关度从高到低。')
             data = json.dumps({'model': self._current_model(),
                                'messages': [{'role': 'user', 'content': prompt}],
-                               'max_tokens': 60,
+                               'max_tokens': RERANK_MAX_TOKENS,
+                               'temperature': RERANK_TEMPERATURE,
                                # v6.62：官方结构化输出（提示词里已含“JSON”字样）
-                               'response_format': {'type': 'json_object'}}).encode()
+                               'response_format': {'type': 'json_object'},
+                               # 2026-11-14：必须关思考，否则推理 token 吃满上限、
+                               #   正文 0 字（实测 27/29 截断）。理由见常量注释。
+                               **RERANK_THINKING_FIELDS}).encode()
             resp = chat_completions(self._current_api_key(), data)
             self._record_api_usage(resp)
             nums = self._parse_rerank_ids(resp['choices'][0]['message'].get('content') or '')
